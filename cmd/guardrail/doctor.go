@@ -1,8 +1,11 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -84,10 +87,43 @@ func claudeSettingsState() string {
 	p := filepath.Join(home, ".claude", "settings.json")
 	raw, err := os.ReadFile(p)
 	if err != nil {
-		return "no settings.json"
+		if errors.Is(err, fs.ErrNotExist) {
+			return "no settings.json"
+		}
+		return fmt.Sprintf("unreadable: %v", err)
+	}
+	var doc map[string]any
+	if json.Unmarshal(raw, &doc) == nil {
+		if hooksHaveOwnedGroup(doc) {
+			return "guardrail hook registered"
+		}
+		return "present, hook NOT registered"
 	}
 	if strings.Contains(string(raw), "guardrail hook claude") {
-		return "guardrail hook registered"
+		return "guardrail hook registered (unparsed match)"
 	}
 	return "present, hook NOT registered"
+}
+
+func hooksHaveOwnedGroup(doc map[string]any) bool {
+	hooks, ok := doc["hooks"].(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, ev := range hooks {
+		groups, ok := ev.([]any)
+		if !ok {
+			continue
+		}
+		for _, g := range groups {
+			m, ok := g.(map[string]any)
+			if !ok {
+				continue
+			}
+			if id, _ := m["id"].(string); strings.HasPrefix(id, "guardrail-") {
+				return true
+			}
+		}
+	}
+	return false
 }
