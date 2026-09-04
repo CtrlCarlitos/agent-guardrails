@@ -15,6 +15,7 @@
 - **Every fix ships with an adversarial regression test using the review's exact reproduction.** Task 11 collects them into `test/adversarial/`; individual tasks add theirs as they go. A fix without its lock does not count as done.
 - **Fail closed on ambiguity.** Where a word cannot be resolved to literal text (`$VAR`, `$(…)`), the verdict must degrade to at least `ask` — never silently allow.
 - **Do not weaken any existing deny.** Run the full suite after every task; the review's "correctly defended" list must stay defended. Several existing tests encode current (wrong) behaviour for quoted/absolute forms — if a test fails because the guard now *correctly* denies something, update the test and say so in the commit body.
+- Task 10 and Task 10b both land on the same chezmoi branch `guardrail-remediation-phase1`; neither is applied.
 - **Out of scope for Phase 1** (tracked in the Roadmap): the overlay trust model (unbounded `waive`, slot widening, `audit_log`, size cap), `cd` tracking, git `valueFlags`/refspec, redirect-only statements, docker arg parsing, egress host extraction, pipeline-wide fetch→interpreter, unknown-tool default-deny, `Reason` sanitization.
 - Every code step is literal. `gofmt -w` before every commit. Conventional Commits, one commit per task.
 - Verified building blocks: `literalText(tok string) (string, bool)` at `internal/engine/tokenize.go:133` — confirmed by probe to return `("/etc", true)` for `"/etc"`, `("--force", true)` for `"--force"`, and `("", false)` for `$HOME` / `$(echo /etc)`. `matchesAnyGlob(p string, globs []string) bool` at `rules_path.go:158`. `writeCandidates(tc ToolCall) []string` at `rules_path.go:75`. `checkCIInfraLockfile`'s Write/Edit gate at `rules_path.go:129` is the correct model to copy.
@@ -748,6 +749,75 @@ grep -n 'SHA_CMD' /tmp/rendered.sh scripts/update_ai_tools.sh
 ```bash
 git add run_onchange_install_packages.sh.tmpl scripts/update_ai_tools.sh
 git commit -m "fix(packages): resolve a SHA-256 tool instead of assuming sha256sum — macOS was installing no guard at all"
+```
+
+---
+
+### Task 10b: Install `shellcheck` and `shfmt` on dev machines
+
+**Files (chezmoi, same branch `guardrail-remediation-phase1`):** `run_onchange_install_packages.sh.tmpl`, `run_onchange_install_packages.ps1.tmpl`, `docs/tool-parity.md`
+
+**Why:** CI already lints rendered templates with `shellcheck` (`.github/workflows/ci.yml`) and `.pre-commit-config.yaml` runs `shellcheck-py`, but **no installer ever installs it** — a fresh machine can push a template CI rejects with no local signal, and this plan's own validation steps (Task 10, and the deploy plan's Tasks 1–2) silently no-op without it. `shfmt` is added alongside because it is built on `mvdan.cc/sh`, the same parser `internal/engine/tokenize.go` uses — it is the fastest way to see how that parser actually reads a command, which is directly useful while fixing CR-2/CR-4.
+
+**Scope note:** `install_modern`, not `install_core` — these are developer tools, and a server or minimal box does not need them. Devcontainers are unaffected by design (`$interactive` is false there, so every package toggle renders `false`); container tooling belongs in the consuming project's `devcontainer.json` features, not here.
+
+- [ ] **Step 1: Add to the apt branch**
+
+In `run_onchange_install_packages.sh.tmpl`, inside `install_apt`'s `{{- if $install_modern }}` region, alongside the other modern CLI tools:
+
+```bash
+        # shellcheck: CI and .pre-commit-config.yaml both lint shell with it;
+        # without it locally a fresh machine only finds template errors in CI.
+        # shfmt: built on mvdan.cc/sh, the same parser internal/engine/tokenize.go
+        # uses - handy for seeing how the engine actually reads a command.
+        $SUDO apt install -y shellcheck || warn "shellcheck install failed - continuing"
+```
+
+`shfmt` is not in older Ubuntu repos; install it from its release binary the same way `tealdeer` is handled:
+
+```bash
+        if ! command -v shfmt &>/dev/null; then
+            info "Installing shfmt..."
+            net_timeout 120 curl -fLo /tmp/shfmt "https://github.com/mvdan/sh/releases/latest/download/shfmt_v3.8.0_linux_amd64" \
+                && $SUDO install /tmp/shfmt /usr/local/bin/shfmt \
+                && rm -f /tmp/shfmt \
+                || warn "shfmt install failed - continuing"
+        fi
+```
+
+- [ ] **Step 2: Add to the brew branch**
+
+In `install_brew`'s `{{- if $install_modern }}` region:
+
+```bash
+        brew install shellcheck shfmt || warn "shellcheck/shfmt install failed - continuing"
+```
+
+- [ ] **Step 3: Add to the Windows installer**
+
+In `run_onchange_install_packages.ps1.tmpl`, add `shellcheck` to the choco `$packages` array used under `$install_modern` (choco ships both `shellcheck` and `shfmt`).
+
+- [ ] **Step 4: Validate**
+
+```bash
+chezmoi execute-template < run_onchange_install_packages.sh.tmpl > /tmp/rendered.sh && bash -n /tmp/rendered.sh && echo "sh ok"
+grep -n 'shellcheck\|shfmt' /tmp/rendered.sh | head
+chezmoi execute-template < run_onchange_install_packages.ps1.tmpl > /dev/null && echo "ps1 renders"
+```
+
+- [ ] **Step 5: Add the parity row**
+
+In `docs/tool-parity.md`'s `## Core & Modern CLI Tools` table, add rows for `shellcheck` and `shfmt` matching the existing column shape, noting shfmt comes from a GitHub release on Linux and from brew/choco elsewhere.
+
+- [ ] **Step 6: Commit (branch, do not apply)**
+
+```bash
+git add run_onchange_install_packages.sh.tmpl run_onchange_install_packages.ps1.tmpl docs/tool-parity.md
+git commit -m "packages: install shellcheck + shfmt on dev machines (install_modern)
+
+CI and pre-commit already lint shell with shellcheck but no installer provided
+it, so a fresh machine had no local signal. shfmt shares mvdan.cc/sh with the
+engine's own tokenizer, making it a useful lens on how commands are parsed."
 ```
 
 ---
