@@ -12,9 +12,11 @@ Installed globally via dotfiles; each project layers its own rules in a committe
 
 ## Status
 
-Design confirmed 2026-09-03. Implementation not started — see the build order in
-DESIGN.md. Repo location and module path (`github.com/CtrlCarlitos/agent-guardrails`)
-are assumptions pending confirmation.
+Plan 1 (engine core + Claude adapter) implemented: `guardrail hook claude` enforces
+P1 (destructive commands) and P4 (secret paths) with audit logging and per-repo
+`guardrail.toml` overlays. Plans 2–6 (declarative-floor generation, installer,
+remaining policies, opencode/antigravity adapters, recipes) are pending — see
+`docs/superpowers/plans/`.
 
 ## Layout
 

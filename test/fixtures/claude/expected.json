@@ -1,0 +1,6 @@
+{
+  "bash-rm-rf.json":      {"exit": 2},
+  "bash-ls.json":         {"exit": 0},
+  "read-env.json":        {"exit": 2},
+  "bash-git-commit.json": {"exit": 0}
+}
