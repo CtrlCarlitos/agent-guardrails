@@ -1,0 +1,6 @@
+/guardrail
+/dist/
+*.test
+*.out
+.DS_Store
+node_modules/
