@@ -84,6 +84,56 @@ func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	return nil
 }
 
+// These command groups describe how write targets are found after flags are
+// removed. Commands in the first group read their first argument as a source;
+// commands in the second group mutate every argument.
+var mutatingAllButFirst = map[string]bool{
+	"cp": true, "mv": true, "install": true, "ln": true, "rsync": true,
+}
+
+var mutatingAllArgs = map[string]bool{
+	"rm": true, "truncate": true, "chmod": true, "chown": true,
+	"mkdir": true, "tee": true, "touch": true, "shred": true,
+}
+
+func writeTargets(s Simple) []string {
+	if len(s.Argv) == 0 {
+		return nil
+	}
+	head := path.Base(s.Argv[0])
+	args := nonFlagArgs(s.Argv)
+
+	if head == "dd" {
+		var out []string
+		for _, a := range s.Argv[1:] {
+			if strings.HasPrefix(a, "of=") {
+				out = append(out, strings.TrimPrefix(a, "of="))
+			}
+		}
+		return out
+	}
+	// sed -i edits in place; without -i it is a reader.
+	if head == "sed" {
+		if !hasAnyFlag(s.Argv, "i", "--in-place") {
+			return nil
+		}
+		if len(args) > 1 {
+			return args[1:] // args[0] is the script
+		}
+		return nil
+	}
+	if mutatingAllButFirst[head] {
+		if len(args) > 1 {
+			return args[1:]
+		}
+		return nil
+	}
+	if mutatingAllArgs[head] {
+		return args
+	}
+	return nil
+}
+
 func writeCandidates(tc ToolCall) []string {
 	var out []string
 	if isFileTool(tc.Tool) {
@@ -93,6 +143,7 @@ func writeCandidates(tc ToolCall) []string {
 		if simples, err := Normalize(tc.Command); err == nil {
 			for _, s := range simples {
 				out = append(out, s.Redirects...)
+				out = append(out, writeTargets(s)...)
 			}
 		}
 	}

@@ -207,6 +207,52 @@ func TestSelfConfigAndGitProtectedStillDenyBashRedirects(t *testing.T) {
 	}
 }
 
+func TestWritesByArgumentAreSeen(t *testing.T) {
+	deny := []string{
+		`cp evil /home/u/.claude/settings.json`,
+		`mv evil /home/u/.claude/settings.json`,
+		`rm /home/u/.claude/settings.json`,
+		`install -m755 evil /home/u/.claude/settings.json`,
+		`sed -i s/a/b/ /repo/.git/hooks/pre-commit`,
+		`ln -sf evil /repo/.git/hooks/pre-commit`,
+		`dd if=evil of=/repo/.git/hooks/pre-commit`,
+		`cp evil /repo/guardrail.toml`,
+		`rsync evil /repo/guardrail.toml`,
+		`truncate /repo/guardrail.toml`,
+		`chmod 600 /repo/guardrail.toml`,
+		`chown user /repo/guardrail.toml`,
+		`mkdir /repo/.claude`,
+		`tee /repo/guardrail.toml`,
+		`touch /repo/guardrail.toml`,
+		`shred /repo/guardrail.toml`,
+		`/usr/bin/cp evil /repo/guardrail.toml`,
+	}
+	for _, c := range deny {
+		tc := ToolCall{Tool: "Bash", Command: c, RepoRoot: "/repo", CWD: "/repo"}
+		v := checkPaths(tc, pathPol())
+		if v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", c, v)
+		}
+	}
+}
+
+func TestReadingViaMutatingCommandSourceIsNotAWrite(t *testing.T) {
+	// `cp <protected> /tmp/x` reads the protected file; it is not a write to it.
+	// It must not be reported as a self-config write (the secret-path rule
+	// covers the read side separately).
+	tc := ToolCall{Tool: "Bash", Command: `cp /repo/CLAUDE.md /tmp/x`, RepoRoot: "/repo", CWD: "/repo"}
+	if v := checkSelfConfig(tc); v != nil {
+		t.Errorf("-> %+v, want nil (source position is a read, not a write)", v)
+	}
+}
+
+func TestSedWithoutInPlaceFlagIsNotAWrite(t *testing.T) {
+	tc := ToolCall{Tool: "Bash", Command: `sed s/a/b/ /repo/CLAUDE.md`, RepoRoot: "/repo", CWD: "/repo"}
+	if v := checkSelfConfig(tc); v != nil {
+		t.Errorf("-> %+v, want nil (sed without -i does not write its input)", v)
+	}
+}
+
 func TestCIInfraLockfileAsk(t *testing.T) {
 	ask := []string{
 		"/repo/.github/workflows/ci.yml", "/repo/Dockerfile", "/repo/docker-compose.yml",
