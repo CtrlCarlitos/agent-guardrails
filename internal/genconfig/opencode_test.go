@@ -1,6 +1,11 @@
 package genconfig
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestOpencodeConfigBashPermissions(t *testing.T) {
 	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
@@ -39,5 +44,42 @@ func TestOpencodeConfigPluginRegistered(t *testing.T) {
 	plugins := frag["plugin"].([]string)
 	if len(plugins) != 1 || plugins[0] != "/x/guardrail.js" {
 		t.Errorf("plugin = %v", plugins)
+	}
+}
+
+func TestMergeOpencodePreservesExistingProjectConfig(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "opencode.json")
+	os.WriteFile(p, []byte(`{
+		"plugin": ["superpowers@git+https://github.com/obra/superpowers.git"],
+		"permission": {
+			"bash": {"*": "allow", "git commit *": "ask"},
+			"external_directory": {"~/projects/**": "allow"}
+		}
+	}`), 0o644)
+
+	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+	if err := MergeInto(p, frag); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, _ := os.ReadFile(p)
+	var m map[string]any
+	json.Unmarshal(raw, &m)
+	perm := m["permission"].(map[string]any)
+
+	bash := perm["bash"].(map[string]any)
+	if bash["git commit *"] != "ask" {
+		t.Errorf("existing project rule lost: %v", bash["git commit *"])
+	}
+	if bash["rm -rf *"] != "deny" {
+		t.Errorf("guardrail rule not added: %v", bash["rm -rf *"])
+	}
+	if _, ok := perm["external_directory"]; !ok {
+		t.Error("external_directory block lost")
+	}
+
+	plugins := m["plugin"].([]any)
+	if len(plugins) != 2 {
+		t.Fatalf("want superpowers + guardrail = 2 plugin entries, got %v", plugins)
 	}
 }

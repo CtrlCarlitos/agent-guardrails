@@ -62,8 +62,8 @@ func deepMerge(dst, src map[string]any) {
 			dst[k] = sv
 			continue
 		}
-		dm, dok := dv.(map[string]any)
-		sm, sok := sv.(map[string]any)
+		dm, dok := toStringAnyMap(dv)
+		sm, sok := toStringAnyMap(sv)
 		if k == "hooks" && dok && sok {
 			mergeHooks(dm, sm)
 			continue
@@ -90,6 +90,26 @@ func toAnySlice(v any) ([]any, bool) {
 		out := make([]any, len(s))
 		for i, x := range s {
 			out[i] = x
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+// toStringAnyMap recognizes in-memory JSON-object shapes beyond the
+// map[string]any that json.Unmarshal produces — fragments built in Go use
+// typed leaves like map[string]string (OpencodeConfig's bash/read/edit), and
+// those must merge recursively with an existing file's objects, not replace
+// them.
+func toStringAnyMap(v any) (map[string]any, bool) {
+	switch m := v.(type) {
+	case map[string]any:
+		return m, true
+	case map[string]string:
+		out := make(map[string]any, len(m))
+		for k, x := range m {
+			out[k] = x
 		}
 		return out, true
 	default:
