@@ -1,0 +1,31 @@
+{
+  "guardrail": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "/usr/local/bin/guardrail hook antigravity post",
+            "timeout": 120,
+            "type": "command"
+          }
+        ],
+        "id": "guardrail-antigravity-post",
+        "matcher": "write_to_file|replace_file_content|multi_replace_file_content"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "/usr/local/bin/guardrail hook antigravity pre",
+            "timeout": 15,
+            "type": "command"
+          }
+        ],
+        "id": "guardrail-antigravity-pre",
+        "matcher": "run_command|view_file|write_to_file|replace_file_content|multi_replace_file_content"
+      }
+    ],
+    "enabled": true
+  }
+}

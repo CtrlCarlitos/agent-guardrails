@@ -1,0 +1,5 @@
+{
+  "run-command-rm-rf.json": {"decision": "deny"},
+  "run-command-ls.json":    {"decision": "allow"},
+  "write-secret.json":      {"decision": "deny"}
+}

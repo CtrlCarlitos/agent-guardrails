@@ -104,6 +104,35 @@ func TestOpencodeContractFixtures(t *testing.T) {
 	}
 }
 
+func TestAntigravityContractFixtures(t *testing.T) {
+	bin := buildBinary(t)
+	raw, err := os.ReadFile("fixtures/antigravity/expected.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expected map[string]struct {
+		Decision string `json:"decision"`
+	}
+	if err := json.Unmarshal(raw, &expected); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range expected {
+		t.Run(name, func(t *testing.T) {
+			payload, err := os.ReadFile(filepath.Join("fixtures", "antigravity", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command(bin, "hook", "antigravity", "pre")
+			cmd.Stdin = bytes.NewReader(payload)
+			cmd.Env = append(os.Environ(), "XDG_STATE_HOME="+t.TempDir(), "GUARDRAIL_CONFIG=")
+			out, _ := cmd.Output()
+			if !bytes.Contains(out, []byte(`"decision":"`+want.Decision+`"`)) {
+				t.Fatalf("%s: stdout %s, want decision %q", name, out, want.Decision)
+			}
+		})
+	}
+}
+
 func TestClaudeNeverPanics(t *testing.T) {
 	bin := buildBinary(t)
 	weird := []string{
