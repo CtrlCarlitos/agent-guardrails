@@ -64,7 +64,7 @@ func deepMerge(dst, src map[string]any) {
 		}
 		dm, dok := toStringAnyMap(dv)
 		sm, sok := toStringAnyMap(sv)
-		if k == "hooks" && dok && sok {
+		if (k == "hooks" || k == "guardrail") && dok && sok {
 			mergeHooks(dm, sm)
 			continue
 		}
@@ -119,7 +119,10 @@ func toStringAnyMap(v any) (map[string]any, bool) {
 
 func mergeHooks(dst, src map[string]any) {
 	for event, sv := range src {
-		sGroups, _ := toAnySlice(sv)
+		sGroups, ok := toAnySlice(sv)
+		if !ok {
+			continue // non-array values (e.g. a named wrapper's "enabled" bool) are not groups
+		}
 		dGroups, _ := toAnySlice(dst[event])
 
 		out := make([]any, 0, len(dGroups)+len(sGroups))
