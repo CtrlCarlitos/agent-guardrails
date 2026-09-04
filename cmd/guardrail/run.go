@@ -19,6 +19,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 0
 	case "hook":
 		return cmdHook(args[1:], stdin, stdout, stderr)
+	case "gen-config":
+		return cmdGenConfig(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "guardrail: unknown subcommand %q\n", args[0])
 		return 2
