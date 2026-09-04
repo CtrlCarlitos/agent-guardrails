@@ -19,7 +19,7 @@ SessionStart with an autonomy posture message + active-waiver banner (P10).
 `guardrail hook opencode` runs the same shared pipeline (audit, trifecta, waivers)
 through a JS plugin — ask/deny throw, allow passes through — which `gen-config
 opencode` deploys alongside the generated `opencode.json` permission floor;
-`gen-config`/`doctor` cover Claude + opencode installation and diagnostics. CI +
+`gen-config` covers Claude + opencode installation; `doctor` covers Claude installation and diagnostics. CI +
 real releases ship the binary; the chezmoi installer wires it globally, currently
 pinned to v0.4.1. Pending: Antigravity adapter (Plan 6), recipes + `guardrail sync`
 (Plan 7). Known

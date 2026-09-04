@@ -33,6 +33,9 @@ function callGuardrail(envelope) {
 			`guardrail: needs confirmation - ${decision.reason}. Ask the user directly, then retry if they approve.`
 		);
 	}
+	if (res.status !== 0) {
+		throw new Error(`guardrail: exited ${res.status}; failing closed`);
+	}
 }
 
 export const GuardrailPlugin = async ({ directory }) => {
