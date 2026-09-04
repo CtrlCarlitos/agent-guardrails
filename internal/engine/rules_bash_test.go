@@ -21,6 +21,7 @@ func TestCheckBashDestructive(t *testing.T) {
 		`rm -rf ~`,
 		`rm -r --force /etc`,
 		`rm -fr /var/lib`,
+		`rm -R /etc`,
 		`dd if=/dev/zero of=/dev/sda`,
 		`mkfs.ext4 /dev/sdb1`,
 		`wipefs -a /dev/sdc`,

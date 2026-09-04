@@ -71,7 +71,7 @@ func checkRmRf(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	if s.Argv[0] != "rm" {
 		return nil
 	}
-	if !hasAnyFlag(s.Argv, "rf", "--recursive", "--force", "-R") {
+	if !hasAnyFlag(s.Argv, "rfR", "--recursive", "--force") {
 		// need at least one of recursive OR force to be dangerous
 		return nil
 	}
