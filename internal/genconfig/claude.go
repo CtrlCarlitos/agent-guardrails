@@ -63,6 +63,17 @@ func collidesWithAllow(glob string, allow []string) bool {
 	return false
 }
 
+func ClaudeConfig(pol *policy.Policy, binary string) Fragment {
+	deny := append(bashDenyGlobs(), secretDenyGlobs(pol)...)
+	return Fragment{
+		"hooks": claudeHooks(binary),
+		"permissions": map[string]any{
+			"deny": deny,
+			"ask":  bashAskGlobs(),
+		},
+	}
+}
+
 func claudeHooks(binary string) map[string]any {
 	cmd := binary + " hook claude"
 	return map[string]any{

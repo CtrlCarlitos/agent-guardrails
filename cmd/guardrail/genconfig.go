@@ -1,9 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
 func cmdGenConfig(args []string, stdout, stderr io.Writer) int {
@@ -25,10 +29,25 @@ func cmdGenConfig(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
-	_ = doPrint
-	_ = mergePath
-	_ = binary
+	base, err := policy.LoadBase()
+	if err != nil {
+		fmt.Fprintf(stderr, "guardrail: cannot load base policy: %v\n", err)
+		return 2
+	}
+	frag := genconfig.ClaudeConfig(base, *binary)
 
-	// Output implemented in Task 5.
+	if *mergePath != "" {
+		// implemented in Task 7
+		fmt.Fprintln(stderr, "guardrail: --merge not yet implemented")
+		return 2
+	}
+
+	b, err := json.MarshalIndent(frag, "", "  ")
+	if err != nil {
+		fmt.Fprintf(stderr, "guardrail: cannot marshal config: %v\n", err)
+		return 2
+	}
+	stdout.Write(append(b, '\n'))
+	_ = doPrint
 	return 0
 }

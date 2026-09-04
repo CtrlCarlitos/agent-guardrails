@@ -62,6 +62,22 @@ func TestSecretDenyGlobs(t *testing.T) {
 	}
 }
 
+func TestClaudeConfigShape(t *testing.T) {
+	frag := ClaudeConfig(secretPol(), "guardrail")
+	perms := frag["permissions"].(map[string]any)
+	deny := perms["deny"].([]string)
+	if !slices.Contains(deny, "Bash(rm -rf *)") || !slices.Contains(deny, "Read(**/.ssh/**)") {
+		t.Errorf("deny incomplete: %v", deny)
+	}
+	if _, ok := frag["hooks"]; !ok {
+		t.Error("hooks missing")
+	}
+	ask := perms["ask"].([]string)
+	if !slices.Contains(ask, "Bash(chmod -R *)") {
+		t.Errorf("ask incomplete: %v", ask)
+	}
+}
+
 func TestClaudeHooks(t *testing.T) {
 	h := claudeHooks("/usr/local/bin/guardrail")
 	pre, ok := h["PreToolUse"].([]any)
