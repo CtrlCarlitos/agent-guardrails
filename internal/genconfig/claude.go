@@ -79,6 +79,7 @@ func claudeHooks(binary string) map[string]any {
 	return map[string]any{
 		"PreToolUse": []any{
 			map[string]any{
+				"id":      "guardrail-claude-pre",
 				"matcher": "Bash|Read|Edit|Write|MultiEdit",
 				"hooks": []any{
 					map[string]any{"type": "command", "command": cmd, "timeout": 10},
@@ -87,6 +88,7 @@ func claudeHooks(binary string) map[string]any {
 		},
 		"PostToolUse": []any{
 			map[string]any{
+				"id":      "guardrail-claude-post",
 				"matcher": "Write|Edit|MultiEdit",
 				"hooks": []any{
 					map[string]any{"type": "command", "command": cmd},

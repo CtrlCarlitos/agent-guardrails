@@ -80,19 +80,19 @@ func TestClaudeConfigShape(t *testing.T) {
 
 func TestClaudeHooks(t *testing.T) {
 	h := claudeHooks("/usr/local/bin/guardrail")
-	pre, ok := h["PreToolUse"].([]any)
-	if !ok || len(pre) != 1 {
-		t.Fatalf("PreToolUse shape wrong: %#v", h["PreToolUse"])
+	pre := h["PreToolUse"].([]any)[0].(map[string]any)
+	if pre["id"] != "guardrail-claude-pre" {
+		t.Errorf("pre id = %v, want guardrail-claude-pre", pre["id"])
 	}
-	entry := pre[0].(map[string]any)
-	if entry["matcher"].(string) != "Bash|Read|Edit|Write|MultiEdit" {
-		t.Errorf("matcher = %v", entry["matcher"])
+	if pre["matcher"].(string) != "Bash|Read|Edit|Write|MultiEdit" {
+		t.Errorf("matcher = %v", pre["matcher"])
 	}
-	hk := entry["hooks"].([]any)[0].(map[string]any)
+	hk := pre["hooks"].([]any)[0].(map[string]any)
 	if hk["command"].(string) != "/usr/local/bin/guardrail hook claude" {
 		t.Errorf("command = %v", hk["command"])
 	}
-	if _, ok := h["PostToolUse"]; !ok {
-		t.Error("PostToolUse missing")
+	post := h["PostToolUse"].([]any)[0].(map[string]any)
+	if post["id"] != "guardrail-claude-post" {
+		t.Errorf("post id = %v", post["id"])
 	}
 }

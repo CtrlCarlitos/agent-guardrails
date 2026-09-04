@@ -8,6 +8,7 @@
             "type": "command"
           }
         ],
+        "id": "guardrail-claude-post",
         "matcher": "Write|Edit|MultiEdit"
       }
     ],
@@ -20,6 +21,7 @@
             "type": "command"
           }
         ],
+        "id": "guardrail-claude-pre",
         "matcher": "Bash|Read|Edit|Write|MultiEdit"
       }
     ]
