@@ -6,5 +6,6 @@
   "git-reset-hard.json":  {"exit": 2},
   "write-claude-md.json": {"exit": 2},
   "egress-deny.json":     {"exit": 2},
-  "git-c-bypass.json":    {"exit": 2}
+  "git-c-bypass.json":    {"exit": 2},
+  "post-edit-lint-fail.json": {"exit": 2}
 }
