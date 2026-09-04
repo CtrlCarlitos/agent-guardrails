@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -13,18 +14,34 @@ import (
 
 func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "guardrail: hook needs a plane (claude, opencode)")
+		fmt.Fprintln(stderr, "guardrail: hook needs a plane (claude, opencode, antigravity)")
 		return 2
 	}
 	plane := args[0]
 
 	var tc engine.ToolCall
 	var err error
+	var antigravityPhase string
 	switch plane {
 	case "claude":
 		tc, err = adapter.ParseClaude(stdin)
 	case "opencode":
 		tc, err = adapter.ParseOpencode(stdin)
+	case "antigravity":
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "guardrail: hook antigravity needs a phase (pre, post)")
+			return 2
+		}
+		antigravityPhase = args[1]
+		tc, err = adapter.ParseAntigravity(antigravityPhase, stdin)
+		if err != nil {
+			b, _ := json.Marshal(map[string]string{
+				"decision": "deny",
+				"reason":   fmt.Sprintf("guardrail: unparseable payload (%v); failing closed", err),
+			})
+			stdout.Write(append(b, '\n'))
+			return 0
+		}
 	default:
 		fmt.Fprintf(stderr, "guardrail: unsupported plane %q\n", plane)
 		return 2
@@ -108,6 +125,8 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return adapter.EmitClaude(v, tc.Event, stdout, stderr)
 	case "opencode":
 		return adapter.EmitOpencode(v, stdout, stderr)
+	case "antigravity":
+		return adapter.EmitAntigravity(v, antigravityPhase, stdout)
 	default:
 		return 2
 	}

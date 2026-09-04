@@ -194,6 +194,63 @@ func TestHookOpencodeAuditRecordsCorrectPlane(t *testing.T) {
 	}
 }
 
+func TestHookAntigravityDeny(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	payload := `{"conversationId":"c1","toolCall":{"name":"run_command","args":{"CommandLine":"rm -rf /","Cwd":"/tmp"}}}`
+	var out, errb bytes.Buffer
+	code := run([]string{"hook", "antigravity", "pre"}, strings.NewReader(payload), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0 (antigravity never uses exit code); stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), `"decision":"deny"`) {
+		t.Fatalf("stdout = %s, want a deny decision", out.String())
+	}
+}
+
+func TestHookAntigravityAllow(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	payload := `{"conversationId":"c1","toolCall":{"name":"run_command","args":{"CommandLine":"ls -la","Cwd":"/tmp"}}}`
+	var out, errb bytes.Buffer
+	code := run([]string{"hook", "antigravity", "pre"}, strings.NewReader(payload), &out, &errb)
+	if code != 0 || !strings.Contains(out.String(), `"decision":"allow"`) {
+		t.Fatalf("code=%d stdout=%s", code, out.String())
+	}
+}
+
+func TestHookAntigravityPostAlwaysEmptyObject(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	payload := `{"conversationId":"c1","toolCall":{"name":"replace_file_content","args":{"TargetFile":"/tmp/.env"}}}`
+	var out, errb bytes.Buffer
+	code := run([]string{"hook", "antigravity", "post"}, strings.NewReader(payload), &out, &errb)
+	if code != 0 || out.String() != "{}\n" {
+		t.Fatalf("post phase: code=%d out=%q, want 0/{}", code, out.String())
+	}
+}
+
+func TestHookAntigravityMissingPhase(t *testing.T) {
+	var out, errb bytes.Buffer
+	code := run([]string{"hook", "antigravity"}, strings.NewReader(""), &out, &errb)
+	if code != 2 {
+		t.Fatalf("code = %d, want 2 (missing phase)", code)
+	}
+}
+
+func TestHookAntigravityUnparseableIsDenyJSON(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	var out, errb bytes.Buffer
+	code := run([]string{"hook", "antigravity", "pre"}, strings.NewReader("not json"), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0 (antigravity protocol is stdout-JSON-only); stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), `"decision":"deny"`) {
+		t.Fatalf("stdout = %s, want a deny decision", out.String())
+	}
+}
+
 func TestHookSessionStart(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
