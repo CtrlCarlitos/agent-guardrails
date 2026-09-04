@@ -52,3 +52,41 @@ func TestSplitSimplesParseError(t *testing.T) {
 		t.Fatal("want parse error for unterminated string")
 	}
 }
+
+func TestNormalizeStripsWrappers(t *testing.T) {
+	cases := []struct {
+		src  string
+		want [][]string
+	}{
+		{`timeout 5 rm -rf /`, [][]string{{"rm", "-rf", "/"}}},
+		{`time git status`, [][]string{{"git", "status"}}},
+		{`nice -n 10 make`, [][]string{{"make"}}},
+		{`nohup ./server &`, [][]string{{"./server"}}},
+		{`env FOO=1 BAR=2 curl example.com`, [][]string{{"curl", "example.com"}}},
+	}
+	for _, c := range cases {
+		got, err := Normalize(c.src)
+		if err != nil {
+			t.Fatalf("Normalize(%q): %v", c.src, err)
+		}
+		if !reflect.DeepEqual(argvs(got), c.want) {
+			t.Errorf("Normalize(%q) = %v, want %v", c.src, argvs(got), c.want)
+		}
+	}
+}
+
+func TestNormalizeUnwrapsRunners(t *testing.T) {
+	got, err := Normalize(`docker run --rm alpine rm -rf /data`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, s := range got {
+		if reflect.DeepEqual(s.Argv, []string{"rm", "-rf", "/data"}) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected an inner {rm -rf /data} simple, got %v", argvs(got))
+	}
+}
