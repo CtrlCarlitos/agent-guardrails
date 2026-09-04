@@ -66,6 +66,34 @@ func TestCheckBashGitDocker(t *testing.T) {
 	}
 }
 
+func TestCheckBashAskTier(t *testing.T) {
+	ask := map[string]string{
+		`chmod -R 755 /repo`:           "P1.chmod",
+		`chmod 777 script.sh`:          "P1.chmod",
+		`chown -R me:me /var/www`:      "P1.chown",
+		`find . -name '*.tmp' -delete`: "P1.find-delete",
+		`truncate -s 0 app.log`:        "P1.truncate",
+		`echo x > /etc/hosts`:          "P1.redirect",
+		`kill -9 1234`:                 "P1.kill",
+		`pkill -f server`:              "P1.kill",
+	}
+	for c, id := range ask {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != id {
+			t.Errorf("%q -> %+v, want ask/%s", c, v, id)
+		}
+	}
+}
+
+func TestCheckBashPrivesc(t *testing.T) {
+	for _, c := range []string{`sudo rm x`, `su -`, `doas pkg_add x`} {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.privesc" {
+			t.Errorf("%q -> %+v, want deny/P1.privesc", c, v)
+		}
+	}
+}
+
 func TestCheckBashAllows(t *testing.T) {
 	ok := []string{
 		`rm file.txt`,

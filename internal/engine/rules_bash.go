@@ -36,6 +36,7 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		take(checkDiskDestroyers(s))
 		take(checkGit(s))
 		take(checkDocker(s, tc.Command))
+		take(checkAskTier(s, tc, pol))
 	}
 	return worst
 }
@@ -172,6 +173,55 @@ func checkDiskDestroyers(s Simple) *policy.Verdict {
 			Reason: "irreversible secure-delete command: " + head}
 	}
 	return nil
+}
+
+func checkAskTier(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
+	head := s.Argv[0]
+	switch head {
+	case "sudo", "su", "doas":
+		return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.privesc",
+			Reason: "privilege escalation removes every other guardrail's ground truth"}
+	case "chmod":
+		if hasAnyFlag(s.Argv, "R", "--recursive") {
+			return ask("P1.chmod", "recursive chmod")
+		}
+		for _, a := range nonFlagArgs(s.Argv) {
+			if a == "777" || a == "0777" {
+				return ask("P1.chmod", "chmod 777 widens permissions dangerously")
+			}
+		}
+	case "chown":
+		if hasAnyFlag(s.Argv, "R", "--recursive") {
+			return ask("P1.chown", "recursive chown")
+		}
+	case "find":
+		for i, a := range s.Argv {
+			if a == "-delete" {
+				return ask("P1.find-delete", "find -delete is a bulk deletion primitive")
+			}
+			if a == "-exec" && i+1 < len(s.Argv) && s.Argv[i+1] == "rm" {
+				return ask("P1.find-delete", "find -exec rm is a bulk deletion primitive")
+			}
+		}
+	case "truncate":
+		return ask("P1.truncate", "truncate destroys file contents with no diff")
+	case "kill":
+		if hasAnyFlag(s.Argv, "9") {
+			return ask("P1.kill", "kill -9 can corrupt the target process's state")
+		}
+	case "killall", "pkill":
+		return ask("P1.kill", "killall/pkill can terminate unrelated work")
+	}
+	for _, r := range s.Redirects {
+		if !withinSafe(resolvePath(r, tc.CWD), tc.RepoRoot, pol.Slots.SafeRoots) {
+			return ask("P1.redirect", "output redirection onto a path outside the repo/safe roots: "+r)
+		}
+	}
+	return nil
+}
+
+func ask(id, reason string) *policy.Verdict {
+	return &policy.Verdict{Decision: policy.Ask, RuleID: id, Reason: reason}
 }
 
 func resolvePath(p, cwd string) string {
