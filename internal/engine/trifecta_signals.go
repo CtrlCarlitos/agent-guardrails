@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/session"
 )
 
 // IsPrivateDataAccess reports whether tc touches a secret-classified path —
@@ -52,4 +53,15 @@ func IsNetworkAttempt(tc ToolCall) bool {
 		}
 	}
 	return false
+}
+
+func TrifectaVerdict(v policy.Verdict, isPrivate, isNet bool, st *session.State) *policy.Verdict {
+	if v.Decision != policy.Allow {
+		return nil
+	}
+	if (isPrivate && st.SawNetworkCall) || (isNet && st.SawPrivateRead) {
+		return &policy.Verdict{Decision: policy.Ask, RuleID: "P7.trifecta",
+			Reason: "this session already touched both private data and network egress — pausing on the second leg of the pattern"}
+	}
+	return nil
 }

@@ -1,6 +1,11 @@
 package engine
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/session"
+)
 
 func TestIsPrivateDataAccess(t *testing.T) {
 	pol := pathPol()
@@ -27,5 +32,32 @@ func TestIsNetworkAttempt(t *testing.T) {
 	}
 	if IsNetworkAttempt(ToolCall{Tool: "Read", Paths: []string{"x"}}) {
 		t.Error("want false for a non-bash tool call")
+	}
+}
+
+func TestTrifectaVerdictEscalatesSecondLeg(t *testing.T) {
+	v := TrifectaVerdict(policy.Verdict{Decision: policy.Allow}, true, false, &session.State{SawNetworkCall: true})
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P7.trifecta" {
+		t.Fatalf("private read after a network call -> %+v, want ask/P7.trifecta", v)
+	}
+	v = TrifectaVerdict(policy.Verdict{Decision: policy.Allow}, false, true, &session.State{SawPrivateRead: true})
+	if v == nil || v.RuleID != "P7.trifecta" {
+		t.Fatalf("network call after a private read -> %+v, want ask/P7.trifecta", v)
+	}
+}
+
+func TestTrifectaVerdictNoEscalationWithoutBothLegs(t *testing.T) {
+	if v := TrifectaVerdict(policy.Verdict{Decision: policy.Allow}, true, false, &session.State{}); v != nil {
+		t.Fatalf("private read with no prior signal -> %+v, want nil", v)
+	}
+	if v := TrifectaVerdict(policy.Verdict{Decision: policy.Allow}, false, false, &session.State{SawPrivateRead: true, SawNetworkCall: true}); v != nil {
+		t.Fatalf("neither leg this call -> %+v, want nil", v)
+	}
+}
+
+func TestTrifectaVerdictNeverOverridesNonAllow(t *testing.T) {
+	existing := policy.Verdict{Decision: policy.Ask, RuleID: "P1.chmod", Reason: "other reason"}
+	if v := TrifectaVerdict(existing, true, true, &session.State{SawPrivateRead: true, SawNetworkCall: true}); v != nil {
+		t.Fatalf("should not override an existing non-allow verdict, got %+v", v)
 	}
 }
