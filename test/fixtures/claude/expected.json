@@ -2,5 +2,8 @@
   "bash-rm-rf.json":      {"exit": 2},
   "bash-ls.json":         {"exit": 0},
   "read-env.json":        {"exit": 2},
-  "bash-git-commit.json": {"exit": 0}
+  "bash-git-commit.json": {"exit": 0},
+  "git-reset-hard.json":  {"exit": 2},
+  "write-claude-md.json": {"exit": 2},
+  "egress-deny.json":     {"exit": 2}
 }
