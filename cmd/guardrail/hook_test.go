@@ -153,6 +153,47 @@ func TestTrifectaSilentWithoutPriorSignal(t *testing.T) {
 	}
 }
 
+func TestHookOpencodeDeny(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	payload := `{"session_id":"s1","event":"pre","tool":"bash","command":"rm -rf /","cwd":"/tmp"}`
+	var out, errb bytes.Buffer
+	code := run([]string{"hook", "opencode"}, strings.NewReader(payload), &out, &errb)
+	if code != 2 {
+		t.Fatalf("exit=%d, want 2; stdout=%s stderr=%s", code, out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), `"decision":"deny"`) {
+		t.Fatalf("stdout = %s, want a deny decision", out.String())
+	}
+}
+
+func TestHookOpencodeAllow(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	payload := `{"session_id":"s1","event":"pre","tool":"bash","command":"ls -la","cwd":"/tmp"}`
+	var out, errb bytes.Buffer
+	code := run([]string{"hook", "opencode"}, strings.NewReader(payload), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0", code)
+	}
+}
+
+func TestHookOpencodeAuditRecordsCorrectPlane(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	payload := `{"session_id":"s1","event":"pre","tool":"bash","command":"rm -rf /","cwd":"/tmp"}`
+	var out, errb bytes.Buffer
+	run([]string{"hook", "opencode"}, strings.NewReader(payload), &out, &errb)
+	raw, err := os.ReadFile(filepath.Join(state, "guardrail", "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"plane":"opencode"`) {
+		t.Fatalf("audit record should say plane opencode, got: %s", raw)
+	}
+}
+
 func TestHookSessionStart(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	cfg := filepath.Join(t.TempDir(), "guardrail.toml")

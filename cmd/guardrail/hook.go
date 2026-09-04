@@ -13,15 +13,22 @@ import (
 
 func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "guardrail: hook needs a plane (claude)")
+		fmt.Fprintln(stderr, "guardrail: hook needs a plane (claude, opencode)")
 		return 2
 	}
-	if args[0] != "claude" {
-		fmt.Fprintf(stderr, "guardrail: unsupported plane %q\n", args[0])
-		return 2
-	}
+	plane := args[0]
 
-	tc, err := adapter.ParseClaude(stdin)
+	var tc engine.ToolCall
+	var err error
+	switch plane {
+	case "claude":
+		tc, err = adapter.ParseClaude(stdin)
+	case "opencode":
+		tc, err = adapter.ParseOpencode(stdin)
+	default:
+		fmt.Fprintf(stderr, "guardrail: unsupported plane %q\n", plane)
+		return 2
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "guardrail: unparseable hook payload (%v); failing closed\n", err)
 		return 2
@@ -82,7 +89,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	rec := audit.Record{
 		SessionID: tc.SessionID,
-		Plane:     "claude",
+		Plane:     tc.Plane,
 		Tool:      tc.Tool,
 		Event:     tc.Event,
 		Command:   tc.Command,
@@ -96,5 +103,12 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "guardrail: audit write failed (%v)\n", err)
 	}
 
-	return adapter.EmitClaude(v, tc.Event, stdout, stderr)
+	switch plane {
+	case "claude":
+		return adapter.EmitClaude(v, tc.Event, stdout, stderr)
+	case "opencode":
+		return adapter.EmitOpencode(v, stdout, stderr)
+	default:
+		return 2
+	}
 }
