@@ -18,7 +18,7 @@ func cmdGenConfig(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	plane := args[0]
-	if plane != "claude" && plane != "opencode" {
+	if plane != "claude" && plane != "opencode" && plane != "antigravity" {
 		fmt.Fprintf(stderr, "guardrail: gen-config: unsupported plane %q\n", plane)
 		return 2
 	}
@@ -67,6 +67,8 @@ func cmdGenConfig(args []string, stdout, stderr io.Writer) int {
 			}
 		}
 		frag = genconfig.OpencodeConfig(base, pluginPath)
+	case "antigravity":
+		frag = genconfig.AntigravityConfig(*binary)
 	}
 
 	if *mergePath != "" {

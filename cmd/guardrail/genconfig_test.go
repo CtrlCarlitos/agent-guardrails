@@ -144,6 +144,44 @@ func TestGenConfigOpencodeMergeDeploysPlugin(t *testing.T) {
 	}
 }
 
+func TestGenConfigAntigravityPrint(t *testing.T) {
+	var out, errb bytes.Buffer
+	code := run([]string{"gen-config", "antigravity", "--print", "--binary", "/opt/guardrail"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errb.String())
+	}
+	var frag map[string]any
+	if err := json.Unmarshal(out.Bytes(), &frag); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, out.String())
+	}
+	g, ok := frag["guardrail"].(map[string]any)
+	if !ok {
+		t.Fatal("no guardrail wrapper key")
+	}
+	if _, ok := g["PreToolUse"]; !ok {
+		t.Error("no PreToolUse hooks inside the guardrail wrapper")
+	}
+	if _, ok := frag["permissions"]; ok {
+		t.Error("antigravity fragment should not have a permissions key")
+	}
+}
+
+func TestGenConfigAntigravityMerge(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "hooks.json")
+	var out, errb bytes.Buffer
+	code := run([]string{"gen-config", "antigravity", "--merge", p, "--binary", "/opt/guardrail"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errb.String())
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "guardrail-antigravity-pre") {
+		t.Fatalf("merged file missing the owned pre-hook id:\n%s", raw)
+	}
+}
+
 func TestGenConfigDefaultStillPrints(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := run([]string{"gen-config", "claude"}, strings.NewReader(""), &out, &errb)
