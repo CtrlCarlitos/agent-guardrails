@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -28,28 +29,41 @@ func TestFindOverlayPathGitRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := filepath.Join(root, "guardrail.toml")
-	if err := os.WriteFile(cfg, []byte("engine_min_version = \"0.1\"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got, ok := FindOverlayPath(sub)
-	if !ok || got != cfg {
-		t.Fatalf("FindOverlayPath(%q) = %q,%v; want %q,true", sub, got, ok, cfg)
+	os.WriteFile(cfg, []byte("engine_min_version = \"0.1\"\n"), 0o644)
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	got, ok, warn := FindOverlayPath(sub)
+	if !ok || got != cfg || warn != "" {
+		t.Fatalf("got %q,%v,%q", got, ok, warn)
 	}
 }
 
-func TestFindOverlayPathEnvOverride(t *testing.T) {
-	t.Setenv("GUARDRAIL_CONFIG", "/tmp/custom.toml")
-	got, ok := FindOverlayPath("/anywhere")
-	if !ok || got != "/tmp/custom.toml" {
-		t.Fatalf("got %q,%v", got, ok)
+func TestFindOverlayPathEnvPresent(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "custom.toml")
+	os.WriteFile(p, []byte("engine_min_version=\"9\"\n"), 0o644)
+	t.Setenv("GUARDRAIL_CONFIG", p)
+	got, ok, warn := FindOverlayPath("/anywhere")
+	if !ok || got != p || warn != "" {
+		t.Fatalf("got %q,%v,%q", got, ok, warn)
+	}
+}
+
+func TestFindOverlayPathEnvStale(t *testing.T) {
+	t.Setenv("GUARDRAIL_CONFIG", "/definitely/not/here.toml")
+	got, ok, warn := FindOverlayPath("/anywhere")
+	if ok || got != "" {
+		t.Fatalf("stale env should yield no overlay; got %q,%v", got, ok)
+	}
+	if warn == "" || !strings.Contains(warn, "/definitely/not/here.toml") {
+		t.Fatalf("want a warning naming the path; got %q", warn)
 	}
 }
 
 func TestFindOverlayPathNone(t *testing.T) {
 	t.Setenv("GUARDRAIL_CONFIG", "")
-	dir := t.TempDir() // not a git repo
-	if got, ok := FindOverlayPath(dir); ok {
-		t.Fatalf("want no overlay, got %q", got)
+	dir := t.TempDir()
+	if _, ok, warn := FindOverlayPath(dir); ok || warn != "" {
+		t.Fatalf("want (_, false, \"\"); ok=%v warn=%q", ok, warn)
 	}
 }
 

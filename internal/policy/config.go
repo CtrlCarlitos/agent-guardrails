@@ -22,21 +22,23 @@ type Overlay struct {
 	Path             string
 }
 
-func FindOverlayPath(cwd string) (string, bool) {
+func FindOverlayPath(cwd string) (path string, ok bool, warn string) {
 	if v := os.Getenv("GUARDRAIL_CONFIG"); v != "" {
-		return v, true
+		if _, err := os.Stat(v); err != nil {
+			return "", false, fmt.Sprintf("guardrail: GUARDRAIL_CONFIG is set to %s but that file does not exist; using base policy only", v)
+		}
+		return v, true, ""
 	}
-	cmd := exec.Command("git", "-C", cwd, "rev-parse", "--show-toplevel")
-	out, err := cmd.Output()
+	out, err := exec.Command("git", "-C", cwd, "rev-parse", "--show-toplevel").Output()
 	if err != nil {
-		return "", false
+		return "", false, ""
 	}
 	root := strings.TrimSpace(string(out))
 	cfg := filepath.Join(root, "guardrail.toml")
 	if _, err := os.Stat(cfg); err != nil {
-		return "", false
+		return "", false, ""
 	}
-	return cfg, true
+	return cfg, true, ""
 }
 
 func LoadOverlay(pth string) (*Overlay, error) {
