@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
 func TestBashDenyGlobs(t *testing.T) {
@@ -30,6 +32,32 @@ func TestBashAskGlobs(t *testing.T) {
 	for _, m := range []string{"Bash(chmod -R *)", "Bash(chown -R *)", "Bash(truncate *)", "Bash(pkill *)"} {
 		if !slices.Contains(got, m) {
 			t.Errorf("bashAskGlobs missing %q", m)
+		}
+	}
+}
+
+func secretPol() *policy.Policy {
+	return &policy.Policy{Slots: policy.Slots{
+		SecretGlobs: []string{"**/.env", ".env.*", "**/.ssh/**", "id_rsa*", "*.pem"},
+		SecretAllow: []string{"**/.env.example", ".env.example"},
+	}}
+}
+
+func TestSecretDenyGlobs(t *testing.T) {
+	got := secretDenyGlobs(secretPol())
+	want := []string{
+		"Read(**/.env)", "Read(**/.ssh/**)", "Read(id_rsa*)", "Read(*.pem)",
+		"Edit(**/.env)", "Edit(**/.ssh/**)", "Edit(id_rsa*)", "Edit(*.pem)",
+	}
+	for _, w := range want {
+		if !slices.Contains(got, w) {
+			t.Errorf("missing %q in %v", w, got)
+		}
+	}
+	// .env.* collides with .env.example -> must be dropped entirely.
+	for _, bad := range []string{"Read(.env.*)", "Edit(.env.*)"} {
+		if slices.Contains(got, bad) {
+			t.Errorf("%q should have been dropped (collides with secret_allow)", bad)
 		}
 	}
 }

@@ -3,6 +3,11 @@
 // settings file.
 package genconfig
 
+import (
+	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
+	"github.com/bmatcuk/doublestar/v4"
+)
+
 // Fragment is a JSON-shaped config fragment ready to be merged into a plane's
 // settings file.
 type Fragment = map[string]any
@@ -35,4 +40,25 @@ func bashAskGlobs() []string {
 		"Bash(kill -9 *)", "Bash(killall *)", "Bash(pkill *)",
 		"Bash(find * -delete)",
 	}
+}
+
+func secretDenyGlobs(pol *policy.Policy) []string {
+	var reads, edits []string
+	for _, g := range pol.Slots.SecretGlobs {
+		if collidesWithAllow(g, pol.Slots.SecretAllow) {
+			continue
+		}
+		reads = append(reads, "Read("+g+")")
+		edits = append(edits, "Edit("+g+")")
+	}
+	return append(reads, edits...)
+}
+
+func collidesWithAllow(glob string, allow []string) bool {
+	for _, a := range allow {
+		if ok, _ := doublestar.Match(glob, a); ok {
+			return true
+		}
+	}
+	return false
 }
