@@ -98,3 +98,38 @@ func TestHookStaleGuardrailConfigDegrades(t *testing.T) {
 		t.Fatalf("ls with stale GUARDRAIL_CONFIG: exit %d, want 0", code)
 	}
 }
+
+func TestTrifectaEscalatesAcrossTwoCalls(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
+	os.WriteFile(cfg, []byte("waive = [\"P4.secret-path\"]\n"), 0o644)
+	t.Setenv("GUARDRAIL_CONFIG", cfg)
+
+	sid := "trifecta-sess-1"
+	readPayload := `{"session_id":"` + sid + `","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/tmp/.env"}}`
+	var out1, err1 bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(readPayload), &out1, &err1); code != 0 {
+		t.Fatalf("first call (waived secret read): exit %d, want 0; stderr=%s", code, err1.String())
+	}
+
+	curlPayload := `{"session_id":"` + sid + `","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl http://localhost:9999/x"}}`
+	var out2, err2 bytes.Buffer
+	code2 := run([]string{"hook", "claude"}, strings.NewReader(curlPayload), &out2, &err2)
+	if code2 != 0 {
+		t.Fatalf("second call: exit %d, want 0 (ask, not deny); stderr=%s", code2, err2.String())
+	}
+	if !strings.Contains(out2.String(), "trifecta") {
+		t.Fatalf("second call should ask citing the trifecta pattern, got stdout=%s", out2.String())
+	}
+}
+
+func TestTrifectaSilentWithoutPriorSignal(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	payload := `{"session_id":"lone-sess","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl http://localhost:9999/x"}}`
+	var out, errb bytes.Buffer
+	code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb)
+	if code != 0 || strings.Contains(out.String(), "trifecta") {
+		t.Fatalf("a lone network call should not trigger trifecta: code=%d out=%s", code, out.String())
+	}
+}

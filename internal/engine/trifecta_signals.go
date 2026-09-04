@@ -61,7 +61,7 @@ func TrifectaVerdict(v policy.Verdict, isPrivate, isNet bool, st *session.State)
 	}
 	if (isPrivate && st.SawNetworkCall) || (isNet && st.SawPrivateRead) {
 		return &policy.Verdict{Decision: policy.Ask, RuleID: "P7.trifecta",
-			Reason: "this session already touched both private data and network egress — pausing on the second leg of the pattern"}
+			Reason: "this session already touched both private data and network egress — pausing on the second leg of the lethal trifecta pattern"}
 	}
 	return nil
 }
