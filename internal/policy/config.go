@@ -1,0 +1,87 @@
+package policy
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	"github.com/BurntSushi/toml"
+)
+
+type Overlay struct {
+	EngineMinVersion string
+	AuditLog         string
+	SafeRoots        []string
+	SecretGlobs      []string
+	SecretAllow      []string
+	EgressAllowlist  []string
+	Rules            []Rule
+	Waive            []string
+	Path             string
+}
+
+func FindOverlayPath(cwd string) (string, bool) {
+	if v := os.Getenv("GUARDRAIL_CONFIG"); v != "" {
+		return v, true
+	}
+	cmd := exec.Command("git", "-C", cwd, "rev-parse", "--show-toplevel")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", false
+	}
+	root := strings.TrimSpace(string(out))
+	cfg := filepath.Join(root, "guardrail.toml")
+	if _, err := os.Stat(cfg); err != nil {
+		return "", false
+	}
+	return cfg, true
+}
+
+func LoadOverlay(pth string) (*Overlay, error) {
+	raw, err := os.ReadFile(pth)
+	if err != nil {
+		return nil, fmt.Errorf("reading overlay %s: %w", pth, err)
+	}
+	var f struct {
+		EngineMinVersion string   `toml:"engine_min_version"`
+		AuditLog         string   `toml:"audit_log"`
+		Waive            []string `toml:"waive"`
+		Slots            struct {
+			SafeRoots       []string `toml:"safe_roots"`
+			SecretGlobs     []string `toml:"secret_globs"`
+			SecretAllow     []string `toml:"secret_allow"`
+			EgressAllowlist []string `toml:"egress_allowlist"`
+		} `toml:"slots"`
+		Rules []struct {
+			ID       string   `toml:"id"`
+			Tool     string   `toml:"tool"`
+			Pattern  string   `toml:"pattern"`
+			Decision string   `toml:"decision"`
+			Reason   string   `toml:"reason"`
+			Waive    []string `toml:"waive"`
+		} `toml:"rules"`
+	}
+	if err := toml.Unmarshal(raw, &f); err != nil {
+		return nil, fmt.Errorf("parsing overlay %s: %w", pth, err)
+	}
+	ov := &Overlay{
+		EngineMinVersion: f.EngineMinVersion,
+		AuditLog:         f.AuditLog,
+		SafeRoots:        f.Slots.SafeRoots,
+		SecretGlobs:      f.Slots.SecretGlobs,
+		SecretAllow:      f.Slots.SecretAllow,
+		EgressAllowlist:  f.Slots.EgressAllowlist,
+		Waive:            f.Waive,
+		Path:             pth,
+	}
+	for _, r := range f.Rules {
+		ov.Rules = append(ov.Rules, Rule{
+			ID: r.ID, Tool: r.Tool, Pattern: r.Pattern,
+			Decision: Decision(r.Decision), Reason: r.Reason,
+		})
+		ov.Waive = append(ov.Waive, r.Waive...)
+	}
+	return ov, nil
+}
