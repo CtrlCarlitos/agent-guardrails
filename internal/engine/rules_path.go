@@ -60,25 +60,47 @@ func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	if v := checkGitProtectedPaths(tc); v != nil {
 		return v
 	}
+	if v := checkSelfConfig(tc); v != nil {
+		return v
+	}
 	return nil
 }
 
-func checkGitProtectedPaths(tc ToolCall) *policy.Verdict {
-	var candidates []string
+func writeCandidates(tc ToolCall) []string {
+	var out []string
 	if isFileTool(tc.Tool) {
-		candidates = append(candidates, tc.Paths...)
+		out = append(out, tc.Paths...)
 	}
 	if tc.IsBash() {
 		if simples, err := Normalize(tc.Command); err == nil {
 			for _, s := range simples {
-				candidates = append(candidates, s.Redirects...)
+				out = append(out, s.Redirects...)
 			}
 		}
 	}
-	for _, c := range candidates {
+	return out
+}
+
+func checkGitProtectedPaths(tc ToolCall) *policy.Verdict {
+	for _, c := range writeCandidates(tc) {
 		if matchesAnyGlob(strings.TrimPrefix(c, "./"), gitProtectedGlobs) {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P2.git-protected-path",
 				Reason: "write to a protected git-internal path: " + c}
+		}
+	}
+	return nil
+}
+
+var selfConfigGlobs = []string{
+	"**/.claude/**", "CLAUDE.md", "AGENTS.md", ".mcp.json", ".envrc",
+	"**/.bashrc", "**/.zshrc", "**/.profile", "**/.bash_profile",
+}
+
+func checkSelfConfig(tc ToolCall) *policy.Verdict {
+	for _, c := range writeCandidates(tc) {
+		if matchesAnyGlob(strings.TrimPrefix(c, "./"), selfConfigGlobs) {
+			return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
+				Reason: "write to the agent's own guardrail/shell config: " + c}
 		}
 	}
 	return nil

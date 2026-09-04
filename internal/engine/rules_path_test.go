@@ -96,6 +96,21 @@ func TestGitProtectedPathWrite(t *testing.T) {
 	}
 }
 
+func TestSelfConfigDenied(t *testing.T) {
+	deny := []string{"/repo/.claude/settings.json", "/repo/CLAUDE.md", "/repo/AGENTS.md", "/repo/.mcp.json", "/repo/.envrc", "/home/u/.bashrc", "/home/u/.zshrc"}
+	for _, p := range deny {
+		tc := ToolCall{Tool: "Edit", Paths: []string{p}, RepoRoot: "/repo", CWD: "/repo"}
+		v := checkPaths(tc, pathPol())
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
+			t.Errorf("Edit %q -> %+v, want deny/P5.self-config", p, v)
+		}
+	}
+	tc := ToolCall{Tool: "Edit", Paths: []string{"/repo/src/main.go"}, RepoRoot: "/repo", CWD: "/repo"}
+	if v := checkPaths(tc, pathPol()); v != nil {
+		t.Errorf("unrelated path -> %+v, want nil", v)
+	}
+}
+
 func TestCheckPathsSecretWaivedStillChecksSymlinkEscape(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink creation is privileged on Windows")
