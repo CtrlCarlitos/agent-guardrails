@@ -14,3 +14,7 @@ fmt:
 
 contract:
 	$(GO) test ./test/ -v
+
+.PHONY: golden
+golden:
+	$(GO) test ./test/ -run Golden -update

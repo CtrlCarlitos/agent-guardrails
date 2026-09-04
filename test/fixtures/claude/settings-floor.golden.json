@@ -1,0 +1,100 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "/usr/local/bin/guardrail hook claude",
+            "type": "command"
+          }
+        ],
+        "matcher": "Write|Edit|MultiEdit"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "/usr/local/bin/guardrail hook claude",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash|Read|Edit|Write|MultiEdit"
+      }
+    ]
+  },
+  "permissions": {
+    "ask": [
+      "Bash(chmod -R *)",
+      "Bash(chmod 777 *)",
+      "Bash(chmod -R 777 *)",
+      "Bash(chown -R *)",
+      "Bash(truncate *)",
+      "Bash(kill -9 *)",
+      "Bash(killall *)",
+      "Bash(pkill *)",
+      "Bash(find * -delete)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(rm -fr *)",
+      "Bash(rm -r -f *)",
+      "Bash(rm -f -r *)",
+      "Bash(dd *)",
+      "Bash(mkfs*)",
+      "Bash(wipefs *)",
+      "Bash(shred *)",
+      "Bash(srm *)",
+      "Bash(sudo *)",
+      "Bash(su *)",
+      "Bash(su)",
+      "Bash(doas *)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git clean -f*)",
+      "Bash(git clean -xf*)",
+      "Bash(git clean -fx*)",
+      "Bash(git clean -df*)",
+      "Bash(git clean -fd*)",
+      "Bash(docker compose down*)",
+      "Bash(docker system prune*)",
+      "Bash(docker volume prune*)",
+      "Bash(docker network prune*)",
+      "Read(**/.env)",
+      "Read(**/.ssh/**)",
+      "Read(**/.aws/**)",
+      "Read(**/.config/gcloud/**)",
+      "Read(**/.kube/config)",
+      "Read(**/.netrc)",
+      "Read(**/.npmrc)",
+      "Read(**/.pypirc)",
+      "Read(**/.docker/config.json)",
+      "Read(**/.git-credentials)",
+      "Read(id_rsa*)",
+      "Read(id_ed25519*)",
+      "Read(*.pem)",
+      "Read(*.key)",
+      "Read(service-account*.json)",
+      "Read(**/.claude.json)",
+      "Read(/root/.ssh/**)",
+      "Edit(**/.env)",
+      "Edit(**/.ssh/**)",
+      "Edit(**/.aws/**)",
+      "Edit(**/.config/gcloud/**)",
+      "Edit(**/.kube/config)",
+      "Edit(**/.netrc)",
+      "Edit(**/.npmrc)",
+      "Edit(**/.pypirc)",
+      "Edit(**/.docker/config.json)",
+      "Edit(**/.git-credentials)",
+      "Edit(id_rsa*)",
+      "Edit(id_ed25519*)",
+      "Edit(*.pem)",
+      "Edit(*.key)",
+      "Edit(service-account*.json)",
+      "Edit(**/.claude.json)",
+      "Edit(/root/.ssh/**)"
+    ]
+  }
+}
