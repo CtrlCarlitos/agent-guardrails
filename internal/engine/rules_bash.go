@@ -100,7 +100,7 @@ func checkGit(s Simple) *policy.Verdict {
 	sub := gitSubcommand(s.Argv)
 	switch sub {
 	case "push":
-		if hasAnyFlag(s.Argv, "f", "--force") {
+		if hasAnyFlag(s.Argv, "f", "--force", "--force-with-lease") {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.git-push-force",
 				Reason: "git push --force overwrites remote history"}
 		}

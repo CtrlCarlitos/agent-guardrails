@@ -69,6 +69,15 @@ func TestGitPushProtected(t *testing.T) {
 	}
 }
 
+func TestForceWithLeaseDenied(t *testing.T) {
+	for _, c := range []string{"git push --force-with-lease origin main", "git push --force-with-lease origin feature/x"} {
+		v := evalGitSafety(t, c)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.git-push-force" {
+			t.Errorf("%q -> %+v, want deny/P1.git-push-force", c, v)
+		}
+	}
+}
+
 func TestGitConfigWriteDenied(t *testing.T) {
 	for _, c := range []string{
 		"git config user.email x@y.com",
