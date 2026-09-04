@@ -236,6 +236,59 @@ func TestWritesByArgumentAreSeen(t *testing.T) {
 	}
 }
 
+func TestCR15ExactReproductionsAreDenied(t *testing.T) {
+	deny := []string{
+		`cp /tmp/evil ~/.claude/settings.json`,
+		`rm ~/.claude/settings.json`,
+		`install -m755 /tmp/evil ~/.local/bin/guardrail`,
+		`cp /tmp/evil ~/.bashrc`,
+		`echo x | tee /repo/.claude/settings.json`,
+	}
+	for _, c := range deny {
+		tc := ToolCall{Tool: "Bash", Command: c, RepoRoot: "/repo", CWD: "/repo"}
+		v := checkPaths(tc, pathPol())
+		if v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", c, v)
+		}
+	}
+}
+
+func TestMutatingCommandTargetDirectoriesAreSeen(t *testing.T) {
+	deny := []string{
+		`cp --target-directory=/home/u/.claude /tmp/settings.json`,
+		`mv --target-directory /home/u/.claude /tmp/settings.json`,
+		`install --target-directory=/home/u/.local/bin /tmp/guardrail`,
+		`install --target-directory /home/u/.local/bin /tmp/guardrail`,
+		`ln -t /repo/.git/hooks /tmp/pre-commit`,
+		`cp -t/home/u/.claude /tmp/settings.json`,
+		`cp -t /home/u/.claude /tmp/settings.json`,
+	}
+	for _, c := range deny {
+		tc := ToolCall{Tool: "Bash", Command: c, RepoRoot: "/repo", CWD: "/repo"}
+		v := checkPaths(tc, pathPol())
+		if v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", c, v)
+		}
+	}
+}
+
+func TestMutatingCommandSourcesAreNotWriteTargets(t *testing.T) {
+	allow := []string{
+		`cp /tmp/a /repo/CLAUDE.md /tmp`,
+		`mv /tmp/a /repo/CLAUDE.md /tmp`,
+		`install /tmp/a /repo/CLAUDE.md /tmp`,
+		`ln /tmp/a /repo/CLAUDE.md /tmp`,
+		`rsync /tmp/a /repo/CLAUDE.md /tmp`,
+		`rsync -t /repo/CLAUDE.md /tmp`,
+	}
+	for _, c := range allow {
+		tc := ToolCall{Tool: "Bash", Command: c, RepoRoot: "/repo", CWD: "/repo"}
+		if v := checkSelfConfig(tc); v != nil {
+			t.Errorf("%q -> %+v, want nil (only the final positional operand is the destination)", c, v)
+		}
+	}
+}
+
 func TestReadingViaMutatingCommandSourceIsNotAWrite(t *testing.T) {
 	// `cp <protected> /tmp/x` reads the protected file; it is not a write to it.
 	// It must not be reported as a self-config write (the secret-path rule

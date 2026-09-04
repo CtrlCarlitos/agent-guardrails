@@ -84,16 +84,70 @@ func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	return nil
 }
 
-// These command groups describe how write targets are found after flags are
-// removed. Commands in the first group read their first argument as a source;
-// commands in the second group mutate every argument.
-var mutatingAllButFirst = map[string]bool{
+var mutatingDestinationCommands = map[string]bool{
 	"cp": true, "mv": true, "install": true, "ln": true, "rsync": true,
+}
+
+// rsync is intentionally absent: its -t flag means --times.
+var targetDirectoryCommands = map[string]bool{
+	"cp": true, "mv": true, "install": true, "ln": true,
 }
 
 var mutatingAllArgs = map[string]bool{
 	"rm": true, "truncate": true, "chmod": true, "chown": true,
 	"mkdir": true, "tee": true, "touch": true, "shred": true,
+}
+
+func destinationTargets(argv []string, supportsTargetDirectory bool) []string {
+	var operands []string
+	var targetDirectory string
+	targetDirectorySet := false
+	options := true
+	for i := 1; i < len(argv); i++ {
+		a := argv[i]
+		if options && a == "--" {
+			options = false
+			continue
+		}
+		if options && supportsTargetDirectory {
+			switch {
+			case a == "-t" || a == "--target-directory":
+				targetDirectorySet = true
+				if i+1 < len(argv) {
+					i++
+					targetDirectory = argv[i]
+				}
+				continue
+			case strings.HasPrefix(a, "--target-directory="):
+				targetDirectorySet = true
+				targetDirectory = strings.TrimPrefix(a, "--target-directory=")
+				continue
+			case strings.HasPrefix(a, "-t") && len(a) > 2:
+				targetDirectorySet = true
+				targetDirectory = strings.TrimPrefix(a, "-t")
+				continue
+			}
+		}
+		if options && strings.HasPrefix(a, "-") {
+			continue
+		}
+		operands = append(operands, a)
+	}
+
+	if targetDirectorySet {
+		if targetDirectory == "" {
+			return nil
+		}
+		out := []string{targetDirectory}
+		for _, source := range operands {
+			out = append(out, path.Join(targetDirectory, path.Base(source)))
+		}
+		return out
+	}
+	if len(operands) == 0 {
+		return nil
+	}
+	return operands[len(operands)-1:]
 }
 
 func writeTargets(s Simple) []string {
@@ -122,11 +176,8 @@ func writeTargets(s Simple) []string {
 		}
 		return nil
 	}
-	if mutatingAllButFirst[head] {
-		if len(args) > 1 {
-			return args[1:]
-		}
-		return nil
+	if mutatingDestinationCommands[head] {
+		return destinationTargets(s.Argv, targetDirectoryCommands[head])
 	}
 	if mutatingAllArgs[head] {
 		return args
