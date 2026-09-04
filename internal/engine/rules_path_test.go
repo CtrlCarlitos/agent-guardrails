@@ -143,30 +143,42 @@ func TestSelfConfigAndGitProtectedAllowReads(t *testing.T) {
 }
 
 func TestSelfConfigAndGitProtectedStillDenyWrites(t *testing.T) {
-	deny := []string{
-		"/repo/.claude/settings.json", "/repo/CLAUDE.md",
-		"/home/u/.claude/settings.json",
-		"/repo/.git/config", "/repo/.git/hooks/pre-commit",
+	deny := []struct {
+		path       string
+		ruleID     string
+		wantReason string
+	}{
+		{"/repo/.claude/settings.json", "P5.self-config", "write to the agent's own guardrail/shell config: /repo/.claude/settings.json"},
+		{"/repo/CLAUDE.md", "P5.self-config", "write to the agent's own guardrail/shell config: /repo/CLAUDE.md"},
+		{"/home/u/.claude/settings.json", "P5.self-config", "write to the agent's own guardrail/shell config: /home/u/.claude/settings.json"},
+		{"/repo/.git/config", "P2.git-protected-path", "write to a protected git-internal path: /repo/.git/config"},
+		{"/repo/.git/hooks/pre-commit", "P2.git-protected-path", "write to a protected git-internal path: /repo/.git/hooks/pre-commit"},
 	}
-	for _, p := range deny {
-		tc := ToolCall{Tool: "Write", Paths: []string{p}, RepoRoot: "/repo", CWD: "/repo"}
-		v := checkPaths(tc, pathPol())
-		if v == nil || v.Decision != policy.Deny {
-			t.Errorf("Write %q -> %+v, want deny", p, v)
+	for _, tool := range []string{"Edit", "Write", "MultiEdit"} {
+		for _, test := range deny {
+			tc := ToolCall{Tool: tool, Paths: []string{test.path}, RepoRoot: "/repo", CWD: "/repo"}
+			v := checkPaths(tc, pathPol())
+			if v == nil || v.Decision != policy.Deny || v.RuleID != test.ruleID || v.Reason != test.wantReason {
+				t.Errorf("%s %q -> %+v, want deny/%s with reason %q", tool, test.path, v, test.ruleID, test.wantReason)
+			}
 		}
 	}
 }
 
 func TestSelfConfigAndGitProtectedStillDenyBashRedirects(t *testing.T) {
-	deny := []string{
-		"/repo/CLAUDE.md",
-		"/repo/.git/config",
+	deny := []struct {
+		path       string
+		ruleID     string
+		wantReason string
+	}{
+		{"/repo/CLAUDE.md", "P5.self-config", "write to the agent's own guardrail/shell config: /repo/CLAUDE.md"},
+		{"/repo/.git/config", "P2.git-protected-path", "write to a protected git-internal path: /repo/.git/config"},
 	}
-	for _, p := range deny {
-		tc := ToolCall{Tool: "Bash", Command: "printf x > " + p, RepoRoot: "/repo", CWD: "/repo"}
+	for _, test := range deny {
+		tc := ToolCall{Tool: "Bash", Command: "printf x > " + test.path, RepoRoot: "/repo", CWD: "/repo"}
 		v := checkPaths(tc, pathPol())
-		if v == nil || v.Decision != policy.Deny {
-			t.Errorf("Bash redirect to %q -> %+v, want deny", p, v)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != test.ruleID || v.Reason != test.wantReason {
+			t.Errorf("Bash redirect to %q -> %+v, want deny/%s with reason %q", test.path, v, test.ruleID, test.wantReason)
 		}
 	}
 }
