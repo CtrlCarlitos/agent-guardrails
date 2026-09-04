@@ -33,8 +33,11 @@ func ParseClaude(r io.Reader) (engine.ToolCall, error) {
 		return engine.ToolCall{}, err
 	}
 	event := "pre"
-	if p.HookEventName == "PostToolUse" {
+	switch p.HookEventName {
+	case "PostToolUse":
 		event = "post"
+	case "SessionStart":
+		event = "session-start"
 	}
 	tc := engine.ToolCall{
 		Plane:     "claude",
