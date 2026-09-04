@@ -1,8 +1,12 @@
 package adapter
 
 import (
+	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
 func TestParseAntigravityBash(t *testing.T) {
@@ -55,5 +59,36 @@ func TestParseAntigravityUnknownToolPassesThrough(t *testing.T) {
 	}
 	if tc.Tool != "grep_search" {
 		t.Fatalf("Tool = %q, want passthrough grep_search", tc.Tool)
+	}
+}
+
+func TestEmitAntigravityPre(t *testing.T) {
+	var out bytes.Buffer
+	code := EmitAntigravity(policy.Verdict{Decision: policy.Deny, Reason: "no"}, "pre", &out)
+	if code != 0 {
+		t.Fatalf("code = %d, want 0 (exit code carries no meaning here)", code)
+	}
+	var got map[string]string
+	json.Unmarshal(out.Bytes(), &got)
+	if got["decision"] != "deny" || got["reason"] != "no" {
+		t.Fatalf("bad payload: %v", got)
+	}
+}
+
+func TestEmitAntigravityPost(t *testing.T) {
+	var out bytes.Buffer
+	code := EmitAntigravity(policy.Verdict{Decision: policy.Deny, Reason: "irrelevant"}, "post", &out)
+	if code != 0 || out.String() != "{}\n" {
+		t.Fatalf("post phase must always emit {} regardless of v; got code=%d out=%q", code, out.String())
+	}
+}
+
+func TestEmitAntigravityAllowOmitsReason(t *testing.T) {
+	var out bytes.Buffer
+	EmitAntigravity(policy.Verdict{Decision: policy.Allow}, "pre", &out)
+	var got map[string]any
+	json.Unmarshal(out.Bytes(), &got)
+	if _, ok := got["reason"]; ok {
+		t.Errorf("reason should be omitted when empty: %v", got)
 	}
 }

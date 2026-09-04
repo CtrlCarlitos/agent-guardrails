@@ -82,7 +82,16 @@ func normalizeAntigravityTool(name string) string {
 	}
 }
 
-// EmitAntigravity is defined in Task 3 — declared here only as a forward
-// reference in this doc comment for readers; the real function lives in
-// this same file once Task 3 lands.
-var _ = policy.Allow // placeholder import anchor removed once EmitAntigravity (Task 3) uses the policy package
+func EmitAntigravity(v policy.Verdict, phase string, stdout io.Writer) int {
+	if phase == "post" {
+		stdout.Write([]byte("{}\n"))
+		return 0
+	}
+	payload := map[string]any{"decision": string(v.Decision)}
+	if v.Reason != "" {
+		payload["reason"] = v.Reason
+	}
+	b, _ := json.Marshal(payload)
+	stdout.Write(append(b, '\n'))
+	return 0
+}
