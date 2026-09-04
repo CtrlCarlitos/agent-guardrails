@@ -28,6 +28,7 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 			worst = v
 		}
 	}
+	take(checkDownloadPipeShell(simples))
 	for _, s := range simples {
 		if len(s.Argv) == 0 {
 			continue

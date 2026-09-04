@@ -13,6 +13,25 @@ var netTools = map[string]bool{
 	"scp": true, "rsync": true, "ftp": true, "telnet": true,
 }
 
+var fetchTools = map[string]bool{"curl": true, "wget": true}
+var interpreters = map[string]bool{
+	"sh": true, "bash": true, "zsh": true, "dash": true,
+	"python": true, "python3": true, "perl": true, "ruby": true, "node": true,
+}
+
+func checkDownloadPipeShell(simples []Simple) *policy.Verdict {
+	for i := 0; i+1 < len(simples); i++ {
+		if len(simples[i].Argv) == 0 || len(simples[i+1].Argv) == 0 {
+			continue
+		}
+		if fetchTools[simples[i].Argv[0]] && interpreters[simples[i+1].Argv[0]] {
+			return &policy.Verdict{Decision: policy.Deny, RuleID: "P6.download-pipe-shell",
+				Reason: "downloaded content piped straight into an interpreter"}
+		}
+	}
+	return nil
+}
+
 func checkEgress(s Simple, pol *policy.Policy) *policy.Verdict {
 	if !netTools[s.Argv[0]] {
 		return nil
