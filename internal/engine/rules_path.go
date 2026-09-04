@@ -66,6 +66,9 @@ func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	if v := checkCIInfraLockfile(tc); v != nil {
 		return v
 	}
+	if v := checkOutOfRepoWrite(tc); v != nil {
+		return v
+	}
 	return nil
 }
 
@@ -130,6 +133,23 @@ func checkCIInfraLockfile(tc ToolCall) *policy.Verdict {
 		if matchesAnyGlob(strings.TrimPrefix(c, "./"), ciInfraLockGlobs) {
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P5.ci-infra-lockfile",
 				Reason: "edit of a CI/infra/lockfile — this code runs later with more privilege: " + c}
+		}
+	}
+	return nil
+}
+
+func checkOutOfRepoWrite(tc ToolCall) *policy.Verdict {
+	if tc.RepoRoot == "" {
+		return nil
+	}
+	if !strings.EqualFold(tc.Tool, "edit") && !strings.EqualFold(tc.Tool, "write") && !strings.EqualFold(tc.Tool, "multiedit") {
+		return nil
+	}
+	for _, p := range tc.Paths {
+		abs := resolvePath(p, tc.CWD)
+		if !withinSafe(abs, tc.RepoRoot, nil) {
+			return &policy.Verdict{Decision: policy.Ask, RuleID: "P5.out-of-repo",
+				Reason: "write target is outside the repo/worktree root: " + p}
 		}
 	}
 	return nil

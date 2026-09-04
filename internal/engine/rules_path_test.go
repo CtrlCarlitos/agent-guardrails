@@ -129,6 +129,25 @@ func TestCIInfraLockfileAsk(t *testing.T) {
 	}
 }
 
+func TestOutOfRepoWriteAsk(t *testing.T) {
+	tc := ToolCall{Tool: "Write", Paths: []string{"/etc/hosts"}, RepoRoot: "/repo", CWD: "/repo"}
+	v := checkPaths(tc, pathPol())
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P5.out-of-repo" {
+		t.Fatalf("-> %+v, want ask/P5.out-of-repo", v)
+	}
+	tc = ToolCall{Tool: "Write", Paths: []string{"/repo/src/new.go"}, RepoRoot: "/repo", CWD: "/repo"}
+	if v := checkPaths(tc, pathPol()); v != nil {
+		t.Fatalf("in-repo write -> %+v, want nil", v)
+	}
+	// deviation from plan (controller ruling 2): ../outside.txt with CWD /repo/sub
+	// resolves to /repo/outside.txt — inside the repo — so ../../ is used for a
+	// true escape (/outside.txt).
+	tc = ToolCall{Tool: "Write", Paths: []string{"../../outside.txt"}, RepoRoot: "/repo", CWD: "/repo/sub"}
+	if v := checkPaths(tc, pathPol()); v == nil || v.RuleID != "P5.out-of-repo" {
+		t.Fatalf("relative escape -> %+v, want ask/P5.out-of-repo", v)
+	}
+}
+
 func TestCheckPathsSecretWaivedStillChecksSymlinkEscape(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink creation is privileged on Windows")
