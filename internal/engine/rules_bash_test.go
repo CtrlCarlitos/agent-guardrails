@@ -117,3 +117,17 @@ func TestCheckBashAllows(t *testing.T) {
 		}
 	}
 }
+
+func TestUnresolvedWordAsks(t *testing.T) {
+	v := evalBash(t, `rm -rf "$TARGET"`)
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+		t.Fatalf("-> %+v, want ask/P3.unresolved", v)
+	}
+}
+
+func TestUnresolvedDoesNotMaskADeny(t *testing.T) {
+	v := evalBash(t, `rm -rf /etc && echo $UNSET`)
+	if v == nil || v.Decision != policy.Deny {
+		t.Fatalf("-> %+v, want the concrete deny to still win", v)
+	}
+}

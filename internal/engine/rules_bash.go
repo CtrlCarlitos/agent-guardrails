@@ -33,6 +33,10 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		if len(s.Argv) == 0 {
 			continue
 		}
+		if s.Unresolved {
+			take(&policy.Verdict{Decision: policy.Ask, RuleID: "P3.unresolved",
+				Reason: "command contains an unexpanded variable or substitution; its real target cannot be verified"})
+		}
 		take(checkRmRf(s, tc, pol))
 		take(checkDiskDestroyers(s))
 		take(checkGit(s))
