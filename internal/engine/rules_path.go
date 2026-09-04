@@ -63,6 +63,9 @@ func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	if v := checkSelfConfig(tc); v != nil {
 		return v
 	}
+	if v := checkCIInfraLockfile(tc); v != nil {
+		return v
+	}
 	return nil
 }
 
@@ -101,6 +104,32 @@ func checkSelfConfig(tc ToolCall) *policy.Verdict {
 		if matchesAnyGlob(strings.TrimPrefix(c, "./"), selfConfigGlobs) {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
 				Reason: "write to the agent's own guardrail/shell config: " + c}
+		}
+	}
+	return nil
+}
+
+var ciInfraLockGlobs = []string{
+	"**/.github/workflows/**", ".gitlab-ci.yml", "**/.circleci/**", "Jenkinsfile",
+	"**/.buildkite/**", ".pre-commit-config.yaml", "azure-pipelines.yml",
+	"Dockerfile", "docker-compose*.yml", "*.tf", "Makefile", "justfile", "Taskfile.yml",
+	"setup.py", "conftest.py", "noxfile.py",
+	"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Cargo.lock",
+	"poetry.lock", "uv.lock", "go.sum", "Gemfile.lock", "mix.lock", "composer.lock",
+}
+
+func checkCIInfraLockfile(tc ToolCall) *policy.Verdict {
+	if !isFileTool(tc.Tool) && !tc.IsBash() {
+		return nil
+	}
+	// only Write/Edit — reading these is fine
+	if isFileTool(tc.Tool) && !strings.EqualFold(tc.Tool, "edit") && !strings.EqualFold(tc.Tool, "write") && !strings.EqualFold(tc.Tool, "multiedit") {
+		return nil
+	}
+	for _, c := range writeCandidates(tc) {
+		if matchesAnyGlob(strings.TrimPrefix(c, "./"), ciInfraLockGlobs) {
+			return &policy.Verdict{Decision: policy.Ask, RuleID: "P5.ci-infra-lockfile",
+				Reason: "edit of a CI/infra/lockfile — this code runs later with more privilege: " + c}
 		}
 	}
 	return nil

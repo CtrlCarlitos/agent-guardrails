@@ -111,6 +111,24 @@ func TestSelfConfigDenied(t *testing.T) {
 	}
 }
 
+func TestCIInfraLockfileAsk(t *testing.T) {
+	ask := []string{
+		"/repo/.github/workflows/ci.yml", "/repo/Dockerfile", "/repo/docker-compose.yml",
+		"/repo/main.tf", "/repo/Makefile", "/repo/package-lock.json", "/repo/go.sum",
+	}
+	for _, p := range ask {
+		tc := ToolCall{Tool: "Write", Paths: []string{p}, RepoRoot: "/repo", CWD: "/repo"}
+		v := checkPaths(tc, pathPol())
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P5.ci-infra-lockfile" {
+			t.Errorf("Write %q -> %+v, want ask/P5.ci-infra-lockfile", p, v)
+		}
+	}
+	tc := ToolCall{Tool: "Read", Paths: []string{"/repo/go.sum"}, RepoRoot: "/repo", CWD: "/repo"}
+	if v := checkPaths(tc, pathPol()); v != nil {
+		t.Errorf("reading a lockfile -> %+v, want nil", v)
+	}
+}
+
 func TestCheckPathsSecretWaivedStillChecksSymlinkEscape(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink creation is privileged on Windows")
