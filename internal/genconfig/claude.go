@@ -26,6 +26,11 @@ func bashDenyGlobs() []string {
 		"Bash(git push --force*)", "Bash(git push -f*)",
 		"Bash(git clean -f*)", "Bash(git clean -xf*)", "Bash(git clean -fx*)",
 		"Bash(git clean -df*)", "Bash(git clean -fd*)",
+		"Bash(git reset --hard*)", "Bash(git reset --keep*)",
+		"Bash(git config *)",
+		"Bash(git filter-branch*)", "Bash(git filter-repo*)",
+		"Bash(pip install --index-url*)", "Bash(pip3 install --index-url*)",
+		"Bash(npm install --registry*)",
 		"Bash(docker compose down*)",
 		"Bash(docker system prune*)", "Bash(docker volume prune*)", "Bash(docker network prune*)",
 	}
@@ -39,6 +44,16 @@ func bashAskGlobs() []string {
 		"Bash(truncate *)",
 		"Bash(kill -9 *)", "Bash(killall *)", "Bash(pkill *)",
 		"Bash(find * -delete)",
+		"Bash(git checkout .)", "Bash(git restore .)",
+		"Bash(git branch -D *)", "Bash(git commit --amend*)",
+		"Bash(git remote add *)", "Bash(git remote set-url *)",
+		"Bash(git stash clear)", "Bash(git stash drop*)",
+		"Bash(git push * main)", "Bash(git push * master)", "Bash(git push --tags*)",
+		"Bash(pip install *)", "Bash(pip3 install *)",
+		"Bash(npm install *)", "Bash(npm i *)", "Bash(npm ci*)",
+		"Bash(yarn add *)", "Bash(pnpm add *)",
+		"Bash(gem install *)", "Bash(cargo install *)",
+		"Bash(go install *)", "Bash(go get *)",
 	}
 }
 
@@ -63,13 +78,58 @@ func collidesWithAllow(glob string, allow []string) bool {
 	return false
 }
 
+// Duplicated from internal/engine's selfConfigGlobs / gitProtectedGlobs / ciInfraLockGlobs —
+// genconfig cannot import internal/engine (would create an import cycle risk and couples
+// the declarative-floor package to the Engine's internals). Keep these three lists in sync
+// by hand; a drift only weakens the floor, the Engine (internal/engine) stays authoritative.
+// Note the intentional prefix difference on directory entries: the Engine lists use `**/`
+// prefixes (`**/.claude/**`, `**/.github/workflows/**`) because its matcher sees arbitrary
+// absolute paths, while these floor lists keep the plan-literal forms (`.claude/**`,
+// `.github/workflows/**`) because Claude's permission matcher treats them project-relative.
+var selfConfigGlobsFloor = []string{
+	".claude/**", "CLAUDE.md", "AGENTS.md", ".mcp.json", ".envrc",
+	"**/.bashrc", "**/.zshrc", "**/.profile", "**/.bash_profile",
+}
+
+var gitProtectedGlobsFloor = []string{"**/.git/config", "**/.git/hooks/**"}
+
+var ciInfraLockGlobsFloor = []string{
+	".github/workflows/**", ".gitlab-ci.yml", ".circleci/**", "Jenkinsfile",
+	".buildkite/**", ".pre-commit-config.yaml", "azure-pipelines.yml",
+	"Dockerfile", "docker-compose*.yml", "*.tf", "Makefile", "justfile", "Taskfile.yml",
+	"setup.py", "conftest.py", "noxfile.py",
+	"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Cargo.lock",
+	"poetry.lock", "uv.lock", "go.sum", "Gemfile.lock", "mix.lock", "composer.lock",
+}
+
+func selfConfigDenyGlobs() []string {
+	out := make([]string, 0, len(selfConfigGlobsFloor)+len(gitProtectedGlobsFloor))
+	for _, g := range selfConfigGlobsFloor {
+		out = append(out, "Edit("+g+")")
+	}
+	for _, g := range gitProtectedGlobsFloor {
+		out = append(out, "Edit("+g+")")
+	}
+	return out
+}
+
+func ciInfraLockAskGlobs() []string {
+	out := make([]string, 0, len(ciInfraLockGlobsFloor))
+	for _, g := range ciInfraLockGlobsFloor {
+		out = append(out, "Edit("+g+")")
+	}
+	return out
+}
+
 func ClaudeConfig(pol *policy.Policy, binary string) Fragment {
 	deny := append(bashDenyGlobs(), secretDenyGlobs(pol)...)
+	deny = append(deny, selfConfigDenyGlobs()...)
+	ask := append(bashAskGlobs(), ciInfraLockAskGlobs()...)
 	return Fragment{
 		"hooks": claudeHooks(binary),
 		"permissions": map[string]any{
 			"deny": deny,
-			"ask":  bashAskGlobs(),
+			"ask":  ask,
 		},
 	}
 }

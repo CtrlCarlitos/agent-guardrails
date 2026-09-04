@@ -78,6 +78,40 @@ func TestClaudeConfigShape(t *testing.T) {
 	}
 }
 
+func TestBashDenyGlobsP2P6(t *testing.T) {
+	got := bashDenyGlobs()
+	for _, m := range []string{"Bash(git reset --hard*)", "Bash(git config *)", "Bash(pip install --index-url*)"} {
+		if !slices.Contains(got, m) {
+			t.Errorf("missing %q", m)
+		}
+	}
+}
+
+func TestBashAskGlobsP2P6(t *testing.T) {
+	got := bashAskGlobs()
+	for _, m := range []string{"Bash(git checkout .)", "Bash(git branch -D *)", "Bash(pip install *)", "Bash(git push * main)"} {
+		if !slices.Contains(got, m) {
+			t.Errorf("missing %q", m)
+		}
+	}
+}
+
+func TestSelfConfigAndGitProtectedDenyGlobs(t *testing.T) {
+	frag := ClaudeConfig(secretPol(), "guardrail")
+	deny := frag["permissions"].(map[string]any)["deny"].([]string)
+	for _, m := range []string{"Edit(.claude/**)", "Edit(CLAUDE.md)", "Edit(**/.git/config)", "Edit(**/.git/hooks/**)"} {
+		if !slices.Contains(deny, m) {
+			t.Errorf("deny missing %q: %v", m, deny)
+		}
+	}
+	ask := frag["permissions"].(map[string]any)["ask"].([]string)
+	for _, m := range []string{"Edit(.github/workflows/**)", "Edit(go.sum)"} {
+		if !slices.Contains(ask, m) {
+			t.Errorf("ask missing %q: %v", m, ask)
+		}
+	}
+}
+
 func TestClaudeHooks(t *testing.T) {
 	h := claudeHooks("/usr/local/bin/guardrail")
 	pre := h["PreToolUse"].([]any)[0].(map[string]any)
