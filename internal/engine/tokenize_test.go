@@ -37,6 +37,53 @@ func TestSplitSimples(t *testing.T) {
 	}
 }
 
+func TestSplitSimplesStoresLiteralText(t *testing.T) {
+	cases := []struct {
+		src  string
+		want [][]string
+	}{
+		{`rm -rf "/etc"`, [][]string{{"rm", "-rf", "/etc"}}},
+		{`rm -rf '/etc'`, [][]string{{"rm", "-rf", "/etc"}}},
+		{`git push "--force"`, [][]string{{"git", "push", "--force"}}},
+		{`cat "/home/u/.env"`, [][]string{{"cat", "/home/u/.env"}}},
+		{`env FOO=1 BAR=2 curl example.com`, [][]string{{"env", "FOO=1", "BAR=2", "curl", "example.com"}}},
+		{`dd if=/dev/zero of='/dev/sda'`, [][]string{{"dd", "if=/dev/zero", "of=/dev/sda"}}},
+	}
+	for _, c := range cases {
+		got, err := splitSimples(c.src)
+		if err != nil {
+			t.Fatalf("splitSimples(%q): %v", c.src, err)
+		}
+		if !reflect.DeepEqual(argvs(got), c.want) {
+			t.Errorf("splitSimples(%q) = %v, want %v", c.src, argvs(got), c.want)
+		}
+	}
+}
+
+func TestSplitSimplesRedirectLiteral(t *testing.T) {
+	got, err := splitSimples(`echo x > "/etc/passwd"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || len(got[0].Redirects) != 1 || got[0].Redirects[0] != "/etc/passwd" {
+		t.Fatalf("redirects = %+v, want [/etc/passwd]", got[0].Redirects)
+	}
+}
+
+func TestSplitSimplesMarksUnresolved(t *testing.T) {
+	got, err := splitSimples(`rm -rf $HOME`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !got[0].Unresolved {
+		t.Fatalf("want Unresolved=true for an unexpanded $HOME, got %+v", got)
+	}
+	clean, _ := splitSimples(`rm -rf /etc`)
+	if clean[0].Unresolved {
+		t.Error("a fully literal command must not be marked Unresolved")
+	}
+}
+
 func TestSplitSimplesRedirect(t *testing.T) {
 	got, err := splitSimples(`echo hi > out.txt`)
 	if err != nil {
@@ -72,6 +119,16 @@ func TestNormalizeStripsWrappers(t *testing.T) {
 		if !reflect.DeepEqual(argvs(got), c.want) {
 			t.Errorf("Normalize(%q) = %v, want %v", c.src, argvs(got), c.want)
 		}
+	}
+}
+
+func TestNormalizePreservesUnresolved(t *testing.T) {
+	got, err := Normalize(`env FOO=1 rm -rf $HOME`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !got[0].Unresolved {
+		t.Fatalf("want Unresolved=true after normalization, got %+v", got)
 	}
 }
 

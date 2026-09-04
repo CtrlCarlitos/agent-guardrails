@@ -8,8 +8,9 @@ import (
 )
 
 type Simple struct {
-	Argv      []string
-	Redirects []string
+	Argv       []string
+	Redirects  []string
+	Unresolved bool
 }
 
 func splitSimples(src string) ([]Simple, error) {
@@ -32,7 +33,13 @@ func splitSimples(src string) ([]Simple, error) {
 		for _, w := range ce.Args {
 			var b strings.Builder
 			_ = printer.Print(&b, w)
-			s.Argv = append(s.Argv, b.String())
+			raw := b.String()
+			if lit, ok := literalText(raw); ok {
+				s.Argv = append(s.Argv, lit)
+			} else {
+				s.Argv = append(s.Argv, raw)
+				s.Unresolved = true
+			}
 		}
 		for _, r := range stmt.Redirs {
 			if r.Word == nil {
@@ -40,7 +47,13 @@ func splitSimples(src string) ([]Simple, error) {
 			}
 			var b strings.Builder
 			_ = printer.Print(&b, r.Word)
-			s.Redirects = append(s.Redirects, b.String())
+			raw := b.String()
+			if lit, ok := literalText(raw); ok {
+				s.Redirects = append(s.Redirects, lit)
+			} else {
+				s.Redirects = append(s.Redirects, raw)
+				s.Unresolved = true
+			}
 		}
 		out = append(out, s)
 		return true
@@ -104,9 +117,9 @@ loop:
 	if len(argv) == 0 {
 		return nil, nil
 	}
-	result := []Simple{{Argv: argv, Redirects: s.Redirects}}
+	result := []Simple{{Argv: argv, Redirects: s.Redirects, Unresolved: s.Unresolved}}
 	if inner := runnerInner(argv); inner != nil {
-		result = append(result, Simple{Argv: inner})
+		result = append(result, Simple{Argv: inner, Unresolved: s.Unresolved})
 	}
 	if dashC := shellDashC(argv); dashC != -1 {
 		inner, err := normalizeShellDashC(argv[dashC+1])
@@ -118,34 +131,26 @@ loop:
 	return result, nil
 }
 
-// normalizeShellDashC re-tokenizes a shell -c word: quoted and escaped
-// spellings that hide the executed command are reduced to their literal text
-// first. Words with expansions cannot be resolved statically, so they yield
-// nothing (the outer shell simple is still evaluated on its own).
+// normalizeShellDashC re-tokenizes the literal text passed to a shell's -c flag.
 func normalizeShellDashC(word string) ([]Simple, error) {
-	lit, ok := literalText(word)
-	if !ok {
-		return nil, nil
-	}
-	return Normalize(lit)
+	return Normalize(word)
 }
 
 func literalText(tok string) (string, bool) {
-	f, err := syntax.NewParser().Parse(strings.NewReader(tok), "")
+	// Parse in argument position so assignment-shaped words such as FOO=1
+	// remain complete words rather than becoming assignment AST nodes.
+	f, err := syntax.NewParser().Parse(strings.NewReader(": "+tok), "")
 	if err != nil {
 		return "", false
 	}
-	var word *syntax.Word
-	syntax.Walk(f, func(n syntax.Node) bool {
-		if w, ok := n.(*syntax.Word); ok && word == nil {
-			word = w
-			return false
-		}
-		return true
-	})
-	if word == nil {
+	if len(f.Stmts) != 1 {
 		return "", false
 	}
+	call, ok := f.Stmts[0].Cmd.(*syntax.CallExpr)
+	if !ok || len(call.Args) != 2 {
+		return "", false
+	}
+	word := call.Args[1]
 	var b strings.Builder
 	for _, p := range word.Parts {
 		switch part := p.(type) {
