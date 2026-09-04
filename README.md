@@ -19,7 +19,10 @@ trifecta heuristic (session-scoped, ask-only, waivable), runs per-edit P8 recipe
 format+lint checks on edited files (Go, Python, JS/TS, Rust — lenient when a
 tool is absent, deny on real lint failure, allow-only escalation; Odoo/Elixir
 recipes and the session-completion tier are follow-ups per
-[ADR-0009](./docs/adr/0009-recipe-scope-cuts.md)), and answers SessionStart with
+[ADR-0009](./docs/adr/0009-recipe-scope.md)) — P8 denial surfaces on Claude
+today (opencode needs a `tool.execute.after` plugin hook; antigravity post
+responses are always `{}` per ADR-0008, so post denials there are audit-only) —
+and answers SessionStart with
 an autonomy posture message + active-waiver banner (P10). `guardrail hook
 opencode` runs the same shared pipeline (audit, trifecta, waivers) through a JS
 plugin — ask/deny throw, allow passes through — which `gen-config opencode`

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -76,26 +75,16 @@ func TestSyncOverlayReachesClaudeFloor(t *testing.T) {
 	dir := t.TempDir()
 	gitInitSync(t, dir)
 	os.WriteFile(filepath.Join(dir, "guardrail.toml"), []byte(`
-[[rules]]
-id = "proj.tf"
-pattern = "terraform apply*"
-decision = "ask"
-reason = "infra change"
+[slots]
+secret_globs = ["secrets/prod/**"]
 `), 0o644)
 	var out, errb bytes.Buffer
 	code := run([]string{"sync", "--dir", dir, "--planes", "claude", "--binary", "guardrail"}, strings.NewReader(""), &out, &errb)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errb.String())
 	}
-	// The overlay rule itself isn't a Bash()-glob-shaped entry (ClaudeConfig
-	// only ever emits the fixed floor globs, not arbitrary overlay [[rules]]
-	// as permission strings) — this test locks that gen-config's Merge call
-	// received the *merged* policy at all by checking a merge-only signal:
-	// the hooks id is present (proves the pipeline ran end-to-end).
 	raw, _ := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
-	var m map[string]any
-	json.Unmarshal(raw, &m)
-	if _, ok := m["hooks"]; !ok {
-		t.Fatal("hooks block missing from synced settings.json")
+	if !strings.Contains(string(raw), "Read(secrets/prod/**)") {
+		t.Fatalf("overlay secret_globs did not reach the synced Claude floor:\n%s", raw)
 	}
 }
