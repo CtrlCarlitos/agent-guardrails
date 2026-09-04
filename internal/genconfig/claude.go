@@ -62,3 +62,25 @@ func collidesWithAllow(glob string, allow []string) bool {
 	}
 	return false
 }
+
+func claudeHooks(binary string) map[string]any {
+	cmd := binary + " hook claude"
+	return map[string]any{
+		"PreToolUse": []any{
+			map[string]any{
+				"matcher": "Bash|Read|Edit|Write|MultiEdit",
+				"hooks": []any{
+					map[string]any{"type": "command", "command": cmd, "timeout": 10},
+				},
+			},
+		},
+		"PostToolUse": []any{
+			map[string]any{
+				"matcher": "Write|Edit|MultiEdit",
+				"hooks": []any{
+					map[string]any{"type": "command", "command": cmd},
+				},
+			},
+		},
+	}
+}

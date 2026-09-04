@@ -61,3 +61,22 @@ func TestSecretDenyGlobs(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeHooks(t *testing.T) {
+	h := claudeHooks("/usr/local/bin/guardrail")
+	pre, ok := h["PreToolUse"].([]any)
+	if !ok || len(pre) != 1 {
+		t.Fatalf("PreToolUse shape wrong: %#v", h["PreToolUse"])
+	}
+	entry := pre[0].(map[string]any)
+	if entry["matcher"].(string) != "Bash|Read|Edit|Write|MultiEdit" {
+		t.Errorf("matcher = %v", entry["matcher"])
+	}
+	hk := entry["hooks"].([]any)[0].(map[string]any)
+	if hk["command"].(string) != "/usr/local/bin/guardrail hook claude" {
+		t.Errorf("command = %v", hk["command"])
+	}
+	if _, ok := h["PostToolUse"]; !ok {
+		t.Error("PostToolUse missing")
+	}
+}
