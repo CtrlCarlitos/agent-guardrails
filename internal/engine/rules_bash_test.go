@@ -36,6 +36,36 @@ func TestCheckBashDestructive(t *testing.T) {
 	}
 }
 
+func TestCheckBashGitDocker(t *testing.T) {
+	deny := []string{
+		`git push --force origin main`,
+		`git push -f`,
+		`git clean -fd`,
+		`git clean -x`,
+		`docker compose down`,
+		`docker system prune -af`,
+		`docker network prune`,
+		`docker rm $(docker ps -aq)`,
+		"docker rm `docker ps -aq`",
+	}
+	for _, c := range deny {
+		if v := evalBash(t, c); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", c, v)
+		}
+	}
+	ok := []string{
+		`git push origin main`,
+		`git clean -n`,
+		`docker rm my-container`,
+		`docker compose up -d`,
+	}
+	for _, c := range ok {
+		if v := evalBash(t, c); v != nil {
+			t.Errorf("%q -> %+v, want nil", c, v)
+		}
+	}
+}
+
 func TestCheckBashAllows(t *testing.T) {
 	ok := []string{
 		`rm file.txt`,

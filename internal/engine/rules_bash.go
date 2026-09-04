@@ -34,6 +34,8 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		}
 		take(checkRmRf(s, tc, pol))
 		take(checkDiskDestroyers(s))
+		take(checkGit(s))
+		take(checkDocker(s, tc.Command))
 	}
 	return worst
 }
@@ -87,6 +89,69 @@ func checkRmRf(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		}
 	}
 	return nil
+}
+
+func checkGit(s Simple) *policy.Verdict {
+	if s.Argv[0] != "git" || len(s.Argv) < 2 {
+		return nil
+	}
+	sub := gitSubcommand(s.Argv)
+	switch sub {
+	case "push":
+		if hasAnyFlag(s.Argv, "f", "--force") {
+			return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.git-push-force",
+				Reason: "git push --force overwrites remote history"}
+		}
+	case "clean":
+		if hasAnyFlag(s.Argv, "fxd", "--force") {
+			return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.git-clean",
+				Reason: "git clean -f/-x/-d deletes untracked files irrecoverably"}
+		}
+	}
+	return nil
+}
+
+func gitSubcommand(argv []string) string {
+	for _, a := range argv[1:] {
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		if a == "-C" { // handled as flag above only if prefixed; -C takes a value
+			continue
+		}
+		return a
+	}
+	return ""
+}
+
+func checkDocker(s Simple, rawCmd string) *policy.Verdict {
+	if s.Argv[0] != "docker" || len(s.Argv) < 2 {
+		return nil
+	}
+	joined := strings.Join(s.Argv[1:], " ")
+	switch {
+	case strings.HasPrefix(joined, "compose down"):
+		return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.docker-down",
+			Reason: "docker compose down tears down a whole stack"}
+	case strings.HasPrefix(joined, "system prune"),
+		strings.HasPrefix(joined, "network prune"),
+		strings.HasPrefix(joined, "volume prune"):
+		return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.docker-prune",
+			Reason: "docker prune removes resources with unverifiable scope"}
+	}
+	first := s.Argv[1]
+	target := strings.HasPrefix(joined, "rm ") || strings.HasPrefix(joined, "kill ") ||
+		strings.HasPrefix(joined, "volume rm") || strings.HasPrefix(joined, "network rm")
+	if (first == "rm" || first == "kill" || first == "volume" || first == "network") && target &&
+		commandHasSubstitution(rawCmd) {
+		return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.docker-substituted",
+			Reason: "docker rm/kill with a command-substituted target list"}
+	}
+	return nil
+}
+
+func commandHasSubstitution(cmd string) bool {
+	return strings.Contains(cmd, "$(") || strings.Contains(cmd, "`")
 }
 
 func checkDiskDestroyers(s Simple) *policy.Verdict {
