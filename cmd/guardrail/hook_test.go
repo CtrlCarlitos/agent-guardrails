@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -70,5 +71,30 @@ func TestHookAuditLogWritten(t *testing.T) {
 	run([]string{"hook", "claude"}, f, &out, &errb)
 	if _, err := os.Stat(filepath.Join(state, "guardrail", "audit.jsonl")); err != nil {
 		t.Fatalf("audit log not written: %v", err)
+	}
+}
+
+func TestHookStaleGuardrailConfigDegrades(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "/no/such/guardrail.toml")
+
+	// a destructive command still gets blocked by the base policy
+	rm := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}`
+	var out, errb bytes.Buffer
+	code := run([]string{"hook", "claude"}, bytes.NewReader([]byte(rm)), &out, &errb)
+	if code != 2 {
+		t.Fatalf("rm -rf with stale GUARDRAIL_CONFIG: exit %d, want 2 (base policy still applies)", code)
+	}
+	if !strings.Contains(errb.String(), "/no/such/guardrail.toml") {
+		t.Errorf("expected a stale-config warning on stderr; got %q", errb.String())
+	}
+
+	// a benign command is allowed
+	errb.Reset()
+	out.Reset()
+	ls := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`
+	code = run([]string{"hook", "claude"}, bytes.NewReader([]byte(ls)), &out, &errb)
+	if code != 0 {
+		t.Fatalf("ls with stale GUARDRAIL_CONFIG: exit %d, want 0", code)
 	}
 }

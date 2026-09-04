@@ -33,12 +33,17 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	var ov *policy.Overlay
-	if pth, ok := policy.FindOverlayPath(tc.CWD); ok {
+	if pth, ok, warn := policy.FindOverlayPath(tc.CWD); ok {
+		if warn != "" {
+			fmt.Fprintln(stderr, warn)
+		}
 		ov, err = policy.LoadOverlay(pth)
 		if err != nil {
 			fmt.Fprintf(stderr, "guardrail: cannot load overlay (%v); failing closed\n", err)
 			return 2
 		}
+	} else if warn != "" {
+		fmt.Fprintln(stderr, warn)
 	}
 
 	merged, warnings, err := policy.Merge(base, ov, version)
