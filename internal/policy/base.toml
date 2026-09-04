@@ -1,0 +1,21 @@
+# The shipped Base policy. Universal rules only — anything project-specific
+# belongs in a repo's guardrail.toml Overlay.
+
+[slots]
+safe_roots       = []
+egress_allowlist = []
+audit_log        = ""
+
+secret_globs = [
+  "**/.env", ".env.*", "**/.env.*",
+  "**/.ssh/**", "**/.aws/**", "**/.config/gcloud/**",
+  "**/.kube/config", "**/.netrc", "**/.npmrc", "**/.pypirc",
+  "**/.docker/config.json", "**/.git-credentials",
+  "id_rsa*", "id_ed25519*", "*.pem", "*.key",
+  "service-account*.json", "**/.claude.json",
+  "/root/.ssh/**",
+]
+
+secret_allow = [
+  "**/.env.example", ".env.example", "**/.env.sample", ".env.sample",
+]
