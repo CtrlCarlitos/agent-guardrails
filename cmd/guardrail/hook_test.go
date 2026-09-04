@@ -123,6 +123,25 @@ func TestTrifectaEscalatesAcrossTwoCalls(t *testing.T) {
 	}
 }
 
+func TestTrifectaWaivedIsSilent(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
+	os.WriteFile(cfg, []byte("waive = [\"P4.secret-path\", \"P7.trifecta\"]\n"), 0o644)
+	t.Setenv("GUARDRAIL_CONFIG", cfg)
+
+	sid := "waived-trifecta-sess"
+	readPayload := `{"session_id":"` + sid + `","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/tmp/.env"}}`
+	var out1, err1 bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(readPayload), &out1, &err1); code != 0 {
+		t.Fatalf("first call: exit %d, want 0; stderr=%s", code, err1.String())
+	}
+	curlPayload := `{"session_id":"` + sid + `","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl http://localhost:9999/x"}}`
+	var out2, err2 bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(curlPayload), &out2, &err2); code != 0 || strings.Contains(out2.String(), "trifecta") {
+		t.Fatalf("waived trifecta must stay silent: code=%d out=%s", code, out2.String())
+	}
+}
+
 func TestTrifectaSilentWithoutPriorSignal(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
