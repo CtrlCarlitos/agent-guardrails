@@ -3,11 +3,13 @@ package adapter
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os/exec"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
 type claudePayload struct {
@@ -59,4 +61,29 @@ func repoRoot(cwd string) string {
 		return cwd
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func EmitClaude(v policy.Verdict, event string, stdout, stderr io.Writer) int {
+	switch v.Decision {
+	case policy.Deny:
+		fmt.Fprintf(stderr, "guardrail: %s\n", v.Reason)
+		return 2
+	case policy.Ask:
+		hookEvent := "PreToolUse"
+		if event == "post" {
+			hookEvent = "PostToolUse"
+		}
+		payload := map[string]any{
+			"hookSpecificOutput": map[string]any{
+				"hookEventName":            hookEvent,
+				"permissionDecision":       "ask",
+				"permissionDecisionReason": v.Reason,
+			},
+		}
+		b, _ := json.Marshal(payload)
+		stdout.Write(append(b, '\n'))
+		return 0
+	default:
+		return 0
+	}
 }
