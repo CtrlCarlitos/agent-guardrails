@@ -128,7 +128,7 @@ func TestTrifectaSilentWithoutPriorSignal(t *testing.T) {
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	payload := `{"session_id":"lone-sess","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl http://localhost:9999/x"}}`
 	var out, errb bytes.Buffer
-	code := run([]string{"hook", "claude"}, bytes.NewReader([]byte(payload)), &out, &errb)
+	code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb)
 	if code != 0 || strings.Contains(out.String(), "trifecta") {
 		t.Fatalf("a lone network call should not trigger trifecta: code=%d out=%s", code, out.String())
 	}
