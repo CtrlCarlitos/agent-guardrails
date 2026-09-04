@@ -37,9 +37,12 @@ func cmdGenConfig(args []string, stdout, stderr io.Writer) int {
 	frag := genconfig.ClaudeConfig(base, *binary)
 
 	if *mergePath != "" {
-		// implemented in Task 7
-		fmt.Fprintln(stderr, "guardrail: --merge not yet implemented")
-		return 2
+		if err := genconfig.MergeInto(*mergePath, frag); err != nil {
+			fmt.Fprintf(stderr, "guardrail: merge failed: %v\n", err)
+			return 2
+		}
+		fmt.Fprintf(stderr, "guardrail: merged Claude config into %s\n", *mergePath)
+		return 0
 	}
 
 	b, err := json.MarshalIndent(frag, "", "  ")

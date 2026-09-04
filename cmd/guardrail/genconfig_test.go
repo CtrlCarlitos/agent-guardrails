@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -49,5 +51,34 @@ func TestGenConfigClaudePrint(t *testing.T) {
 	}
 	if _, ok := frag["permissions"]; !ok {
 		t.Error("no permissions key")
+	}
+}
+
+func TestGenConfigClaudeMerge(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "settings.json")
+	var out, errb bytes.Buffer
+	code := run([]string{"gen-config", "claude", "--merge", p, "--binary", "/opt/guardrail"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, errb.String())
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	pre := m["hooks"].(map[string]any)["PreToolUse"].([]any)[0].(map[string]any)
+	gotCmd := pre["hooks"].([]any)[0].(map[string]any)["command"].(string)
+	if gotCmd != "/opt/guardrail hook claude" {
+		t.Errorf("command = %q", gotCmd)
+	}
+	// second run must be a no-op
+	before := string(raw)
+	run([]string{"gen-config", "claude", "--merge", p, "--binary", "/opt/guardrail"}, strings.NewReader(""), &out, &errb)
+	after, _ := os.ReadFile(p)
+	if before != string(after) {
+		t.Errorf("second merge changed the file")
 	}
 }
