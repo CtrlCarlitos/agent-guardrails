@@ -78,7 +78,7 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 					if n > 1 {
 						plural = "entries"
 					}
-					fmt.Fprintf(stdout, "  WARNING: %d unmarked guardrail-like hook %s in settings.json — invisible to doctor and will be forked by the next merge. Remove them, or re-run the installer.\n", n, plural)
+					fmt.Fprintf(stdout, "  WARNING: %d unmarked guardrail-like hook %s in settings.json — invisible to doctor and will be forked by the next merge. Remove them by hand; re-running the installer will not (its merge adds its own marked entry alongside).\n", n, plural)
 				}
 			}
 		}
