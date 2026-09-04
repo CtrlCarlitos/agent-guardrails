@@ -23,6 +23,18 @@ func isFileTool(tool string) bool {
 	return false
 }
 
+// isWriteToolCall reports whether tc is a file-tool call that mutates.
+// Bash calls are excluded here on purpose: their write intent is carried by
+// redirect targets (and, after the writeCandidates work, by argv), not by the
+// tool name.
+func isWriteToolCall(tool string) bool {
+	switch strings.ToLower(tool) {
+	case "edit", "write", "multiedit":
+		return true
+	}
+	return false
+}
+
 func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	var candidates []string
 	if isFileTool(tc.Tool) {
@@ -88,6 +100,9 @@ func writeCandidates(tc ToolCall) []string {
 }
 
 func checkGitProtectedPaths(tc ToolCall) *policy.Verdict {
+	if isFileTool(tc.Tool) && !isWriteToolCall(tc.Tool) {
+		return nil
+	}
 	for _, c := range writeCandidates(tc) {
 		if matchesAnyGlob(strings.TrimPrefix(c, "./"), gitProtectedGlobs) {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P2.git-protected-path",
@@ -103,6 +118,9 @@ var selfConfigGlobs = []string{
 }
 
 func checkSelfConfig(tc ToolCall) *policy.Verdict {
+	if isFileTool(tc.Tool) && !isWriteToolCall(tc.Tool) {
+		return nil
+	}
 	for _, c := range writeCandidates(tc) {
 		if matchesAnyGlob(strings.TrimPrefix(c, "./"), selfConfigGlobs) {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
@@ -126,7 +144,7 @@ func checkCIInfraLockfile(tc ToolCall) *policy.Verdict {
 		return nil
 	}
 	// only Write/Edit — reading these is fine
-	if isFileTool(tc.Tool) && !strings.EqualFold(tc.Tool, "edit") && !strings.EqualFold(tc.Tool, "write") && !strings.EqualFold(tc.Tool, "multiedit") {
+	if isFileTool(tc.Tool) && !isWriteToolCall(tc.Tool) {
 		return nil
 	}
 	for _, c := range writeCandidates(tc) {

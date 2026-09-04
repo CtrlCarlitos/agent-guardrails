@@ -127,6 +127,50 @@ func TestSelfConfigDenied(t *testing.T) {
 	}
 }
 
+func TestSelfConfigAndGitProtectedAllowReads(t *testing.T) {
+	allow := []string{
+		"/repo/CLAUDE.md", "/repo/AGENTS.md",
+		"/home/u/.claude/skills/x/SKILL.md",
+		"/home/u/.claude/plugins/cache/x/y.js",
+		"/repo/.git/config", "/repo/.git/hooks/pre-commit",
+	}
+	for _, p := range allow {
+		tc := ToolCall{Tool: "Read", Paths: []string{p}, RepoRoot: "/repo", CWD: "/repo"}
+		if v := checkPaths(tc, pathPol()); v != nil {
+			t.Errorf("Read %q -> %+v, want nil (reads are not the risk)", p, v)
+		}
+	}
+}
+
+func TestSelfConfigAndGitProtectedStillDenyWrites(t *testing.T) {
+	deny := []string{
+		"/repo/.claude/settings.json", "/repo/CLAUDE.md",
+		"/home/u/.claude/settings.json",
+		"/repo/.git/config", "/repo/.git/hooks/pre-commit",
+	}
+	for _, p := range deny {
+		tc := ToolCall{Tool: "Write", Paths: []string{p}, RepoRoot: "/repo", CWD: "/repo"}
+		v := checkPaths(tc, pathPol())
+		if v == nil || v.Decision != policy.Deny {
+			t.Errorf("Write %q -> %+v, want deny", p, v)
+		}
+	}
+}
+
+func TestSelfConfigAndGitProtectedStillDenyBashRedirects(t *testing.T) {
+	deny := []string{
+		"/repo/CLAUDE.md",
+		"/repo/.git/config",
+	}
+	for _, p := range deny {
+		tc := ToolCall{Tool: "Bash", Command: "printf x > " + p, RepoRoot: "/repo", CWD: "/repo"}
+		v := checkPaths(tc, pathPol())
+		if v == nil || v.Decision != policy.Deny {
+			t.Errorf("Bash redirect to %q -> %+v, want deny", p, v)
+		}
+	}
+}
+
 func TestCIInfraLockfileAsk(t *testing.T) {
 	ask := []string{
 		"/repo/.github/workflows/ci.yml", "/repo/Dockerfile", "/repo/docker-compose.yml",
