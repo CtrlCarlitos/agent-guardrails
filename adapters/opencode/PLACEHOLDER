@@ -1,2 +1,0 @@
-// The opencode adapter: a thin plugin that spawns `guardrail hook opencode`.
-// ~30 lines when implemented. See DESIGN.md "Planes & adapters".

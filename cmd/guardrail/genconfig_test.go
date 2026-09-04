@@ -97,6 +97,53 @@ func TestGenConfigPrintFalseIsNoOp(t *testing.T) {
 	}
 }
 
+func TestGenConfigOpencodeMergeDeploysPlugin(t *testing.T) {
+	dir := t.TempDir()
+	settingsPath := filepath.Join(dir, "opencode.json")
+	os.WriteFile(settingsPath, []byte(`{"plugin":["superpowers@git+https://github.com/obra/superpowers.git"]}`), 0o644)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"gen-config", "opencode", "--merge", settingsPath, "--binary", "/opt/guardrail"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errb.String())
+	}
+
+	pluginPath := filepath.Join(dir, "guardrail.js")
+	if _, err := os.Stat(pluginPath); err != nil {
+		t.Fatalf("plugin file not written: %v", err)
+	}
+	js, _ := os.ReadFile(pluginPath)
+	if !strings.Contains(string(js), "tool.execute.before") {
+		t.Fatalf("deployed plugin looks wrong:\n%s", js)
+	}
+
+	raw, _ := os.ReadFile(settingsPath)
+	var m map[string]any
+	json.Unmarshal(raw, &m)
+	plugins := m["plugin"].([]any)
+	foundSuperpowers, foundGuardrail := false, false
+	for _, p := range plugins {
+		s := p.(string)
+		if strings.Contains(s, "superpowers") {
+			foundSuperpowers = true
+		}
+		if s == pluginPath {
+			foundGuardrail = true
+		}
+	}
+	if !foundSuperpowers {
+		t.Error("existing superpowers plugin entry was lost")
+	}
+	if !foundGuardrail {
+		t.Errorf("guardrail plugin path %q not registered; plugin array = %v", pluginPath, plugins)
+	}
+
+	perm := m["permission"].(map[string]any)
+	if _, ok := perm["bash"]; !ok {
+		t.Error("permission.bash missing")
+	}
+}
+
 func TestGenConfigDefaultStillPrints(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := run([]string{"gen-config", "claude"}, strings.NewReader(""), &out, &errb)
