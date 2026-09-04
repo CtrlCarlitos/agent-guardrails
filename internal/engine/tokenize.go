@@ -18,7 +18,6 @@ func splitSimples(src string) ([]Simple, error) {
 	if err != nil {
 		return nil, err
 	}
-	printer := syntax.NewPrinter()
 	var out []Simple
 	syntax.Walk(f, func(node syntax.Node) bool {
 		stmt, ok := node.(*syntax.Stmt)
@@ -31,9 +30,7 @@ func splitSimples(src string) ([]Simple, error) {
 		}
 		s := Simple{}
 		for _, w := range ce.Args {
-			var b strings.Builder
-			_ = printer.Print(&b, w)
-			raw := b.String()
+			raw := src[w.Pos().Offset():w.End().Offset()]
 			if lit, ok := literalText(raw); ok {
 				s.Argv = append(s.Argv, lit)
 			} else {
@@ -45,9 +42,7 @@ func splitSimples(src string) ([]Simple, error) {
 			if r.Word == nil {
 				continue
 			}
-			var b strings.Builder
-			_ = printer.Print(&b, r.Word)
-			raw := b.String()
+			raw := src[r.Word.Pos().Offset():r.Word.End().Offset()]
 			if lit, ok := literalText(raw); ok {
 				s.Redirects = append(s.Redirects, lit)
 			} else {

