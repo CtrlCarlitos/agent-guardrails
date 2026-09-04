@@ -69,6 +69,20 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "audit log: %s\n", audit.DefaultPath(merged.Slots.AuditLog))
 
 	fmt.Fprintf(stdout, "claude settings: %s\n", claudeSettingsState())
+	if home, err := os.UserHomeDir(); err == nil {
+		if raw, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json")); err == nil {
+			var doc map[string]any
+			if json.Unmarshal(raw, &doc) == nil {
+				if n := unmarkedGuardrailGroups(doc); n > 0 {
+					plural := "entry"
+					if n > 1 {
+						plural = "entries"
+					}
+					fmt.Fprintf(stdout, "  WARNING: %d unmarked guardrail-like hook %s in settings.json — invisible to doctor and will be forked by the next merge. Remove them, or re-run the installer.\n", n, plural)
+				}
+			}
+		}
+	}
 	return 0
 }
 
@@ -119,4 +133,31 @@ func hooksHaveOwnedGroup(doc map[string]any) bool {
 		}
 	}
 	return false
+}
+
+func unmarkedGuardrailGroups(doc map[string]any) int {
+	hooks, ok := doc["hooks"].(map[string]any)
+	if !ok {
+		return 0
+	}
+	n := 0
+	for _, ev := range hooks {
+		groups, ok := ev.([]any)
+		if !ok {
+			continue
+		}
+		for _, g := range groups {
+			m, ok := g.(map[string]any)
+			if !ok {
+				continue
+			}
+			if id, _ := m["id"].(string); strings.HasPrefix(id, "guardrail-") {
+				continue
+			}
+			if b, _ := json.Marshal(m); strings.Contains(string(b), "guardrail hook ") {
+				n++
+			}
+		}
+	}
+	return n
 }

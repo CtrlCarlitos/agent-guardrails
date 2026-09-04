@@ -80,6 +80,33 @@ func TestDoctorHookNotRegistered(t *testing.T) {
 	}
 }
 
+func TestDoctorWarnsOnUnmarkedEntry(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	writeClaudeSettings(t, home, `{"hooks":{"PreToolUse":[
+		{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[{"type":"command","command":"/x/guardrail hook claude"}]},
+		{"matcher":"Bash","hooks":[{"type":"command","command":"/old/guardrail hook claude"}]}
+	]}}`)
+	var out, errb bytes.Buffer
+	run([]string{"doctor"}, strings.NewReader(""), &out, &errb)
+	if !strings.Contains(out.String(), "unmarked guardrail-like") {
+		t.Fatalf("want an unmarked-entry warning:\n%s", out.String())
+	}
+}
+
+func TestDoctorNoWarnWhenOnlyOwned(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	writeClaudeSettings(t, home, `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[{"type":"command","command":"/x/guardrail hook claude"}]}]}}`)
+	var out, errb bytes.Buffer
+	run([]string{"doctor"}, strings.NewReader(""), &out, &errb)
+	if strings.Contains(out.String(), "unmarked") {
+		t.Fatalf("should not warn when the only entry is owned:\n%s", out.String())
+	}
+}
+
 func TestDoctorNoSettingsFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
