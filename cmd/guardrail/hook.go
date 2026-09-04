@@ -9,6 +9,7 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/recipe"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/session"
 )
 
@@ -101,6 +102,12 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		st.SawNetworkCall = st.SawNetworkCall || isNet
 		if err := session.Save(tc.SessionID, st); err != nil {
 			fmt.Fprintf(stderr, "guardrail: session state write failed (%v)\n", err)
+		}
+	}
+
+	if v.Decision == policy.Allow {
+		if rv := recipe.Check(tc); rv != nil {
+			v = *rv
 		}
 	}
 

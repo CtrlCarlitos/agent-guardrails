@@ -153,6 +153,28 @@ func TestTrifectaSilentWithoutPriorSignal(t *testing.T) {
 	}
 }
 
+func TestHookRecipeDeniesOnPostEditLintFailure(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	payload := `{"session_id":"s1","cwd":"/tmp","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"/tmp/does-not-exist.go"}}`
+	var out, errb bytes.Buffer
+	code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb)
+	if code != 2 {
+		t.Fatalf("exit=%d, want 2 (recipe lint failure denies); stderr=%s", code, errb.String())
+	}
+}
+
+func TestHookRecipeSilentOnBenignEdit(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	payload := `{"session_id":"s1","cwd":"/tmp","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"/tmp/README.md"}}`
+	var out, errb bytes.Buffer
+	code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0 (no recipe for .md)", code)
+	}
+}
+
 func TestHookOpencodeDeny(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
