@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"slices"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/adapter"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
@@ -68,22 +67,11 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		Decision:  string(v.Decision),
 		RuleID:    v.RuleID,
 		Reason:    v.Reason,
-		Waivers:   waivedList(merged),
+		Waivers:   policy.SortedWaivers(merged),
 	}
 	if err := audit.Write(rec, audit.DefaultPath(merged.Slots.AuditLog)); err != nil {
 		fmt.Fprintf(stderr, "guardrail: audit write failed (%v)\n", err)
 	}
 
 	return adapter.EmitClaude(v, tc.Event, stdout, stderr)
-}
-
-func waivedList(p *policy.Policy) []string {
-	var out []string
-	for k, v := range p.Waived {
-		if v {
-			out = append(out, k)
-		}
-	}
-	slices.Sort(out)
-	return out
 }

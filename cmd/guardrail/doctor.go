@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
@@ -60,13 +59,7 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "  %s\n", w)
 	}
 
-	var waived []string
-	for k, v := range merged.Waived {
-		if v {
-			waived = append(waived, k)
-		}
-	}
-	slices.Sort(waived)
+	waived := policy.SortedWaivers(merged)
 	if len(waived) == 0 {
 		fmt.Fprintln(stdout, "waivers: none")
 	} else {

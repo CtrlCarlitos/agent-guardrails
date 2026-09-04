@@ -2,6 +2,8 @@
 // a project's Overlay, and the merge of the two.
 package policy
 
+import "slices"
+
 type Decision string
 
 const (
@@ -58,4 +60,19 @@ type Policy struct {
 	Slots  Slots
 	Rules  []Rule
 	Waived map[string]bool
+}
+
+// SortedWaivers returns the ids of active waivers in p, sorted. nil-safe.
+func SortedWaivers(p *Policy) []string {
+	if p == nil || p.Waived == nil {
+		return nil
+	}
+	var out []string
+	for k, v := range p.Waived {
+		if v {
+			out = append(out, k)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
