@@ -80,6 +80,22 @@ func TestCheckPathsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestGitProtectedPathWrite(t *testing.T) {
+	tc := ToolCall{Tool: "Edit", Paths: []string{"/repo/.git/hooks/pre-commit"}, RepoRoot: "/repo", CWD: "/repo"}
+	v := checkPaths(tc, pathPol())
+	if v == nil || v.Decision != policy.Deny || v.RuleID != "P2.git-protected-path" {
+		t.Fatalf("-> %+v, want deny/P2.git-protected-path", v)
+	}
+	tc = ToolCall{Tool: "Edit", Paths: []string{"/repo/.git/config"}, RepoRoot: "/repo", CWD: "/repo"}
+	if v := checkPaths(tc, pathPol()); v == nil || v.RuleID != "P2.git-protected-path" {
+		t.Fatalf(".git/config -> %+v, want deny", v)
+	}
+	tc = ToolCall{Tool: "Edit", Paths: []string{"/repo/src/main.go"}, RepoRoot: "/repo", CWD: "/repo"}
+	if v := checkPaths(tc, pathPol()); v != nil {
+		t.Fatalf("unrelated path -> %+v, want nil", v)
+	}
+}
+
 func TestCheckPathsSecretWaivedStillChecksSymlinkEscape(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink creation is privileged on Windows")

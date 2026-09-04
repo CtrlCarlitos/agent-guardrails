@@ -57,6 +57,30 @@ func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 			return v
 		}
 	}
+	if v := checkGitProtectedPaths(tc); v != nil {
+		return v
+	}
+	return nil
+}
+
+func checkGitProtectedPaths(tc ToolCall) *policy.Verdict {
+	var candidates []string
+	if isFileTool(tc.Tool) {
+		candidates = append(candidates, tc.Paths...)
+	}
+	if tc.IsBash() {
+		if simples, err := Normalize(tc.Command); err == nil {
+			for _, s := range simples {
+				candidates = append(candidates, s.Redirects...)
+			}
+		}
+	}
+	for _, c := range candidates {
+		if matchesAnyGlob(strings.TrimPrefix(c, "./"), gitProtectedGlobs) {
+			return &policy.Verdict{Decision: policy.Deny, RuleID: "P2.git-protected-path",
+				Reason: "write to a protected git-internal path: " + c}
+		}
+	}
 	return nil
 }
 
