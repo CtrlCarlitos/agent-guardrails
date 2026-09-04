@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
@@ -31,7 +32,7 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 
 	pth, ok, warn := policy.FindOverlayPath(cwd)
 	if warn != "" {
-		fmt.Fprintf(stdout, "overlay: %s\n", warn)
+		fmt.Fprintf(stdout, "overlay: %s\n", strings.TrimPrefix(warn, "guardrail: "))
 	}
 	var ov *policy.Overlay
 	switch {
@@ -62,6 +63,7 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 			waived = append(waived, k)
 		}
 	}
+	slices.Sort(waived)
 	if len(waived) == 0 {
 		fmt.Fprintln(stdout, "waivers: none")
 	} else {

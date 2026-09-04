@@ -77,3 +77,25 @@ func TestMergeIntoRejectsNonObject(t *testing.T) {
 		t.Fatal("want error, got nil (would have clobbered)")
 	}
 }
+
+func TestMergeIntoRejectsNullObject(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "settings.json")
+	os.WriteFile(p, []byte(`null`), 0o644)
+	if err := MergeInto(p, Fragment{"x": 1}); err == nil {
+		t.Fatal("want error, got nil (would have clobbered)")
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != "null" {
+		t.Fatalf("file was modified: %q", raw)
+	}
+}
+
+func TestMergeIntoRejectsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := MergeInto(dir, Fragment{"x": 1}); err == nil {
+		t.Fatal("want error for a directory path, got nil")
+	}
+}

@@ -8,11 +8,18 @@ import (
 	"path/filepath"
 )
 
+// MergeInto deep-merges frag into the JSON object stored at path, creating the
+// file if absent. The written file's mode is CreateTemp's default 0600 —
+// intentional, as settings files may carry secrets; callers wanting 0644 can
+// chmod after.
 func MergeInto(path string, frag Fragment) error {
 	existing := map[string]any{}
 	if raw, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(raw)) > 0 {
 		if err := json.Unmarshal(raw, &existing); err != nil {
 			return fmt.Errorf("%s is not a JSON object; refusing to overwrite: %w", path, err)
+		}
+		if existing == nil {
+			return fmt.Errorf("%s is not a JSON object; refusing to overwrite: null", path)
 		}
 	} else if err != nil && !os.IsNotExist(err) {
 		return err

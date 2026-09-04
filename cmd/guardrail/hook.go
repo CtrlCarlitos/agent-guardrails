@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/adapter"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
@@ -83,5 +84,6 @@ func waivedList(p *policy.Policy) []string {
 			out = append(out, k)
 		}
 	}
+	slices.Sort(out)
 	return out
 }
