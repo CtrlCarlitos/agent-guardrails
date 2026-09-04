@@ -96,3 +96,48 @@ func TestGitConfigWriteDenied(t *testing.T) {
 		}
 	}
 }
+
+func TestGitRulesSurvivePrefixes(t *testing.T) {
+	prefixes := []string{"", "-C . ", "-c a.b=c ", "-C . -c a.b=c "}
+	cases := map[string]struct {
+		decision policy.Decision
+		ruleID   string
+	}{
+		"git push --force origin main":    {policy.Deny, "P1.git-push-force"},
+		"git clean -fd":                   {policy.Deny, "P1.git-clean"},
+		"git reset --hard":                {policy.Deny, "P2.git-reset-hard"},
+		"git config user.email x@y.com":   {policy.Deny, "P2.git-config-write"},
+		"git checkout .":                  {policy.Ask, "P2.git-checkout-restore"},
+		"git branch -D feature/x":         {policy.Ask, "P2.git-branch-delete"},
+		"git commit --amend":              {policy.Ask, "P2.git-history-rewrite"},
+		"git remote add origin https://x": {policy.Ask, "P2.git-remote-add"},
+		"git stash clear":                 {policy.Ask, "P2.git-stash-clear"},
+		"git push origin main":            {policy.Ask, "P2.git-push-protected"},
+	}
+	for cmd, want := range cases {
+		for _, pfx := range prefixes {
+			full := "git " + pfx + cmd[len("git "):]
+			v := evalGitSafety(t, full)
+			if v == nil {
+				t.Errorf("%q -> nil, want %s/%s", full, want.decision, want.ruleID)
+				continue
+			}
+			if v.Decision != want.decision || v.RuleID != want.ruleID {
+				t.Errorf("%q -> %s/%s, want %s/%s", full, v.Decision, v.RuleID, want.decision, want.ruleID)
+			}
+		}
+	}
+}
+
+func TestGitPrefixesDontCreateFalsePositives(t *testing.T) {
+	prefixes := []string{"", "-C . ", "-c a.b=c "}
+	safe := []string{"git status", "git log --oneline -5", "git diff", "git fetch"}
+	for _, cmd := range safe {
+		for _, pfx := range prefixes {
+			full := "git " + pfx + cmd[len("git "):]
+			if v := evalGitSafety(t, full); v != nil {
+				t.Errorf("%q -> %+v, want nil", full, v)
+			}
+		}
+	}
+}
