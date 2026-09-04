@@ -90,3 +90,30 @@ func EmitClaude(v policy.Verdict, event string, stdout, stderr io.Writer) int {
 		return 0
 	}
 }
+
+func PostureText(waivers []string, warnings []string) string {
+	var b strings.Builder
+	b.WriteString("guardrail is active. Operate autonomously on routine development steps — " +
+		"do not stop to ask conversational permission; guardrail enforces destructive-command " +
+		"and secret-access boundaries deterministically. Pause only when guardrail returns an " +
+		"explicit block/ask, or you face genuine ambiguity outside its scope.")
+	if len(waivers) > 0 {
+		b.WriteString("\n\nActive policy waivers in this repo (these rules are OFF): " + strings.Join(waivers, ", "))
+	}
+	for _, w := range warnings {
+		b.WriteString("\n\n" + w)
+	}
+	return b.String()
+}
+
+func EmitClaudeSessionStart(text string, stdout io.Writer) int {
+	payload := map[string]any{
+		"hookSpecificOutput": map[string]any{
+			"hookEventName":     "SessionStart",
+			"additionalContext": text,
+		},
+	}
+	b, _ := json.Marshal(payload)
+	stdout.Write(append(b, '\n'))
+	return 0
+}

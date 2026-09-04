@@ -1,6 +1,8 @@
 package adapter
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -44,5 +46,39 @@ func TestParseClaudeSessionStart(t *testing.T) {
 	}
 	if tc.Event != "session-start" {
 		t.Fatalf("Event = %q, want session-start", tc.Event)
+	}
+}
+
+func TestPostureText(t *testing.T) {
+	txt := PostureText(nil, nil)
+	if !strings.Contains(txt, "autonomously") {
+		t.Fatalf("posture text missing the autonomy instruction: %q", txt)
+	}
+	txt = PostureText([]string{"P6"}, []string{"guardrail: binary older than engine_min_version"})
+	if !strings.Contains(txt, "P6") {
+		t.Fatalf("posture text should list active waivers: %q", txt)
+	}
+	if !strings.Contains(txt, "engine_min_version") {
+		t.Fatalf("posture text should surface merge warnings: %q", txt)
+	}
+}
+
+func TestEmitClaudeSessionStart(t *testing.T) {
+	var out bytes.Buffer
+	code := EmitClaudeSessionStart("hello agent", &out)
+	if code != 0 {
+		t.Fatalf("code = %d, want 0", code)
+	}
+	var got struct {
+		HookSpecificOutput struct {
+			HookEventName     string `json:"hookEventName"`
+			AdditionalContext string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.HookSpecificOutput.HookEventName != "SessionStart" || got.HookSpecificOutput.AdditionalContext != "hello agent" {
+		t.Fatalf("bad payload: %+v", got.HookSpecificOutput)
 	}
 }
