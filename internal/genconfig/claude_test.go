@@ -112,6 +112,27 @@ func TestSelfConfigAndGitProtectedDenyGlobs(t *testing.T) {
 	}
 }
 
+func TestClaudeConfigProtectsGuardrailOwnMachinery(t *testing.T) {
+	frag := ClaudeConfig(secretPol(), "guardrail")
+	deny := frag["permissions"].(map[string]any)["deny"].([]string)
+	want := []string{
+		"Edit(guardrail.toml)",
+		"Edit(**/guardrail.toml)",
+		"Edit(.guardrail/**)",
+		"Edit(opencode.json)",
+		"Edit(**/opencode.json)",
+		"Edit(.agents/hooks.json)",
+		"Edit(**/.gemini/config/hooks.json)",
+		"Edit(**/.local/bin/guardrail)",
+		"Edit(**/bin/guardrail)",
+	}
+	for _, entry := range want {
+		if !slices.Contains(deny, entry) {
+			t.Errorf("Claude deny missing %q: %v", entry, deny)
+		}
+	}
+}
+
 func TestClaudeHooks(t *testing.T) {
 	h := claudeHooks("/usr/local/bin/guardrail")
 	pre := h["PreToolUse"].([]any)[0].(map[string]any)

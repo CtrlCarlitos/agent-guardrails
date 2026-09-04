@@ -89,6 +89,12 @@ func collidesWithAllow(glob string, allow []string) bool {
 var selfConfigGlobsFloor = []string{
 	".claude/**", "CLAUDE.md", "AGENTS.md", ".mcp.json", ".envrc",
 	"**/.bashrc", "**/.zshrc", "**/.profile", "**/.bash_profile",
+	"guardrail.toml", "**/guardrail.toml",
+	".guardrail/**",
+	"opencode.json", "**/opencode.json",
+	".agents/hooks.json",
+	"**/.gemini/config/hooks.json",
+	"**/.local/bin/guardrail", "**/bin/guardrail",
 }
 
 var gitProtectedGlobsFloor = []string{"**/.git/config", "**/.git/hooks/**"}

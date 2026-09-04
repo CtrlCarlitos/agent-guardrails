@@ -39,6 +39,27 @@ func TestOpencodeConfigReadEditPermissions(t *testing.T) {
 	}
 }
 
+func TestOpencodeConfigProtectsGuardrailOwnMachinery(t *testing.T) {
+	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+	edit := frag["permission"].(map[string]any)["edit"].(map[string]string)
+	want := []string{
+		"guardrail.toml",
+		"**/guardrail.toml",
+		".guardrail/**",
+		"opencode.json",
+		"**/opencode.json",
+		".agents/hooks.json",
+		"**/.gemini/config/hooks.json",
+		"**/.local/bin/guardrail",
+		"**/bin/guardrail",
+	}
+	for _, path := range want {
+		if edit[path] != "deny" {
+			t.Errorf("OpenCode edit permission for %q = %q, want deny", path, edit[path])
+		}
+	}
+}
+
 func TestOpencodeConfigPluginRegistered(t *testing.T) {
 	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
 	plugins := frag["plugin"].([]string)
