@@ -56,6 +56,11 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, w)
 	}
 
+	if tc.Event == "session-start" {
+		text := adapter.PostureText(policy.SortedWaivers(merged), warnings)
+		return adapter.EmitClaudeSessionStart(text, stdout)
+	}
+
 	v := engine.Evaluate(tc, merged)
 
 	if tc.Event == "pre" && tc.SessionID != "" && !merged.Waived["P7.trifecta"] {
