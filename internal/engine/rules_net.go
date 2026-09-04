@@ -32,6 +32,53 @@ func checkDownloadPipeShell(simples []Simple) *policy.Verdict {
 	return nil
 }
 
+func checkPackageInstall(s Simple) *policy.Verdict {
+	head := s.Argv[0]
+	joined := strings.Join(s.Argv, " ")
+
+	isPip := head == "pip" || head == "pip3"
+	if isPip && strings.Contains(joined, "install") {
+		if hasAnyFlag(s.Argv, "", "--index-url", "--extra-index-url") || strings.Contains(joined, "git+http") {
+			return &policy.Verdict{Decision: policy.Deny, RuleID: "P6.registry-redirect",
+				Reason: "pip install bypassing the normal index/lockfile review path"}
+		}
+		return &policy.Verdict{Decision: policy.Ask, RuleID: "P6.package-install",
+			Reason: "new Python dependency — runs install scripts with your privileges"}
+	}
+
+	if head == "npm" && hasAnyFlag(s.Argv, "", "--registry") {
+		return &policy.Verdict{Decision: policy.Deny, RuleID: "P6.registry-redirect",
+			Reason: "npm install with a redirected registry"}
+	}
+
+	switch head {
+	case "npm", "yarn", "pnpm":
+		for _, a := range nonFlagArgs(s.Argv) {
+			if a == "install" || a == "i" || a == "ci" || a == "add" {
+				return &policy.Verdict{Decision: policy.Ask, RuleID: "P6.package-install",
+					Reason: "new JS dependency — runs postinstall scripts with your privileges"}
+			}
+		}
+	case "gem":
+		if len(s.Argv) > 1 && s.Argv[1] == "install" {
+			return &policy.Verdict{Decision: policy.Ask, RuleID: "P6.package-install", Reason: "new Ruby gem install"}
+		}
+	case "cargo":
+		if len(s.Argv) > 1 && s.Argv[1] == "install" {
+			return &policy.Verdict{Decision: policy.Ask, RuleID: "P6.package-install", Reason: "new Rust crate install"}
+		}
+	case "go":
+		if len(s.Argv) > 1 && (s.Argv[1] == "install" || s.Argv[1] == "get") {
+			return &policy.Verdict{Decision: policy.Ask, RuleID: "P6.package-install", Reason: "new Go module fetched and built"}
+		}
+	case "apt", "apt-get", "brew":
+		if len(s.Argv) > 1 && s.Argv[1] == "install" {
+			return &policy.Verdict{Decision: policy.Ask, RuleID: "P6.package-install", Reason: "new system package install"}
+		}
+	}
+	return nil
+}
+
 func checkEgress(s Simple, pol *policy.Policy) *policy.Verdict {
 	if !netTools[s.Argv[0]] {
 		return nil

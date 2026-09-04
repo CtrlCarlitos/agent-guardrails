@@ -40,6 +40,7 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		take(checkDocker(s, tc.Command))
 		take(checkAskTier(s, tc, pol))
 		take(checkEgress(s, pol))
+		take(checkPackageInstall(s))
 	}
 	return worst
 }
