@@ -23,6 +23,35 @@ func TestGitResetHardDenied(t *testing.T) {
 	}
 }
 
+func TestGitAskTier(t *testing.T) {
+	cases := map[string]string{
+		"git checkout .":                       "P2.git-checkout-restore",
+		"git checkout -- .":                    "P2.git-checkout-restore",
+		"git restore .":                        "P2.git-checkout-restore",
+		"git branch -D feature/x":              "P2.git-branch-delete",
+		"git commit --amend":                   "P2.git-history-rewrite",
+		"git filter-branch --tree-filter x":    "P2.git-history-rewrite",
+		"git filter-repo --invert-paths":       "P2.git-history-rewrite",
+		"git reflog expire --expire=now --all": "P2.git-history-rewrite",
+		"git gc --prune=now":                   "P2.git-history-rewrite",
+		"git remote add origin https://x":      "P2.git-remote-add",
+		"git remote set-url origin https://x":  "P2.git-remote-add",
+		"git stash clear":                      "P2.git-stash-clear",
+		"git stash drop":                       "P2.git-stash-clear",
+	}
+	for c, id := range cases {
+		v := evalGitSafety(t, c)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != id {
+			t.Errorf("%q -> %+v, want ask/%s", c, v, id)
+		}
+	}
+	for _, c := range []string{"git checkout main", "git branch -d merged-branch", "git remote -v", "git stash list"} {
+		if v := evalGitSafety(t, c); v != nil {
+			t.Errorf("%q -> %+v, want nil", c, v)
+		}
+	}
+}
+
 func TestGitConfigWriteDenied(t *testing.T) {
 	for _, c := range []string{
 		"git config user.email x@y.com",

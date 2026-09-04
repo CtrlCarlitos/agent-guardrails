@@ -21,6 +21,46 @@ func checkGitSafety(s Simple) *policy.Verdict {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P2.git-config-write",
 				Reason: "git config write can redirect core.hooksPath/fsmonitor into arbitrary code execution"}
 		}
+	case "checkout", "restore":
+		for _, a := range nonFlagArgs(s.Argv) {
+			if a == "." {
+				return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-checkout-restore",
+					Reason: "git " + sub + " . silently reverts uncommitted changes"}
+			}
+		}
+	case "branch":
+		if hasAnyFlag(s.Argv, "D") {
+			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-branch-delete",
+				Reason: "git branch -D force-deletes an unmerged branch"}
+		}
+	case "commit":
+		if hasAnyFlag(s.Argv, "", "--amend") {
+			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-history-rewrite",
+				Reason: "git commit --amend rewrites the last commit"}
+		}
+	case "filter-branch", "filter-repo":
+		return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-history-rewrite",
+			Reason: "git " + sub + " rewrites history"}
+	case "reflog":
+		if len(s.Argv) > 2 && s.Argv[2] == "expire" {
+			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-history-rewrite",
+				Reason: "git reflog expire removes the safety net for history rewrites"}
+		}
+	case "gc":
+		if hasAnyFlag(s.Argv, "", "--prune=now") {
+			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-history-rewrite",
+				Reason: "git gc --prune=now permanently drops unreachable objects"}
+		}
+	case "remote":
+		if len(s.Argv) > 2 && (s.Argv[2] == "add" || s.Argv[2] == "set-url") {
+			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-remote-add",
+				Reason: "adding/changing a remote adds a reachable exfil destination"}
+		}
+	case "stash":
+		if len(s.Argv) > 2 && (s.Argv[2] == "clear" || s.Argv[2] == "drop") {
+			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-stash-clear",
+				Reason: "discards stashed work with no reflog for the stash contents"}
+		}
 	}
 	return nil
 }
