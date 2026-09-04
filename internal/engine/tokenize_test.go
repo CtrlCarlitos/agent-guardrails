@@ -75,6 +75,72 @@ func TestNormalizeStripsWrappers(t *testing.T) {
 	}
 }
 
+func TestNormalizeConsumesWrapperFlags(t *testing.T) {
+	cases := []struct {
+		src  string
+		want [][]string
+	}{
+		{`env -i rm -rf /`, [][]string{{"rm", "-rf", "/"}}},
+		{`env -u HOME rm -rf /`, [][]string{{"rm", "-rf", "/"}}},
+		{`timeout -k 5 10 rm -rf /`, [][]string{{"rm", "-rf", "/"}}},
+		{`nice -10 make`, [][]string{{"make"}}},
+		{`exec rm -rf /`, [][]string{{"rm", "-rf", "/"}}},
+		{`exec -a name rm -rf /`, [][]string{{"rm", "-rf", "/"}}},
+		{`xargs -0 -n 1 rm`, [][]string{{"rm"}}},
+		{`command git status`, [][]string{{"git", "status"}}},
+	}
+	for _, c := range cases {
+		got, err := Normalize(c.src)
+		if err != nil {
+			t.Fatalf("Normalize(%q): %v", c.src, err)
+		}
+		if !reflect.DeepEqual(argvs(got), c.want) {
+			t.Errorf("Normalize(%q) = %v, want %v", c.src, argvs(got), c.want)
+		}
+	}
+}
+
+func TestNormalizeRejectsUnknownWrapperFlags(t *testing.T) {
+	for _, src := range []string{
+		`env --frobnicate ls`,
+		`nohup -x ls`,
+		`xargs --frobnicate ls`,
+		`exec --frobnicate ls`,
+		`timeout --frobnicate 5 ls`,
+		`nice --frobnicate ls`,
+	} {
+		if _, err := Normalize(src); err == nil {
+			t.Errorf("Normalize(%q): want error for unrecognized wrapper flag", src)
+		}
+	}
+}
+
+func TestNormalizeUnwrapsShellC(t *testing.T) {
+	got, err := Normalize(`sh -c "rm -rf /"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, s := range got {
+		if reflect.DeepEqual(s.Argv, []string{"rm", "-rf", "/"}) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected inner {rm -rf /} simple, got %v", argvs(got))
+	}
+}
+
+func TestNormalizeCommandVYieldsNoCommand(t *testing.T) {
+	got, err := Normalize(`command -v git`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("command -v git = %v, want no inner command", argvs(got))
+	}
+}
+
 func TestNormalizeUnwrapsRunners(t *testing.T) {
 	got, err := Normalize(`docker run --rm alpine rm -rf /data`)
 	if err != nil {

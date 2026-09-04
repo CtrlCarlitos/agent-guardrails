@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -59,11 +60,16 @@ func TestClaudeNeverPanics(t *testing.T) {
 	for _, p := range weird {
 		cmd := exec.Command(bin, "hook", "claude")
 		cmd.Stdin = bytes.NewReader([]byte(p))
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
 		cmd.Env = append(os.Environ(), "XDG_STATE_HOME="+t.TempDir())
 		_ = cmd.Run()
 		code := cmd.ProcessState.ExitCode()
 		if code != 0 && code != 2 {
 			t.Fatalf("payload %q produced exit %d, want 0 or 2", p, code)
+		}
+		if out := stderr.String(); strings.Contains(out, "panic:") {
+			t.Fatalf("payload %q panicked:\n%s", p, out)
 		}
 	}
 }

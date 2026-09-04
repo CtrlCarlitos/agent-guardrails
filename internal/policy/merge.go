@@ -27,8 +27,8 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string) (*Policy, []string, 
 			m.Slots.AuditLog = ov.AuditLog
 		}
 		for _, r := range ov.Rules {
-			if r.Decision == Allow {
-				return nil, nil, fmt.Errorf("overlay rule %q uses decision=allow; overlays may only add ask/deny (use slots or waive to loosen)", r.ID)
+			if r.Decision != Ask && r.Decision != Deny {
+				return nil, nil, fmt.Errorf("overlay rule %q uses decision %q; overlays may only add ask/deny (use slots or waive to loosen)", r.ID, r.Decision)
 			}
 			m.Rules = append(m.Rules, r)
 		}

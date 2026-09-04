@@ -27,6 +27,15 @@ func TestCheckBashDestructive(t *testing.T) {
 		`wipefs -a /dev/sdc`,
 		`shred -u secrets`,
 		`ls && rm -rf /`,
+		`env -i rm -rf /`,
+		`timeout -k 5 10 rm -rf /`,
+		`nice -10 rm -rf /`,
+		`exec rm -rf /`,
+		`eval rm -rf /`,
+		`command rm -rf /`,
+		`builtin rm -rf /`,
+		`sh -c "rm -rf /"`,
+		`bash -c "rm -rf /"`,
 	}
 	for _, c := range deny {
 		v := evalBash(t, c)

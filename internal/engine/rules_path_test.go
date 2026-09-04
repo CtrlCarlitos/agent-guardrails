@@ -79,3 +79,25 @@ func TestCheckPathsSymlinkEscape(t *testing.T) {
 		t.Fatalf("-> %+v, want deny/P4.symlink-escape", v)
 	}
 }
+
+func TestCheckPathsSecretWaivedStillChecksSymlinkEscape(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	repo := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "target")
+	if err := os.WriteFile(outside, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(repo, ".env") // matches P4.secret-path globs AND is a symlink out
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	pol := pathPol()
+	pol.Waived["P4.secret-path"] = true
+	tc := ToolCall{Tool: "Edit", Paths: []string{link}, RepoRoot: repo, CWD: repo}
+	v := checkPaths(tc, pol)
+	if v == nil || v.RuleID != "P4.symlink-escape" {
+		t.Fatalf("-> %+v, want deny/P4.symlink-escape even with P4.secret-path waived", v)
+	}
+}

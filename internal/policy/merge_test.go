@@ -44,6 +44,16 @@ func TestMergeRejectsAllowRule(t *testing.T) {
 	}
 }
 
+func TestMergeRejectsInvalidOverlayDecision(t *testing.T) {
+	for _, d := range []Decision{"Deny", "block", "deny ", ""} {
+		base := &Policy{Waived: map[string]bool{}}
+		ov := &Overlay{Rules: []Rule{{ID: "x", Decision: d, Pattern: "curl *"}}}
+		if _, _, err := Merge(base, ov, "1.0.0"); err == nil {
+			t.Errorf("decision %q: want error, got nil", d)
+		}
+	}
+}
+
 func TestMergeMinVersionWarning(t *testing.T) {
 	base := &Policy{Waived: map[string]bool{}}
 	ov := &Overlay{EngineMinVersion: "2.5.0"}

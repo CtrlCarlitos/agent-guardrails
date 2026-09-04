@@ -45,11 +45,13 @@ func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 			continue
 		}
 		if matchesAnyGlob(c, pol.Slots.SecretGlobs) {
-			if pol.Waived["P4.secret-path"] {
-				return nil
+			if !pol.Waived["P4.secret-path"] {
+				return &policy.Verdict{Decision: policy.Deny, RuleID: "P4.secret-path",
+					Reason: "access to a credential/secret path: " + c}
 			}
-			return &policy.Verdict{Decision: policy.Deny, RuleID: "P4.secret-path",
-				Reason: "access to a credential/secret path: " + c}
+			// waived here: skip the secret-path verdict but still check this
+			// candidate (and the rest) for symlink escape; Evaluate re-filters
+			// waived rules as the single semantic waiver point.
 		}
 		if v := checkSymlinkEscape(c, tc); v != nil {
 			return v
