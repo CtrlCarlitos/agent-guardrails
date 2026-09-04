@@ -14,7 +14,7 @@ func pathPol() *policy.Policy {
 		Slots: policy.Slots{
 			SecretGlobs: []string{
 				"**/.env", ".env.*", "**/.env.*",
-				"**/.ssh/**", "**/.aws/**", "**/.netrc",
+				"**/.ssh/**", "**/.aws/**", "**/.kube/config", "**/.docker/config.json", "**/.netrc",
 				"id_rsa*", "id_ed25519*", "*.pem", "*.key",
 				"**/.claude.json", "service-account*.json",
 			},
@@ -45,6 +45,22 @@ func TestCheckPathsFileTool(t *testing.T) {
 		tc := ToolCall{Tool: "Read", Paths: []string{p}}
 		if v := checkPaths(tc, pathPol()); v != nil {
 			t.Errorf("Read %q -> %+v, want nil", p, v)
+		}
+	}
+}
+
+func TestGlobMatchingIgnoresDotSegments(t *testing.T) {
+	pol := pathPol()
+	deny := []string{
+		"/home/u/.kube/./config",
+		"/home/u/.kube//config",
+		"/home/u/.docker/./config.json",
+		"/repo/.git/x/../config",
+	}
+	for _, p := range deny {
+		tc := ToolCall{Tool: "Write", Paths: []string{p}, RepoRoot: "/repo", CWD: "/repo"}
+		if v := checkPaths(tc, pol); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want a deny (dot-segments must not defeat the glob)", p, v)
 		}
 	}
 }

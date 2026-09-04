@@ -156,7 +156,7 @@ func checkOutOfRepoWrite(tc ToolCall) *policy.Verdict {
 }
 
 func matchesAnyGlob(p string, globs []string) bool {
-	p = strings.TrimPrefix(p, "./")
+	p = path.Clean(filepath.ToSlash(strings.TrimPrefix(p, "./")))
 	base := path.Base(p)
 	for _, g := range globs {
 		if ok, _ := doublestar.Match(g, p); ok {
