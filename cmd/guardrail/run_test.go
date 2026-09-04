@@ -28,6 +28,19 @@ func TestRunUnknownSubcommand(t *testing.T) {
 	}
 }
 
+func TestRunHelp(t *testing.T) {
+	var out, errb bytes.Buffer
+	code := run([]string{"help"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("help exit = %d, want 0", code)
+	}
+	for _, want := range []string{"hook", "gen-config", "doctor", "version"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("usage missing %q", want)
+		}
+	}
+}
+
 func TestRunNoArgs(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := run(nil, strings.NewReader(""), &out, &errb)
