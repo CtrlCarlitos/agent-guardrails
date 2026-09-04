@@ -29,7 +29,7 @@ func checkGitSafety(s Simple) *policy.Verdict {
 			}
 		}
 	case "branch":
-		if hasAnyFlag(s.Argv, "D") {
+		if hasAnyFlag(s.Argv, "D") || (hasAnyFlag(s.Argv, "", "--delete") && hasAnyFlag(s.Argv, "", "--force")) {
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-branch-delete",
 				Reason: "git branch -D force-deletes an unmerged branch"}
 		}

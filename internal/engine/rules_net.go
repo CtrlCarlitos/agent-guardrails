@@ -110,6 +110,13 @@ func extractHost(argv []string, tool string) string {
 				if j := strings.Index(rest, ":"); j >= 0 {
 					return rest[:j]
 				}
+				continue
+			}
+			if j := strings.Index(a, "::"); j > 0 && len(a[:j]) > 1 && !strings.Contains(a[:j], "/") {
+				return a[:j]
+			}
+			if j := strings.Index(a, ":"); j > 0 && len(a[:j]) > 1 && !strings.Contains(a[:j], "/") {
+				return a[:j]
 			}
 		}
 	case "nc", "ncat", "telnet":

@@ -25,19 +25,20 @@ func TestGitResetHardDenied(t *testing.T) {
 
 func TestGitAskTier(t *testing.T) {
 	cases := map[string]string{
-		"git checkout .":                       "P2.git-checkout-restore",
-		"git checkout -- .":                    "P2.git-checkout-restore",
-		"git restore .":                        "P2.git-checkout-restore",
-		"git branch -D feature/x":              "P2.git-branch-delete",
-		"git commit --amend":                   "P2.git-history-rewrite",
-		"git filter-branch --tree-filter x":    "P2.git-history-rewrite",
-		"git filter-repo --invert-paths":       "P2.git-history-rewrite",
-		"git reflog expire --expire=now --all": "P2.git-history-rewrite",
-		"git gc --prune=now":                   "P2.git-history-rewrite",
-		"git remote add origin https://x":      "P2.git-remote-add",
-		"git remote set-url origin https://x":  "P2.git-remote-add",
-		"git stash clear":                      "P2.git-stash-clear",
-		"git stash drop":                       "P2.git-stash-clear",
+		"git checkout .":                        "P2.git-checkout-restore",
+		"git checkout -- .":                     "P2.git-checkout-restore",
+		"git restore .":                         "P2.git-checkout-restore",
+		"git branch -D feature/x":               "P2.git-branch-delete",
+		"git branch --delete --force feature/x": "P2.git-branch-delete",
+		"git commit --amend":                    "P2.git-history-rewrite",
+		"git filter-branch --tree-filter x":     "P2.git-history-rewrite",
+		"git filter-repo --invert-paths":        "P2.git-history-rewrite",
+		"git reflog expire --expire=now --all":  "P2.git-history-rewrite",
+		"git gc --prune=now":                    "P2.git-history-rewrite",
+		"git remote add origin https://x":       "P2.git-remote-add",
+		"git remote set-url origin https://x":   "P2.git-remote-add",
+		"git stash clear":                       "P2.git-stash-clear",
+		"git stash drop":                        "P2.git-stash-clear",
 	}
 	for c, id := range cases {
 		v := evalGitSafety(t, c)
