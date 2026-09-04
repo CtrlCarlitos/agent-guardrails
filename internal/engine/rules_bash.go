@@ -116,15 +116,49 @@ func checkGit(s Simple) *policy.Verdict {
 	return nil
 }
 
+// gitSubcommand returns the git subcommand (e.g. "push", "config"), correctly
+// skipping global options that take a separate value token — "-C <path>" and
+// "-c <key>=<value>" (repeatable) — before it. Getting this wrong previously
+// made "git -C . push --force" return "." as the subcommand, silently
+// bypassing every git-safety rule (checkGit and checkGitSafety both key off
+// this function's return value).
 func gitSubcommand(argv []string) string {
-	for _, a := range argv[1:] {
-		if strings.HasPrefix(a, "-") {
+	valueFlags := map[string]bool{"-C": true, "-c": true, "--namespace": true}
+	for i := 1; i < len(argv); {
+		a := argv[i]
+		if !strings.HasPrefix(a, "-") {
+			return a
+		}
+		if valueFlags[a] {
+			i += 2
 			continue
 		}
-		if a == "-C" { // handled as flag above only if prefixed; -C takes a value
+		i++
+	}
+	return ""
+}
+
+// gitSubcommandArg returns the token immediately after the git subcommand
+// ("clear" in "git stash clear"), or "" when absent. Sub-subcommands must be
+// read relative to the subcommand, not at the fixed position s.Argv[2]:
+// global options like "-C <path>"/"-c k=v" before the subcommand shift every
+// later token, which bypassed the reflog/remote/stash rules exactly the way
+// the subcommand misparse did.
+func gitSubcommandArg(argv []string) string {
+	valueFlags := map[string]bool{"-C": true, "-c": true, "--namespace": true}
+	for i := 1; i < len(argv); {
+		a := argv[i]
+		if !strings.HasPrefix(a, "-") {
+			if i+1 < len(argv) {
+				return argv[i+1]
+			}
+			return ""
+		}
+		if valueFlags[a] {
+			i += 2
 			continue
 		}
-		return a
+		i++
 	}
 	return ""
 }

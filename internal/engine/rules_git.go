@@ -42,7 +42,7 @@ func checkGitSafety(s Simple) *policy.Verdict {
 		return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-history-rewrite",
 			Reason: "git " + sub + " rewrites history"}
 	case "reflog":
-		if len(s.Argv) > 2 && s.Argv[2] == "expire" {
+		if gitSubcommandArg(s.Argv) == "expire" {
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-history-rewrite",
 				Reason: "git reflog expire removes the safety net for history rewrites"}
 		}
@@ -52,12 +52,12 @@ func checkGitSafety(s Simple) *policy.Verdict {
 				Reason: "git gc --prune=now permanently drops unreachable objects"}
 		}
 	case "remote":
-		if len(s.Argv) > 2 && (s.Argv[2] == "add" || s.Argv[2] == "set-url") {
+		if n := gitSubcommandArg(s.Argv); n == "add" || n == "set-url" {
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-remote-add",
 				Reason: "adding/changing a remote adds a reachable exfil destination"}
 		}
 	case "stash":
-		if len(s.Argv) > 2 && (s.Argv[2] == "clear" || s.Argv[2] == "drop") {
+		if n := gitSubcommandArg(s.Argv); n == "clear" || n == "drop" {
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-stash-clear",
 				Reason: "discards stashed work with no reflog for the stash contents"}
 		}
