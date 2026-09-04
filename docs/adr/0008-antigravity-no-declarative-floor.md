@@ -32,3 +32,6 @@ schema for the same reason as the SessionStart shape check in Plan 4b.
   should treat "guardrail binary present and correct version" as
   *more* load-bearing for Antigravity sessions than for Claude/opencode
   ones, precisely because there is no floor behind it.
+- The generated hook groups additionally carry `"id"` keys (required by
+  owned-entry rebinding, ADR-0004) that the proven takumi file does NOT
+  have — verify tolerance on the first live Antigravity session.

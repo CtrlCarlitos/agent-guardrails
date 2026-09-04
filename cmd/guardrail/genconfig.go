@@ -14,7 +14,7 @@ import (
 
 func cmdGenConfig(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "guardrail: gen-config needs a plane (claude, opencode)")
+		fmt.Fprintln(stderr, "guardrail: gen-config needs a plane (claude, opencode, antigravity)")
 		return 2
 	}
 	plane := args[0]
