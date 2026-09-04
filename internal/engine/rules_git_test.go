@@ -52,6 +52,23 @@ func TestGitAskTier(t *testing.T) {
 	}
 }
 
+func TestGitPushProtected(t *testing.T) {
+	for _, c := range []string{"git push origin main", "git push origin master", "git push --tags"} {
+		v := evalGitSafety(t, c)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P2.git-push-protected" {
+			t.Errorf("%q -> %+v, want ask/P2.git-push-protected", c, v)
+		}
+	}
+	if v := evalGitSafety(t, "git push origin feature/x"); v != nil {
+		t.Errorf("feature branch push -> %+v, want nil", v)
+	}
+	// force-push to main is still P1's deny, not this ask — most-severe wins regardless.
+	v := evalGitSafety(t, "git push --force origin main")
+	if v == nil || v.Decision != policy.Deny {
+		t.Errorf("force push to main -> %+v, want deny (P1 wins)", v)
+	}
+}
+
 func TestGitConfigWriteDenied(t *testing.T) {
 	for _, c := range []string{
 		"git config user.email x@y.com",

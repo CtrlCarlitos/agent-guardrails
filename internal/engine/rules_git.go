@@ -61,6 +61,20 @@ func checkGitSafety(s Simple) *policy.Verdict {
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-stash-clear",
 				Reason: "discards stashed work with no reflog for the stash contents"}
 		}
+	case "push":
+		if hasAnyFlag(s.Argv, "f", "--force", "--force-with-lease") {
+			return nil // P1.git-push-force (checkGit) already denies this; don't duplicate
+		}
+		for _, a := range nonFlagArgs(s.Argv) {
+			if a == "main" || a == "master" {
+				return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-push-protected",
+					Reason: "push to a protected branch"}
+			}
+		}
+		if hasAnyFlag(s.Argv, "", "--tags") {
+			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-push-protected",
+				Reason: "pushing tags can overwrite released versions"}
+		}
 	}
 	return nil
 }

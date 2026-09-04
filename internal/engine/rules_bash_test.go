@@ -63,7 +63,7 @@ func TestCheckBashGitDocker(t *testing.T) {
 		}
 	}
 	ok := []string{
-		`git push origin main`,
+		`git push origin feature/x`,
 		`git clean -n`,
 		`docker rm my-container`,
 		`docker compose up -d`,
