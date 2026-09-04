@@ -49,7 +49,7 @@ func hasAnyFlag(argv []string, short string, long ...string) bool {
 	for _, a := range argv[1:] {
 		if strings.HasPrefix(a, "--") {
 			for _, l := range long {
-				if a == l {
+				if a == l || strings.HasPrefix(a, l+"=") {
 					return true
 				}
 			}

