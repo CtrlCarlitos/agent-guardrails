@@ -115,6 +115,14 @@ func checkGitProtectedPaths(tc ToolCall) *policy.Verdict {
 var selfConfigGlobs = []string{
 	"**/.claude/**", "CLAUDE.md", "AGENTS.md", ".mcp.json", ".envrc",
 	"**/.bashrc", "**/.zshrc", "**/.profile", "**/.bash_profile",
+	// Guardrail's own machinery: the agent must not configure, disable, or
+	// replace the thing supervising it (CR-14).
+	"guardrail.toml", "**/guardrail.toml",
+	"**/.guardrail/**",
+	"opencode.json", "**/opencode.json",
+	"**/.agents/hooks.json",
+	"**/.gemini/config/hooks.json",
+	"**/.local/bin/guardrail", "**/bin/guardrail",
 }
 
 func checkSelfConfig(tc ToolCall) *policy.Verdict {

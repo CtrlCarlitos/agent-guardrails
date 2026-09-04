@@ -127,6 +127,30 @@ func TestSelfConfigDenied(t *testing.T) {
 	}
 }
 
+func TestGuardrailOwnMachineryIsProtected(t *testing.T) {
+	protected := []string{
+		"/repo/guardrail.toml",
+		"/repo/.guardrail/guardrail.js",
+		"/repo/opencode.json",
+		"/repo/.agents/hooks.json",
+		"/home/u/.gemini/config/hooks.json",
+		"/home/u/.local/bin/guardrail",
+		"/repo/bin/guardrail",
+	}
+	for _, p := range protected {
+		read := ToolCall{Tool: "Read", Paths: []string{p}, RepoRoot: "/repo", CWD: "/repo"}
+		if v := checkPaths(read, pathPol()); v != nil {
+			t.Errorf("Read %q -> %+v, want nil (reads are not the risk)", p, v)
+		}
+
+		write := ToolCall{Tool: "Write", Paths: []string{p}, RepoRoot: "/repo", CWD: "/repo"}
+		v := checkPaths(write, pathPol())
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
+			t.Errorf("Write %q -> %+v, want deny/P5.self-config (the agent must not configure its own guard)", p, v)
+		}
+	}
+}
+
 func TestSelfConfigAndGitProtectedAllowReads(t *testing.T) {
 	allow := []string{
 		"/repo/CLAUDE.md", "/repo/AGENTS.md",
