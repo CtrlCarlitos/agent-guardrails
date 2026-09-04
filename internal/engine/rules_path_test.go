@@ -1,6 +1,9 @@
 package engine
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -54,5 +57,25 @@ func TestCheckPathsBashReader(t *testing.T) {
 	tc = ToolCall{Tool: "Bash", Command: `grep -r TODO src/`}
 	if v := checkPaths(tc, pathPol()); v != nil {
 		t.Errorf("grep src -> %+v, want nil", v)
+	}
+}
+
+func TestCheckPathsSymlinkEscape(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	repo := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "target")
+	if err := os.WriteFile(outside, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(repo, "innocent.txt")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	tc := ToolCall{Tool: "Edit", Paths: []string{link}, RepoRoot: repo, CWD: repo}
+	v := checkPaths(tc, pathPol())
+	if v == nil || v.RuleID != "P4.symlink-escape" {
+		t.Fatalf("-> %+v, want deny/P4.symlink-escape", v)
 	}
 }

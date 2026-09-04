@@ -2,6 +2,7 @@ package engine
 
 import (
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -50,6 +51,9 @@ func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P4.secret-path",
 				Reason: "access to a credential/secret path: " + c}
 		}
+		if v := checkSymlinkEscape(c, tc); v != nil {
+			return v
+		}
 	}
 	return nil
 }
@@ -66,4 +70,30 @@ func matchesAnyGlob(p string, globs []string) bool {
 		}
 	}
 	return false
+}
+
+func checkSymlinkEscape(cand string, tc ToolCall) *policy.Verdict {
+	if tc.RepoRoot == "" || filepath.IsAbs(cand) && !strings.HasPrefix(filepath.Clean(cand), filepath.Clean(tc.RepoRoot)) {
+		// only guard paths that claim to be inside the repo
+		if !strings.HasPrefix(filepath.Clean(cand), filepath.Clean(tc.RepoRoot)) {
+			return nil
+		}
+	}
+	abs := cand
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(tc.CWD, cand)
+	}
+	if !strings.HasPrefix(filepath.Clean(abs), filepath.Clean(tc.RepoRoot)+string(filepath.Separator)) {
+		return nil
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return nil // nonexistent target: nothing to resolve yet
+	}
+	root := filepath.Clean(tc.RepoRoot) + string(filepath.Separator)
+	if !strings.HasPrefix(filepath.Clean(resolved)+string(filepath.Separator), root) {
+		return &policy.Verdict{Decision: policy.Deny, RuleID: "P4.symlink-escape",
+			Reason: "a path inside the repo resolves outside it via symlink: " + cand}
+	}
+	return nil
 }
