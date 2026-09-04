@@ -2,7 +2,7 @@ GO ?= /usr/local/go/bin/go
 VERSION ?= dev
 CGO_ENABLED ?= 0
 
-.PHONY: build test fmt contract golden vet check dist
+.PHONY: build test fmt contract golden vet check dist smoke
 
 build:
 	$(GO) build -ldflags "-X main.version=$(VERSION)" -o guardrail ./cmd/guardrail
@@ -27,3 +27,6 @@ golden:
 
 dist:
 	./scripts/build-dist.sh
+
+smoke:
+	./test/smoke/claude_smoke.sh

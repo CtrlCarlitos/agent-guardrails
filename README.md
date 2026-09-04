@@ -22,6 +22,9 @@ the first). Pending: chezmoi installer + real-Claude smoke test (Plan 3b), polic
 modules P2/P5/P6/P7/P10 (Plan 4), opencode adapter (Plan 5), Antigravity adapter
 (Plan 6), recipes + `guardrail sync` (Plan 7).
 
+`make smoke` runs a best-effort end-to-end check against a real `claude` session
+(needs a login, spends tokens, not in CI) — see `test/smoke/README.md`.
+
 ## Layout
 
 ```
