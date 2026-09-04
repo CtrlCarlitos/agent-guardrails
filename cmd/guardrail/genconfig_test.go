@@ -82,3 +82,25 @@ func TestGenConfigClaudeMerge(t *testing.T) {
 		t.Errorf("second merge changed the file")
 	}
 }
+
+func TestGenConfigPrintFalseIsNoOp(t *testing.T) {
+	var out, errb bytes.Buffer
+	code := run([]string{"gen-config", "claude", "--print=false"}, strings.NewReader(""), &out, &errb)
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2", code)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout should be empty, got %q", out.String())
+	}
+	if !strings.Contains(errb.String(), "nothing to do") {
+		t.Fatalf("stderr = %q", errb.String())
+	}
+}
+
+func TestGenConfigDefaultStillPrints(t *testing.T) {
+	var out, errb bytes.Buffer
+	code := run([]string{"gen-config", "claude"}, strings.NewReader(""), &out, &errb)
+	if code != 0 || out.Len() == 0 {
+		t.Fatalf("exit=%d stdout=%q", code, out.String())
+	}
+}

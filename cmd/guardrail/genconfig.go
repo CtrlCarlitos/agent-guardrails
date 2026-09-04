@@ -45,12 +45,16 @@ func cmdGenConfig(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
+	if !*doPrint {
+		fmt.Fprintln(stderr, "guardrail: gen-config: nothing to do (pass --merge <path> or drop --print=false)")
+		return 2
+	}
+
 	b, err := json.MarshalIndent(frag, "", "  ")
 	if err != nil {
 		fmt.Fprintf(stderr, "guardrail: cannot marshal config: %v\n", err)
 		return 2
 	}
 	stdout.Write(append(b, '\n'))
-	_ = doPrint
 	return 0
 }
