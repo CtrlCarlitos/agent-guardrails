@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // MergeInto deep-merges frag into the JSON object stored at path, creating the
@@ -63,6 +64,10 @@ func deepMerge(dst, src map[string]any) {
 		}
 		dm, dok := dv.(map[string]any)
 		sm, sok := sv.(map[string]any)
+		if k == "hooks" && dok && sok {
+			mergeHooks(dm, sm)
+			continue
+		}
 		if dok && sok {
 			deepMerge(dm, sm)
 			continue
@@ -92,15 +97,56 @@ func toAnySlice(v any) ([]any, bool) {
 	}
 }
 
+func mergeHooks(dst, src map[string]any) {
+	for event, sv := range src {
+		sGroups, _ := toAnySlice(sv)
+		dGroups, _ := toAnySlice(dst[event])
+
+		out := make([]any, 0, len(dGroups)+len(sGroups))
+		seen := map[string]bool{}
+		for _, g := range dGroups {
+			if ownedByGuardrail(g) {
+				continue // drop; src replaces it
+			}
+			out = append(out, g)
+			seen[jsonKey(g)] = true
+		}
+		for _, g := range sGroups {
+			if ownedByGuardrail(g) {
+				out = append(out, g)
+				continue
+			}
+			if k := jsonKey(g); !seen[k] {
+				seen[k] = true
+				out = append(out, g)
+			}
+		}
+		dst[event] = out
+	}
+}
+
+func ownedByGuardrail(group any) bool {
+	m, ok := group.(map[string]any)
+	if !ok {
+		return false
+	}
+	id, _ := m["id"].(string)
+	return strings.HasPrefix(id, "guardrail-")
+}
+
+func jsonKey(v any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
 func unionAppend(dst, src []any) []any {
 	seen := map[string]bool{}
-	key := func(v any) string { b, _ := json.Marshal(v); return string(b) }
 	for _, v := range dst {
-		seen[key(v)] = true
+		seen[jsonKey(v)] = true
 	}
 	out := append([]any{}, dst...)
 	for _, v := range src {
-		if k := key(v); !seen[k] {
+		if k := jsonKey(v); !seen[k] {
 			seen[k] = true
 			out = append(out, v)
 		}

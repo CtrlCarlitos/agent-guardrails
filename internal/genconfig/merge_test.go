@@ -99,3 +99,89 @@ func TestMergeIntoRejectsDirectory(t *testing.T) {
 		t.Fatal("want error for a directory path, got nil")
 	}
 }
+
+func hookFrag(binary string) Fragment {
+	return Fragment{"hooks": map[string]any{
+		"PreToolUse": []any{
+			map[string]any{
+				"id": "guardrail-claude-pre", "matcher": "Bash",
+				"hooks": []any{map[string]any{"type": "command", "command": binary + " hook claude"}},
+			},
+		},
+	}}
+}
+
+func preGroups(t *testing.T, p string) []any {
+	m := readJSON(t, p)
+	return m["hooks"].(map[string]any)["PreToolUse"].([]any)
+}
+
+func TestMergeHooksReplacesOwnedOnRerun(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "settings.json")
+	if err := MergeInto(p, hookFrag("/a/guardrail")); err != nil {
+		t.Fatal(err)
+	}
+	if err := MergeInto(p, hookFrag("/a/guardrail")); err != nil {
+		t.Fatal(err)
+	}
+	g := preGroups(t, p)
+	if len(g) != 1 {
+		t.Fatalf("want exactly 1 PreToolUse group after 2 identical merges, got %d: %v", len(g), g)
+	}
+}
+
+func TestMergeHooksRebindsBinary(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "settings.json")
+	MergeInto(p, hookFrag("/old/guardrail"))
+	if err := MergeInto(p, hookFrag("/new/guardrail")); err != nil {
+		t.Fatal(err)
+	}
+	g := preGroups(t, p)
+	if len(g) != 1 {
+		t.Fatalf("want 1 owned group, got %d", len(g))
+	}
+	cmd := g[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)["command"].(string)
+	if cmd != "/new/guardrail hook claude" {
+		t.Fatalf("command = %q, want the new binary path", cmd)
+	}
+}
+
+func TestMergeHooksPreservesUserGroups(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "settings.json")
+	os.WriteFile(p, []byte(`{"hooks":{"PreToolUse":[{"matcher":"Task","hooks":[{"type":"command","command":"my-own-hook"}]}]}}`), 0o644)
+	if err := MergeInto(p, hookFrag("/x/guardrail")); err != nil {
+		t.Fatal(err)
+	}
+	g := preGroups(t, p)
+	if len(g) != 2 {
+		t.Fatalf("want user group + owned group = 2, got %d: %v", len(g), g)
+	}
+	var sawUser, sawOwned bool
+	for _, grp := range g {
+		m := grp.(map[string]any)
+		if m["matcher"] == "Task" {
+			sawUser = true
+		}
+		if m["id"] == "guardrail-claude-pre" {
+			sawOwned = true
+		}
+	}
+	if !sawUser || !sawOwned {
+		t.Fatalf("user=%v owned=%v", sawUser, sawOwned)
+	}
+	// a second merge must not add a third group
+	MergeInto(p, hookFrag("/x/guardrail"))
+	if g := preGroups(t, p); len(g) != 2 {
+		t.Fatalf("second merge changed group count to %d", len(g))
+	}
+}
+
+func TestPermissionsStillUnionAppend(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "settings.json")
+	os.WriteFile(p, []byte(`{"permissions":{"deny":["Bash(foo)"]}}`), 0o644)
+	MergeInto(p, Fragment{"permissions": map[string]any{"deny": []string{"Bash(rm -rf *)"}}})
+	deny := readJSON(t, p)["permissions"].(map[string]any)["deny"].([]any)
+	if len(deny) != 2 {
+		t.Fatalf("deny = %v, want the user entry kept + the new one", deny)
+	}
+}
