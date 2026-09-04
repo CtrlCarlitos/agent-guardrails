@@ -12,15 +12,16 @@ Installed globally via dotfiles; each project layers its own rules in a committe
 
 ## Status
 
-Plans 1–4 implemented. `guardrail hook claude` enforces P1 (destructive commands),
-P2 (git-safety), P4 (secret paths), P5 (filesystem-scope + CI/infra/lockfile),
-P6 (network-egress + supply-chain), with audit logging and per-repo `guardrail.toml`
-overlays. `guardrail gen-config claude` / `doctor` cover Claude installation and
-diagnostics. CI + a real `v0.3.1` release ship the binary; the chezmoi installer wires
-it globally (Plan 3b). Pending: P7 (injection hygiene + lethal-trifecta) + P10
-(autonomy posture) — Plan 4b, needs new session-state and SessionStart infrastructure;
-opencode adapter (Plan 5); Antigravity adapter (Plan 6); recipes + `guardrail sync`
-(Plan 7).
+Plans 1–4 + the git -C/-c hotfix (v0.4.1) + Plan 4b implemented. `guardrail hook
+claude` enforces P1/P2/P4/P5/P6, escalates via a two-signal P7 trifecta heuristic
+(session-scoped, ask-only, waivable), and answers SessionStart with an autonomy
+posture message + active-waiver banner (P10). `gen-config`/`doctor` cover Claude
+installation and diagnostics. CI + real releases ship the binary; the chezmoi
+installer wires it globally, currently pinned to v0.4.1. Pending: opencode adapter
+(Plan 5), Antigravity adapter (Plan 6), recipes + `guardrail sync` (Plan 7). Known
+parked gaps: `git -C <path>` target-repo validation (a different concern from the
+v0.4.1 parsing fix), `docker … | xargs`, backslash-escaped words, `bash -lc`,
+Windows-path engine semantics, macOS `sha256sum` fallback.
 
 `make smoke` runs a best-effort end-to-end check against a real `claude` session
 (needs a login, spends tokens, not in CI) — see `test/smoke/README.md`.
