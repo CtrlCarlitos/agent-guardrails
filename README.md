@@ -12,16 +12,20 @@ Installed globally via dotfiles; each project layers its own rules in a committe
 
 ## Status
 
-Plans 1–4 + the git -C/-c hotfix (v0.4.1) + Plan 4b + the opencode adapter
-implemented. `guardrail hook claude` enforces P1/P2/P4/P5/P6, escalates via a
-two-signal P7 trifecta heuristic (session-scoped, ask-only, waivable), and answers
-SessionStart with an autonomy posture message + active-waiver banner (P10).
-`guardrail hook opencode` runs the same shared pipeline (audit, trifecta, waivers)
-through a JS plugin — ask/deny throw, allow passes through — which `gen-config
-opencode` deploys alongside the generated `opencode.json` permission floor;
-`gen-config` covers Claude + opencode installation; `doctor` covers Claude installation and diagnostics. CI +
+Plans 1–6 + the git -C/-c hotfix (v0.4.1) implemented. `guardrail hook claude`
+enforces P1/P2/P4/P5/P6, escalates via a two-signal P7 trifecta heuristic
+(session-scoped, ask-only, waivable), and answers SessionStart with an autonomy
+posture message + active-waiver banner (P10). `guardrail hook opencode` runs the
+same shared pipeline (audit, trifecta, waivers) through a JS plugin — ask/deny
+throw, allow passes through — which `gen-config opencode` deploys alongside the
+generated `opencode.json` permission floor. `guardrail hook antigravity <pre|post>`
+runs the same shared pipeline on Antigravity's PreToolUse/PostToolUse events and is
+the whole boundary: Antigravity has no declarative floor ([ADR-0008](./docs/adr/0008-antigravity-no-declarative-floor.md)),
+so `gen-config antigravity` emits only the hooks.json registration;
+`gen-config` covers Claude + opencode + Antigravity installation; `doctor` covers
+Claude installation and diagnostics. CI +
 real releases ship the binary; the chezmoi installer wires it globally, currently
-pinned to v0.4.1. Pending: Antigravity adapter (Plan 6), recipes + `guardrail sync`
+pinned to v0.4.1. Pending: recipes + `guardrail sync`
 (Plan 7). Known
 parked gaps: `git -C <path>` target-repo validation (a different concern from the
 v0.4.1 parsing fix), `docker … | xargs`, backslash-escaped words, `bash -lc`,
@@ -37,9 +41,11 @@ cmd/guardrail/        Engine entrypoint; `guardrail hook <plane>`, `gen-config <
 internal/genconfig/   Translate the policy into each plane's native declarative floor + idempotent merge
 internal/genconfig/opencode.go  opencode declarative floor (`permission.bash/read/edit` from the policy's glob lists)
 internal/genconfig/opencode_plugin.js  Embedded JS plugin source, deployed by `gen-config opencode`; spawns `guardrail hook opencode`
+internal/genconfig/antigravity.go  Antigravity hooks.json fragment — named-wrapper hook registration, no permissions key (ADR-0008)
 internal/policy/      Policy model, guardrail.toml parsing, Base+Overlay merge
 internal/engine/      Tokenizer (mvdan.cc/sh), evaluation, verdicts, lethal-trifecta gate
 internal/adapter/     Per-plane payload normalization + response emission
+internal/adapter/antigravity.go  Antigravity parse/emit for `hook antigravity <pre|post>` (`conversationId`, `toolCall.name`)
 recipes/              Per-language P8 format+lint recipes (Go, Python, JS/TS, Rust, Elixir, Odoo)
 test/fixtures/        Recorded per-plane payloads → expected verdict (contract tests)
 docs/adr/             Architecture decision records
