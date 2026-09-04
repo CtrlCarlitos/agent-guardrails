@@ -12,15 +12,17 @@ Installed globally via dotfiles; each project layers its own rules in a committe
 
 ## Status
 
-Plans 1–3 implemented. `guardrail hook claude` enforces P1/P4 with audit logging and
+Plans 1–3b implemented. `guardrail hook claude` enforces P1/P4 with audit logging and
 per-repo `guardrail.toml` overlays; `guardrail gen-config claude` emits/merges the
 Claude declarative floor with marker-based owned-entry replacement (safe to re-run
 and to rebind `--binary`); `guardrail doctor` reports resolved state. CI runs the
 full build/vet/test/gofmt suite on ubuntu and builds+vets on windows on push; `v*`
-tags publish checksummed cross-platform binaries to GitHub Releases (`v0.3.0` is
-the first). Pending: chezmoi installer + real-Claude smoke test (Plan 3b), policy
-modules P2/P5/P6/P7/P10 (Plan 4), opencode adapter (Plan 5), Antigravity adapter
-(Plan 6), recipes + `guardrail sync` (Plan 7).
+tags publish checksummed cross-platform binaries to GitHub Releases (`v0.3.1` is
+current). Claude Code is installable globally via the chezmoi dotfiles installer
+(branch `add-guardrail-installer`, pending merge), and the real-Claude smoke test
+exists as `make smoke` (below). Pending: policy modules P2/P5/P6/P7/P10 (Plan 4),
+opencode adapter (Plan 5), Antigravity adapter (Plan 6), recipes + `guardrail sync`
+(Plan 7).
 
 `make smoke` runs a best-effort end-to-end check against a real `claude` session
 (needs a login, spends tokens, not in CI) — see `test/smoke/README.md`.
