@@ -6,18 +6,43 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
 
+func goCmd() string {
+	if v := os.Getenv("GUARDRAIL_GO"); v != "" {
+		return v
+	}
+	if _, err := exec.LookPath("go"); err == nil {
+		return "go"
+	}
+	return "/usr/local/go/bin/go"
+}
+
 func buildBinary(t *testing.T) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "guardrail")
-	out, err := exec.Command("/usr/local/go/bin/go", "build", "-o", bin, "../cmd/guardrail").CombinedOutput()
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	out, err := exec.Command(goCmd(), "build", "-o", bin, "../cmd/guardrail").CombinedOutput()
 	if err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
 	return bin
+}
+
+func TestGoCmdResolves(t *testing.T) {
+	got := goCmd()
+	if got == "" {
+		t.Fatal("goCmd returned empty")
+	}
+	// it must be runnable
+	if err := exec.Command(got, "version").Run(); err != nil {
+		t.Fatalf("goCmd() = %q is not runnable: %v", got, err)
+	}
 }
 
 func TestClaudeContractFixtures(t *testing.T) {
