@@ -12,7 +12,7 @@ func evalGitSafety(t *testing.T, cmd string) *policy.Verdict {
 }
 
 func TestGitResetHardDenied(t *testing.T) {
-	for _, c := range []string{"git reset --hard", "git reset --hard HEAD~3", "git reset --keep"} {
+	for _, c := range []string{"git reset --hard", "git reset --hard HEAD~3", "git reset --keep", "/usr/bin/git reset --hard"} {
 		v := evalGitSafety(t, c)
 		if v == nil || v.Decision != policy.Deny || v.RuleID != "P2.git-reset-hard" {
 			t.Errorf("%q -> %+v, want deny/P2.git-reset-hard", c, v)

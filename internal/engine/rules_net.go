@@ -24,7 +24,7 @@ func checkDownloadPipeShell(simples []Simple) *policy.Verdict {
 		if len(simples[i].Argv) == 0 || len(simples[i+1].Argv) == 0 {
 			continue
 		}
-		if fetchTools[simples[i].Argv[0]] && interpreters[simples[i+1].Argv[0]] {
+		if fetchTools[head(simples[i].Argv)] && interpreters[head(simples[i+1].Argv)] {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P6.download-pipe-shell",
 				Reason: "downloaded content piped straight into an interpreter"}
 		}
@@ -33,10 +33,10 @@ func checkDownloadPipeShell(simples []Simple) *policy.Verdict {
 }
 
 func checkPackageInstall(s Simple) *policy.Verdict {
-	head := s.Argv[0]
+	command := head(s.Argv)
 	joined := strings.Join(s.Argv, " ")
 
-	isPip := head == "pip" || head == "pip3"
+	isPip := command == "pip" || command == "pip3"
 	if isPip && strings.Contains(joined, "install") {
 		if hasAnyFlag(s.Argv, "", "--index-url", "--extra-index-url") || strings.Contains(joined, "git+http") {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P6.registry-redirect",
@@ -46,12 +46,12 @@ func checkPackageInstall(s Simple) *policy.Verdict {
 			Reason: "new Python dependency — runs install scripts with your privileges"}
 	}
 
-	if head == "npm" && hasAnyFlag(s.Argv, "", "--registry") {
+	if command == "npm" && hasAnyFlag(s.Argv, "", "--registry") {
 		return &policy.Verdict{Decision: policy.Deny, RuleID: "P6.registry-redirect",
 			Reason: "npm install with a redirected registry"}
 	}
 
-	switch head {
+	switch command {
 	case "npm", "yarn", "pnpm":
 		for _, a := range nonFlagArgs(s.Argv) {
 			if a == "install" || a == "i" || a == "ci" || a == "add" {
@@ -80,10 +80,11 @@ func checkPackageInstall(s Simple) *policy.Verdict {
 }
 
 func checkEgress(s Simple, pol *policy.Policy) *policy.Verdict {
-	if !netTools[s.Argv[0]] {
+	command := head(s.Argv)
+	if !netTools[command] {
 		return nil
 	}
-	host := extractHost(s.Argv, s.Argv[0])
+	host := extractHost(s.Argv, command)
 	if host == "" {
 		return nil
 	}

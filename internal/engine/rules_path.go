@@ -44,7 +44,7 @@ func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		simples, err := Normalize(tc.Command)
 		if err == nil {
 			for _, s := range simples {
-				if len(s.Argv) > 0 && pathReaders[s.Argv[0]] {
+				if pathReaders[head(s.Argv)] {
 					candidates = append(candidates, nonFlagArgs(s.Argv)...)
 				}
 			}
@@ -259,10 +259,10 @@ func writeTargets(s Simple) []string {
 	if len(s.Argv) == 0 {
 		return nil
 	}
-	head := path.Base(s.Argv[0])
+	command := head(s.Argv)
 	args := nonFlagArgs(s.Argv)
 
-	if head == "dd" {
+	if command == "dd" {
 		var out []string
 		for _, a := range s.Argv[1:] {
 			if strings.HasPrefix(a, "of=") {
@@ -272,7 +272,7 @@ func writeTargets(s Simple) []string {
 		return out
 	}
 	// sed -i edits in place; without -i it is a reader.
-	if head == "sed" {
+	if command == "sed" {
 		if !hasAnyFlag(s.Argv, "i", "--in-place") {
 			return nil
 		}
@@ -281,10 +281,10 @@ func writeTargets(s Simple) []string {
 		}
 		return nil
 	}
-	if spec, ok := mutatingDestinationCommands[head]; ok {
+	if spec, ok := mutatingDestinationCommands[command]; ok {
 		return destinationTargets(s.Argv, spec)
 	}
-	if mutatingAllArgs[head] {
+	if mutatingAllArgs[command] {
 		return args
 	}
 	return nil

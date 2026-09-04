@@ -1,11 +1,19 @@
 package engine
 
 import (
+	"path"
 	"path/filepath"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
+
+func head(argv []string) string {
+	if len(argv) == 0 {
+		return ""
+	}
+	return path.Base(argv[0])
+}
 
 func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	if !tc.IsBash() {
@@ -79,7 +87,7 @@ func nonFlagArgs(argv []string) []string {
 }
 
 func checkRmRf(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
-	if s.Argv[0] != "rm" {
+	if head(s.Argv) != "rm" {
 		return nil
 	}
 	if !hasAnyFlag(s.Argv, "rfR", "--recursive", "--force") {
@@ -101,7 +109,7 @@ func checkRmRf(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 }
 
 func checkGit(s Simple) *policy.Verdict {
-	if s.Argv[0] != "git" || len(s.Argv) < 2 {
+	if head(s.Argv) != "git" || len(s.Argv) < 2 {
 		return nil
 	}
 	sub := gitSubcommand(s.Argv)
@@ -168,7 +176,7 @@ func gitSubcommandArg(argv []string) string {
 }
 
 func checkDocker(s Simple, rawCmd string) *policy.Verdict {
-	if s.Argv[0] != "docker" || len(s.Argv) < 2 {
+	if head(s.Argv) != "docker" || len(s.Argv) < 2 {
 		return nil
 	}
 	joined := strings.Join(s.Argv[1:], " ")
@@ -198,28 +206,27 @@ func commandHasSubstitution(cmd string) bool {
 }
 
 func checkDiskDestroyers(s Simple) *policy.Verdict {
-	head := s.Argv[0]
+	command := head(s.Argv)
 	switch {
-	case head == "dd":
+	case command == "dd":
 		for _, a := range s.Argv[1:] {
 			if strings.HasPrefix(a, "of=/dev/") {
 				return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.dd",
 					Reason: "dd writing to a raw device: " + a}
 			}
 		}
-	case head == "mkfs" || strings.HasPrefix(head, "mkfs.") || head == "mke2fs" || head == "wipefs":
+	case command == "mkfs" || strings.HasPrefix(command, "mkfs.") || command == "mke2fs" || command == "wipefs":
 		return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.mkfs",
-			Reason: "filesystem-destroying command: " + head}
-	case head == "shred" || head == "srm":
+			Reason: "filesystem-destroying command: " + command}
+	case command == "shred" || command == "srm":
 		return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.shred",
-			Reason: "irreversible secure-delete command: " + head}
+			Reason: "irreversible secure-delete command: " + command}
 	}
 	return nil
 }
 
 func checkAskTier(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
-	head := s.Argv[0]
-	switch head {
+	switch head(s.Argv) {
 	case "sudo", "su", "doas":
 		return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.privesc",
 			Reason: "privilege escalation removes every other guardrail's ground truth"}

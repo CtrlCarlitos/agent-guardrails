@@ -5,7 +5,7 @@ import (
 )
 
 func checkGitSafety(s Simple) *policy.Verdict {
-	if s.Argv[0] != "git" || len(s.Argv) < 2 {
+	if head(s.Argv) != "git" || len(s.Argv) < 2 {
 		return nil
 	}
 	sub := gitSubcommand(s.Argv)

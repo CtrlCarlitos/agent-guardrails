@@ -70,6 +70,10 @@ func TestCheckPathsBashReader(t *testing.T) {
 	if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny {
 		t.Errorf("cat credentials -> %+v, want deny", v)
 	}
+	tc = ToolCall{Tool: "Bash", Command: `/bin/cat ~/.aws/credentials`}
+	if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny {
+		t.Errorf("absolute cat credentials -> %+v, want deny", v)
+	}
 	tc = ToolCall{Tool: "Bash", Command: `grep -r TODO src/`}
 	if v := checkPaths(tc, pathPol()); v != nil {
 		t.Errorf("grep src -> %+v, want nil", v)

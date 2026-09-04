@@ -18,6 +18,9 @@ func TestIsPrivateDataAccess(t *testing.T) {
 	if !IsPrivateDataAccess(ToolCall{Tool: "Bash", Command: "cat ~/.aws/credentials"}, pol) {
 		t.Error("want true for a bash reader of a secret path")
 	}
+	if !IsPrivateDataAccess(ToolCall{Tool: "Bash", Command: "/bin/cat ~/.aws/credentials"}, pol) {
+		t.Error("want true for an absolute bash reader of a secret path")
+	}
 	if IsPrivateDataAccess(ToolCall{Tool: "Read", Paths: []string{"/repo/.env.example"}}, pol) {
 		t.Error("want false for an allowlisted secret-adjacent path")
 	}
@@ -26,6 +29,9 @@ func TestIsPrivateDataAccess(t *testing.T) {
 func TestIsNetworkAttempt(t *testing.T) {
 	if !IsNetworkAttempt(ToolCall{Tool: "Bash", Command: "curl https://example.com"}) {
 		t.Error("want true for curl")
+	}
+	if !IsNetworkAttempt(ToolCall{Tool: "Bash", Command: "/usr/bin/curl https://example.com"}) {
+		t.Error("want true for absolute curl")
 	}
 	if IsNetworkAttempt(ToolCall{Tool: "Bash", Command: "ls -la"}) {
 		t.Error("want false for ls")

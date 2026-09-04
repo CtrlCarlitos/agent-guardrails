@@ -19,7 +19,7 @@ func IsPrivateDataAccess(tc ToolCall, pol *policy.Policy) bool {
 	if tc.IsBash() {
 		if simples, err := Normalize(tc.Command); err == nil {
 			for _, s := range simples {
-				if len(s.Argv) > 0 && pathReaders[s.Argv[0]] {
+				if pathReaders[head(s.Argv)] {
 					candidates = append(candidates, nonFlagArgs(s.Argv)...)
 				}
 			}
@@ -48,7 +48,7 @@ func IsNetworkAttempt(tc ToolCall) bool {
 		return false
 	}
 	for _, s := range simples {
-		if len(s.Argv) > 0 && netTools[s.Argv[0]] {
+		if netTools[head(s.Argv)] {
 			return true
 		}
 	}
