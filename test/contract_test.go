@@ -75,6 +75,35 @@ func TestClaudeContractFixtures(t *testing.T) {
 	}
 }
 
+func TestOpencodeContractFixtures(t *testing.T) {
+	bin := buildBinary(t)
+	raw, err := os.ReadFile("fixtures/opencode/expected.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expected map[string]struct {
+		Exit int `json:"exit"`
+	}
+	if err := json.Unmarshal(raw, &expected); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range expected {
+		t.Run(name, func(t *testing.T) {
+			payload, err := os.ReadFile(filepath.Join("fixtures", "opencode", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command(bin, "hook", "opencode")
+			cmd.Stdin = bytes.NewReader(payload)
+			cmd.Env = append(os.Environ(), "XDG_STATE_HOME="+t.TempDir(), "GUARDRAIL_CONFIG=")
+			_ = cmd.Run()
+			if got := cmd.ProcessState.ExitCode(); got != want.Exit {
+				t.Fatalf("%s: exit %d, want %d", name, got, want.Exit)
+			}
+		})
+	}
+}
+
 func TestClaudeNeverPanics(t *testing.T) {
 	bin := buildBinary(t)
 	weird := []string{
