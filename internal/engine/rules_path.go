@@ -84,13 +84,54 @@ func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	return nil
 }
 
-var mutatingDestinationCommands = map[string]bool{
-	"cp": true, "mv": true, "install": true, "ln": true, "rsync": true,
+type destinationCommandSpec struct {
+	targetDirectory bool
+	shortFlags      string
+	shortValues     string
+	shortWritePaths string
+	longFlags       string
+	longValues      string
+	longWritePaths  string
 }
 
-// rsync is intentionally absent: its -t flag means --times.
-var targetDirectoryCommands = map[string]bool{
-	"cp": true, "mv": true, "install": true, "ln": true,
+var mutatingDestinationCommands = map[string]destinationCommandSpec{
+	"cp": {
+		targetDirectory: true,
+		shortFlags:      "abdfHilLnPpRrsTuvxZ",
+		shortValues:     "S",
+		longFlags:       "archive attributes-only backup copy-contents debug force interactive link dereference no-clobber no-dereference parents preserve recursive reflink remove-destination strip-trailing-slashes symbolic-link no-target-directory update verbose one-file-system context help version",
+		longValues:      "no-preserve sparse suffix",
+	},
+	"mv": {
+		targetDirectory: true,
+		shortFlags:      "bfinTuvZ",
+		shortValues:     "S",
+		longFlags:       "backup debug force interactive no-clobber no-copy strip-trailing-slashes no-target-directory update verbose context help version",
+		longValues:      "suffix",
+	},
+	"install": {
+		targetDirectory: true,
+		shortFlags:      "bcCdDpsTvZ",
+		shortValues:     "gmoS",
+		longFlags:       "backup compare directory debug preserve-timestamps strip no-target-directory verbose preserve-context context help version",
+		longValues:      "group mode owner strip-program suffix",
+	},
+	"ln": {
+		targetDirectory: true,
+		shortFlags:      "bdFfiLnPrsTv",
+		shortValues:     "S",
+		longFlags:       "backup directory force interactive logical no-dereference physical relative symbolic no-target-directory verbose help version",
+		longValues:      "suffix",
+	},
+	// rsync's -t means --times, not --target-directory.
+	"rsync": {
+		shortFlags:      "vqcarRbudlLkKHpEogDtUNOJsnWxzCF0s8hPimynIAX46VS",
+		shortValues:     "BefT@M",
+		shortWritePaths: "T",
+		longFlags:       "verbose quiet no-motd checksum archive recursive relative no-implied-dirs backup update inplace append append-verify dirs old-dirs old-d mkpath links copy-links copy-unsafe-links safe-links munge-links copy-dirlinks keep-dirlinks hard-links perms executability acls xattrs owner group devices copy-devices write-devices specials times atimes open-noatime crtimes omit-dir-times omit-link-times super fake-super sparse preallocate dry-run whole-file existing ignore-existing remove-source-files del delete delete-before delete-during delete-delay delete-after delete-excluded ignore-missing-args delete-missing-args ignore-errors force partial delay-updates prune-empty-dirs numeric-ids ignore-times size-only fuzzy compress cvs-exclude from0 old-args secluded-args trust-sender blocking-io stats 8-bit-output human-readable progress itemize-changes list-only fsync ipv4 ipv6 version help",
+		longValues:      "info debug stderr backup-dir suffix chmod checksum-choice cc block-size rsh rsync-path max-delete max-size min-size max-alloc partial-dir usermap groupmap chown timeout contimeout modify-window temp-dir compare-dest copy-dest link-dest compress-choice zc compress-level zl skip-compress filter exclude exclude-from include include-from files-from copy-as address port sockopts outbuf remote-option out-format log-file log-file-format password-file early-input bwlimit stop-after stop-at write-batch only-write-batch read-batch protocol iconv checksum-seed",
+		longWritePaths:  "backup-dir partial-dir temp-dir log-file write-batch only-write-batch",
+	},
 }
 
 var mutatingAllArgs = map[string]bool{
@@ -98,10 +139,16 @@ var mutatingAllArgs = map[string]bool{
 	"mkdir": true, "tee": true, "touch": true, "shred": true,
 }
 
-func destinationTargets(argv []string, supportsTargetDirectory bool) []string {
+func listedOption(options, option string) bool {
+	return strings.Contains(" "+options+" ", " "+option+" ")
+}
+
+func destinationTargets(argv []string, spec destinationCommandSpec) []string {
 	var operands []string
+	var optionWritePaths []string
 	var targetDirectory string
 	targetDirectorySet := false
+	ambiguous := false
 	options := true
 	for i := 1; i < len(argv); i++ {
 		a := argv[i]
@@ -109,45 +156,103 @@ func destinationTargets(argv []string, supportsTargetDirectory bool) []string {
 			options = false
 			continue
 		}
-		if options && supportsTargetDirectory {
-			switch {
-			case a == "-t" || a == "--target-directory":
+		if options && strings.HasPrefix(a, "--") {
+			name, value, attached := strings.Cut(strings.TrimPrefix(a, "--"), "=")
+			if spec.targetDirectory && name == "target-directory" {
 				targetDirectorySet = true
-				if i+1 < len(argv) {
+				if attached {
+					targetDirectory = value
+				} else if i+1 < len(argv) {
 					i++
 					targetDirectory = argv[i]
+				} else {
+					ambiguous = true
 				}
 				continue
-			case strings.HasPrefix(a, "--target-directory="):
-				targetDirectorySet = true
-				targetDirectory = strings.TrimPrefix(a, "--target-directory=")
-				continue
-			case strings.HasPrefix(a, "-t") && len(a) > 2:
-				targetDirectorySet = true
-				targetDirectory = strings.TrimPrefix(a, "-t")
+			}
+			if attached {
+				if listedOption(spec.longWritePaths, name) {
+					optionWritePaths = append(optionWritePaths, value)
+				}
 				continue
 			}
+			if listedOption(spec.longValues, name) {
+				if i+1 < len(argv) {
+					i++
+					if listedOption(spec.longWritePaths, name) {
+						optionWritePaths = append(optionWritePaths, argv[i])
+					}
+				} else {
+					ambiguous = true
+				}
+				continue
+			}
+			if !listedOption(spec.longFlags, name) && !strings.HasPrefix(name, "no-") {
+				ambiguous = true
+			}
+			continue
 		}
-		if options && strings.HasPrefix(a, "-") {
+		if options && strings.HasPrefix(a, "-") && len(a) > 1 {
+			short := strings.TrimPrefix(a, "-")
+			for j := 0; j < len(short); j++ {
+				option := short[j]
+				if spec.targetDirectory && option == 't' {
+					targetDirectorySet = true
+					if j+1 < len(short) {
+						targetDirectory = short[j+1:]
+					} else if i+1 < len(argv) {
+						i++
+						targetDirectory = argv[i]
+					} else {
+						ambiguous = true
+					}
+					break
+				}
+				if strings.ContainsRune(spec.shortValues, rune(option)) {
+					value := ""
+					if j+1 < len(short) {
+						value = short[j+1:]
+					} else if i+1 < len(argv) {
+						i++
+						value = argv[i]
+					} else {
+						ambiguous = true
+					}
+					if strings.ContainsRune(spec.shortWritePaths, rune(option)) && value != "" {
+						optionWritePaths = append(optionWritePaths, value)
+					}
+					break
+				}
+				if !strings.ContainsRune(spec.shortFlags, rune(option)) {
+					ambiguous = true
+				}
+			}
 			continue
 		}
 		operands = append(operands, a)
 	}
 
+	out := optionWritePaths
 	if targetDirectorySet {
 		if targetDirectory == "" {
-			return nil
+			return append(out, operands...)
 		}
-		out := []string{targetDirectory}
+		out = append(out, targetDirectory)
 		for _, source := range operands {
 			out = append(out, path.Join(targetDirectory, path.Base(source)))
+		}
+		if ambiguous {
+			out = append(out, operands...)
 		}
 		return out
 	}
 	if len(operands) == 0 {
-		return nil
+		return out
 	}
-	return operands[len(operands)-1:]
+	if ambiguous {
+		return append(out, operands...)
+	}
+	return append(out, operands[len(operands)-1])
 }
 
 func writeTargets(s Simple) []string {
@@ -176,8 +281,8 @@ func writeTargets(s Simple) []string {
 		}
 		return nil
 	}
-	if mutatingDestinationCommands[head] {
-		return destinationTargets(s.Argv, targetDirectoryCommands[head])
+	if spec, ok := mutatingDestinationCommands[head]; ok {
+		return destinationTargets(s.Argv, spec)
 	}
 	if mutatingAllArgs[head] {
 		return args

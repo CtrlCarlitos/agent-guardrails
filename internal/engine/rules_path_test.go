@@ -238,17 +238,80 @@ func TestWritesByArgumentAreSeen(t *testing.T) {
 
 func TestCR15ExactReproductionsAreDenied(t *testing.T) {
 	deny := []string{
-		`cp /tmp/evil ~/.claude/settings.json`,
-		`rm ~/.claude/settings.json`,
-		`install -m755 /tmp/evil ~/.local/bin/guardrail`,
-		`cp /tmp/evil ~/.bashrc`,
+		`cp /tmp/evil /repo/.git/hooks/pre-commit`,
+		`sed -i s/a/b/ /repo/.git/hooks/pre-commit`,
+		`install -m755 /tmp/evil /repo/.git/hooks/pre-commit`,
+		`dd if=/tmp/evil of=/repo/.git/hooks/pre-commit`,
+		`ln -sf /tmp/evil /repo/.git/hooks/pre-commit`,
 		`echo x | tee /repo/.claude/settings.json`,
+		`cp /tmp/evil ~/.bashrc`,
+		`cp evil ~/.claude/settings.json`,
+		`rm ~/.claude/settings.json`,
+		`install -m755 evil ~/.local/bin/guardrail`,
+		`cp /tmp/evil ~/.claude/settings.json`,
+		`install -m755 /tmp/evil ~/.local/bin/guardrail`,
 	}
 	for _, c := range deny {
 		tc := ToolCall{Tool: "Bash", Command: c, RepoRoot: "/repo", CWD: "/repo"}
 		v := checkPaths(tc, pathPol())
 		if v == nil || v.Decision != policy.Deny {
 			t.Errorf("%q -> %+v, want deny", c, v)
+		}
+	}
+}
+
+func TestClusteredTargetDirectoryOptionsAreSeen(t *testing.T) {
+	deny := []string{
+		`cp -vt /home/u/.claude /tmp/settings.json`,
+		`mv -vt/home/u/.claude /tmp/settings.json`,
+		`install -vDt /home/u/.local/bin /tmp/guardrail`,
+		`ln -sft/repo/.git/hooks /tmp/pre-commit`,
+	}
+	for _, c := range deny {
+		tc := ToolCall{Tool: "Bash", Command: c, RepoRoot: "/repo", CWD: "/repo"}
+		v := checkPaths(tc, pathPol())
+		if v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", c, v)
+		}
+	}
+}
+
+func TestValuedOptionsDoNotReplaceMutatingCommandDestination(t *testing.T) {
+	deny := []string{
+		`cp /tmp/evil /repo/guardrail.toml --suffix .bak`,
+		`cp /tmp/evil /repo/guardrail.toml --suffix=.bak`,
+		`mv /tmp/evil /repo/guardrail.toml -S .bak`,
+		`install /tmp/evil /repo/guardrail.toml --mode 755`,
+		`ln -s /tmp/evil /repo/.git/hooks/pre-commit -S.bak`,
+		`rsync /tmp/evil /repo/guardrail.toml --backup-dir /tmp/backups`,
+		`rsync /tmp/evil /tmp --backup-dir /repo/.claude`,
+		`cp /tmp/evil /repo/guardrail.toml --unknown-option value`,
+		`cp /tmp/evil -- --suffix /repo/guardrail.toml`,
+	}
+	for _, c := range deny {
+		tc := ToolCall{Tool: "Bash", Command: c, RepoRoot: "/repo", CWD: "/repo"}
+		v := checkPaths(tc, pathPol())
+		if v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", c, v)
+		}
+	}
+}
+
+func TestValuedOptionArgumentsAreNotDestinations(t *testing.T) {
+	allow := []string{
+		`cp /repo/CLAUDE.md /tmp --suffix .bashrc`,
+		`mv /repo/CLAUDE.md /tmp -S .bashrc`,
+		`install /repo/CLAUDE.md /tmp --mode CLAUDE.md`,
+		`ln -s /repo/CLAUDE.md /tmp/link --suffix .bashrc`,
+		`rsync /repo/CLAUDE.md /tmp --exclude-from /repo/.claude`,
+		`rsync -t /repo/CLAUDE.md /tmp`,
+		`rsync -S /repo/CLAUDE.md /tmp`,
+		`cp /tmp/evil -- /repo/CLAUDE.md /tmp`,
+	}
+	for _, c := range allow {
+		tc := ToolCall{Tool: "Bash", Command: c, RepoRoot: "/repo", CWD: "/repo"}
+		if v := checkSelfConfig(tc); v != nil {
+			t.Errorf("%q -> %+v, want nil (option values and sources are not destinations)", c, v)
 		}
 	}
 }
