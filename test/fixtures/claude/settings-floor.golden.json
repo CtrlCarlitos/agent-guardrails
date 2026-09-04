@@ -24,6 +24,18 @@
         "id": "guardrail-claude-pre",
         "matcher": "Bash|Read|Edit|Write|MultiEdit"
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "/usr/local/bin/guardrail hook claude",
+            "type": "command"
+          }
+        ],
+        "id": "guardrail-claude-session-start",
+        "matcher": "startup|clear|compact"
+      }
     ]
   },
   "permissions": {

@@ -155,5 +155,14 @@ func claudeHooks(binary string) map[string]any {
 				},
 			},
 		},
+		"SessionStart": []any{
+			map[string]any{
+				"id":      "guardrail-claude-session-start",
+				"matcher": "startup|clear|compact",
+				"hooks": []any{
+					map[string]any{"type": "command", "command": cmd},
+				},
+			},
+		},
 	}
 }

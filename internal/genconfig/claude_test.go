@@ -130,3 +130,19 @@ func TestClaudeHooks(t *testing.T) {
 		t.Errorf("post id = %v", post["id"])
 	}
 }
+
+func TestClaudeHooksSessionStart(t *testing.T) {
+	h := claudeHooks("/usr/local/bin/guardrail")
+	ss, ok := h["SessionStart"].([]any)
+	if !ok || len(ss) != 1 {
+		t.Fatalf("SessionStart shape wrong: %#v", h["SessionStart"])
+	}
+	g := ss[0].(map[string]any)
+	if g["id"] != "guardrail-claude-session-start" {
+		t.Errorf("id = %v", g["id"])
+	}
+	cmd := g["hooks"].([]any)[0].(map[string]any)["command"].(string)
+	if cmd != "/usr/local/bin/guardrail hook claude" {
+		t.Errorf("command = %q", cmd)
+	}
+}
