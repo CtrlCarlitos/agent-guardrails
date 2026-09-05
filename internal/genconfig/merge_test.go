@@ -493,3 +493,89 @@ func TestMergeIntoOpencodeUnknownObjectGlobalFallback(t *testing.T) {
 		t.Fatalf("unrelated category = %#v, want deny", permission["task"])
 	}
 }
+
+func TestMergeIntoOpencodeUnknownScalarFloor(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		permission any
+		unknownAt  string
+	}{
+		{name: "top level", permission: "future", unknownAt: "permission"},
+		{name: "bash category", permission: map[string]any{"bash": "future"}, unknownAt: "bash"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "opencode.json")
+			existing := map[string]any{
+				"theme":      "dark",
+				"plugin":     []any{"existing"},
+				"permission": tt.permission,
+			}
+			raw, err := json.Marshal(existing)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, raw, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+			if err := MergeInto(p, frag); err != nil {
+				t.Fatal(err)
+			}
+			first, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !json.Valid(first) || !bytes.Contains(first, []byte("\n  \"permission\": {\n")) {
+				t.Fatalf("merge did not emit valid pretty JSON:\n%s", first)
+			}
+
+			root := readJSON(t, p)
+			plugins, ok := root["plugin"].([]any)
+			if root["theme"] != "dark" || !ok || len(plugins) != 2 {
+				t.Fatalf("unrelated config was not merged: %#v", root)
+			}
+			permission, ok := root["permission"].(map[string]any)
+			if !ok {
+				t.Fatalf("permission = %#v, want generated object with unknown wildcard", root["permission"])
+			}
+			for _, category := range []string{"bash", "read", "edit"} {
+				if _, ok := permission[category].(map[string]any); !ok {
+					t.Fatalf("generated permission.%s = %#v, want rule object", category, permission[category])
+				}
+			}
+
+			if tt.unknownAt == "permission" {
+				if permission["*"] != "future" {
+					t.Fatalf("unknown top-level wildcard = %#v, want future", permission["*"])
+				}
+				flattened := parseOpencodeFlattenedPermissions(t, first)
+				if len(flattened) == 0 || flattened[0].value != "future" {
+					t.Fatalf("first serialized permission rule = %#v, want unknown wildcard", flattened)
+				}
+			} else {
+				bashRules := readOpencodePermissionRules(t, p, "bash")
+				if len(bashRules) == 0 || bashRules[0].pattern != "*" || bashRules[0].value != "future" {
+					t.Fatalf("first serialized bash rule = %#v, want unknown wildcard", bashRules)
+				}
+				assertOpencodeRulesOrdered(t, bashRules)
+			}
+
+			bash := permission["bash"].(map[string]any)
+			edit := permission["edit"].(map[string]any)
+			if bash["rm -rf *"] != "deny" || bash["chmod -R *"] != "ask" || edit[".env.example"] != "allow" {
+				t.Fatalf("generated floor incomplete: bash=%#v edit=%#v", bash, edit)
+			}
+
+			if err := MergeInto(p, frag); err != nil {
+				t.Fatal(err)
+			}
+			second, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(first, second) {
+				t.Fatalf("unknown scalar merge is not byte-idempotent:\n--- first ---\n%s\n--- second ---\n%s", first, second)
+			}
+		})
+	}
+}

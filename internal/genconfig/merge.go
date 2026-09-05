@@ -125,11 +125,13 @@ func mergeOpencodePermission(existing map[string]any, generated map[string]any) 
 	inheritedFallback := ""
 	if !object {
 		if present {
-			action, recognized := existingPermission.(string)
-			if !recognized || permissionVerdictRank(action) == 0 || action == "deny" {
+			action, isString := existingPermission.(string)
+			if !isString || action == "deny" {
 				return
 			}
-			inheritedFallback = action
+			if permissionVerdictRank(action) > 0 {
+				inheritedFallback = action
+			}
 			permission = map[string]any{"*": action}
 		} else {
 			permission = map[string]any{}
@@ -153,11 +155,12 @@ func mergeOpencodePermission(existing map[string]any, generated map[string]any) 
 		if !categoryObject {
 			fallback := inheritedFallback
 			if categoryPresent {
-				action, recognized := existingCategory.(string)
-				if !recognized || permissionVerdictRank(action) == 0 || action == "deny" {
+				action, isString := existingCategory.(string)
+				if !isString || action == "deny" {
 					continue
 				}
-				if permissionVerdictRank(action) > permissionVerdictRank(fallback) {
+				actionRank := permissionVerdictRank(action)
+				if actionRank == 0 || actionRank > permissionVerdictRank(fallback) {
 					fallback = action
 				}
 			}
