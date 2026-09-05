@@ -5,16 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	// The hook runs as a subprocess, so bind Go's test cache to its internal dependencies.
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/adapter"
-	_ "github.com/CtrlCarlitos/agent-guardrails/internal/audit"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/recipe"
@@ -109,8 +111,9 @@ func TestAdversarialCorpus(t *testing.T) {
 		e := e
 		t.Run(e.Name, func(t *testing.T) {
 			cwd := materializeRepo(t, e)
+			sessionID := fmt.Sprintf("adv-%03d", i)
 			in := map[string]any{
-				"session_id":      fmt.Sprintf("adv-%03d", i),
+				"session_id":      sessionID,
 				"cwd":             cwd,
 				"hook_event_name": "PreToolUse",
 				"tool_name":       e.Tool,
@@ -153,7 +156,9 @@ func TestAdversarialCorpus(t *testing.T) {
 				code = exitErr.ExitCode()
 			}
 
-			got, err := classifyClaudeResult(code, stdout.String(), stderr.String())
+			got, err := classifyClaudeResult(code, stdout.String(), stderr.String(),
+				filepath.Join(stateHome, "guardrail", "audit.jsonl"),
+				auditExpectation{SessionID: sessionID, Tool: e.Tool, Event: "pre"})
 			if err != nil {
 				t.Fatalf("invalid Claude hook result: %v (exit=%d stdout=%s stderr=%s)", err, code, stdout.String(), stderr.String())
 			}
@@ -165,27 +170,53 @@ func TestAdversarialCorpus(t *testing.T) {
 }
 
 func TestClassifyClaudeResult(t *testing.T) {
+	const (
+		denyAudit  = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"deny"}` + "\n"
+		askAudit   = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"ask"}` + "\n"
+		allowAudit = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"allow"}` + "\n"
+	)
 	tests := []struct {
 		name   string
 		code   int
 		stdout string
 		stderr string
+		audit  string
 		want   string
 		fail   bool
 	}{
-		{name: "allow", code: 0, want: "allow"},
-		{name: "ask", code: 0, stdout: `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"confirm"}}` + "\n", want: "ask"},
-		{name: "deny", code: 2, stderr: "guardrail: blocked by policy\n", want: "deny"},
-		{name: "exit two without guardrail stderr", code: 2, stderr: "command failed\n", fail: true},
-		{name: "exit two with panic", code: 2, stderr: "panic: runtime failure\n", fail: true},
-		{name: "exit two with guardrail-prefixed fatal", code: 2, stderr: "guardrail: fatal error: concurrent map writes\n", fail: true},
-		{name: "exit two with stdout", code: 2, stdout: `{"hookSpecificOutput":{"permissionDecision":"ask"}}`, stderr: "guardrail: blocked by policy\n", fail: true},
-		{name: "unknown exit", code: 3, stderr: "guardrail: unexpected failure\n", fail: true},
-		{name: "invalid success stdout", code: 0, stdout: "not-json\n", fail: true},
+		{name: "allow", code: 0, audit: allowAudit, want: "allow"},
+		{name: "ask", code: 0, stdout: `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"confirm"}}` + "\n", audit: askAudit, want: "ask"},
+		{name: "deny", code: 2, stderr: "guardrail: blocked by policy\n", audit: denyAudit, want: "deny"},
+		{name: "deny reason contains runtime marker", code: 2, stderr: "guardrail: target contains runtime: metadata\n", audit: denyAudit, want: "deny"},
+		{name: "deny reason contains embedded newline", code: 2, stderr: "guardrail: first reason line\nsecond reason line\n", audit: denyAudit, want: "deny"},
+		{name: "setup failure has no audit", code: 2, stderr: "guardrail: cannot load base policy: unavailable\n", fail: true},
+		{name: "exit two without guardrail stderr", code: 2, stderr: "command failed\n", audit: denyAudit, fail: true},
+		{name: "exit two with panic", code: 2, stderr: "panic: runtime failure\n", audit: denyAudit, fail: true},
+		{name: "exit two with stdout", code: 2, stdout: `{"hookSpecificOutput":{"permissionDecision":"ask"}}`, stderr: "guardrail: blocked by policy\n", audit: denyAudit, fail: true},
+		{name: "post-tool ask is invalid", code: 0, stdout: `{"hookSpecificOutput":{"hookEventName":"PostToolUse","permissionDecision":"ask","permissionDecisionReason":"confirm"}}` + "\n", audit: strings.Replace(askAudit, `"event":"pre"`, `"event":"post"`, 1), fail: true},
+		{name: "unknown exit", code: 3, stderr: "guardrail: unexpected failure\n", audit: denyAudit, fail: true},
+		{name: "invalid success stdout", code: 0, stdout: "not-json\n", audit: allowAudit, fail: true},
+		{name: "missing audit", code: 0, fail: true},
+		{name: "malformed audit", code: 0, audit: "not-json\n", fail: true},
+		{name: "multiple audit records", code: 0, audit: allowAudit + allowAudit, fail: true},
+		{name: "audit decision mismatch", code: 2, stderr: "guardrail: blocked by policy\n", audit: allowAudit, fail: true},
+		{name: "audit session mismatch", code: 0, audit: strings.Replace(allowAudit, "adv-test", "other", 1), fail: true},
+		{name: "audit tool mismatch", code: 0, audit: strings.Replace(allowAudit, `"tool":"Bash"`, `"tool":"Read"`, 1), fail: true},
+		{name: "audit event mismatch", code: 0, audit: strings.Replace(allowAudit, `"event":"pre"`, `"event":"post"`, 1), fail: true},
+		{name: "audit plane mismatch", code: 0, audit: strings.Replace(allowAudit, `"plane":"claude"`, `"plane":"opencode"`, 1), fail: true},
+		{name: "audit missing timestamp", code: 0, audit: strings.Replace(allowAudit, `"ts":"2026-09-04T00:00:00Z",`, "", 1), fail: true},
+		{name: "audit has unknown field", code: 0, audit: strings.Replace(allowAudit, `"decision":"allow"`, `"decision":"allow","unexpected":true`, 1), fail: true},
 	}
+	expectation := auditExpectation{SessionID: "adv-test", Tool: "Bash", Event: "pre"}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := classifyClaudeResult(test.code, test.stdout, test.stderr)
+			auditPath := filepath.Join(t.TempDir(), "audit.jsonl")
+			if test.audit != "" {
+				if err := os.WriteFile(auditPath, []byte(test.audit), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := classifyClaudeResult(test.code, test.stdout, test.stderr, auditPath, expectation)
 			if test.fail {
 				if err == nil {
 					t.Fatalf("classifyClaudeResult(%d, %q, %q) = %q, want error", test.code, test.stdout, test.stderr, got)
@@ -200,53 +231,83 @@ func TestClassifyClaudeResult(t *testing.T) {
 }
 
 func TestClassifyClaudeResultRejectsExitTwoCrashProcess(t *testing.T) {
-	cmd := exec.Command(os.Args[0], "-test.run=^TestFakeClaudeCrashProcess$")
-	cmd.Env = append(os.Environ(), "GO_WANT_FAKE_CLAUDE_CRASH=1")
+	code, stdout, stderr := runFakeClaudeProcess(t, "panic")
+	if got, err := classifyClaudeResult(code, stdout, stderr, filepath.Join(t.TempDir(), "missing-audit.jsonl"), auditExpectation{SessionID: "adv-test", Tool: "Bash", Event: "pre"}); err == nil {
+		t.Fatalf("fake crash classified as %q; stderr=%q", got, stderr)
+	}
+}
+
+func TestClassifyClaudeResultRejectsSetupFailureWithoutAudit(t *testing.T) {
+	code, stdout, stderr := runFakeClaudeProcess(t, "setup")
+	if got, err := classifyClaudeResult(code, stdout, stderr, filepath.Join(t.TempDir(), "missing-audit.jsonl"), auditExpectation{SessionID: "adv-test", Tool: "Bash", Event: "pre"}); err == nil || !strings.Contains(err.Error(), "audit") {
+		t.Fatalf("fake setup failure classified as %q, err=%v; stderr=%q", got, err, stderr)
+	}
+}
+
+func runFakeClaudeProcess(t *testing.T, mode string) (int, string, string) {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestFakeClaudeFailureProcess$")
+	cmd.Env = append(os.Environ(), "GO_WANT_FAKE_CLAUDE_FAILURE="+mode)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	var exitErr *exec.ExitError
 	if !errors.As(err, &exitErr) {
-		t.Fatalf("fake crash error = %v, want process exit error", err)
+		t.Fatalf("fake %s error = %v, want process exit error", mode, err)
 	}
 	if code := exitErr.ExitCode(); code != 2 {
-		t.Fatalf("fake crash exit = %d, want 2", code)
+		t.Fatalf("fake %s exit = %d, want 2", mode, code)
 	}
-	if got, err := classifyClaudeResult(exitErr.ExitCode(), stdout.String(), stderr.String()); err == nil {
-		t.Fatalf("fake crash classified as %q; stderr=%q", got, stderr.String())
-	}
+	return exitErr.ExitCode(), stdout.String(), stderr.String()
 }
 
-func TestFakeClaudeCrashProcess(t *testing.T) {
-	if os.Getenv("GO_WANT_FAKE_CLAUDE_CRASH") != "1" {
+func TestFakeClaudeFailureProcess(t *testing.T) {
+	switch os.Getenv("GO_WANT_FAKE_CLAUDE_FAILURE") {
+	case "panic":
+		fmt.Fprintln(os.Stderr, "panic: simulated Go runtime crash")
+	case "setup":
+		fmt.Fprintln(os.Stderr, "guardrail: cannot load base policy: simulated setup failure")
+	default:
 		return
 	}
-	fmt.Fprintln(os.Stderr, "panic: simulated Go runtime crash")
 	os.Exit(2)
 }
 
-func classifyClaudeResult(code int, stdout, stderr string) (string, error) {
-	combined := strings.ToLower(stdout + "\n" + stderr)
-	for _, marker := range []string{"panic:", "fatal error:", "runtime:", "goroutine "} {
-		if strings.Contains(combined, marker) {
-			return "", fmt.Errorf("hook output contains Go crash marker %q", marker)
-		}
-	}
+type auditExpectation struct {
+	SessionID string
+	Tool      string
+	Event     string
+}
 
+func classifyClaudeResult(code int, stdout, stderr, auditPath string, expected auditExpectation) (string, error) {
+	decision, err := classifyClaudeProcess(code, stdout, stderr)
+	if err != nil {
+		return "", err
+	}
+	record, err := readSingleAuditRecord(auditPath)
+	if err != nil {
+		return "", err
+	}
+	if record.Plane != "claude" || record.SessionID != expected.SessionID ||
+		record.Tool != expected.Tool || record.Event != expected.Event {
+		return "", fmt.Errorf("audit context mismatch: got plane=%q session=%q tool=%q event=%q",
+			record.Plane, record.SessionID, record.Tool, record.Event)
+	}
+	if record.Decision != decision {
+		return "", fmt.Errorf("audit decision %q disagrees with Claude process decision %q", record.Decision, decision)
+	}
+	return decision, nil
+}
+
+func classifyClaudeProcess(code int, stdout, stderr string) (string, error) {
 	switch code {
 	case 2:
 		if stdout != "" {
 			return "", errors.New("deny exit included contradictory stdout")
 		}
-		if stderr == "" {
-			return "", errors.New("deny exit had empty stderr")
-		}
-		for _, line := range strings.Split(strings.TrimSuffix(stderr, "\n"), "\n") {
-			line = strings.TrimSuffix(line, "\r")
-			if !strings.HasPrefix(line, "guardrail: ") {
-				return "", fmt.Errorf("deny stderr line does not match guardrail contract: %q", line)
-			}
+		if !strings.HasPrefix(stderr, "guardrail: ") {
+			return "", errors.New("deny stderr does not match Claude guardrail contract")
 		}
 		return "deny", nil
 	case 0:
@@ -265,13 +326,39 @@ func classifyClaudeResult(code int, stdout, stderr string) (string, error) {
 		}
 		hook := response.HookSpecificOutput
 		if hook.PermissionDecision != "ask" || hook.PermissionDecisionReason == "" ||
-			(hook.HookEventName != "PreToolUse" && hook.HookEventName != "PostToolUse") {
+			hook.HookEventName != "PreToolUse" {
 			return "", errors.New("exit-zero stdout does not match Claude ask contract")
 		}
 		return "ask", nil
 	default:
 		return "", fmt.Errorf("hook exited with nonstandard status %d", code)
 	}
+}
+
+func readSingleAuditRecord(path string) (audit.Record, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return audit.Record{}, fmt.Errorf("read audit record: %w", err)
+	}
+	defer f.Close()
+
+	decoder := json.NewDecoder(f)
+	decoder.DisallowUnknownFields()
+	var record audit.Record
+	if err := decoder.Decode(&record); err != nil {
+		return audit.Record{}, fmt.Errorf("parse audit record: %w", err)
+	}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return audit.Record{}, errors.New("audit contains multiple records")
+		}
+		return audit.Record{}, fmt.Errorf("parse trailing audit data: %w", err)
+	}
+	if _, err := time.Parse(time.RFC3339, record.TS); err != nil {
+		return audit.Record{}, fmt.Errorf("audit timestamp %q is invalid: %w", record.TS, err)
+	}
+	return record, nil
 }
 
 func validateEntry(e entry, names map[string]bool) error {
