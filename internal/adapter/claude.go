@@ -64,7 +64,7 @@ func repoRoot(cwd string) string {
 func EmitClaude(v policy.Verdict, event string, stdout, stderr io.Writer) int {
 	switch v.Decision {
 	case policy.Deny:
-		fmt.Fprintf(stderr, "guardrail: %s\n", v.Reason)
+		fmt.Fprintf(stderr, "guardrail: %s\n", sanitizeForModel(v.Reason))
 		return 2
 	case policy.Ask:
 		hookEvent := "PreToolUse"
@@ -75,7 +75,7 @@ func EmitClaude(v policy.Verdict, event string, stdout, stderr io.Writer) int {
 			"hookSpecificOutput": map[string]any{
 				"hookEventName":            hookEvent,
 				"permissionDecision":       "ask",
-				"permissionDecisionReason": v.Reason,
+				"permissionDecisionReason": sanitizeForModel(v.Reason),
 			},
 		}
 		b, _ := json.Marshal(payload)
@@ -92,11 +92,15 @@ func PostureText(waivers []string, warnings []string) string {
 		"do not stop to ask conversational permission; guardrail enforces destructive-command " +
 		"and secret-access boundaries deterministically. Pause only when guardrail returns an " +
 		"explicit block/ask, or you face genuine ambiguity outside its scope.")
+	waivers = sanitizeWaiverIDs(waivers)
 	if len(waivers) > 0 {
 		b.WriteString("\n\nActive policy waivers in this repo (these rules are OFF): " + strings.Join(waivers, ", "))
 	}
+	if len(warnings) > 20 {
+		warnings = warnings[:20]
+	}
 	for _, w := range warnings {
-		b.WriteString("\n\n" + w)
+		b.WriteString("\n\n" + sanitizeForModel(w))
 	}
 	return b.String()
 }

@@ -63,7 +63,7 @@ func normalizeOpencodeTool(t string) string {
 }
 
 func EmitOpencode(v policy.Verdict, stdout, stderr io.Writer) int {
-	payload := map[string]any{"decision": string(v.Decision), "reason": v.Reason}
+	payload := map[string]any{"decision": string(v.Decision), "reason": sanitizeForModel(v.Reason)}
 	b, _ := json.Marshal(payload)
 	stdout.Write(append(b, '\n'))
 	if v.Decision == policy.Deny {

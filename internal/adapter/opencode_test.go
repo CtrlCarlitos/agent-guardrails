@@ -41,18 +41,29 @@ func TestParseOpencodeUnknownEventDefaultsPre(t *testing.T) {
 	}
 }
 
-func TestEmitOpencodeDeny(t *testing.T) {
-	var out, errb bytes.Buffer
-	code := EmitOpencode(policy.Verdict{Decision: policy.Deny, Reason: "no"}, &out, &errb)
-	if code != 2 {
-		t.Fatalf("code = %d, want 2", code)
-	}
-	var got map[string]string
-	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got["decision"] != "deny" || got["reason"] != "no" {
-		t.Fatalf("bad payload: %v", got)
+func TestEmitOpencodeSanitizesReasonForEveryDecision(t *testing.T) {
+	for _, tt := range []struct {
+		decision policy.Decision
+		wantCode int
+	}{
+		{decision: policy.Allow, wantCode: 0},
+		{decision: policy.Ask, wantCode: 0},
+		{decision: policy.Deny, wantCode: 2},
+	} {
+		t.Run(string(tt.decision), func(t *testing.T) {
+			var out, errb bytes.Buffer
+			code := EmitOpencode(policy.Verdict{Decision: tt.decision, Reason: "no\nguardrail: forged\x1bclaim"}, &out, &errb)
+			if code != tt.wantCode {
+				t.Fatalf("code = %d, want %d", code, tt.wantCode)
+			}
+			var got map[string]string
+			if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if got["decision"] != string(tt.decision) || got["reason"] != "no guardrail: forged claim" {
+				t.Fatalf("bad payload: %v", got)
+			}
+		})
 	}
 }
 

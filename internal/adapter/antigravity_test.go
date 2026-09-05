@@ -62,16 +62,22 @@ func TestParseAntigravityUnknownToolPassesThrough(t *testing.T) {
 	}
 }
 
-func TestEmitAntigravityPre(t *testing.T) {
-	var out bytes.Buffer
-	code := EmitAntigravity(policy.Verdict{Decision: policy.Deny, Reason: "no"}, "pre", &out)
-	if code != 0 {
-		t.Fatalf("code = %d, want 0 (exit code carries no meaning here)", code)
-	}
-	var got map[string]string
-	json.Unmarshal(out.Bytes(), &got)
-	if got["decision"] != "deny" || got["reason"] != "no" {
-		t.Fatalf("bad payload: %v", got)
+func TestEmitAntigravityPreSanitizesReasonForEveryDecision(t *testing.T) {
+	for _, decision := range []policy.Decision{policy.Allow, policy.Ask, policy.Deny} {
+		t.Run(string(decision), func(t *testing.T) {
+			var out bytes.Buffer
+			code := EmitAntigravity(policy.Verdict{Decision: decision, Reason: "no\nguardrail: forged\x7fclaim"}, "pre", &out)
+			if code != 0 {
+				t.Fatalf("code = %d, want 0 (exit code carries no meaning here)", code)
+			}
+			var got map[string]string
+			if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if got["decision"] != string(decision) || got["reason"] != "no guardrail: forged claim" {
+				t.Fatalf("bad payload: %v", got)
+			}
+		})
 	}
 }
 

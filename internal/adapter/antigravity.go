@@ -89,7 +89,7 @@ func EmitAntigravity(v policy.Verdict, phase string, stdout io.Writer) int {
 	}
 	payload := map[string]any{"decision": string(v.Decision)}
 	if v.Reason != "" {
-		payload["reason"] = v.Reason
+		payload["reason"] = sanitizeForModel(v.Reason)
 	}
 	b, _ := json.Marshal(payload)
 	stdout.Write(append(b, '\n'))
