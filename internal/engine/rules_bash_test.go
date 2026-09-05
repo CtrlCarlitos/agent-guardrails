@@ -98,8 +98,8 @@ func TestFailingStatementDoesNotMaskAnotherDeny(t *testing.T) {
 
 func TestUnknowableStatementAloneStillAsks(t *testing.T) {
 	v := evalBash(t, `env -Z x`)
-	if v == nil || v.Decision != policy.Ask {
-		t.Fatalf("-> %+v, want ask", v)
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+		t.Fatalf("-> %+v, want ask/P3.unresolved", v)
 	}
 }
 

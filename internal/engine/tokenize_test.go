@@ -189,25 +189,28 @@ func TestNormalizeConsumesWrapperFlags(t *testing.T) {
 }
 
 func TestNormalizeMarksUnknownWrapperFlagsUnresolved(t *testing.T) {
-	for _, src := range []string{
-		`env --frobnicate ls`,
-		`nohup -x ls`,
-		`xargs --frobnicate ls`,
-		`exec --frobnicate ls`,
-		`timeout --frobnicate 5 ls`,
-		`nice --frobnicate ls`,
-	} {
-		got, err := Normalize(src)
+	cases := []struct {
+		src           string
+		wantArgv      []string
+		wantRedirects []string
+	}{
+		{`env --frobnicate ls`, []string{"env", "--frobnicate", "ls"}, nil},
+		{`nohup -x ls`, []string{"nohup", "-x", "ls"}, nil},
+		{`xargs --frobnicate ls`, []string{"xargs", "--frobnicate", "ls"}, nil},
+		{`exec --frobnicate ls`, []string{"exec", "--frobnicate", "ls"}, nil},
+		{`timeout --frobnicate 5 ls`, []string{"timeout", "--frobnicate", "5", "ls"}, nil},
+		{`nice --frobnicate ls`, []string{"nice", "--frobnicate", "ls"}, nil},
+		{`env -Z x < input > output`, []string{"env", "-Z", "x"}, []string{"input", "output"}},
+	}
+	for _, c := range cases {
+		got, err := Normalize(c.src)
 		if err != nil {
-			t.Errorf("Normalize(%q): %v", src, err)
+			t.Errorf("Normalize(%q): %v", c.src, err)
 			continue
 		}
-		want, err := splitSimples(src)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(got) != 1 || !got[0].Unresolved || !reflect.DeepEqual(got[0].Argv, want[0].Argv) {
-			t.Errorf("Normalize(%q) = %+v, want original argv marked unresolved", src, got)
+		want := []Simple{{Argv: c.wantArgv, Redirects: c.wantRedirects, Unresolved: true}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("Normalize(%q) = %+v, want %+v", c.src, got, want)
 		}
 	}
 }
