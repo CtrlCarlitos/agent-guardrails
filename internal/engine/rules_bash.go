@@ -291,7 +291,7 @@ var dockerRunOptionSpec = dockerOptionSpec{
 		"--cap-add", "--cap-drop", "--cgroup-parent", "--cgroupns", "--cidfile", "-c", "--cpu-period",
 		"--cpu-quota", "--cpu-rt-period", "--cpu-rt-runtime", "--cpu-shares", "--cpus", "--cpuset-cpus",
 		"--cpuset-mems", "--device", "--device-cgroup-rule", "--device-read-bps", "--device-read-iops",
-		"--device-write-bps", "--device-write-iops", "--dns", "--dns-option", "--dns-search", "--domainname",
+		"--detach-keys", "--device-write-bps", "--device-write-iops", "--dns", "--dns-option", "--dns-search", "--domainname",
 		"--entrypoint", "-e", "--env", "--env-file", "--expose", "--gpus", "--group-add", "--health-cmd",
 		"--health-interval", "--health-retries", "--health-start-interval", "--health-start-period", "--health-timeout",
 		"-h", "--hostname", "--ip", "--ip6", "--ipc", "--isolation", "--kernel-memory", "-l", "--label",

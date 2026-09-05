@@ -407,10 +407,16 @@ func TestDockerKnownValuelessOptionsRemainUsable(t *testing.T) {
 }
 
 func TestDockerRunValuedOptionsReachInnerRules(t *testing.T) {
-	command := `docker run --rm --hostname sandbox -v /:/host alpine rm -rf /host`
-	v := evalBash(t, command)
-	if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
-		t.Fatalf("%q -> %+v, want deny/P1.rm-rf", command, v)
+	commands := []string{
+		`docker run --rm --hostname sandbox -v /:/host alpine rm -rf /host`,
+		`docker run --detach-keys ctrl-x alpine rm -rf /`,
+		`docker run --detach-keys=ctrl-x alpine rm -rf /`,
+	}
+	for _, command := range commands {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Errorf("%q -> %+v, want deny/P1.rm-rf", command, v)
+		}
 	}
 }
 

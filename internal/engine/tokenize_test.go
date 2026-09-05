@@ -2,6 +2,7 @@ package engine
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -992,6 +993,50 @@ func TestNormalizeDockerRunUsesRunSpecificOptionArity(t *testing.T) {
 		if !found {
 			t.Errorf("Normalize(%q) = %v, want inner rm -rf", src, argvs(got))
 		}
+	}
+}
+
+func TestNormalizeDockerRunDetachKeysExactly(t *testing.T) {
+	cases := []struct {
+		src  string
+		want [][]string
+	}{
+		{
+			`docker run --detach-keys ctrl-x alpine rm -rf /`,
+			[][]string{
+				{"docker", "run", "--detach-keys", "ctrl-x", "alpine", "rm", "-rf", "/"},
+				{"rm", "-rf", "/"},
+			},
+		},
+		{
+			`docker run --detach-keys=ctrl-x alpine rm -rf /`,
+			[][]string{
+				{"docker", "run", "--detach-keys=ctrl-x", "alpine", "rm", "-rf", "/"},
+				{"rm", "-rf", "/"},
+			},
+		},
+	}
+	for _, tc := range cases {
+		got, err := Normalize(tc.src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", tc.src, err)
+			continue
+		}
+		if gotArgv := argvs(got); !reflect.DeepEqual(gotArgv, tc.want) {
+			t.Errorf("Normalize(%q) = %q, want %q", tc.src, gotArgv, tc.want)
+		}
+	}
+}
+
+func TestDockerRunDetachKeysMissingValueFailsClosed(t *testing.T) {
+	argv := []string{"docker", "run", "--detach-keys"}
+	_, err := runnerInner(argv)
+	if err == nil || !strings.Contains(err.Error(), "requires a value") {
+		t.Fatalf("runnerInner(%q) error = %v, want requires-value error", argv, err)
+	}
+	v := evalBash(t, `docker run --detach-keys`)
+	if v == nil || v.RuleID != "P3.unresolved" {
+		t.Fatalf("missing --detach-keys -> %+v, want non-allow/P3.unresolved", v)
 	}
 }
 
