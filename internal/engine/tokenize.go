@@ -754,11 +754,12 @@ func runnerInner(argv []string) ([]string, error) {
 		if len(argv) > 1 {
 			return argv[1:], nil
 		}
-	case "docker":
-		if len(argv) > 2 && (argv[1] == "run" || argv[1] == "exec") {
-			i := 2
-			for i < len(argv) && strings.HasPrefix(argv[i], "-") {
-				i++
+	case "docker", "podman", "nerdctl":
+		subcommand := dockerSubcommandIndex(argv)
+		if subcommand >= 0 && (argv[subcommand] == "run" || argv[subcommand] == "exec") {
+			i, missing := skipDockerOptions(argv, subcommand+1, dockerRunExecValuedOptions)
+			if missing != "" {
+				return nil, needsValue(head(argv), missing)
 			}
 			if i+1 < len(argv) {
 				return argv[i+1:], nil // skip the image/container token

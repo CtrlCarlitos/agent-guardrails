@@ -907,6 +907,59 @@ func TestNormalizeUnwrapsRunners(t *testing.T) {
 	}
 }
 
+func TestNormalizeDockerFamilyRunExecValuedOptions(t *testing.T) {
+	cases := []string{
+		`docker run --rm -v /:/host alpine rm -rf /`,
+		`docker run -e A=b alpine rm -rf /`,
+		`docker run --volume=/:/host -eA=b -p8080:80 -w/host -u0 alpine rm -rf /`,
+		`docker --context dev run --mount type=bind,src=/,dst=/host --name x alpine rm -rf /`,
+		`docker exec --env A=b --workdir /host container rm -rf /`,
+		`podman run --network host alpine rm -rf /`,
+		`nerdctl exec --entrypoint=/bin/sh container rm -rf /`,
+		`docker run -- --name rm -rf /`,
+	}
+	for _, src := range cases {
+		got, err := Normalize(src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", src, err)
+			continue
+		}
+		found := false
+		for _, s := range got {
+			if reflect.DeepEqual(s.Argv, []string{"rm", "-rf", "/"}) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Normalize(%q) = %v, want inner {rm -rf /}", src, argvs(got))
+		}
+	}
+}
+
+func TestRunnerInnerKeepsFlagsAfterImage(t *testing.T) {
+	got, err := runnerInner([]string{"docker", "run", "alpine", "--name", "x", "rm", "-rf", "/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--name", "x", "rm", "-rf", "/"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("runnerInner() = %q, want %q", got, want)
+	}
+}
+
+func TestRunnerInnerRejectsMissingDockerOptionValues(t *testing.T) {
+	for _, argv := range [][]string{
+		{"docker", "run", "--name"},
+		{"podman", "exec", "--workdir"},
+		{"nerdctl", "run", "-v"},
+	} {
+		if _, err := runnerInner(argv); err == nil {
+			t.Errorf("runnerInner(%q) error = nil, want missing-value error", argv)
+		}
+	}
+}
+
 func TestNormalizeRecognizesAbsoluteWrappersShellsAndRunners(t *testing.T) {
 	cases := []string{
 		`/usr/bin/env rm -rf /`,

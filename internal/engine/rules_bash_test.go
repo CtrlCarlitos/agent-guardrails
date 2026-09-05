@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -293,6 +294,74 @@ func TestCheckBashGitDocker(t *testing.T) {
 	for _, c := range ok {
 		if v := evalBash(t, c); v != nil {
 			t.Errorf("%q -> %+v, want nil", c, v)
+		}
+	}
+}
+
+func TestDockerFlagsDoNotDefeatMatching(t *testing.T) {
+	deny := map[string]string{
+		`docker compose -f d.yml down`:                   "P1.docker-down",
+		`docker compose --file=d.yml down -v`:            "P1.docker-down",
+		`docker compose -fd.yml down`:                    "P1.docker-down",
+		`docker-compose -p demo down`:                    "P1.docker-down",
+		`docker-compose --project-name=demo down`:        "P1.docker-down",
+		`docker container prune -f`:                      "P1.docker-prune",
+		`docker image prune -af`:                         "P1.docker-prune",
+		`docker builder prune -af`:                       "P1.docker-prune",
+		`podman --connection remote system prune -af`:    "P1.docker-prune",
+		`nerdctl --namespace=dev volume prune`:           "P1.docker-prune",
+		`docker --context foo compose down`:              "P1.docker-down",
+		`docker -cfoo compose --project-name demo down`:  "P1.docker-down",
+		`docker -- compose down`:                         "P1.docker-down",
+		`docker compose -- down`:                         "P1.docker-down",
+		`podman --connection remote rm $(podman ps -aq)`: "P1.docker-substituted",
+		`nerdctl network rm $(nerdctl network ls -q)`:    "P1.docker-substituted",
+	}
+	for command, ruleID := range deny {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != ruleID {
+			t.Errorf("%q -> %+v, want deny/%s", command, v, ruleID)
+		}
+	}
+}
+
+func TestDockerOptionValuesAreNotSubcommands(t *testing.T) {
+	allow := []string{
+		`docker --context compose down`,
+		`docker --context=compose down`,
+		`docker -ccompose down`,
+		`docker compose --file down up -d`,
+		`docker compose -fdown ps`,
+		`docker-compose --project-name down up -d`,
+		`podman --connection system ps -a`,
+		`nerdctl --namespace image ps -a`,
+		`docker compose up -d`,
+		`docker compose ps -a`,
+		`docker ps -a`,
+	}
+	for _, command := range allow {
+		if v := evalBash(t, command); v != nil {
+			t.Errorf("%q -> %+v, want nil", command, v)
+		}
+	}
+}
+
+func TestDockerSubcommandChainHandlesOptionsAndMissingValues(t *testing.T) {
+	cases := []struct {
+		argv []string
+		want []string
+	}{
+		{[]string{"docker", "--context", "dev", "compose", "-f", "d.yml", "down", "-v"}, []string{"compose", "down"}},
+		{[]string{"docker", "-Hunix:///run/docker.sock", "image", "prune", "-af"}, []string{"image", "prune"}},
+		{[]string{"docker", "--", "volume", "rm", "cache"}, []string{"volume", "rm"}},
+		{[]string{"docker-compose", "-pdemo", "down"}, []string{"down"}},
+		{[]string{"docker", "--context"}, nil},
+		{[]string{"docker", "compose", "--file"}, []string{"compose"}},
+	}
+	for _, tc := range cases {
+		got := dockerSubcommandChain(tc.argv)
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("dockerSubcommandChain(%q) = %q, want %q", tc.argv, got, tc.want)
 		}
 	}
 }

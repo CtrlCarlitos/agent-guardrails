@@ -221,26 +221,158 @@ func gitSubcommandUnknownFlag(argv []string) string {
 	return ""
 }
 
-func checkDocker(s Simple, rawCmd string) *policy.Verdict {
-	if head(s.Argv) != "docker" || len(s.Argv) < 2 {
+var dockerGlobalValuedOptions = map[string]bool{
+	"--address": true, "--cgroup-manager": true, "--config": true,
+	"--connection": true, "--conmon": true, "--context": true, "--data-root": true,
+	"--database-backend": true, "--events-backend": true, "--host": true,
+	"--host-gateway-ip": true, "--hosts-dir": true, "--identity": true,
+	"--log-level": true, "--module": true, "--namespace": true,
+	"--network-config-dir": true, "--root": true, "--runroot": true,
+	"--runtime": true, "--snapshotter": true, "--storage-driver": true,
+	"--storage-opt": true, "--tlscacert": true, "--tlscert": true,
+	"--tlskey": true, "--tmpdir": true, "--url": true,
+	"-a": true, "-c": true, "-H": true, "-l": true, "-n": true,
+}
+
+var dockerComposeValuedOptions = map[string]bool{
+	"--ansi": true, "--env-file": true, "--file": true,
+	"--log-level": true, "--parallel": true, "--profile": true,
+	"--progress": true, "--project-directory": true, "--project-name": true,
+	"-f": true, "-p": true,
+}
+
+var dockerRunExecValuedOptions = map[string]bool{
+	"--detach-keys": true, "--entrypoint": true, "--env": true,
+	"--env-file": true, "--mount": true, "--name": true,
+	"--network": true, "--publish": true, "--user": true,
+	"--volume": true, "--workdir": true,
+	"-e": true, "-p": true, "-u": true, "-v": true, "-w": true,
+}
+
+var dockerSubcommandGroups = map[string]bool{
+	"builder": true, "container": true, "image": true,
+	"network": true, "system": true, "volume": true,
+}
+
+func dockerOptionConsumesNext(arg string, valued map[string]bool) bool {
+	if strings.HasPrefix(arg, "--") {
+		base := arg
+		if eq := strings.IndexByte(arg, '='); eq >= 0 {
+			base = arg[:eq]
+		}
+		if !valued[base] {
+			return false
+		}
+		return !strings.Contains(arg, "=")
+	}
+	if len(arg) < 2 || arg[0] != '-' {
+		return false
+	}
+	for i := 1; i < len(arg); i++ {
+		if valued["-"+string(arg[i])] {
+			return i == len(arg)-1
+		}
+	}
+	return false
+}
+
+func skipDockerOptions(argv []string, start int, valued map[string]bool) (int, string) {
+	for start < len(argv) {
+		arg := argv[start]
+		if arg == "--" {
+			return start + 1, ""
+		}
+		if arg == "-" || !strings.HasPrefix(arg, "-") {
+			return start, ""
+		}
+		if dockerOptionConsumesNext(arg, valued) {
+			if start+1 >= len(argv) {
+				return len(argv), arg
+			}
+			start += 2
+			continue
+		}
+		start++
+	}
+	return start, ""
+}
+
+func dockerSubcommandIndex(argv []string) int {
+	i, missing := skipDockerOptions(argv, 1, dockerGlobalValuedOptions)
+	if missing != "" || i >= len(argv) {
+		return -1
+	}
+	return i
+}
+
+// dockerSubcommandChain keeps command words while consuming option values at
+// the family-global and Compose scopes where they are valid.
+func dockerSubcommandChain(argv []string) []string {
+	if len(argv) < 2 {
 		return nil
 	}
-	joined := strings.Join(s.Argv[1:], " ")
-	switch {
-	case strings.HasPrefix(joined, "compose down"):
+	if head(argv) == "docker-compose" {
+		i, missing := skipDockerOptions(argv, 1, dockerComposeValuedOptions)
+		if missing != "" || i >= len(argv) {
+			return nil
+		}
+		return []string{argv[i]}
+	}
+
+	i := dockerSubcommandIndex(argv)
+	if i < 0 {
+		return nil
+	}
+	chain := []string{argv[i]}
+	if chain[0] != "compose" && !dockerSubcommandGroups[chain[0]] {
+		return chain
+	}
+	var valued map[string]bool
+	if chain[0] == "compose" {
+		valued = dockerComposeValuedOptions
+	}
+	i, missing := skipDockerOptions(argv, i+1, valued)
+	if missing == "" && i < len(argv) {
+		chain = append(chain, argv[i])
+	}
+	return chain
+}
+
+func chainHasPrefix(chain []string, want ...string) bool {
+	if len(chain) < len(want) {
+		return false
+	}
+	for i := range want {
+		if chain[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func checkDocker(s Simple, rawCmd string) *policy.Verdict {
+	command := head(s.Argv)
+	switch command {
+	case "docker", "docker-compose", "podman", "nerdctl":
+	default:
+		return nil
+	}
+	chain := dockerSubcommandChain(s.Argv)
+	if command == "docker-compose" {
+		chain = append([]string{"compose"}, chain...)
+	}
+	if chainHasPrefix(chain, "compose", "down") {
 		return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.docker-down",
 			Reason: "docker compose down tears down a whole stack"}
-	case strings.HasPrefix(joined, "system prune"),
-		strings.HasPrefix(joined, "network prune"),
-		strings.HasPrefix(joined, "volume prune"):
+	}
+	if (len(chain) >= 2 && dockerSubcommandGroups[chain[0]] && chain[1] == "prune") ||
+		chainHasPrefix(chain, "prune") {
 		return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.docker-prune",
 			Reason: "docker prune removes resources with unverifiable scope"}
 	}
-	first := s.Argv[1]
-	target := strings.HasPrefix(joined, "rm ") || strings.HasPrefix(joined, "kill ") ||
-		strings.HasPrefix(joined, "volume rm") || strings.HasPrefix(joined, "network rm")
-	if (first == "rm" || first == "kill" || first == "volume" || first == "network") && target &&
-		commandHasSubstitution(rawCmd) {
+	destructive := chainHasPrefix(chain, "rm") || chainHasPrefix(chain, "kill") ||
+		chainHasPrefix(chain, "volume", "rm") || chainHasPrefix(chain, "network", "rm")
+	if destructive && commandHasSubstitution(rawCmd) {
 		return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.docker-substituted",
 			Reason: "docker rm/kill with a command-substituted target list"}
 	}
