@@ -426,6 +426,37 @@ func TestOperatorConfigOpaqueRoundTwoControls(t *testing.T) {
 	}
 }
 
+func TestOperatorConfigOpaqueWindowsDrivePaths(t *testing.T) {
+	deny := []struct {
+		name    string
+		command string
+	}{
+		{"upper drive relative", `pwsh -Command 'Set-Content C:Users/u/.config/guardrail/waivers.toml x'`},
+		{"lower drive relative", `pwsh -Command 'Set-Content c:Users/u/.CONFIG/GuardRail/WAIVERS.TOML x'`},
+		{"drive absolute slash", `pwsh -Command 'Set-Content C:/Users/u/.config/guardrail/waivers.toml x'`},
+		{"drive absolute backslash", `pwsh -Command 'Set-Content c:\Users\u\.config\guardrail\waivers.toml x'`},
+		{"drive double slash", `pwsh -Command 'Set-Content c://Users/u/.config/guardrail/waivers.toml x'`},
+	}
+	for _, test := range deny {
+		t.Run(test.name, func(t *testing.T) {
+			tc := ToolCall{Tool: "Bash", Command: test.command, RepoRoot: "/repo", CWD: "/repo"}
+			if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
+				t.Fatalf("Bash %q -> %+v, want deny/P5.self-config", test.command, v)
+			}
+		})
+	}
+
+	tc := ToolCall{
+		Tool:     "Bash",
+		Command:  `node -e "console.log('https://docs.example/.config/guardrail/waivers.toml')"`,
+		RepoRoot: "/repo",
+		CWD:      "/repo",
+	}
+	if v := checkPaths(tc, pathPol()); v != nil {
+		t.Fatalf("non-file HTTPS text -> %+v, want nil", v)
+	}
+}
+
 func TestSelfConfigAndGitProtectedAllowReads(t *testing.T) {
 	allow := []string{
 		"/repo/CLAUDE.md", "/repo/AGENTS.md",

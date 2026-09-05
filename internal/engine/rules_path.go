@@ -454,7 +454,7 @@ func matchesOperatorConfigPath(candidate string) bool {
 }
 
 func isWindowsDrivePath(candidate string) bool {
-	return len(candidate) >= 3 && isASCIILetter(candidate[0]) && candidate[1] == ':' && candidate[2] == '/'
+	return len(candidate) >= 2 && isASCIILetter(candidate[0]) && candidate[1] == ':'
 }
 
 func isASCIILetter(c byte) bool {
