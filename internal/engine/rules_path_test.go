@@ -310,6 +310,52 @@ func TestOperatorConfigOpaqueExecutors(t *testing.T) {
 	}
 }
 
+func TestOperatorConfigOpaqueEquivalentPaths(t *testing.T) {
+	deny := []struct {
+		name    string
+		command string
+	}{
+		{"single quoted repeated separators", `python3 -c "open('/home/u/.config//guardrail//waivers.toml', 'w')"`},
+		{"double quoted dot segments", `python3 -c 'open("/home/u/.config/./guardrail/./waivers.toml", "w")'`},
+		{"backtick quoted cancellable parents", "node -e 'require(\"fs\").writeFileSync(`/home/u/.config/x/../guardrail/y/../waivers.toml`, \"x\")'"},
+		{"relative repeated separators", `perl -e "open(F, '>.config//guardrail//waivers.toml')"`},
+		{"tilde prefix", `ruby -e "File.write('~/.config//guardrail//waivers.toml', 'x')"`},
+		{"home prefix", `php -r 'file_put_contents("$HOME/.config/./guardrail/./waivers.toml", "x");'`},
+		{"windows repeated separators", `pwsh -Command 'Set-Content C:\\Users\u\.config\\guardrail\\waivers.toml x'`},
+		{"print only visible reference", `python3 -c "print('/home/u/.config/guardrail/waivers.toml')"`},
+	}
+	for _, test := range deny {
+		t.Run(test.name, func(t *testing.T) {
+			tc := ToolCall{Tool: "Bash", Command: test.command, RepoRoot: "/repo", CWD: "/repo"}
+			if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
+				t.Fatalf("Bash %q -> %+v, want deny/P5.self-config", test.command, v)
+			}
+		})
+	}
+}
+
+func TestOperatorConfigOpaquePathScannerControls(t *testing.T) {
+	allow := []struct {
+		name    string
+		command string
+	}{
+		{"benign path", `python3 -c "print('/home/u/.config/other/waivers.toml')"`},
+		{"URL text", `node -e "console.log('https://docs.example/.config/guardrail/waivers.toml')"`},
+		{"split config directory", `python3 -c "p='/home/u/.config/' + 'guardrail/waivers.toml'; open(p, 'w')"`},
+		{"split guardrail directory", `python3 -c "p='/home/u/.config/' + 'guardrail/' + 'waivers.toml'; open(p, 'w')"`},
+		{"split dot segment", `python3 -c "p='/home/u/.config/x/' + '../' + 'guardrail/waivers.toml'; open(p, 'w')"`},
+		{"direct cat read", `cat /home/u/.config//guardrail/./waivers.toml`},
+	}
+	for _, test := range allow {
+		t.Run(test.name, func(t *testing.T) {
+			tc := ToolCall{Tool: "Bash", Command: test.command, RepoRoot: "/repo", CWD: "/repo"}
+			if v := checkPaths(tc, pathPol()); v != nil {
+				t.Fatalf("Bash %q -> %+v, want nil", test.command, v)
+			}
+		})
+	}
+}
+
 func TestSelfConfigAndGitProtectedAllowReads(t *testing.T) {
 	allow := []string{
 		"/repo/CLAUDE.md", "/repo/AGENTS.md",

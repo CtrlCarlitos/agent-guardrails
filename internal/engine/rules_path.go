@@ -4,6 +4,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/bmatcuk/doublestar/v4"
@@ -370,8 +371,7 @@ func checkSelfConfig(tc ToolCall) *policy.Verdict {
 					continue
 				}
 				for _, arg := range s.Argv[1:] {
-					normalized := strings.ReplaceAll(arg, `\`, "/")
-					if strings.Contains(normalized, "/.config/guardrail/") || strings.Contains(normalized, "/guardrail/waivers.toml") {
+					if containsOperatorConfigPath(arg) {
 						return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
 							Reason: "opaque command names the Operator config: " + head(s.Argv)}
 					}
@@ -380,6 +380,42 @@ func checkSelfConfig(tc ToolCall) *policy.Verdict {
 		}
 	}
 	return nil
+}
+
+func containsOperatorConfigPath(arg string) bool {
+	fragments := strings.FieldsFunc(arg, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !strings.ContainsRune(`/\._-$~:%@+`, r)
+	})
+	for _, fragment := range fragments {
+		normalized := strings.ReplaceAll(fragment, `\`, "/")
+		if isURLFragment(normalized) {
+			continue
+		}
+		cleaned := path.Clean(normalized)
+		if strings.Contains(cleaned, "/.config/guardrail/") || strings.Contains(cleaned, "/guardrail/waivers.toml") {
+			return true
+		}
+	}
+	return false
+}
+
+func isURLFragment(fragment string) bool {
+	colon := strings.Index(fragment, "://")
+	if colon <= 0 || colon == 1 && isASCIILetter(fragment[0]) {
+		return false
+	}
+	for i := 0; i < colon; i++ {
+		c := fragment[i]
+		if isASCIILetter(c) || i > 0 && (c >= '0' && c <= '9' || c == '+' || c == '-' || c == '.') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func isASCIILetter(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 func isOpaqueExecutor(executable string) bool {
