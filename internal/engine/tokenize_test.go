@@ -717,6 +717,129 @@ func TestNormalizeUnknownShellOptionFailsClosed(t *testing.T) {
 	}
 }
 
+func TestNormalizeEmptyShellScriptOperandStopsOptionParsing(t *testing.T) {
+	got, err := Normalize(`bash '' -c "rm -rf /"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range got {
+		if reflect.DeepEqual(s.Argv, []string{"rm", "-rf", "/"}) {
+			t.Fatalf("empty script operand exposed false inner command: %v", argvs(got))
+		}
+	}
+}
+
+func TestNormalizeMixedShellClustersAfterC(t *testing.T) {
+	for _, src := range []string{
+		`bash -co posix "rm -rf /"`,
+		`bash -coposix "rm -rf /"`,
+		`bash -cO extglob "rm -rf /"`,
+		`bash -cOextglob "rm -rf /"`,
+		`bash -cl "rm -rf /"`,
+		`bash -cxl "rm -rf /"`,
+	} {
+		got, err := Normalize(src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", src, err)
+			continue
+		}
+		found := false
+		for _, s := range got {
+			if reflect.DeepEqual(s.Argv, []string{"rm", "-rf", "/"}) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Normalize(%q) = %v, want inner {rm -rf /}", src, argvs(got))
+		}
+	}
+}
+
+func TestNormalizeMalformedMixedShellClustersFailClosed(t *testing.T) {
+	for _, src := range []string{
+		`bash -co`,
+		`bash -co posix`,
+		`bash -cO`,
+		`bash -cO extglob`,
+	} {
+		got, err := Normalize(src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", src, err)
+			continue
+		}
+		if len(got) != 1 || !got[0].Unresolved {
+			t.Errorf("Normalize(%q) = %+v, want one unresolved Simple", src, got)
+		}
+	}
+}
+
+func TestNormalizeUsesShellSpecificOptionGrammar(t *testing.T) {
+	for _, src := range []string{
+		`dash -I -c "rm -rf /"`,
+		`bash --debug -c "rm -rf /"`,
+		`bash --debugger -c "rm -rf /"`,
+		`bash --login -c "rm -rf /"`,
+		`bash --noediting -c "rm -rf /"`,
+		`bash --norc -c "rm -rf /"`,
+		`bash --posix -c "rm -rf /"`,
+		`bash --pretty-print -c "rm -rf /"`,
+		`bash --restricted -c "rm -rf /"`,
+		`bash --verbose -c "rm -rf /"`,
+		`bash --noprofile -l -c "rm -rf /"`,
+	} {
+		got, err := Normalize(src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", src, err)
+			continue
+		}
+		found := false
+		for _, s := range got {
+			if reflect.DeepEqual(s.Argv, []string{"rm", "-rf", "/"}) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Normalize(%q) = %v, want inner {rm -rf /}", src, argvs(got))
+		}
+	}
+
+	for _, src := range []string{
+		`dash -h -c "rm -rf /"`,
+		`bash -l --noprofile -c "rm -rf /"`,
+	} {
+		got, err := Normalize(src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", src, err)
+			continue
+		}
+		if len(got) != 1 || !got[0].Unresolved {
+			t.Errorf("Normalize(%q) = %+v, want one unresolved Simple", src, got)
+		}
+	}
+
+	for _, src := range []string{
+		`zsh -b -c "rm -rf /"`,
+		`bash -- -c "rm -rf /"`,
+		`bash --help -c "rm -rf /"`,
+		`bash --version -c "rm -rf /"`,
+		`bash --dump-strings -c "rm -rf /"`,
+		`bash --dump-po-strings -c "rm -rf /"`,
+	} {
+		got, err := Normalize(src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", src, err)
+			continue
+		}
+		for _, s := range got {
+			if reflect.DeepEqual(s.Argv, []string{"rm", "-rf", "/"}) {
+				t.Errorf("Normalize(%q) incorrectly exposed inner command: %v", src, argvs(got))
+			}
+		}
+	}
+}
+
 func TestNormalizeChrootRetainsZeroResultAsUnresolved(t *testing.T) {
 	for _, src := range []string{
 		`chroot /new-root command -v git`,

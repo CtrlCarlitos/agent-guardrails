@@ -562,27 +562,53 @@ func consumeCommand(argv []string) (rest []string, none bool, err error) {
 }
 
 type shellOptionSpec struct {
-	shortFlags  string
-	shortValues string
-	longFlags   map[string]bool
-	longValues  map[string]bool
-	longCommand map[string]bool
+	shortFlags      string
+	shortValues     string
+	shortStops      string
+	longFlags       map[string]bool
+	longValues      map[string]bool
+	longCommand     map[string]bool
+	longStops       map[string]bool
+	longBeforeShort bool
 }
 
 var (
-	bourneShellOptions = shellOptionSpec{
+	shShellOptions = shellOptionSpec{
 		shortFlags:  "abCefhiklmnprstuvxX",
+		shortValues: "o",
+	}
+	dashShellOptions = shellOptionSpec{
+		shortFlags:  "aCefIimnqsuvxVEb",
+		shortValues: "o",
+	}
+	zshShellOptions = shellOptionSpec{
+		shortFlags:  "dfilnrsuvx",
+		shortValues: "o",
+		shortStops:  "b",
+	}
+	kshShellOptions = shellOptionSpec{
+		shortFlags:  "abCefhiklmnprstuvxX",
+		shortValues: "o",
+	}
+	ashShellOptions = shellOptionSpec{
+		shortFlags:  "aCefhIiklmnprstuvx",
 		shortValues: "o",
 	}
 	bashShellOptions = shellOptionSpec{
 		shortFlags:  "abCefhiklmnprstuvxBEHPT",
 		shortValues: "oO",
 		longFlags: map[string]bool{
-			"--debugger": true, "--login": true, "--noediting": true,
+			"--debug": true, "--debugger": true, "--login": true,
+			"--noediting": true,
 			"--noprofile": true, "--norc": true, "--posix": true,
-			"--restricted": true, "--verbose": true,
+			"--pretty-print": true, "--restricted": true, "--verbose": true,
 		},
 		longValues: map[string]bool{"--init-file": true, "--rcfile": true},
+		longStops: map[string]bool{
+			"--dump-po-strings": true, "--dump-strings": true,
+			"--help": true, "--version": true,
+		},
+		longBeforeShort: true,
 	}
 	fishShellOptions = shellOptionSpec{
 		shortFlags:  "iINlnPv",
@@ -604,8 +630,16 @@ func shellOptions(shell string) (shellOptionSpec, bool) {
 	switch shell {
 	case "bash":
 		return bashShellOptions, true
-	case "sh", "zsh", "dash", "ksh", "mksh", "ash":
-		return bourneShellOptions, true
+	case "sh":
+		return shShellOptions, true
+	case "dash":
+		return dashShellOptions, true
+	case "zsh":
+		return zshShellOptions, true
+	case "ksh", "mksh":
+		return kshShellOptions, true
+	case "ash":
+		return ashShellOptions, true
 	case "fish":
 		return fishShellOptions, true
 	case "csh", "tcsh":
@@ -621,12 +655,16 @@ func shellDashC(argv []string) (string, bool, error) {
 	if !ok {
 		return "", false, nil
 	}
+	shortSeen := false
 	for i := 1; i < len(argv); {
 		option := argv[i]
-		if option == "--" || option == "-" || option == "+" {
+		if option == "" || option == "--" || option == "-" || option == "+" {
 			return "", false, nil
 		}
 		if strings.HasPrefix(option, "--") {
+			if spec.longBeforeShort && shortSeen {
+				return "", false, unknownOpt(shell, option)
+			}
 			base := option
 			value := ""
 			attached := false
@@ -653,6 +691,8 @@ func shellDashC(argv []string) (string, bool, error) {
 				}
 			case spec.longFlags[base] && !attached:
 				i++
+			case spec.longStops[base] && !attached:
+				return "", false, nil
 			default:
 				return "", false, unknownOpt(shell, option)
 			}
@@ -661,6 +701,7 @@ func shellDashC(argv []string) (string, bool, error) {
 		if option[0] != '-' && option[0] != '+' {
 			return "", false, nil
 		}
+		shortSeen = true
 
 		command := false
 		consumed := false
@@ -669,12 +710,11 @@ func shellDashC(argv []string) (string, bool, error) {
 			switch {
 			case flag == 'c' && option[0] == '-':
 				command = true
+			case strings.ContainsRune(spec.shortStops, rune(flag)):
+				return "", false, nil
 			case strings.ContainsRune(spec.shortFlags, rune(flag)):
 				continue
 			case strings.ContainsRune(spec.shortValues, rune(flag)):
-				if command {
-					return "", false, unknownOpt(shell, option)
-				}
 				if j+1 < len(option) {
 					i++
 				} else {
@@ -692,10 +732,14 @@ func shellDashC(argv []string) (string, bool, error) {
 			}
 		}
 		if command {
-			if i+1 >= len(argv) {
+			source := i + 1
+			if consumed {
+				source = i
+			}
+			if source >= len(argv) {
 				return "", false, needsValue(shell, "-c")
 			}
-			return argv[i+1], true, nil
+			return argv[source], true, nil
 		}
 		if !consumed {
 			i++

@@ -498,6 +498,91 @@ func TestChrootZeroResultFailsClosed(t *testing.T) {
 	}
 }
 
+func TestEmptyShellScriptOperandStopsOptionParsing(t *testing.T) {
+	if v := evalBash(t, `bash '' -c 'rm -rf /'`); v != nil {
+		t.Errorf("empty script operand -> %+v, want allow without false inner command", v)
+	}
+	v := evalBash(t, `rm -rf /; bash '' -c 'printf ok'`)
+	if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+		t.Errorf("sibling delete with empty script operand -> %+v, want deny/P1.rm-rf", v)
+	}
+}
+
+func TestMixedShellClustersAfterCReachRules(t *testing.T) {
+	for _, command := range []string{
+		`bash -co posix 'rm -rf /'`,
+		`bash -coposix 'rm -rf /'`,
+		`bash -cO extglob 'rm -rf /'`,
+		`bash -cOextglob 'rm -rf /'`,
+		`bash -cl 'rm -rf /'`,
+		`bash -cxl 'rm -rf /'`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Errorf("%q -> %+v, want deny/P1.rm-rf", command, v)
+		}
+	}
+}
+
+func TestMalformedMixedShellClustersFailClosed(t *testing.T) {
+	for _, command := range []string{
+		`bash -co`,
+		`bash -co posix`,
+		`bash -cO`,
+		`bash -cO extglob`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want ask/P3.unresolved", command, v)
+		}
+	}
+}
+
+func TestShellSpecificOptionGrammar(t *testing.T) {
+	deny := []string{
+		`dash -I -c 'rm -rf /'`,
+		`bash --debug -c 'rm -rf /'`,
+		`bash --debugger -c 'rm -rf /'`,
+		`bash --login -c 'rm -rf /'`,
+		`bash --noediting -c 'rm -rf /'`,
+		`bash --norc -c 'rm -rf /'`,
+		`bash --posix -c 'rm -rf /'`,
+		`bash --pretty-print -c 'rm -rf /'`,
+		`bash --restricted -c 'rm -rf /'`,
+		`bash --verbose -c 'rm -rf /'`,
+		`bash --noprofile -l -c 'rm -rf /'`,
+	}
+	for _, command := range deny {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Errorf("%q -> %+v, want deny/P1.rm-rf", command, v)
+		}
+	}
+
+	for _, command := range []string{
+		`dash -h -c 'rm -rf /'`,
+		`bash -l --noprofile -c 'rm -rf /'`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want ask/P3.unresolved", command, v)
+		}
+	}
+
+	for _, command := range []string{
+		`zsh -b -c 'rm -rf /'`,
+		`bash -- -c 'rm -rf /'`,
+		`bash --help -c 'rm -rf /'`,
+		`bash --version -c 'rm -rf /'`,
+		`bash --dump-strings -c 'rm -rf /'`,
+		`bash --dump-po-strings -c 'rm -rf /'`,
+	} {
+		if v := evalBash(t, command); v != nil {
+			t.Errorf("%q -> %+v, want allow without false inner command", command, v)
+		}
+	}
+}
+
 func TestCheckBashAllows(t *testing.T) {
 	ok := []string{
 		`rm file.txt`,
