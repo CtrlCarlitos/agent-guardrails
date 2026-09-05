@@ -274,6 +274,58 @@ func TestOperatorConfigAliasWrites(t *testing.T) {
 	}
 }
 
+func TestOperatorConfigMissingLeafAliasWrites(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+
+	operatorDir := filepath.Join(t.TempDir(), "guardrail")
+	if err := os.Mkdir(operatorDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "innocent")
+	if err := os.Symlink(operatorDir, alias); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(alias, "waivers.toml")
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("Operator config leaf must not exist before the attempted write: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		call ToolCall
+	}{
+		{"native Write", ToolCall{Tool: "Write", Paths: []string{target}}},
+		{"native Edit", ToolCall{Tool: "Edit", Paths: []string{target}}},
+		{"native MultiEdit", ToolCall{Tool: "MultiEdit", Paths: []string{target}}},
+		{"Bash redirect", ToolCall{Tool: "Bash", Command: "printf x > " + target}},
+		{"Bash destination", ToolCall{Tool: "Bash", Command: "cp /tmp/evil " + target}},
+		{"Bash all args", ToolCall{Tool: "Bash", Command: "tee " + target}},
+		{"Bash dd output", ToolCall{Tool: "Bash", Command: "dd if=/tmp/evil of=" + target}},
+		{"Bash in-place sed", ToolCall{Tool: "Bash", Command: "sed -i s/x/y/ " + target}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			test.call.CWD = t.TempDir()
+			v := checkPaths(test.call, pathPol())
+			if v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
+				t.Fatalf("-> %+v, want deny/P5.self-config", v)
+			}
+		})
+	}
+
+	benignDir := t.TempDir()
+	benignAlias := filepath.Join(t.TempDir(), "innocent")
+	if err := os.Symlink(benignDir, benignAlias); err != nil {
+		t.Fatal(err)
+	}
+	benign := ToolCall{Tool: "Write", Paths: []string{filepath.Join(benignAlias, "new.txt")}, CWD: t.TempDir()}
+	if v := checkPaths(benign, pathPol()); v != nil {
+		t.Fatalf("benign absent child through symlinked parent -> %+v, want nil", v)
+	}
+}
+
 func TestOperatorConfigOpaqueExecutors(t *testing.T) {
 	deny := []string{
 		`python3 -c "open('/home/u/.config/guardrail/waivers.toml', 'w')"`,

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/pathutil"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/bmatcuk/doublestar/v4"
 )
@@ -94,7 +95,7 @@ func checkSecretPath(candidate string, pol *policy.Policy) *policy.Verdict {
 }
 
 func resolveExistingPath(candidate, cwd string) (string, bool) {
-	resolved, err := filepath.EvalSymlinks(resolvePath(candidate, cwd))
+	resolved, err := pathutil.ResolveThroughExistingAncestor(resolvePath(candidate, cwd))
 	if err != nil {
 		return "", false
 	}

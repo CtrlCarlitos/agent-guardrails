@@ -2,10 +2,11 @@ package policy
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/pathutil"
 )
 
 func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, repoRoot string) (*Policy, []string, error) {
@@ -38,7 +39,7 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 	}
 
 	cleanRoot := filepath.Clean(repoRoot)
-	resolvedRoot, rootErr := resolveThroughExistingAncestor(cleanRoot)
+	resolvedRoot, rootErr := pathutil.ResolveThroughExistingAncestor(cleanRoot)
 	for _, sr := range ov.SafeRoots {
 		candidate := sr
 		if !filepath.IsAbs(candidate) {
@@ -46,7 +47,7 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 		}
 		candidate = filepath.Clean(candidate)
 		lexicalRel, lexicalErr := filepath.Rel(cleanRoot, candidate)
-		resolved, resolveErr := resolveThroughExistingAncestor(candidate)
+		resolved, resolveErr := pathutil.ResolveThroughExistingAncestor(candidate)
 		resolvedRel, resolvedRelErr := filepath.Rel(resolvedRoot, resolved)
 		if !filepath.IsAbs(repoRoot) || rootErr != nil || lexicalErr != nil || pathEscapesRoot(lexicalRel) ||
 			resolveErr != nil || resolvedRelErr != nil || pathEscapesRoot(resolvedRel) {
@@ -109,32 +110,6 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 
 func pathEscapesRoot(rel string) bool {
 	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
-func resolveThroughExistingAncestor(path string) (string, error) {
-	current := filepath.Clean(path)
-	var missing []string
-	for {
-		if _, err := os.Lstat(current); err == nil {
-			resolved, err := filepath.EvalSymlinks(current)
-			if err != nil {
-				return "", err
-			}
-			for i := len(missing) - 1; i >= 0; i-- {
-				resolved = filepath.Join(resolved, missing[i])
-			}
-			return filepath.Clean(resolved), nil
-		} else if !os.IsNotExist(err) {
-			return "", err
-		} else {
-			parent := filepath.Dir(current)
-			if parent == current {
-				return "", err
-			}
-			missing = append(missing, filepath.Base(current))
-			current = parent
-		}
-	}
 }
 
 func versionOlder(bin, min string) bool {
