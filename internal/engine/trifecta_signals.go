@@ -12,20 +12,7 @@ import (
 // Deliberately unconditional on waivers: see the doc comment in the plan
 // that introduced this function.
 func IsPrivateDataAccess(tc ToolCall, pol *policy.Policy) bool {
-	var candidates []string
-	if isFileTool(tc.Tool) {
-		candidates = append(candidates, tc.Paths...)
-	}
-	if tc.IsBash() {
-		if simples, err := Normalize(tc.Command); err == nil {
-			for _, s := range simples {
-				if pathReaders[head(s.Argv)] {
-					candidates = append(candidates, nonFlagArgs(s.Argv)...)
-				}
-			}
-		}
-	}
-	for _, c := range candidates {
+	for _, c := range privatePathCandidates(tc) {
 		c = strings.TrimPrefix(strings.TrimPrefix(c, "~/"), "~")
 		if matchesAnyGlob(c, pol.Slots.SecretAllow) {
 			continue

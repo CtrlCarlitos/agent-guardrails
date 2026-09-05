@@ -8,9 +8,10 @@ import (
 )
 
 type Simple struct {
-	Argv       []string
-	Redirects  []string
-	Unresolved bool
+	Argv          []string
+	Redirects     []string
+	ReadRedirects []string
+	Unresolved    bool
 }
 
 func splitSimples(src string) ([]Simple, error) {
@@ -49,12 +50,36 @@ func splitSimples(src string) ([]Simple, error) {
 			if r.Word == nil {
 				continue
 			}
+			read, write := false, false
+			switch r.Op {
+			case syntax.RdrOut, syntax.AppOut, syntax.ClbOut, syntax.RdrAll, syntax.AppAll:
+				write = true
+			case syntax.RdrIn:
+				read = true
+			case syntax.RdrInOut:
+				read, write = true, true
+			case syntax.DplOut:
+				if r.N != nil {
+					continue
+				}
+				write = true
+			default:
+				continue
+			}
 			raw := src[r.Word.Pos().Offset():r.Word.End().Offset()]
-			if lit, ok := literalText(raw); ok {
-				s.Redirects = append(s.Redirects, lit)
-			} else {
-				s.Redirects = append(s.Redirects, raw)
+			target, literal := literalText(raw)
+			if !literal {
+				target = raw
 				s.Unresolved = true
+			}
+			if r.Op == syntax.DplOut && literal && (target == "-" || allDigits(target)) {
+				continue
+			}
+			if write {
+				s.Redirects = append(s.Redirects, target)
+			}
+			if read {
+				s.ReadRedirects = append(s.ReadRedirects, target)
 			}
 		}
 		out = append(out, s)
@@ -88,7 +113,7 @@ func Normalize(command string) ([]Simple, error) {
 
 func stripAndUnwrap(s Simple) ([]Simple, error) {
 	if len(s.Argv) == 0 {
-		if len(s.Redirects) == 0 {
+		if len(s.Redirects) == 0 && len(s.ReadRedirects) == 0 {
 			return nil, nil
 		}
 		return []Simple{s}, nil
@@ -115,7 +140,8 @@ loop:
 			var none bool
 			rest, none, err = consumeCommand(argv[1:])
 			if err == nil && none {
-				return nil, nil // -v/-V only locate a command; nothing executes
+				argv = nil // -v/-V only locate a command; redirects still take effect
+				break loop
 			}
 		case "time", "eval", "builtin":
 			rest = argv[1:]
@@ -128,13 +154,13 @@ loop:
 		argv = rest
 	}
 	if len(argv) == 0 {
-		if len(s.Redirects) == 0 {
+		if len(s.Redirects) == 0 && len(s.ReadRedirects) == 0 {
 			return nil, nil
 		}
 		s.Argv = argv
 		return []Simple{s}, nil
 	}
-	result := []Simple{{Argv: argv, Redirects: s.Redirects, Unresolved: s.Unresolved}}
+	result := []Simple{{Argv: argv, Redirects: s.Redirects, ReadRedirects: s.ReadRedirects, Unresolved: s.Unresolved}}
 	inner, err := runnerInner(argv)
 	if err != nil {
 		return nil, err

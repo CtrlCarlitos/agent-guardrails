@@ -590,6 +590,67 @@ func TestSelfConfigAndGitProtectedStillDenyBashRedirects(t *testing.T) {
 	}
 }
 
+func TestCommandLookupRedirectsReachProtectedPathChecks(t *testing.T) {
+	for _, command := range []string{
+		`command -v git > /repo/CLAUDE.md`,
+		`command -V git > /repo/CLAUDE.md`,
+		`command > /repo/CLAUDE.md`,
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, RepoRoot: "/repo", CWD: "/repo"}
+		v := checkPaths(tc, pathPol())
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
+			t.Errorf("%q -> %+v, want deny/P5.self-config", command, v)
+		}
+	}
+}
+
+func TestInputRedirectsDoNotReachWritePathRules(t *testing.T) {
+	for _, command := range []string{
+		`< /repo/.git/config`,
+		`< /repo/CLAUDE.md`,
+		`< /repo/Makefile`,
+		"cat <<'/repo/.git/config'\nbody\n/repo/.git/config",
+		`cat <<< /repo/CLAUDE.md`,
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, RepoRoot: "/repo", CWD: "/repo"}
+		if v := checkPaths(tc, pathPol()); v != nil {
+			t.Errorf("%q -> %+v, want nil", command, v)
+		}
+	}
+}
+
+func TestRedirectPathsReachSecretChecks(t *testing.T) {
+	for _, command := range []string{`> /repo/.env`, `< /repo/.env`, `<> /repo/.env`} {
+		tc := ToolCall{Tool: "Bash", Command: command, RepoRoot: "/repo", CWD: "/repo"}
+		v := checkPaths(tc, pathPol())
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P4.secret-path" {
+			t.Errorf("%q -> %+v, want deny/P4.secret-path", command, v)
+		}
+	}
+}
+
+func TestRedirectPathsReachSymlinkEscapeChecks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	repo := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.WriteFile(outside, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(repo, "redirect-target")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, operator := range []string{">", "<", "<>"} {
+		tc := ToolCall{Tool: "Bash", Command: operator + " " + link, RepoRoot: repo, CWD: repo}
+		v := checkPaths(tc, pathPol())
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P4.symlink-escape" {
+			t.Errorf("%q -> %+v, want deny/P4.symlink-escape", tc.Command, v)
+		}
+	}
+}
+
 func TestWritesByArgumentAreSeen(t *testing.T) {
 	deny := []string{
 		`cp evil /home/u/.claude/settings.json`,

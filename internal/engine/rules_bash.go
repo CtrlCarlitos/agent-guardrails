@@ -39,13 +39,13 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	}
 	take(checkDownloadPipeShell(simples))
 	for _, s := range simples {
-		if len(s.Argv) == 0 {
-			take(checkAskTier(s, tc, pol)) // redirect targets only
-			continue
-		}
 		if s.Unresolved {
 			take(&policy.Verdict{Decision: policy.Ask, RuleID: "P3.unresolved",
 				Reason: "command contains an unexpanded variable or substitution; its real target cannot be verified"})
+		}
+		if len(s.Argv) == 0 {
+			take(checkAskTier(s, tc, pol)) // redirect targets only
+			continue
 		}
 		take(checkRmRf(s, tc, pol))
 		take(checkDiskDestroyers(s))

@@ -147,6 +147,48 @@ func TestEmptyNoOpStatementsRemainAllowed(t *testing.T) {
 	}
 }
 
+func TestUnresolvedRedirectOnlyStatementAsks(t *testing.T) {
+	v := evalBash(t, `> "$TARGET"`)
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+		t.Fatalf("-> %+v, want ask/P3.unresolved", v)
+	}
+}
+
+func TestUnresolvedRedirectStillRunsRedirectChecks(t *testing.T) {
+	pol := bashPol()
+	pol.Waived["P3.unresolved"] = true
+	tc := ToolCall{Tool: "Bash", Command: `> "$TARGET"`, CWD: "/outside", RepoRoot: "/repo"}
+	v := checkBash(tc, pol)
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.redirect" {
+		t.Fatalf("-> %+v, want ask/P1.redirect with P3.unresolved waived", v)
+	}
+}
+
+func TestUnresolvedRedirectOnlyStatementDoesNotMaskSiblingDeny(t *testing.T) {
+	for _, c := range []string{`rm -rf /; > "$TARGET"`, `> "$TARGET"; rm -rf /`} {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Errorf("%q -> %+v, want deny/P1.rm-rf", c, v)
+		}
+	}
+}
+
+func TestInputOnlyRedirectsDoNotTriggerWriteRule(t *testing.T) {
+	for _, c := range []string{`< /etc/passwd`, `3< /etc/passwd`, `2>&1`, `2>&-`, `0<&1`, `<&-`} {
+		if v := evalBash(t, c); v != nil {
+			t.Errorf("%q -> %+v, want nil", c, v)
+		}
+	}
+}
+
+func TestHereDataDoesNotTriggerRedirectPathRule(t *testing.T) {
+	for _, c := range []string{"cat <<'/etc/passwd'\nbody\n/etc/passwd", `cat <<< /etc/passwd`} {
+		if v := evalBash(t, c); v != nil {
+			t.Errorf("%q -> %+v, want nil", c, v)
+		}
+	}
+}
+
 func TestCheckBashDestructive(t *testing.T) {
 	deny := []string{
 		`rm -rf /`,

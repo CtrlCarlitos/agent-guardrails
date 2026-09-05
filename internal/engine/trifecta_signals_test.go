@@ -24,6 +24,16 @@ func TestIsPrivateDataAccess(t *testing.T) {
 	if IsPrivateDataAccess(ToolCall{Tool: "Read", Paths: []string{"/repo/.env.example"}}, pol) {
 		t.Error("want false for an allowlisted secret-adjacent path")
 	}
+	for _, command := range []string{`> /repo/.env`, `< /repo/.env`, `<> /repo/.env`} {
+		if !IsPrivateDataAccess(ToolCall{Tool: "Bash", Command: command}, pol) {
+			t.Errorf("%q should count as private-data access", command)
+		}
+	}
+	for _, command := range []string{"cat <<'/repo/.env'\nbody\n/repo/.env", `cat <<< /repo/.env`} {
+		if IsPrivateDataAccess(ToolCall{Tool: "Bash", Command: command}, pol) {
+			t.Errorf("%q should not count here-data as a path", command)
+		}
+	}
 }
 
 func TestIsNetworkAttempt(t *testing.T) {

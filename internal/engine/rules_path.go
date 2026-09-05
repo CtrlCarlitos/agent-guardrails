@@ -39,20 +39,7 @@ func isWriteToolCall(tool string) bool {
 }
 
 func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
-	var candidates []string
-	if isFileTool(tc.Tool) {
-		candidates = append(candidates, tc.Paths...)
-	}
-	if tc.IsBash() {
-		simples, err := Normalize(tc.Command)
-		if err == nil {
-			for _, s := range simples {
-				if pathReaders[head(s.Argv)] {
-					candidates = append(candidates, nonFlagArgs(s.Argv)...)
-				}
-			}
-		}
-	}
+	candidates := privatePathCandidates(tc)
 	for _, c := range candidates {
 		c = strings.TrimPrefix(c, "~/")
 		c = strings.TrimPrefix(c, "~")
@@ -81,6 +68,26 @@ func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		return v
 	}
 	return nil
+}
+
+func privatePathCandidates(tc ToolCall) []string {
+	var candidates []string
+	if isFileTool(tc.Tool) {
+		candidates = append(candidates, tc.Paths...)
+	}
+	if tc.IsBash() {
+		simples, err := Normalize(tc.Command)
+		if err == nil {
+			for _, s := range simples {
+				if pathReaders[head(s.Argv)] {
+					candidates = append(candidates, nonFlagArgs(s.Argv)...)
+				}
+				candidates = append(candidates, s.Redirects...)
+				candidates = append(candidates, s.ReadRedirects...)
+			}
+		}
+	}
+	return candidates
 }
 
 func checkSecretPath(candidate string, pol *policy.Policy) *policy.Verdict {

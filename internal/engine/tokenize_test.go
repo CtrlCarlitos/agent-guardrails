@@ -148,6 +148,106 @@ func TestNormalizeRedirectOnlyStatements(t *testing.T) {
 	}
 }
 
+func TestNormalizeCommandLookupRetainsRedirects(t *testing.T) {
+	for _, c := range []struct {
+		src       string
+		wantReads []string
+	}{
+		{`command -v git > /repo/CLAUDE.md`, nil},
+		{`command -V git > /repo/CLAUDE.md`, nil},
+		{`command > /repo/CLAUDE.md`, nil},
+		{`command -v git < /repo/.env > /repo/CLAUDE.md`, []string{"/repo/.env"}},
+	} {
+		got, err := Normalize(c.src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", c.src, err)
+			continue
+		}
+		want := []Simple{{Redirects: []string{"/repo/CLAUDE.md"}, ReadRedirects: c.wantReads}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("Normalize(%q) = %+v, want %+v", c.src, got, want)
+		}
+	}
+}
+
+func TestNormalizeClassifiesWriteRedirectsDirectionally(t *testing.T) {
+	cases := []struct {
+		src        string
+		wantCount  int
+		wantWrites []string
+		wantReads  []string
+	}{
+		{`> out`, 1, []string{"out"}, nil},
+		{`>> append`, 1, []string{"append"}, nil},
+		{`>| clobber`, 1, []string{"clobber"}, nil},
+		{`&> all`, 1, []string{"all"}, nil},
+		{`&>> append-all`, 1, []string{"append-all"}, nil},
+		{`<> read-write`, 1, []string{"read-write"}, []string{"read-write"}},
+		{`< input`, 1, nil, []string{"input"}},
+		{`3< input`, 1, nil, []string{"input"}},
+		{`2>&1`, 0, nil, nil},
+		{`2>&-`, 0, nil, nil},
+		{`>&2`, 0, nil, nil},
+		{`>&-`, 0, nil, nil},
+		{`0<&1`, 0, nil, nil},
+		{`<&-`, 0, nil, nil},
+		{`>& output`, 1, []string{"output"}, nil},
+		{"cat <<'/etc/passwd'\nbody\n/etc/passwd", 1, nil, nil},
+		{"cat <<-'/etc/passwd'\nbody\n/etc/passwd", 1, nil, nil},
+		{`cat <<< /etc/passwd`, 1, nil, nil},
+	}
+	for _, c := range cases {
+		got, err := Normalize(c.src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", c.src, err)
+			continue
+		}
+		if len(got) != c.wantCount {
+			t.Errorf("Normalize(%q) count = %d, want %d: %+v", c.src, len(got), c.wantCount, got)
+			continue
+		}
+		if len(got) == 1 && !reflect.DeepEqual(got[0].Redirects, c.wantWrites) {
+			t.Errorf("Normalize(%q) writes = %v, want %v", c.src, got[0].Redirects, c.wantWrites)
+		}
+		if len(got) == 1 && !reflect.DeepEqual(got[0].ReadRedirects, c.wantReads) {
+			t.Errorf("Normalize(%q) reads = %v, want %v", c.src, got[0].ReadRedirects, c.wantReads)
+		}
+	}
+}
+
+func TestNormalizePreservesRedirectOrderWithinEachDirection(t *testing.T) {
+	got, err := Normalize(`cat > first < input >> second <> both`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("Normalize returned %+v, want one Simple", got)
+	}
+	wantWrites := []string{"first", "second", "both"}
+	if !reflect.DeepEqual(got[0].Redirects, wantWrites) {
+		t.Errorf("writes = %v, want %v", got[0].Redirects, wantWrites)
+	}
+	wantReads := []string{"input", "both"}
+	if !reflect.DeepEqual(got[0].ReadRedirects, wantReads) {
+		t.Errorf("reads = %v, want %v", got[0].ReadRedirects, wantReads)
+	}
+}
+
+func TestNormalizePreservesRedirectDirectionsThroughWrapper(t *testing.T) {
+	got, err := Normalize(`env cat < input > output`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Simple{{
+		Argv:          []string{"cat"},
+		Redirects:     []string{"output"},
+		ReadRedirects: []string{"input"},
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Normalize = %+v, want %+v", got, want)
+	}
+}
+
 func TestSplitSimplesParseError(t *testing.T) {
 	if _, err := splitSimples(`echo "unterminated`); err == nil {
 		t.Fatal("want parse error for unterminated string")
@@ -213,17 +313,18 @@ func TestNormalizeConsumesWrapperFlags(t *testing.T) {
 
 func TestNormalizeMarksUnknownWrapperFlagsUnresolved(t *testing.T) {
 	cases := []struct {
-		src           string
-		wantArgv      []string
-		wantRedirects []string
+		src               string
+		wantArgv          []string
+		wantRedirects     []string
+		wantReadRedirects []string
 	}{
-		{`env --frobnicate ls`, []string{"env", "--frobnicate", "ls"}, nil},
-		{`nohup -x ls`, []string{"nohup", "-x", "ls"}, nil},
-		{`xargs --frobnicate ls`, []string{"xargs", "--frobnicate", "ls"}, nil},
-		{`exec --frobnicate ls`, []string{"exec", "--frobnicate", "ls"}, nil},
-		{`timeout --frobnicate 5 ls`, []string{"timeout", "--frobnicate", "5", "ls"}, nil},
-		{`nice --frobnicate ls`, []string{"nice", "--frobnicate", "ls"}, nil},
-		{`env -Z x < input > output`, []string{"env", "-Z", "x"}, []string{"input", "output"}},
+		{`env --frobnicate ls`, []string{"env", "--frobnicate", "ls"}, nil, nil},
+		{`nohup -x ls`, []string{"nohup", "-x", "ls"}, nil, nil},
+		{`xargs --frobnicate ls`, []string{"xargs", "--frobnicate", "ls"}, nil, nil},
+		{`exec --frobnicate ls`, []string{"exec", "--frobnicate", "ls"}, nil, nil},
+		{`timeout --frobnicate 5 ls`, []string{"timeout", "--frobnicate", "5", "ls"}, nil, nil},
+		{`nice --frobnicate ls`, []string{"nice", "--frobnicate", "ls"}, nil, nil},
+		{`env -Z x < input > output`, []string{"env", "-Z", "x"}, []string{"output"}, []string{"input"}},
 	}
 	for _, c := range cases {
 		got, err := Normalize(c.src)
@@ -231,7 +332,7 @@ func TestNormalizeMarksUnknownWrapperFlagsUnresolved(t *testing.T) {
 			t.Errorf("Normalize(%q): %v", c.src, err)
 			continue
 		}
-		want := []Simple{{Argv: c.wantArgv, Redirects: c.wantRedirects, Unresolved: true}}
+		want := []Simple{{Argv: c.wantArgv, Redirects: c.wantRedirects, ReadRedirects: c.wantReadRedirects, Unresolved: true}}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("Normalize(%q) = %+v, want %+v", c.src, got, want)
 		}
