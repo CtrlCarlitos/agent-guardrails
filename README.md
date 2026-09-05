@@ -13,10 +13,12 @@ Installed globally via dotfiles; each project layers its own rules in a committe
 ## Status
 
 The [2026-09-04 adversarial security review](./docs/reviews/2026-09-04-adversarial-review.md)
-identified the current remediation roadmap. Phase 1 remediation has landed in this
-repository; Phases 2–4 remain outstanding. The M-9 installer fix and Task 10b tooling
-are committed separately on chezmoi branch `guardrail-remediation-phase1`, which
-remains unmerged and unapplied; the installer pin has not been bumped.
+identified the current remediation roadmap. Phase 1 is published at `v0.9.0-dev`.
+Phase 3 has landed and is the `v0.11.0-dev` target; publication is pending final task
+and whole-phase reviews. Phases 2 and 4 remain outstanding. The installer pin remains
+at `v0.7.0-dev` and has not been bumped because Phase 2 still contains criticals. The
+M-9 installer fix and Task 10b tooling remain on the separate chezmoi branch
+`guardrail-remediation-phase1`, which is unmerged, unapplied, and unpushed.
 
 The original plan series is complete: Plans 1–6 + the git -C/-c hotfix (v0.4.1) +
 the deployment plan, and Plan 7 (P8 recipes + `guardrail sync`) finished it off.
@@ -41,9 +43,10 @@ covers Claude + opencode + Antigravity installation; `doctor` covers Claude
 installation and diagnostics. `guardrail sync` regenerates a project's plane
 configs from Base+Overlay in one shot (per-plane warn-and-continue). CI + real
 releases ship the binary; the chezmoi installer wires it globally. Known parked
-gaps: `git -C <path>` target-repo validation (a different concern from the
-v0.4.1 parsing fix), `docker … | xargs`, backslash-escaped words, `bash -lc`,
-Windows-path engine semantics, macOS `sha256sum` fallback.
+gaps include H-5 outside-repository symlink laundering (`/tmp/innocent` resolving
+to `~/.ssh/id_rsa`), `git -C <path>` target-repo validation (a different concern
+from the v0.4.1 parsing fix), `docker … | xargs`, backslash-escaped words,
+`bash -lc`, Windows-path engine semantics, and the macOS `sha256sum` fallback.
 
 `make smoke` runs a best-effort end-to-end check against a real `claude` session
 (needs a login, spends tokens, not in CI) — see `test/smoke/README.md`.
