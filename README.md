@@ -20,6 +20,10 @@ at `v0.7.0-dev` and has not been bumped because Phase 2 still contains criticals
 M-9 installer fix and Task 10b tooling remain on the separate chezmoi branch
 `guardrail-remediation-phase1`, which is unmerged, unapplied, and unpushed.
 
+Every Overlay egress entry is a loosening request and needs an exact per-entry
+grant for that repository in Operator config. Total wildcards `*` and `**` are
+always forbidden. See [Operator config](./docs/operator-config.md).
+
 The original plan series is complete: Plans 1–6 + the git -C/-c hotfix (v0.4.1) +
 the deployment plan, and Plan 7 (P8 recipes + `guardrail sync`) finished it off.
 `guardrail hook claude` enforces P1/P2/P4/P5/P6, escalates via a two-signal P7
@@ -30,7 +34,7 @@ recipes and the session-completion tier are follow-ups per
 [ADR-0009](./docs/adr/0009-recipe-scope.md)) — P8 denial surfaces on Claude
 today (opencode needs a `tool.execute.after` plugin hook; antigravity post
 responses are always `{}` per ADR-0008, so post denials there are audit-only) —
-and answers SessionStart with
+and answers Claude-only SessionStart with
 an autonomy posture message + active-waiver banner (P10). `guardrail hook
 opencode` runs the same shared pipeline (audit, trifecta, waivers) through a JS
 plugin — ask/deny throw, allow passes through — which `gen-config opencode`
@@ -43,10 +47,14 @@ covers Claude + opencode + Antigravity installation; `doctor` covers Claude
 installation and diagnostics. `guardrail sync` regenerates a project's plane
 configs from Base+Overlay in one shot (per-plane warn-and-continue). CI + real
 releases ship the binary; the chezmoi installer wires it globally. Known parked
-gaps include H-5 outside-repository symlink laundering (`/tmp/innocent` resolving
-to `~/.ssh/id_rsa`), `git -C <path>` target-repo validation (a different concern
-from the v0.4.1 parsing fix), `docker … | xargs`, backslash-escaped words,
-`bash -lc`, Windows-path engine semantics, and the macOS `sha256sum` fallback.
+gaps include `git -C <path>` target-repo validation (a different concern from the
+v0.4.1 parsing fix), `docker … | xargs`, backslash-escaped words, `bash -lc`,
+Windows-path engine semantics, and the macOS `sha256sum` fallback. H-5's
+outside-repository symlink laundering is fixed by resolved-target checks. The
+Engine also denies visible opaque-interpreter references to Operator config, but
+it is a static tool-call guard, not an operating-system sandbox: dynamically
+concealed same-user writes remain outside its boundary. Phase 2 remains
+outstanding with its original critical findings.
 
 `make smoke` runs a best-effort end-to-end check against a real `claude` session
 (needs a login, spends tokens, not in CI) — see `test/smoke/README.md`.

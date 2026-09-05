@@ -29,9 +29,9 @@ _Avoid_: project config, local policy, override file
 
 **Operator config**:
 Machine-scoped authorization outside any repository. Grants the repository at a
-named absolute path permission to loosen specific rules. An Overlay may request;
-only the Operator config may grant. Authorization remains attached to that path
-until the operator removes it.
+named absolute path permission to make specific loosening requests. An Overlay
+may request; only the Operator config may grant. Authorization remains attached
+to that path until the operator removes it.
 _Avoid_: waiver file, global config, allowlist
 
 **Engine**:

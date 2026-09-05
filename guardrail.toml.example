@@ -12,8 +12,10 @@ engine_min_version = "0.1"
 # Fill the Base policy's parameterized holes.
 # `secret_allow` entries require an Operator config grant. `safe_roots` has no
 # such grant: every entry must resolve inside this repository or it is dropped.
+# Every `egress_allowlist` entry needs an exact per-repository Operator config
+# grant. Total wildcards `*` and `**` are always dropped, even when granted.
 safe_roots        = ["./tmp", "./.cache"]              # P1: rm -rf permitted here
-egress_allowlist  = ["api.github.com"]                 # P6: hosts curl/WebFetch may reach
+egress_allowlist  = ["api.github.com"]                 # P6: hosts curl/wget may reach
 ephemeral_db_glob = "*_scratch"                        # P11 (overlay): DBs safe to mutate
 container_scheme  = "{project}-{worktree}-{service}"   # P1 docker guard: real container names
 
@@ -32,4 +34,4 @@ reason  = "infra change — human in the loop"
 # in the Operator config (see docs/operator-config.md and ADR-0010).
 # An unauthorized request is dropped, the rule stays enforced, and the refusal
 # is reported by `guardrail doctor` and in Claude's SessionStart posture.
-# waive = ["P6.egress"]
+# waive = ["P7.trifecta"]

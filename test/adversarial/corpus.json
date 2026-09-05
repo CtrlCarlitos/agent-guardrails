@@ -1150,5 +1150,29 @@
     "cwd": "/repo",
     "repo_root": "/repo",
     "want": "deny"
+  },
+  {
+    "name": "ungranted exact egress host",
+    "tool": "Bash",
+    "command": "curl https://ungranted.example.com/x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "dot-segment operator config write",
+    "tool": "Write",
+    "paths": ["/home/u/.config/x/../guardrail/waivers.toml"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "visible node operator config write",
+    "tool": "Bash",
+    "command": "node -e \"require('fs').writeFileSync('/home/u/.config/guardrail/waivers.toml', 'x')\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
   }
 ]
