@@ -153,6 +153,41 @@ func TestTrifectaSilentWithoutPriorSignal(t *testing.T) {
 	}
 }
 
+func TestHookRejectsUnsafeSessionID(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
+	if err := os.WriteFile(cfg, []byte("waive = [\"P4.secret-path\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GUARDRAIL_CONFIG", cfg)
+
+	sid := "../unsafe"
+	readPayload := `{"session_id":"` + sid + `","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/tmp/.env"}}`
+	var out1, err1 bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(readPayload), &out1, &err1); code != 0 {
+		t.Fatalf("first call: exit %d, want 0; stderr=%s", code, err1.String())
+	}
+	if !strings.Contains(err1.String(), "unsafe session id") {
+		t.Errorf("first call missing unsafe-session warning: %q", err1.String())
+	}
+
+	curlPayload := `{"session_id":"` + sid + `","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl http://localhost:9999/x"}}`
+	var out2, err2 bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(curlPayload), &out2, &err2); code != 0 {
+		t.Fatalf("second call: exit %d, want 0; stderr=%s", code, err2.String())
+	}
+	if strings.Contains(out2.String(), "trifecta") {
+		t.Errorf("unsafe session id carried heuristic state between calls: %s", out2.String())
+	}
+	if !strings.Contains(err2.String(), "unsafe session id") {
+		t.Errorf("second call missing unsafe-session warning: %q", err2.String())
+	}
+	if _, err := os.Stat(filepath.Join(state, "guardrail", "unsafe.json")); !os.IsNotExist(err) {
+		t.Errorf("unsafe session id wrote outside the sessions dir: %v", err)
+	}
+}
+
 func TestHookRecipeDeniesOnPostEditLintFailure(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")

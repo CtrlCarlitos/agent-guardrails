@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -32,14 +33,29 @@ func dir() string {
 }
 
 func Path(sessionID string) string {
+	sessionID, ok := safeSessionID(sessionID)
+	if !ok {
+		return ""
+	}
 	return filepath.Join(dir(), sessionID+".json")
 }
 
+func safeSessionID(id string) (string, bool) {
+	if id == "" || id == "." || id == ".." {
+		return "", false
+	}
+	if strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") {
+		return "", false
+	}
+	return id, true
+}
+
 func Load(sessionID string) (*State, error) {
-	if sessionID == "" {
+	path := Path(sessionID)
+	if path == "" {
 		return &State{}, nil
 	}
-	raw, err := os.ReadFile(Path(sessionID))
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &State{}, nil
@@ -54,7 +70,8 @@ func Load(sessionID string) (*State, error) {
 }
 
 func Save(sessionID string, s *State) error {
-	if sessionID == "" {
+	path := Path(sessionID)
+	if path == "" {
 		return nil
 	}
 	s.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
@@ -66,7 +83,7 @@ func Save(sessionID string, s *State) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(Path(sessionID), raw, 0o600); err != nil {
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
 		return err
 	}
 	prune(d)

@@ -89,19 +89,23 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	v := engine.Evaluate(tc, merged)
 
 	if tc.Event == "pre" && tc.SessionID != "" && !merged.Waived["P7.trifecta"] {
-		st, loadErr := session.Load(tc.SessionID)
-		if loadErr != nil {
-			fmt.Fprintf(stderr, "guardrail: session state read failed (%v)\n", loadErr)
-		}
-		isPrivate := engine.IsPrivateDataAccess(tc, merged)
-		isNet := engine.IsNetworkAttempt(tc)
-		if esc := engine.TrifectaVerdict(v, isPrivate, isNet, st); esc != nil {
-			v = *esc
-		}
-		st.SawPrivateRead = st.SawPrivateRead || isPrivate
-		st.SawNetworkCall = st.SawNetworkCall || isNet
-		if err := session.Save(tc.SessionID, st); err != nil {
-			fmt.Fprintf(stderr, "guardrail: session state write failed (%v)\n", err)
+		if session.Path(tc.SessionID) == "" {
+			fmt.Fprintf(stderr, "guardrail: unsafe session id %q; session heuristic disabled\n", tc.SessionID)
+		} else {
+			st, loadErr := session.Load(tc.SessionID)
+			if loadErr != nil {
+				fmt.Fprintf(stderr, "guardrail: session state read failed (%v)\n", loadErr)
+			}
+			isPrivate := engine.IsPrivateDataAccess(tc, merged)
+			isNet := engine.IsNetworkAttempt(tc)
+			if esc := engine.TrifectaVerdict(v, isPrivate, isNet, st); esc != nil {
+				v = *esc
+			}
+			st.SawPrivateRead = st.SawPrivateRead || isPrivate
+			st.SawNetworkCall = st.SawNetworkCall || isNet
+			if err := session.Save(tc.SessionID, st); err != nil {
+				fmt.Fprintf(stderr, "guardrail: session state write failed (%v)\n", err)
+			}
 		}
 	}
 
