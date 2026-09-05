@@ -125,6 +125,29 @@ func TestSplitSimplesRedirect(t *testing.T) {
 	}
 }
 
+func TestNormalizeRedirectOnlyStatements(t *testing.T) {
+	cases := map[string][]string{
+		`> /etc/passwd`:        {"/etc/passwd"},
+		`>/etc/passwd`:         {"/etc/passwd"},
+		`>> /etc/passwd`:       {"/etc/passwd"},
+		`2> /etc/error.log`:    {"/etc/error.log"},
+		`&> /etc/combined.log`: {"/etc/combined.log"},
+		`exec 3> /etc/passwd`:  {"/etc/passwd"},
+		`exec 3>> /etc/passwd`: {"/etc/passwd"},
+	}
+	for src, wantRedirects := range cases {
+		got, err := Normalize(src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", src, err)
+			continue
+		}
+		want := []Simple{{Redirects: wantRedirects}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("Normalize(%q) = %+v, want %+v", src, got, want)
+		}
+	}
+}
+
 func TestSplitSimplesParseError(t *testing.T) {
 	if _, err := splitSimples(`echo "unterminated`); err == nil {
 		t.Fatal("want parse error for unterminated string")

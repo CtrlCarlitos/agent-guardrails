@@ -110,6 +110,43 @@ func TestSourceParseFailureStillFailsClosed(t *testing.T) {
 	}
 }
 
+func TestRedirectOnlyStatements(t *testing.T) {
+	for _, c := range []string{
+		`> /etc/passwd`,
+		`>/etc/passwd`,
+		`>> /etc/passwd`,
+		`2> /etc/error.log`,
+		`&> /etc/combined.log`,
+		`exec 3> /etc/passwd`,
+		`exec 3>> /etc/passwd`,
+	} {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.redirect" {
+			t.Errorf("%q -> %+v, want ask/P1.redirect (a bare redirect truncates the file)", c, v)
+		}
+	}
+	if v := evalBash(t, `> /repo/build.log`); v != nil {
+		t.Errorf("in-repo redirect -> %+v, want nil", v)
+	}
+}
+
+func TestRedirectOnlyStatementDoesNotMaskSiblingDeny(t *testing.T) {
+	for _, c := range []string{`rm -rf /; > /etc/passwd`, `> /etc/passwd; rm -rf /`} {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Errorf("%q -> %+v, want deny/P1.rm-rf", c, v)
+		}
+	}
+}
+
+func TestEmptyNoOpStatementsRemainAllowed(t *testing.T) {
+	for _, c := range []string{"", " \t\n", "# comment only", ":", "true"} {
+		if v := evalBash(t, c); v != nil {
+			t.Errorf("%q -> %+v, want nil", c, v)
+		}
+	}
+}
+
 func TestCheckBashDestructive(t *testing.T) {
 	deny := []string{
 		`rm -rf /`,

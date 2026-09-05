@@ -40,6 +40,7 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	take(checkDownloadPipeShell(simples))
 	for _, s := range simples {
 		if len(s.Argv) == 0 {
+			take(checkAskTier(s, tc, pol)) // redirect targets only
 			continue
 		}
 		if s.Unresolved {

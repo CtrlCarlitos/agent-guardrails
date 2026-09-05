@@ -580,10 +580,12 @@ func TestSelfConfigAndGitProtectedStillDenyBashRedirects(t *testing.T) {
 		{"/repo/.git/config", "P2.git-protected-path", "write to a protected git-internal path: /repo/.git/config"},
 	}
 	for _, test := range deny {
-		tc := ToolCall{Tool: "Bash", Command: "printf x > " + test.path, RepoRoot: "/repo", CWD: "/repo"}
-		v := checkPaths(tc, pathPol())
-		if v == nil || v.Decision != policy.Deny || v.RuleID != test.ruleID || v.Reason != test.wantReason {
-			t.Errorf("Bash redirect to %q -> %+v, want deny/%s with reason %q", test.path, v, test.ruleID, test.wantReason)
+		for _, command := range []string{"printf x > " + test.path, "> " + test.path} {
+			tc := ToolCall{Tool: "Bash", Command: command, RepoRoot: "/repo", CWD: "/repo"}
+			v := checkPaths(tc, pathPol())
+			if v == nil || v.Decision != policy.Deny || v.RuleID != test.ruleID || v.Reason != test.wantReason {
+				t.Errorf("Bash %q -> %+v, want deny/%s with reason %q", command, v, test.ruleID, test.wantReason)
+			}
 		}
 	}
 }

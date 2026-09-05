@@ -24,12 +24,19 @@ func splitSimples(src string) ([]Simple, error) {
 		if !ok {
 			return true
 		}
-		ce, ok := stmt.Cmd.(*syntax.CallExpr)
-		if !ok || len(ce.Args) == 0 {
+		var args []*syntax.Word
+		if stmt.Cmd != nil {
+			ce, ok := stmt.Cmd.(*syntax.CallExpr)
+			if !ok {
+				return true
+			}
+			args = ce.Args
+		}
+		if len(args) == 0 && len(stmt.Redirs) == 0 {
 			return true
 		}
 		s := Simple{}
-		for _, w := range ce.Args {
+		for _, w := range args {
 			raw := src[w.Pos().Offset():w.End().Offset()]
 			if lit, ok := literalText(raw); ok {
 				s.Argv = append(s.Argv, lit)
@@ -80,6 +87,12 @@ func Normalize(command string) ([]Simple, error) {
 }
 
 func stripAndUnwrap(s Simple) ([]Simple, error) {
+	if len(s.Argv) == 0 {
+		if len(s.Redirects) == 0 {
+			return nil, nil
+		}
+		return []Simple{s}, nil
+	}
 	argv := s.Argv
 loop:
 	for len(argv) > 0 {
@@ -115,7 +128,11 @@ loop:
 		argv = rest
 	}
 	if len(argv) == 0 {
-		return nil, nil
+		if len(s.Redirects) == 0 {
+			return nil, nil
+		}
+		s.Argv = argv
+		return []Simple{s}, nil
 	}
 	result := []Simple{{Argv: argv, Redirects: s.Redirects, Unresolved: s.Unresolved}}
 	inner, err := runnerInner(argv)
