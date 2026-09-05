@@ -651,6 +651,60 @@ func TestRedirectPathsReachSymlinkEscapeChecks(t *testing.T) {
 	}
 }
 
+func TestCompoundRedirectsReachPathChecks(t *testing.T) {
+	cases := []struct {
+		command string
+		ruleID  string
+	}{
+		{`{ :; } > /repo/CLAUDE.md`, "P5.self-config"},
+		{`( :) > /repo/.env`, "P4.secret-path"},
+		{`if true; then :; fi < /repo/.env`, "P4.secret-path"},
+		{`{ :; } <> /repo/.env`, "P4.secret-path"},
+	}
+	for _, c := range cases {
+		tc := ToolCall{Tool: "Bash", Command: c.command, RepoRoot: "/repo", CWD: "/repo"}
+		v := checkPaths(tc, pathPol())
+		if v == nil || v.Decision != policy.Deny || v.RuleID != c.ruleID {
+			t.Errorf("%q -> %+v, want deny/%s", c.command, v, c.ruleID)
+		}
+	}
+}
+
+func TestCompoundInputRedirectsDoNotReachWritePathRules(t *testing.T) {
+	for _, command := range []string{
+		`{ :; } < /repo/CLAUDE.md`,
+		`( :) < /repo/.git/config`,
+		`if true; then :; fi < /repo/Makefile`,
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, RepoRoot: "/repo", CWD: "/repo"}
+		if v := checkPaths(tc, pathPol()); v != nil {
+			t.Errorf("%q -> %+v, want nil", command, v)
+		}
+	}
+}
+
+func TestCompoundRedirectsReachSymlinkEscapeChecks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	repo := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.WriteFile(outside, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(repo, "compound-redirect-target")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{`{ :; } > ` + link, `( :) < ` + link} {
+		tc := ToolCall{Tool: "Bash", Command: command, RepoRoot: repo, CWD: repo}
+		v := checkPaths(tc, pathPol())
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P4.symlink-escape" {
+			t.Errorf("%q -> %+v, want deny/P4.symlink-escape", command, v)
+		}
+	}
+}
+
 func TestWritesByArgumentAreSeen(t *testing.T) {
 	deny := []string{
 		`cp evil /home/u/.claude/settings.json`,

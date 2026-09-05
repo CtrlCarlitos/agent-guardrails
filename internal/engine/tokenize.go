@@ -29,9 +29,12 @@ func splitSimples(src string) ([]Simple, error) {
 		if stmt.Cmd != nil {
 			ce, ok := stmt.Cmd.(*syntax.CallExpr)
 			if !ok {
-				return true
+				if len(stmt.Redirs) == 0 {
+					return true
+				}
+			} else {
+				args = ce.Args
 			}
-			args = ce.Args
 		}
 		if len(args) == 0 && len(stmt.Redirs) == 0 {
 			return true

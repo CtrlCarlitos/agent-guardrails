@@ -20,14 +20,16 @@ var interpreters = map[string]bool{
 }
 
 func checkDownloadPipeShell(simples []Simple) *policy.Verdict {
-	for i := 0; i+1 < len(simples); i++ {
-		if len(simples[i].Argv) == 0 || len(simples[i+1].Argv) == 0 {
+	var previous []string
+	for _, current := range simples {
+		if len(current.Argv) == 0 {
 			continue
 		}
-		if fetchTools[head(simples[i].Argv)] && interpreters[head(simples[i+1].Argv)] {
+		if fetchTools[head(previous)] && interpreters[head(current.Argv)] {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P6.download-pipe-shell",
 				Reason: "downloaded content piped straight into an interpreter"}
 		}
+		previous = current.Argv
 	}
 	return nil
 }

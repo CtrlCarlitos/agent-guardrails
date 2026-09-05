@@ -248,6 +248,51 @@ func TestNormalizePreservesRedirectDirectionsThroughWrapper(t *testing.T) {
 	}
 }
 
+func TestNormalizeCompoundStatementRedirects(t *testing.T) {
+	cases := []struct {
+		src  string
+		want []Simple
+	}{
+		{
+			`{ :; } > /repo/CLAUDE.md`,
+			[]Simple{{Redirects: []string{"/repo/CLAUDE.md"}}, {Argv: []string{":"}}},
+		},
+		{
+			`( :) < /repo/input`,
+			[]Simple{{ReadRedirects: []string{"/repo/input"}}, {Argv: []string{":"}}},
+		},
+		{
+			`if true; then :; fi <> /repo/state`,
+			[]Simple{
+				{Redirects: []string{"/repo/state"}, ReadRedirects: []string{"/repo/state"}},
+				{Argv: []string{"true"}},
+				{Argv: []string{":"}},
+			},
+		},
+		{
+			`{ :; } > "$TARGET"`,
+			[]Simple{{Redirects: []string{`"$TARGET"`}, Unresolved: true}, {Argv: []string{":"}}},
+		},
+		{
+			`{ : > /repo/inner; } > /repo/outer`,
+			[]Simple{
+				{Redirects: []string{"/repo/outer"}},
+				{Argv: []string{":"}, Redirects: []string{"/repo/inner"}},
+			},
+		},
+	}
+	for _, c := range cases {
+		got, err := Normalize(c.src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", c.src, err)
+			continue
+		}
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("Normalize(%q) = %+v, want %+v", c.src, got, c.want)
+		}
+	}
+}
+
 func TestSplitSimplesParseError(t *testing.T) {
 	if _, err := splitSimples(`echo "unterminated`); err == nil {
 		t.Fatal("want parse error for unterminated string")
