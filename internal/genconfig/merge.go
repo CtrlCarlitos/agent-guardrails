@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -26,7 +27,18 @@ func MergeInto(path string, frag Fragment) error {
 		return err
 	}
 
-	deepMerge(existing, frag)
+	if permission, ok := toStringAnyMap(frag["permission"]); ok {
+		mergeOpencodePermission(existing, permission)
+		withoutPermission := make(Fragment, len(frag)-1)
+		for key, value := range frag {
+			if key != "permission" {
+				withoutPermission[key] = value
+			}
+		}
+		deepMerge(existing, withoutPermission)
+	} else {
+		deepMerge(existing, frag)
+	}
 
 	out, err := json.MarshalIndent(existing, "", "  ")
 	if err != nil {
@@ -53,6 +65,95 @@ func MergeInto(path string, frag Fragment) error {
 		return err
 	}
 	return os.Rename(tmpName, path)
+}
+
+type orderedPermissionRules map[string]any
+
+func (rules orderedPermissionRules) MarshalJSON() ([]byte, error) {
+	keys := make([]string, 0, len(rules))
+	for key := range rules {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		iRank := permissionVerdictRank(rules[keys[i]])
+		jRank := permissionVerdictRank(rules[keys[j]])
+		if iRank != jRank {
+			return iRank < jRank
+		}
+		return keys[i] < keys[j]
+	})
+
+	var out bytes.Buffer
+	out.WriteByte('{')
+	for i, key := range keys {
+		if i > 0 {
+			out.WriteByte(',')
+		}
+		encodedKey, err := json.Marshal(key)
+		if err != nil {
+			return nil, err
+		}
+		encodedValue, err := json.Marshal(rules[key])
+		if err != nil {
+			return nil, err
+		}
+		out.Write(encodedKey)
+		out.WriteByte(':')
+		out.Write(encodedValue)
+	}
+	out.WriteByte('}')
+	return out.Bytes(), nil
+}
+
+func permissionVerdictRank(value any) int {
+	verdict, _ := value.(string)
+	switch verdict {
+	case "allow":
+		return 1
+	case "ask":
+		return 2
+	case "deny":
+		return 3
+	default:
+		return 0
+	}
+}
+
+func mergeOpencodePermission(existing map[string]any, generated map[string]any) {
+	permission, ok := toStringAnyMap(existing["permission"])
+	if !ok {
+		permission = map[string]any{}
+	}
+
+	for category, value := range generated {
+		if category != "bash" && category != "read" && category != "edit" {
+			deepMerge(permission, map[string]any{category: value})
+			continue
+		}
+		generatedRules, ok := toStringAnyMap(value)
+		if !ok {
+			deepMerge(permission, map[string]any{category: value})
+			continue
+		}
+		rules, ok := toStringAnyMap(permission[category])
+		if !ok {
+			rules = map[string]any{}
+		}
+		for pattern, generatedVerdict := range generatedRules {
+			existingVerdict, present := rules[pattern]
+			if !present || permissionVerdictRank(generatedVerdict) > permissionVerdictRank(existingVerdict) {
+				rules[pattern] = generatedVerdict
+			}
+		}
+		permission[category] = rules
+	}
+
+	for _, category := range []string{"bash", "read", "edit"} {
+		if rules, ok := toStringAnyMap(permission[category]); ok {
+			permission[category] = orderedPermissionRules(rules)
+		}
+	}
+	existing["permission"] = permission
 }
 
 func deepMerge(dst, src map[string]any) {

@@ -1,9 +1,11 @@
 package genconfig
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -183,5 +185,96 @@ func TestPermissionsStillUnionAppend(t *testing.T) {
 	deny := readJSON(t, p)["permissions"].(map[string]any)["deny"].([]any)
 	if len(deny) != 2 {
 		t.Fatalf("deny = %v, want the user entry kept + the new one", deny)
+	}
+}
+
+func TestMergeIntoOpencodePermissionCollision(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "opencode.json")
+	existing := `{
+		"theme": "dark",
+		"permission": {
+			"bash": {
+				"*": "deny",
+				"chmod -R *": "deny",
+				"rm -rf *": "allow",
+				"safe *": "allow",
+				"zzz-custom": {"mode": "audit"}
+			},
+			"read": {"**/.ssh/**": "ask"},
+			"edit": {
+				".env.example": "ask",
+				".github/workflows/**": "deny"
+			},
+			"external_directory": {"~/projects/**": "allow"}
+		}
+	}`
+	if err := os.WriteFile(p, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := MergeInto(p, OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
+		t.Fatal(err)
+	}
+
+	root := readJSON(t, p)
+	if root["theme"] != "dark" {
+		t.Fatal("unrelated top-level setting was not preserved")
+	}
+	permission := root["permission"].(map[string]any)
+	bash := permission["bash"].(map[string]any)
+	for key, want := range map[string]string{
+		"*":          "deny",
+		"chmod -R *": "deny",
+		"rm -rf *":   "deny",
+	} {
+		if got := bash[key]; got != want {
+			t.Errorf("permission.bash[%q] = %v, want %q", key, got, want)
+		}
+	}
+	if got, want := bash["zzz-custom"], map[string]any{"mode": "audit"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("unknown permission value = %#v, want %#v", got, want)
+	}
+	if got := permission["read"].(map[string]any)["**/.ssh/**"]; got != "deny" {
+		t.Errorf("generated deny did not tighten retained ask: %v", got)
+	}
+	edit := permission["edit"].(map[string]any)
+	if got := edit[".env.example"]; got != "ask" {
+		t.Errorf("retained ask did not tighten generated allow: %v", got)
+	}
+	if got := edit[".github/workflows/**"]; got != "deny" {
+		t.Errorf("retained deny did not tighten generated ask: %v", got)
+	}
+	if got, want := permission["external_directory"], map[string]any{"~/projects/**": "allow"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("unrelated permission category = %#v, want %#v", got, want)
+	}
+
+	rules := readOpencodePermissionRules(t, p, "bash")
+	if rules[0].pattern != "zzz-custom" {
+		t.Errorf("first bash rule = %q, want unknown-valued zzz-custom rule", rules[0].pattern)
+	}
+}
+
+func TestMergeIntoOpencodePermissionIdempotent(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "opencode.json")
+	existing := []byte(`{"permission":{"edit":{"/**":"allow","zzz-custom":{"mode":"audit"},"**/workflows/**":"deny"}}}`)
+	if err := os.WriteFile(p, existing, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+	if err := MergeInto(p, frag); err != nil {
+		t.Fatal(err)
+	}
+	first, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := MergeInto(p, frag); err != nil {
+		t.Fatal(err)
+	}
+	second, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatalf("OpenCode merge is not byte-idempotent:\n--- first ---\n%s\n--- second ---\n%s", first, second)
 	}
 }

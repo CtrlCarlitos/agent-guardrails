@@ -6,9 +6,82 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+type opencodePermissionRule struct {
+	pattern string
+	value   any
+}
+
+func readOpencodePermissionRules(t *testing.T, path, category string) []opencodePermissionRule {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatal(err)
+	}
+	var permission map[string]json.RawMessage
+	if err := json.Unmarshal(root["permission"], &permission); err != nil {
+		t.Fatal(err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(permission[category]))
+	tok, err := dec.Token()
+	if err != nil || tok != json.Delim('{') {
+		t.Fatalf("permission.%s is not an object: %v", category, err)
+	}
+	var rules []opencodePermissionRule
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var value any
+		if err := dec.Decode(&value); err != nil {
+			t.Fatal(err)
+		}
+		rules = append(rules, opencodePermissionRule{pattern: key.(string), value: value})
+	}
+	return rules
+}
+
+func opencodeGlobMatches(pattern, value string) bool {
+	var expression strings.Builder
+	expression.WriteByte('^')
+	for i := 0; i < len(pattern); {
+		switch {
+		case strings.HasPrefix(pattern[i:], "**"):
+			expression.WriteString(".*")
+			i += 2
+		case pattern[i] == '*':
+			expression.WriteString("[^/]*")
+			i++
+		default:
+			expression.WriteString(regexp.QuoteMeta(pattern[i : i+1]))
+			i++
+		}
+	}
+	expression.WriteByte('$')
+	return regexp.MustCompile(expression.String()).MatchString(value)
+}
+
+// OpenCode resolves overlapping permission patterns with findLast.
+func opencodeFindLast(rules []opencodePermissionRule, value string) string {
+	var verdict string
+	for _, rule := range rules {
+		if opencodeGlobMatches(rule.pattern, value) {
+			if candidate, ok := rule.value.(string); ok {
+				verdict = candidate
+			}
+		}
+	}
+	return verdict
+}
 
 func TestOpencodePluginSourceRetainsDeploymentPlaceholder(t *testing.T) {
 	if !bytes.Contains(OpencodePluginJS, []byte(`"__GUARDRAIL_BIN__"`)) {
@@ -252,5 +325,51 @@ func TestMergeOpencodePreservesExistingProjectConfig(t *testing.T) {
 	plugins := m["plugin"].([]any)
 	if len(plugins) != 2 {
 		t.Fatalf("want superpowers + guardrail = 2 plugin entries, got %v", plugins)
+	}
+}
+
+func TestMergeIntoOpencodePermissionPrecedence(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "opencode.json")
+	existing := `{
+		"permission": {
+			"edit": {
+				"/**": "allow",
+				"/home/**": "allow",
+				"~/**": "allow",
+				"**/*.example": "ask",
+				"**/workflows/**": "deny"
+			}
+		}
+	}`
+	if err := os.WriteFile(p, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := MergeInto(p, OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
+		t.Fatal(err)
+	}
+
+	rules := readOpencodePermissionRules(t, p, "edit")
+	previousRank := -1
+	previousPattern := ""
+	for _, rule := range rules {
+		rank := map[any]int{"allow": 1, "ask": 2, "deny": 3}[rule.value]
+		if rank < previousRank || rank == previousRank && rule.pattern < previousPattern {
+			t.Fatalf("permission rules are not ordered by verdict then pattern: %q follows %q", rule.pattern, previousPattern)
+		}
+		previousRank = rank
+		previousPattern = rule.pattern
+	}
+	for _, tt := range []struct {
+		path string
+		want string
+	}{
+		{path: "/home/carlitos/.config/guardrail/operator.toml", want: "deny"},
+		{path: "~/.ssh/id_rsa", want: "deny"},
+		{path: "nested/.env.example", want: "ask"},
+		{path: ".github/workflows/release.yml", want: "deny"},
+	} {
+		if got := opencodeFindLast(rules, tt.path); got != tt.want {
+			t.Errorf("findLast permission for %q = %q, want %q", tt.path, got, tt.want)
+		}
 	}
 }
