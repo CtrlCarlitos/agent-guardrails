@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
@@ -56,14 +55,10 @@ func ParseClaude(r io.Reader) (engine.ToolCall, error) {
 }
 
 func repoRoot(cwd string) string {
-	if cwd == "" {
-		return ""
+	if root, ok := policy.FindRepoRoot(cwd); ok {
+		return root
 	}
-	out, err := exec.Command("git", "-C", cwd, "rev-parse", "--show-toplevel").Output()
-	if err != nil {
-		return cwd
-	}
-	return strings.TrimSpace(string(out))
+	return cwd
 }
 
 func EmitClaude(v policy.Verdict, event string, stdout, stderr io.Writer) int {

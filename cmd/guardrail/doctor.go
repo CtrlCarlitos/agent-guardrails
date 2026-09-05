@@ -19,6 +19,10 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 
 	cwd, _ := os.Getwd()
 	fmt.Fprintf(stdout, "cwd: %s\n", cwd)
+	repoRoot := cwd
+	if root, ok := policy.FindRepoRoot(cwd); ok {
+		repoRoot = root
+	}
 
 	if v := os.Getenv("GUARDRAIL_CONFIG"); v != "" {
 		fmt.Fprintf(stdout, "GUARDRAIL_CONFIG: %s\n", v)
@@ -54,7 +58,7 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	if opErr != nil {
 		fmt.Fprintf(stderr, "guardrail: operator config unreadable (%v); treating as empty\n", opErr)
 	}
-	merged, warnings, err := policy.Merge(base, ov, version, op, cwd)
+	merged, warnings, err := policy.Merge(base, ov, version, op, repoRoot)
 	if err != nil {
 		fmt.Fprintf(stdout, "merge: ERROR %v\n", err)
 		return 0

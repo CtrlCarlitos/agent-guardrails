@@ -81,6 +81,9 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "guardrail: invalid overlay (%v); failing closed\n", err)
 		return 2
 	}
+	if opErr != nil {
+		warnings = append(warnings, "guardrail: operator configuration could not be loaded; operator-authorized policy changes remain disabled")
+	}
 	for _, w := range warnings {
 		fmt.Fprintln(stderr, w)
 	}

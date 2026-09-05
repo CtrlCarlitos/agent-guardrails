@@ -27,6 +27,10 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "guardrail: sync: cannot resolve --dir: %v\n", err)
 		return 2
 	}
+	repoRoot := absDir
+	if root, ok := policy.FindRepoRoot(absDir); ok {
+		repoRoot = root
+	}
 	planes := strings.Split(*planesFlag, ",")
 	resolvedBinary := *binary
 	for _, p := range planes {
@@ -65,7 +69,7 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 	if opErr != nil {
 		fmt.Fprintf(stderr, "guardrail: operator config unreadable (%v); treating as empty\n", opErr)
 	}
-	merged, warnings, err := policy.Merge(base, ov, version, op, absDir)
+	merged, warnings, err := policy.Merge(base, ov, version, op, repoRoot)
 	if err != nil {
 		fmt.Fprintf(stderr, "guardrail: sync: invalid overlay: %v\n", err)
 		return 2

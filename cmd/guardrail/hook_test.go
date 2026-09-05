@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func authorizeHookWaivers(t *testing.T, repo string, ids ...string) {
+func authorizeOperatorWaivers(t *testing.T, repo string, ids ...string) {
 	t.Helper()
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
@@ -25,6 +25,22 @@ func authorizeHookWaivers(t *testing.T, repo string, ids ...string) {
 	if err := os.WriteFile(filepath.Join(dir, "waivers.toml"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func repoWithAuthorizedWaiver(t *testing.T) (string, string) {
+	t.Helper()
+	root := t.TempDir()
+	gitInitSync(t, root)
+	sub := filepath.Join(root, "nested", "work")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "guardrail.toml"), []byte("waive = [\"P6.egress\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	authorizeOperatorWaivers(t, root, "P6.egress")
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	return root, sub
 }
 
 func runHook(t *testing.T, fixture string) (int, string, string) {
@@ -120,7 +136,7 @@ func TestHookStaleGuardrailConfigDegrades(t *testing.T) {
 
 func TestTrifectaEscalatesAcrossTwoCalls(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	authorizeHookWaivers(t, "/tmp", "P4.secret-path")
+	authorizeOperatorWaivers(t, "/tmp", "P4.secret-path")
 	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
 	os.WriteFile(cfg, []byte("waive = [\"P4.secret-path\"]\n"), 0o644)
 	t.Setenv("GUARDRAIL_CONFIG", cfg)
@@ -145,7 +161,7 @@ func TestTrifectaEscalatesAcrossTwoCalls(t *testing.T) {
 
 func TestTrifectaWaivedIsSilent(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	authorizeHookWaivers(t, "/tmp", "P4.secret-path", "P7.trifecta")
+	authorizeOperatorWaivers(t, "/tmp", "P4.secret-path", "P7.trifecta")
 	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
 	os.WriteFile(cfg, []byte("waive = [\"P4.secret-path\", \"P7.trifecta\"]\n"), 0o644)
 	t.Setenv("GUARDRAIL_CONFIG", cfg)
@@ -177,7 +193,7 @@ func TestTrifectaSilentWithoutPriorSignal(t *testing.T) {
 func TestHookRejectsUnsafeSessionID(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
-	authorizeHookWaivers(t, "/tmp", "P4.secret-path")
+	authorizeOperatorWaivers(t, "/tmp", "P4.secret-path")
 	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
 	if err := os.WriteFile(cfg, []byte("waive = [\"P4.secret-path\"]\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -347,5 +363,49 @@ func TestHookSessionStart(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "P6") {
 		t.Fatalf("missing waiver banner: %s", out.String())
+	}
+}
+
+func TestHookUsesTopLevelRepoGrantFromSubdirectory(t *testing.T) {
+	_, sub := repoWithAuthorizedWaiver(t)
+	payload := fmt.Sprintf(`{"session_id":"s1","cwd":%q,"hook_event_name":"SessionStart"}`, sub)
+	var out, errb bytes.Buffer
+	code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "Active policy waivers in this repo (these rules are OFF): P6.egress") {
+		t.Fatalf("top-level operator grant was not applied from subdirectory: %s", out.String())
+	}
+}
+
+func TestHookSessionStartSanitizesOperatorConfigLoadError(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	configDir := filepath.Join(configHome, "guardrail")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(configDir, "waivers.toml")
+	if err := os.WriteFile(configPath, []byte(`malformed = [`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GUARDRAIL_CONFIG", "")
+
+	payload := `{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart"}`
+	var out, errb bytes.Buffer
+	code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, errb.String())
+	}
+	const generic = "guardrail: operator configuration could not be loaded; operator-authorized policy changes remain disabled"
+	if !strings.Contains(out.String(), generic) {
+		t.Fatalf("SessionStart omitted generic operator warning: %s", out.String())
+	}
+	if strings.Contains(out.String(), configPath) || strings.Contains(out.String(), "parsing operator config") {
+		t.Fatalf("SessionStart exposed detailed operator error: %s", out.String())
+	}
+	if !strings.Contains(errb.String(), configPath) || !strings.Contains(errb.String(), "parsing operator config") {
+		t.Fatalf("stderr omitted detailed operator error: %s", errb.String())
 	}
 }

@@ -29,16 +29,27 @@ func FindOverlayPath(cwd string) (path string, ok bool, warn string) {
 		}
 		return v, true, ""
 	}
-	out, err := exec.Command("git", "-C", cwd, "rev-parse", "--show-toplevel").Output()
-	if err != nil {
+	root, ok := FindRepoRoot(cwd)
+	if !ok {
 		return "", false, ""
 	}
-	root := strings.TrimSpace(string(out))
 	cfg := filepath.Join(root, "guardrail.toml")
 	if _, err := os.Stat(cfg); err != nil {
 		return "", false, ""
 	}
 	return cfg, true, ""
+}
+
+func FindRepoRoot(cwd string) (string, bool) {
+	if cwd == "" {
+		return "", false
+	}
+	out, err := exec.Command("git", "-C", cwd, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", false
+	}
+	root := strings.TrimSpace(string(out))
+	return root, root != ""
 }
 
 func LoadOverlay(pth string) (*Overlay, error) {

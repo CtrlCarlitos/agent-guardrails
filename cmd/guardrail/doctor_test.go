@@ -37,6 +37,33 @@ func TestDoctorStaleConfig(t *testing.T) {
 	}
 }
 
+func TestDoctorUsesTopLevelRepoGrantFromSubdirectory(t *testing.T) {
+	_, sub := repoWithAuthorizedWaiver(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	oldCWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(sub); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldCWD); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	})
+
+	var out, errb bytes.Buffer
+	code := run([]string{"doctor"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "waivers: P6.egress") {
+		t.Fatalf("top-level operator grant was not applied from subdirectory:\n%s", out.String())
+	}
+}
+
 func writeClaudeSettings(t *testing.T, home, body string) {
 	t.Helper()
 	dir := filepath.Join(home, ".claude")

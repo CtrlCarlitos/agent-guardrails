@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -220,6 +221,44 @@ func TestMergeSafeRootsHaveNoOperatorEscapeGrant(t *testing.T) {
 	}
 	if len(m.Slots.SafeRoots) != 0 || len(warns) != 1 {
 		t.Fatalf("operator config authorized external safe root: policy=%+v warnings=%v", m, warns)
+	}
+}
+
+func TestMergeSafeRootsRejectExistingSymlinkEscape(t *testing.T) {
+	repoRoot := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Mkdir(filepath.Join(outside, "existing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(repoRoot, "escape")); err != nil {
+		t.Fatal(err)
+	}
+
+	m, warns, err := Merge(&Policy{Waived: map[string]bool{}}, &Overlay{SafeRoots: []string{"escape/existing"}}, "1.0.0", nil, repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Slots.SafeRoots) != 0 || len(warns) != 1 || !strings.Contains(warns[0], "DROPPED") {
+		t.Fatalf("symlink escape was accepted: policy=%+v warnings=%v", m, warns)
+	}
+}
+
+func TestMergeSafeRootsKeepNonexistentChildUnderResolvedInRepoAncestor(t *testing.T) {
+	repoRoot := t.TempDir()
+	realDir := filepath.Join(repoRoot, "real")
+	if err := os.Mkdir(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realDir, filepath.Join(repoRoot, "alias")); err != nil {
+		t.Fatal(err)
+	}
+
+	m, warns, err := Merge(&Policy{Waived: map[string]bool{}}, &Overlay{SafeRoots: []string{"alias/future/nested"}}, "1.0.0", nil, repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(m.Slots.SafeRoots, []string{"alias/future/nested"}) || len(warns) != 0 {
+		t.Fatalf("nonexistent in-repo descendant was dropped: policy=%+v warnings=%v", m, warns)
 	}
 }
 

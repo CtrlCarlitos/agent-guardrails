@@ -218,3 +218,15 @@ secret_globs = ["secrets/prod/**"]
 		t.Fatalf("overlay secret_globs did not reach the synced Claude floor:\n%s", raw)
 	}
 }
+
+func TestSyncUsesTopLevelRepoGrantFromSubdirectory(t *testing.T) {
+	_, sub := repoWithAuthorizedWaiver(t)
+	var out, errb bytes.Buffer
+	code := run([]string{"sync", "--dir", sub, "--planes", "claude", "--binary", "guardrail"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, errb.String())
+	}
+	if !strings.Contains(errb.String(), "guardrail: rule P6.egress is WAIVED for this repo by operator authorization") {
+		t.Fatalf("top-level operator grant was not applied from subdirectory: %s", errb.String())
+	}
+}
