@@ -53,9 +53,10 @@ func cmdGenConfig(args []string, stdout, stderr io.Writer) int {
 		}
 		pluginPath := filepath.Join(dir, "guardrail.js")
 		if *mergePath != "" {
-			absBinary, err := filepath.Abs(*binary)
+			absBinary, err := resolveBinaryPath(*binary)
 			if err != nil {
-				absBinary = *binary
+				fmt.Fprintf(stderr, "guardrail: gen-config: cannot resolve --binary: %v\n", err)
+				return 2
 			}
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				fmt.Fprintf(stderr, "guardrail: cannot create plugin dir: %v\n", err)

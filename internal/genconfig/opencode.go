@@ -1,6 +1,7 @@
 package genconfig
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -16,7 +17,8 @@ func stripWrapper(prefix, s string) (string, bool) {
 // OpencodePluginFor returns the embedded plugin source with the absolute
 // guardrail path baked in.
 func OpencodePluginFor(binary string) []byte {
-	return []byte(strings.ReplaceAll(string(OpencodePluginJS), "__GUARDRAIL_BIN__", binary))
+	encoded, _ := json.Marshal(binary)
+	return []byte(strings.ReplaceAll(string(OpencodePluginJS), `"__GUARDRAIL_BIN__"`, string(encoded)))
 }
 
 func OpencodeConfig(pol *policy.Policy, pluginPath string) Fragment {

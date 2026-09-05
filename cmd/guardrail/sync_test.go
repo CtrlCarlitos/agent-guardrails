@@ -91,6 +91,51 @@ func TestSyncOpencodeBakesAbsoluteBinary(t *testing.T) {
 	}
 }
 
+func TestSyncOpencodeResolvesBareBinaryFromPATH(t *testing.T) {
+	dir := t.TempDir()
+	gitInitSync(t, dir)
+	binDir := t.TempDir()
+	wantBinary := writePathExecutable(t, binDir, "guardrail-sentinel")
+	t.Setenv("PATH", binDir)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"sync", "--dir", dir, "--planes", "opencode", "--binary", "guardrail-sentinel"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errb.String())
+	}
+	js, err := os.ReadFile(filepath.Join(dir, ".guardrail", "guardrail.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(js), wantBinary) {
+		t.Fatalf("synced plugin does not contain PATH-resolved binary %q:\n%s", wantBinary, js)
+	}
+}
+
+func TestSyncOpencodeRejectsUnresolvedBareBinaryBeforeDeployment(t *testing.T) {
+	dir := t.TempDir()
+	gitInitSync(t, dir)
+	t.Setenv("PATH", t.TempDir())
+
+	var out, errb bytes.Buffer
+	code := run([]string{"sync", "--dir", dir, "--planes", "opencode", "--binary", "missing-guardrail"}, strings.NewReader(""), &out, &errb)
+	if code != 2 {
+		t.Fatalf("exit=%d, want 2; stderr=%s", code, errb.String())
+	}
+	wantErr := "guardrail: sync: cannot resolve --binary: executable \"missing-guardrail\" not found in PATH\n"
+	if errb.String() != wantErr {
+		t.Fatalf("stderr = %q, want %q", errb.String(), wantErr)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+	for _, path := range []string{filepath.Join(dir, ".guardrail"), filepath.Join(dir, "opencode.json")} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("%s was deployed on resolution failure: %v", path, err)
+		}
+	}
+}
+
 func TestSyncOverlayReachesClaudeFloor(t *testing.T) {
 	dir := t.TempDir()
 	gitInitSync(t, dir)

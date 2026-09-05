@@ -11,8 +11,56 @@ import (
 )
 
 func TestOpencodePluginSourceRetainsDeploymentPlaceholder(t *testing.T) {
-	if !bytes.Contains(OpencodePluginJS, []byte("__GUARDRAIL_BIN__")) {
+	if !bytes.Contains(OpencodePluginJS, []byte(`"__GUARDRAIL_BIN__"`)) {
 		t.Fatal("embedded OpenCode plugin source is missing the deployment placeholder")
+	}
+}
+
+func TestOpencodePluginForEscapesAndUsesExactBinaryPath(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "guardrail\"\\\n\u2603\t")
+	encoded, err := json.Marshal(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugin := OpencodePluginFor(binary)
+	wantDeclaration := []byte("const GUARDRAIL_BIN = " + string(encoded) + ";")
+	if !bytes.Contains(plugin, wantDeclaration) {
+		t.Fatalf("generated declaration does not contain the JSON-encoded path %q", wantDeclaration)
+	}
+
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is required to execute the generated OpenCode plugin")
+	}
+	fakeGuardrail := `#!/bin/sh
+IFS= read -r _ || :
+printf '%s' '{"decision":"allow","reason":"accepted"}'
+`
+	if err := os.WriteFile(binary, []byte(fakeGuardrail), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pluginPath := filepath.Join(dir, "guardrail.mjs")
+	if err := os.WriteFile(pluginPath, plugin, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := `
+import { pathToFileURL } from "node:url";
+const loaded = await import(pathToFileURL(process.argv[1]).href);
+const instance = await loaded.default({ directory: process.cwd() });
+await instance["tool.execute.before"](
+	{ tool: "bash", sessionID: "test-session" },
+	{ args: { command: "true" } },
+);
+process.stdout.write("allowed");
+`
+	cmd := exec.Command(node, "--input-type=module", "--eval", runner, pluginPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated plugin did not use the exact adversarial path: %v\n%s", err, output)
+	}
+	if string(output) != "allowed" {
+		t.Fatalf("stdout = %q, want allowed", output)
 	}
 }
 

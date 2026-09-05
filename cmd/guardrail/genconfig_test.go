@@ -9,6 +9,15 @@ import (
 	"testing"
 )
 
+func writePathExecutable(t *testing.T, dir, name string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestGenConfigNoPlane(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := run([]string{"gen-config"}, strings.NewReader(""), &out, &errb)
@@ -164,6 +173,63 @@ func TestGenConfigOpencodeBakesAbsoluteBinary(t *testing.T) {
 	}
 	if strings.Contains(string(js), "process.env.GUARDRAIL_BIN") {
 		t.Error("plugin still resolves its enforcer from the environment")
+	}
+}
+
+func TestGenConfigOpencodeResolvesBareBinaryFromPATH(t *testing.T) {
+	dir := t.TempDir()
+	settings := filepath.Join(dir, "opencode.json")
+	if err := os.WriteFile(settings, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	binDir := t.TempDir()
+	wantBinary := writePathExecutable(t, binDir, "guardrail-sentinel")
+	t.Setenv("PATH", binDir)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"gen-config", "opencode", "--merge", settings, "--binary", "guardrail-sentinel"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errb.String())
+	}
+	js, err := os.ReadFile(filepath.Join(dir, "guardrail.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(js), wantBinary) {
+		t.Fatalf("deployed plugin does not contain PATH-resolved binary %q:\n%s", wantBinary, js)
+	}
+}
+
+func TestGenConfigOpencodeRejectsUnresolvedBareBinaryBeforeDeployment(t *testing.T) {
+	dir := t.TempDir()
+	settings := filepath.Join(dir, "opencode.json")
+	before := []byte(`{"plugin":["existing"]}`)
+	if err := os.WriteFile(settings, before, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+
+	var out, errb bytes.Buffer
+	code := run([]string{"gen-config", "opencode", "--merge", settings, "--binary", "missing-guardrail"}, strings.NewReader(""), &out, &errb)
+	if code != 2 {
+		t.Fatalf("exit=%d, want 2; stderr=%s", code, errb.String())
+	}
+	wantErr := "guardrail: gen-config: cannot resolve --binary: executable \"missing-guardrail\" not found in PATH\n"
+	if errb.String() != wantErr {
+		t.Fatalf("stderr = %q, want %q", errb.String(), wantErr)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+	after, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatalf("settings changed on resolution failure:\n%s", after)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "guardrail.js")); !os.IsNotExist(err) {
+		t.Fatalf("plugin was deployed on resolution failure: %v", err)
 	}
 }
 

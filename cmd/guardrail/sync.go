@@ -27,6 +27,19 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "guardrail: sync: cannot resolve --dir: %v\n", err)
 		return 2
 	}
+	planes := strings.Split(*planesFlag, ",")
+	resolvedBinary := *binary
+	for _, p := range planes {
+		if strings.TrimSpace(p) != "opencode" {
+			continue
+		}
+		resolvedBinary, err = resolveBinaryPath(*binary)
+		if err != nil {
+			fmt.Fprintf(stderr, "guardrail: sync: cannot resolve --binary: %v\n", err)
+			return 2
+		}
+		break
+	}
 
 	base, err := policy.LoadBase()
 	if err != nil {
@@ -57,8 +70,8 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, w)
 	}
 
-	for _, p := range strings.Split(*planesFlag, ",") {
-		syncPlane(strings.TrimSpace(p), absDir, *binary, merged, stdout, stderr)
+	for _, p := range planes {
+		syncPlane(strings.TrimSpace(p), absDir, resolvedBinary, merged, stdout, stderr)
 	}
 	return 0
 }
@@ -81,11 +94,7 @@ func syncPlane(plane, dir, binary string, merged *policy.Policy, stdout, stderr 
 			return
 		}
 		pluginPath := filepath.Join(pluginDir, "guardrail.js")
-		absBinary, err := filepath.Abs(binary)
-		if err != nil {
-			absBinary = binary
-		}
-		if err := os.WriteFile(pluginPath, genconfig.OpencodePluginFor(absBinary), 0o644); err != nil {
+		if err := os.WriteFile(pluginPath, genconfig.OpencodePluginFor(binary), 0o644); err != nil {
 			fmt.Fprintf(stderr, "guardrail: sync opencode failed: %v\n", err)
 			return
 		}
