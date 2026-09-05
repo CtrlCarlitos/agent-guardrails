@@ -61,7 +61,11 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, warn)
 	}
 
-	merged, warnings, err := policy.Merge(base, ov, version)
+	op, opErr := policy.LoadOperatorConfig()
+	if opErr != nil {
+		fmt.Fprintf(stderr, "guardrail: operator config unreadable (%v); treating as empty\n", opErr)
+	}
+	merged, warnings, err := policy.Merge(base, ov, version, op, absDir)
 	if err != nil {
 		fmt.Fprintf(stderr, "guardrail: sync: invalid overlay: %v\n", err)
 		return 2

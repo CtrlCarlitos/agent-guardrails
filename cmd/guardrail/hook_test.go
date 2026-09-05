@@ -2,11 +2,30 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func authorizeHookWaivers(t *testing.T, repo string, ids ...string) {
+	t.Helper()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	dir := filepath.Join(configHome, "guardrail")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	quoted := make([]string, len(ids))
+	for i, id := range ids {
+		quoted[i] = fmt.Sprintf("%q", id)
+	}
+	body := fmt.Sprintf("[%q]\nwaive = [%s]\n", repo, strings.Join(quoted, ", "))
+	if err := os.WriteFile(filepath.Join(dir, "waivers.toml"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func runHook(t *testing.T, fixture string) (int, string, string) {
 	t.Helper()
@@ -101,6 +120,7 @@ func TestHookStaleGuardrailConfigDegrades(t *testing.T) {
 
 func TestTrifectaEscalatesAcrossTwoCalls(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	authorizeHookWaivers(t, "/tmp", "P4.secret-path")
 	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
 	os.WriteFile(cfg, []byte("waive = [\"P4.secret-path\"]\n"), 0o644)
 	t.Setenv("GUARDRAIL_CONFIG", cfg)
@@ -125,6 +145,7 @@ func TestTrifectaEscalatesAcrossTwoCalls(t *testing.T) {
 
 func TestTrifectaWaivedIsSilent(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	authorizeHookWaivers(t, "/tmp", "P4.secret-path", "P7.trifecta")
 	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
 	os.WriteFile(cfg, []byte("waive = [\"P4.secret-path\", \"P7.trifecta\"]\n"), 0o644)
 	t.Setenv("GUARDRAIL_CONFIG", cfg)
@@ -156,6 +177,7 @@ func TestTrifectaSilentWithoutPriorSignal(t *testing.T) {
 func TestHookRejectsUnsafeSessionID(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
+	authorizeHookWaivers(t, "/tmp", "P4.secret-path")
 	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
 	if err := os.WriteFile(cfg, []byte("waive = [\"P4.secret-path\"]\n"), 0o644); err != nil {
 		t.Fatal(err)

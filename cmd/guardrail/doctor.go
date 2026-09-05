@@ -50,7 +50,11 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "overlay: none")
 	}
 
-	merged, warnings, err := policy.Merge(base, ov, version)
+	op, opErr := policy.LoadOperatorConfig()
+	if opErr != nil {
+		fmt.Fprintf(stderr, "guardrail: operator config unreadable (%v); treating as empty\n", opErr)
+	}
+	merged, warnings, err := policy.Merge(base, ov, version, op, cwd)
 	if err != nil {
 		fmt.Fprintf(stdout, "merge: ERROR %v\n", err)
 		return 0

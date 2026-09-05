@@ -72,7 +72,11 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, warn)
 	}
 
-	merged, warnings, err := policy.Merge(base, ov, version)
+	op, opErr := policy.LoadOperatorConfig()
+	if opErr != nil {
+		fmt.Fprintf(stderr, "guardrail: operator config unreadable (%v); treating as empty\n", opErr)
+	}
+	merged, warnings, err := policy.Merge(base, ov, version, op, tc.RepoRoot)
 	if err != nil {
 		fmt.Fprintf(stderr, "guardrail: invalid overlay (%v); failing closed\n", err)
 		return 2

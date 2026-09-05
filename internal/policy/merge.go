@@ -2,17 +2,18 @@ package policy
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
 
-func Merge(base *Policy, ov *Overlay, binaryVersion string) (*Policy, []string, error) {
+func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, repoRoot string) (*Policy, []string, error) {
 	m := &Policy{
 		Slots: Slots{
-			SafeRoots:       append(append([]string{}, base.Slots.SafeRoots...), overlaySafe(ov)...),
-			SecretGlobs:     append(append([]string{}, base.Slots.SecretGlobs...), overlayGlobs(ov)...),
-			SecretAllow:     append(append([]string{}, base.Slots.SecretAllow...), overlayAllow(ov)...),
-			EgressAllowlist: append(append([]string{}, base.Slots.EgressAllowlist...), overlayEgress(ov)...),
+			SafeRoots:       append([]string{}, base.Slots.SafeRoots...),
+			SecretGlobs:     append([]string{}, base.Slots.SecretGlobs...),
+			SecretAllow:     append([]string{}, base.Slots.SecretAllow...),
+			EgressAllowlist: append([]string{}, base.Slots.EgressAllowlist...),
 			AuditLog:        base.Slots.AuditLog,
 		},
 		Rules:  append([]Rule{}, base.Rules...),
@@ -22,50 +23,77 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string) (*Policy, []string, 
 		m.Waived[k] = v
 	}
 	var warns []string
-	if ov != nil {
-		if ov.AuditLog != "" {
+	if ov == nil {
+		return m, warns, nil
+	}
+
+	// These additions can only make the Base policy stricter.
+	m.Slots.SecretGlobs = append(m.Slots.SecretGlobs, ov.SecretGlobs...)
+	for _, r := range ov.Rules {
+		if r.Decision != Ask && r.Decision != Deny {
+			return nil, nil, fmt.Errorf("overlay rule %q uses decision %q; overlays may only add ask/deny (use slots or waive to loosen)", r.ID, r.Decision)
+		}
+		m.Rules = append(m.Rules, r)
+	}
+
+	cleanRoot := filepath.Clean(repoRoot)
+	for _, sr := range ov.SafeRoots {
+		abs := sr
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(cleanRoot, sr)
+		}
+		rel, err := filepath.Rel(cleanRoot, filepath.Clean(abs))
+		if !filepath.IsAbs(repoRoot) || err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			warns = append(warns, "guardrail: repo requested safe_root "+sr+" outside the repository — DROPPED")
+			continue
+		}
+		m.Slots.SafeRoots = append(m.Slots.SafeRoots, sr)
+	}
+
+	for _, entry := range ov.EgressAllowlist {
+		if entry == "*" || entry == "**" {
+			warns = append(warns, "guardrail: repo requested a wildcard egress_allowlist entry "+entry+" — DROPPED")
+			continue
+		}
+		m.Slots.EgressAllowlist = append(m.Slots.EgressAllowlist, entry)
+	}
+
+	if len(ov.SecretAllow) > 0 {
+		if op.AllowsSecretAllow(repoRoot) {
+			m.Slots.SecretAllow = append(m.Slots.SecretAllow, ov.SecretAllow...)
+		} else {
+			warns = append(warns, "guardrail: repo requested secret_allow entries, which are NOT authorized in "+
+				OperatorConfigPath()+" — secret protection remains ENFORCED")
+		}
+	}
+
+	if ov.AuditLog != "" {
+		if op.AllowsAuditLog(repoRoot) {
 			m.Slots.AuditLog = ov.AuditLog
+		} else {
+			warns = append(warns, "guardrail: repo requested audit_log "+ov.AuditLog+
+				", which is NOT authorized in "+OperatorConfigPath()+" — the default audit path is retained")
 		}
-		for _, r := range ov.Rules {
-			if r.Decision != Ask && r.Decision != Deny {
-				return nil, nil, fmt.Errorf("overlay rule %q uses decision %q; overlays may only add ask/deny (use slots or waive to loosen)", r.ID, r.Decision)
-			}
-			m.Rules = append(m.Rules, r)
+	}
+
+	for _, waiver := range ov.Waive {
+		if neverWaivable[waiver] {
+			warns = append(warns, "guardrail: rule "+waiver+" can never be waived (fail-closed backstop) — request IGNORED")
+			continue
 		}
-		for _, w := range ov.Waive {
-			m.Waived[w] = true
-			warns = append(warns, "guardrail: rule "+w+" is WAIVED by this repo's guardrail.toml")
+		if op.AllowsWaiver(repoRoot, waiver) {
+			m.Waived[waiver] = true
+			warns = append(warns, "guardrail: rule "+waiver+" is WAIVED for this repo by operator authorization")
+			continue
 		}
-		if ov.EngineMinVersion != "" && versionOlder(binaryVersion, ov.EngineMinVersion) {
-			warns = append(warns, fmt.Sprintf("guardrail: binary %s is older than this repo's engine_min_version %s", binaryVersion, ov.EngineMinVersion))
-		}
+		warns = append(warns, "guardrail: repo requested waiver of "+waiver+
+			", which is NOT authorized in "+OperatorConfigPath()+" — the rule remains ENFORCED")
+	}
+
+	if ov.EngineMinVersion != "" && versionOlder(binaryVersion, ov.EngineMinVersion) {
+		warns = append(warns, fmt.Sprintf("guardrail: binary %s is older than this repo's engine_min_version %s", binaryVersion, ov.EngineMinVersion))
 	}
 	return m, warns, nil
-}
-
-func overlaySafe(ov *Overlay) []string {
-	if ov == nil {
-		return nil
-	}
-	return ov.SafeRoots
-}
-func overlayGlobs(ov *Overlay) []string {
-	if ov == nil {
-		return nil
-	}
-	return ov.SecretGlobs
-}
-func overlayAllow(ov *Overlay) []string {
-	if ov == nil {
-		return nil
-	}
-	return ov.SecretAllow
-}
-func overlayEgress(ov *Overlay) []string {
-	if ov == nil {
-		return nil
-	}
-	return ov.EgressAllowlist
 }
 
 func versionOlder(bin, min string) bool {
