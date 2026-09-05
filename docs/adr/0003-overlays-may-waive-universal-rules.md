@@ -1,5 +1,10 @@
 # Overlays may waive universal rules, logged — not an immutable base
 
+> **Superseded in part by [ADR-0010](./0010-operator-scoped-loosening.md) (2026-09-04).**
+> The decision that an escape hatch should exist still stands. The mechanism —
+> a repo authorizing its own waivers, mitigated by logging — did not survive
+> adversarial review and has been replaced by operator-scoped authorization.
+
 A guardrail system whose base rules cannot be switched off sounds safer, but real
 projects hit real exceptions, and if the only choices are "comply" or "disable the
 whole guard," people disable the whole guard.
