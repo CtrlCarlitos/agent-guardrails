@@ -134,6 +134,8 @@ func mergeOpencodePermission(existing map[string]any, generated map[string]any) 
 		} else {
 			permission = map[string]any{}
 		}
+	} else if action, recognized := permission["*"].(string); recognized && permissionVerdictRank(action) > 0 {
+		inheritedFallback = action
 	}
 
 	for category, value := range generated {
@@ -155,11 +157,20 @@ func mergeOpencodePermission(existing map[string]any, generated map[string]any) 
 				if !recognized || permissionVerdictRank(action) == 0 || action == "deny" {
 					continue
 				}
-				fallback = action
+				if permissionVerdictRank(action) > permissionVerdictRank(fallback) {
+					fallback = action
+				}
 			}
 			rules = map[string]any{}
 			if fallback != "" {
 				rules["*"] = fallback
+			}
+		} else if inheritedFallback != "" {
+			existingFallback, present := rules["*"]
+			existingRank := permissionVerdictRank(existingFallback)
+			inheritedRank := permissionVerdictRank(inheritedFallback)
+			if !present || existingRank > 0 && inheritedRank > existingRank {
+				rules["*"] = inheritedFallback
 			}
 		}
 		for pattern, generatedVerdict := range generatedRules {

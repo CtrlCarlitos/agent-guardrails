@@ -391,3 +391,105 @@ func TestMergeIntoOpencodeUnknownCollision(t *testing.T) {
 		t.Fatalf("unknown exact collision = %#v, want %#v", got, want)
 	}
 }
+
+func TestMergeIntoOpencodeObjectGlobalFallback(t *testing.T) {
+	for _, action := range []string{"allow", "ask", "deny"} {
+		t.Run(action, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "opencode.json")
+			existing := map[string]any{
+				"theme": "dark",
+				"permission": map[string]any{
+					"*": action,
+					"bash": map[string]any{
+						"echo *":  "allow",
+						"audit *": "deny",
+					},
+					"edit": map[string]any{
+						".env.example":   "allow",
+						"guardrail.toml": "allow",
+					},
+					"read":               "allow",
+					"task":               "deny",
+					"external_directory": map[string]any{"~/projects/**": "allow"},
+				},
+			}
+			raw, err := json.Marshal(existing)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, raw, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+			if err := MergeInto(p, frag); err != nil {
+				t.Fatal(err)
+			}
+			first, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			root := readJSON(t, p)
+			permission := root["permission"].(map[string]any)
+			if permission["*"] != action {
+				t.Fatalf("global wildcard = %#v, want %q", permission["*"], action)
+			}
+			if root["theme"] != "dark" || permission["external_directory"] == nil {
+				t.Fatalf("unrelated config was not preserved: %#v", root)
+			}
+
+			rules := parseOpencodeFlattenedPermissions(t, first)
+			for _, tt := range []struct {
+				name       string
+				permission string
+				pattern    string
+				want       string
+			}{
+				{name: "ordinary bash explicit allow", permission: "bash", pattern: "echo hello", want: action},
+				{name: "bash exact deny", permission: "bash", pattern: "audit repository", want: "deny"},
+				{name: "secret exception edit", permission: "edit", pattern: ".env.example", want: action},
+				{name: "protected config write", permission: "edit", pattern: "guardrail.toml", want: "deny"},
+				{name: "ordinary scalar read", permission: "read", pattern: "notes/file.txt", want: action},
+				{name: "secret scalar read", permission: "read", pattern: "nested/.ssh/id_rsa", want: "deny"},
+				{name: "unlisted tool", permission: "webfetch", pattern: "https://example.com", want: action},
+				{name: "unrelated category deny", permission: "task", pattern: "general", want: "deny"},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					if got := opencodeFindLastPermission(rules, tt.permission, tt.pattern); got != tt.want {
+						t.Errorf("permission = %q, want %q", got, tt.want)
+					}
+				})
+			}
+
+			if err := MergeInto(p, frag); err != nil {
+				t.Fatal(err)
+			}
+			second, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(first, second) {
+				t.Fatalf("object global fallback merge is not byte-idempotent:\n--- first ---\n%s\n--- second ---\n%s", first, second)
+			}
+		})
+	}
+}
+
+func TestMergeIntoOpencodeUnknownObjectGlobalFallback(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "opencode.json")
+	existing := []byte(`{"permission":{"*":{"mode":"audit"},"task":"deny"}}`)
+	if err := os.WriteFile(p, existing, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := MergeInto(p, OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"mode": "audit"}
+	permission := readJSON(t, p)["permission"].(map[string]any)
+	if !reflect.DeepEqual(permission["*"], want) {
+		t.Fatalf("unknown global wildcard = %#v, want %#v", permission["*"], want)
+	}
+	if permission["task"] != "deny" {
+		t.Fatalf("unrelated category = %#v, want deny", permission["task"])
+	}
+}

@@ -13,8 +13,9 @@ import (
 )
 
 type opencodePermissionRule struct {
-	pattern string
-	value   any
+	permission string
+	pattern    string
+	value      any
 }
 
 func readOpencodePermissionRules(t *testing.T, path, category string) []opencodePermissionRule {
@@ -36,10 +37,50 @@ func parseOpencodePermissionRules(t *testing.T, raw []byte, category string) []o
 	if err := json.Unmarshal(root["permission"], &permission); err != nil {
 		t.Fatal(err)
 	}
-	dec := json.NewDecoder(bytes.NewReader(permission[category]))
+	return parseOpencodeRuleObject(t, permission[category])
+}
+
+func parseOpencodeFlattenedPermissions(t *testing.T, raw []byte) []opencodePermissionRule {
+	t.Helper()
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatal(err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(root["permission"]))
 	tok, err := dec.Token()
 	if err != nil || tok != json.Delim('{') {
-		t.Fatalf("permission.%s is not an object: %v", category, err)
+		t.Fatalf("permission is not an object: %v", err)
+	}
+	var rules []opencodePermissionRule
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			t.Fatal(err)
+		}
+		var scalar string
+		if err := json.Unmarshal(value, &scalar); err == nil {
+			rules = append(rules, opencodePermissionRule{permission: key.(string), pattern: "*", value: scalar})
+			continue
+		}
+		categoryRules := parseOpencodeRuleObject(t, value)
+		for _, rule := range categoryRules {
+			rule.permission = key.(string)
+			rules = append(rules, rule)
+		}
+	}
+	return rules
+}
+
+func parseOpencodeRuleObject(t *testing.T, raw []byte) []opencodePermissionRule {
+	t.Helper()
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	tok, err := dec.Token()
+	if err != nil || tok != json.Delim('{') {
+		t.Fatalf("permission category is not an object: %v", err)
 	}
 	var rules []opencodePermissionRule
 	for dec.More() {
@@ -116,6 +157,18 @@ func opencodeFindLast(rules []opencodePermissionRule, value string) string {
 	var verdict string
 	for _, rule := range rules {
 		if opencodeGlobMatches(rule.pattern, value) {
+			if candidate, ok := rule.value.(string); ok {
+				verdict = candidate
+			}
+		}
+	}
+	return verdict
+}
+
+func opencodeFindLastPermission(rules []opencodePermissionRule, permission, pattern string) string {
+	var verdict string
+	for _, rule := range rules {
+		if opencodeGlobMatches(rule.permission, permission) && opencodeGlobMatches(rule.pattern, pattern) {
 			if candidate, ok := rule.value.(string); ok {
 				verdict = candidate
 			}
