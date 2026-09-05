@@ -50,6 +50,7 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		}
 		take(checkRmRf(s, tc, pol))
 		take(checkDiskDestroyers(s))
+		take(checkDestinationWrites(s, tc, pol))
 		take(checkGit(s))
 		take(checkGitSafety(s))
 		take(checkDocker(s, tc.Command))
@@ -58,6 +59,103 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		take(checkPackageInstall(s))
 	}
 	return worst
+}
+
+func checkDestinationWrites(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
+	switch head(s.Argv) {
+	case "mv", "cp", "ln", "tee", "install":
+	case "rsync":
+		deletes, err := rsyncDeletionMode(s.Argv)
+		if err != nil {
+			return ask("P3.unresolved", "rsync option parsing could not establish deletion scope")
+		}
+		if !deletes {
+			return nil
+		}
+	default:
+		return nil
+	}
+	for _, target := range writeTargets(s) {
+		if head(s.Argv) == "rsync" && rsyncRemoteTarget(target) {
+			return ask("P1.out-of-repo-write", "writes to a remote destination outside configured safe roots: "+target)
+		}
+		if !withinSafe(resolvePath(target, tc.CWD), tc.RepoRoot, pol.Slots.SafeRoots) {
+			return ask("P1.out-of-repo-write", "writes to a path outside the repo and configured safe roots: "+target)
+		}
+	}
+	return nil
+}
+
+func rsyncRemoteTarget(target string) bool {
+	if strings.HasPrefix(target, "rsync://") {
+		return true
+	}
+	hostPath := target
+	if at := strings.LastIndexByte(hostPath, '@'); at >= 0 {
+		hostPath = hostPath[at+1:]
+	}
+	if strings.HasPrefix(hostPath, "[") {
+		return strings.Contains(hostPath, "]:")
+	}
+	colon := strings.IndexByte(hostPath, ':')
+	return colon > 0 && !strings.Contains(hostPath[:colon], "/")
+}
+
+func rsyncDeletionMode(argv []string) (bool, error) {
+	spec := mutatingDestinationCommands["rsync"]
+	deletionOptions := map[string]bool{
+		"del": true, "delete": true, "delete-before": true, "delete-during": true,
+		"delete-delay": true, "delete-after": true, "delete-excluded": true,
+		"delete-missing-args": true,
+	}
+	for i := 1; i < len(argv); i++ {
+		arg := argv[i]
+		if arg == "--" {
+			return false, nil
+		}
+		if !strings.HasPrefix(arg, "-") || arg == "-" {
+			continue
+		}
+		if strings.HasPrefix(arg, "--") {
+			name, _, attached := strings.Cut(strings.TrimPrefix(arg, "--"), "=")
+			if deletionOptions[name] {
+				if attached {
+					return false, unknownOpt("rsync", arg)
+				}
+				return true, nil
+			}
+			if listedOption(spec.longValues, name) {
+				if !attached {
+					if i+1 >= len(argv) {
+						return false, needsValue("rsync", arg)
+					}
+					i++
+				}
+				continue
+			}
+			if !listedOption(spec.longFlags, name) || attached {
+				return false, unknownOpt("rsync", arg)
+			}
+			continue
+		}
+		short := strings.TrimPrefix(arg, "-")
+		for j := 0; j < len(short); j++ {
+			option := short[j]
+			if strings.ContainsRune(spec.shortValues, rune(option)) {
+				if j+1 == len(short) {
+					if i+1 >= len(argv) {
+						return false, needsValue("rsync", "-"+string(option))
+					}
+					i++
+				}
+				break
+			}
+			if !strings.ContainsRune(spec.shortFlags, rune(option)) {
+				return false, unknownOpt("rsync", "-"+string(option))
+			}
+		}
+	}
+	return false, nil
 }
 
 func hasAnyFlag(argv []string, short string, long ...string) bool {
@@ -544,12 +642,14 @@ func checkAskTier(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 			return ask("P1.chown", "recursive chown")
 		}
 	case "find":
+		destructive := map[string]bool{"rm": true, "shred": true, "truncate": true, "dd": true}
 		for i, a := range s.Argv {
 			if a == "-delete" {
 				return ask("P1.find-delete", "find -delete is a bulk deletion primitive")
 			}
-			if a == "-exec" && i+1 < len(s.Argv) && s.Argv[i+1] == "rm" {
-				return ask("P1.find-delete", "find -exec rm is a bulk deletion primitive")
+			if (a == "-exec" || a == "-execdir" || a == "-ok" || a == "-okdir") &&
+				i+1 < len(s.Argv) && destructive[path.Base(s.Argv[i+1])] {
+				return ask("P1.find-delete", "find "+a+" invokes a destructive command")
 			}
 		}
 	case "truncate":

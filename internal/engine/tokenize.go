@@ -12,13 +12,28 @@ type Simple struct {
 	Redirects     []string
 	ReadRedirects []string
 	Unresolved    bool
+	pipelines     []pipelinePosition
+}
+
+type pipelinePosition struct {
+	id    int
+	stage int
+}
+
+type normalizeContext struct {
+	nextPipelineID int
 }
 
 func splitSimples(src string) ([]Simple, error) {
+	return splitSimplesWithContext(src, &normalizeContext{})
+}
+
+func splitSimplesWithContext(src string, ctx *normalizeContext) ([]Simple, error) {
 	f, err := syntax.NewParser().Parse(strings.NewReader(src), "")
 	if err != nil {
 		return nil, err
 	}
+	pipelines := pipelinePositions(f, ctx)
 	var out []Simple
 	syntax.Walk(f, func(node syntax.Node) bool {
 		stmt, ok := node.(*syntax.Stmt)
@@ -39,7 +54,7 @@ func splitSimples(src string) ([]Simple, error) {
 		if len(args) == 0 && len(stmt.Redirs) == 0 {
 			return true
 		}
-		s := Simple{}
+		s := Simple{pipelines: pipelines[stmt]}
 		for _, w := range args {
 			raw := src[w.Pos().Offset():w.End().Offset()]
 			if lit, ok := literalText(raw); ok {
@@ -91,16 +106,68 @@ func splitSimples(src string) ([]Simple, error) {
 	return out, nil
 }
 
+func pipelinePositions(f *syntax.File, ctx *normalizeContext) map[*syntax.Stmt][]pipelinePosition {
+	pipeStatements := make(map[*syntax.Stmt]bool)
+	childPipes := make(map[*syntax.Stmt]bool)
+	syntax.Walk(f, func(node syntax.Node) bool {
+		stmt, ok := node.(*syntax.Stmt)
+		if !ok {
+			return true
+		}
+		binary, ok := stmt.Cmd.(*syntax.BinaryCmd)
+		if !ok || binary.Op != syntax.Pipe && binary.Op != syntax.PipeAll {
+			return true
+		}
+		pipeStatements[stmt] = true
+		for _, child := range []*syntax.Stmt{binary.X, binary.Y} {
+			if nested, ok := child.Cmd.(*syntax.BinaryCmd); ok && (nested.Op == syntax.Pipe || nested.Op == syntax.PipeAll) {
+				childPipes[child] = true
+			}
+		}
+		return true
+	})
+
+	positions := make(map[*syntax.Stmt][]pipelinePosition)
+	for stmt := range pipeStatements {
+		if childPipes[stmt] {
+			continue
+		}
+		ctx.nextPipelineID++
+		for stage, stageRoot := range flattenPipeline(stmt) {
+			position := pipelinePosition{id: ctx.nextPipelineID, stage: stage}
+			syntax.Walk(stageRoot, func(node syntax.Node) bool {
+				if descendant, ok := node.(*syntax.Stmt); ok {
+					positions[descendant] = append(positions[descendant], position)
+				}
+				return true
+			})
+		}
+	}
+	return positions
+}
+
+func flattenPipeline(stmt *syntax.Stmt) []*syntax.Stmt {
+	binary, ok := stmt.Cmd.(*syntax.BinaryCmd)
+	if !ok || binary.Op != syntax.Pipe && binary.Op != syntax.PipeAll {
+		return []*syntax.Stmt{stmt}
+	}
+	return append(flattenPipeline(binary.X), flattenPipeline(binary.Y)...)
+}
+
 // Normalize returns every command that will actually execute, with no-op
 // wrappers stripped and argument-executing runners unwrapped.
 func Normalize(command string) ([]Simple, error) {
-	base, err := splitSimples(command)
+	return normalizeWithContext(command, &normalizeContext{})
+}
+
+func normalizeWithContext(command string, ctx *normalizeContext) ([]Simple, error) {
+	base, err := splitSimplesWithContext(command, ctx)
 	if err != nil {
 		return nil, err
 	}
 	var out []Simple
 	for _, s := range base {
-		expanded, err := stripAndUnwrap(s)
+		expanded, err := stripAndUnwrap(s, ctx)
 		if err != nil {
 			// This statement's wrappers could not be understood. Keep it
 			// unknowable so sibling statements are still evaluated.
@@ -114,7 +181,7 @@ func Normalize(command string) ([]Simple, error) {
 	return out, nil
 }
 
-func stripAndUnwrap(s Simple) ([]Simple, error) {
+func stripAndUnwrap(s Simple, ctx *normalizeContext) ([]Simple, error) {
 	if len(s.Argv) == 0 {
 		if len(s.Redirects) == 0 && len(s.ReadRedirects) == 0 {
 			return nil, nil
@@ -143,7 +210,7 @@ loop:
 		case "watch":
 			rest, err = consumeWatch(argv[1:])
 			if err == nil {
-				return normalizeWatch(s, rest, chrooted)
+				return normalizeWatch(s, rest, chrooted, ctx)
 			}
 		case "chroot":
 			rest, err = consumeChroot(argv[1:])
@@ -181,22 +248,25 @@ loop:
 		s.Unresolved = s.Unresolved || chrooted
 		return []Simple{s}, nil
 	}
-	result := []Simple{{Argv: argv, Redirects: s.Redirects, ReadRedirects: s.ReadRedirects, Unresolved: s.Unresolved}}
+	result := []Simple{{Argv: argv, Redirects: s.Redirects, ReadRedirects: s.ReadRedirects, Unresolved: s.Unresolved, pipelines: s.pipelines}}
 	inner, err := runnerInner(argv)
 	if err != nil {
 		return nil, err
 	}
 	if inner != nil {
-		result = append(result, Simple{Argv: inner, Unresolved: s.Unresolved})
+		result = append(result, Simple{Argv: inner, Unresolved: s.Unresolved, pipelines: s.pipelines})
 	}
 	source, dashC, err := shellDashC(argv)
 	if err != nil {
 		return nil, err
 	}
 	if dashC {
-		inner, err := normalizeShellDashC(source)
+		inner, err := normalizeShellDashC(source, ctx)
 		if err != nil {
 			return nil, err
+		}
+		for i := range inner {
+			inner[i].pipelines = append(inner[i].pipelines, s.pipelines...)
 		}
 		result = append(result, inner...)
 	}
@@ -209,15 +279,15 @@ loop:
 }
 
 // normalizeShellDashC re-tokenizes the literal text passed to a shell's -c flag.
-func normalizeShellDashC(word string) ([]Simple, error) {
-	return Normalize(word)
+func normalizeShellDashC(word string, ctx *normalizeContext) ([]Simple, error) {
+	return normalizeWithContext(word, ctx)
 }
 
-func normalizeWatch(outer Simple, argv []string, unresolved bool) ([]Simple, error) {
+func normalizeWatch(outer Simple, argv []string, unresolved bool, ctx *normalizeContext) ([]Simple, error) {
 	if len(argv) == 0 {
 		return nil, fmt.Errorf("watch: missing command argument; failing closed")
 	}
-	inner, err := Normalize(strings.Join(argv, " "))
+	inner, err := normalizeWithContext(strings.Join(argv, " "), ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -227,16 +297,20 @@ func normalizeWatch(outer Simple, argv []string, unresolved bool) ([]Simple, err
 			inner[i].Unresolved = true
 		}
 	}
+	for i := range inner {
+		inner[i].pipelines = append(inner[i].pipelines, outer.pipelines...)
+	}
 	if len(outer.Redirects) > 0 || len(outer.ReadRedirects) > 0 {
 		metadata := Simple{
 			Redirects:     outer.Redirects,
 			ReadRedirects: outer.ReadRedirects,
 			Unresolved:    unresolved,
+			pipelines:     outer.pipelines,
 		}
 		return append([]Simple{metadata}, inner...), nil
 	}
 	if unresolved && len(inner) == 0 {
-		return []Simple{{Unresolved: true}}, nil
+		return []Simple{{Unresolved: true, pipelines: outer.pipelines}}, nil
 	}
 	return inner, nil
 }

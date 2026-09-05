@@ -439,6 +439,97 @@ func TestCheckBashAskTier(t *testing.T) {
 	}
 }
 
+func TestDestinationWritesOutsideSafeRootsAsk(t *testing.T) {
+	commands := []string{
+		`mv /repo/source /etc/target`,
+		`mv -t /etc /repo/source`,
+		`cp /repo/source /etc/target`,
+		`cp --target-directory=/etc /repo/source`,
+		`ln -sf /repo/source /etc/target`,
+		`tee -a /etc/target`,
+		`install -m 0755 /repo/source /usr/local/bin/tool`,
+		`install -t /usr/local/bin /repo/source`,
+		`rsync --delete /repo/source/ /etc/target/`,
+		`rsync --delete-before /repo/source/ /etc/target/`,
+		`rsync --delete-after /repo/source/ /etc/target/`,
+	}
+	for _, command := range commands {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.out-of-repo-write" {
+			t.Errorf("%q -> %+v, want ask/P1.out-of-repo-write", command, v)
+		}
+	}
+}
+
+func TestDestinationWriteOptionValuesAreNotTargets(t *testing.T) {
+	commands := []string{
+		`cp --suffix /etc/not-a-target /repo/source /repo/target`,
+		`mv -S /etc/not-a-target /repo/source /repo/target`,
+		`ln --suffix=/etc/not-a-target /repo/source /repo/target`,
+		`install --mode /etc/not-a-target /repo/source /repo/target`,
+		`rsync --delete --exclude-from /etc/not-a-target /repo/source/ /repo/target/`,
+		`rsync /repo/source/ /etc/target/`,
+		`tee --output-error=warn /repo/target`,
+	}
+	for _, command := range commands {
+		if v := evalBash(t, command); v != nil {
+			t.Errorf("%q -> %+v, want nil", command, v)
+		}
+	}
+}
+
+func TestDestinationWritesWithinConfiguredSafeRootRemainAllowed(t *testing.T) {
+	for _, command := range []string{
+		`cp /repo/source /repo/target`,
+		`mv /repo/source /repo/tmp/target`,
+		`ln -s /repo/source /repo/target`,
+		`tee /repo/tmp/output`,
+		`install /repo/source /repo/target`,
+		`rsync --delete /repo/source/ /repo/tmp/target/`,
+	} {
+		if v := evalBash(t, command); v != nil {
+			t.Errorf("%q -> %+v, want nil", command, v)
+		}
+	}
+}
+
+func TestRsyncDeleteRemoteDestinationAsksEvenWhenHostIsAllowed(t *testing.T) {
+	pol := bashPol()
+	pol.Slots.EgressAllowlist = []string{"allowed.example.com"}
+	tc := ToolCall{
+		Tool: "Bash", Command: `rsync --delete /repo/source/ allowed.example.com:/srv/target/`,
+		CWD: "/repo", RepoRoot: "/repo",
+	}
+	v := checkBash(tc, pol)
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.out-of-repo-write" {
+		t.Fatalf("-> %+v, want ask/P1.out-of-repo-write", v)
+	}
+}
+
+func TestFindDestructiveExecFamiliesAsk(t *testing.T) {
+	commands := []string{
+		`find . -exec rm -rf {} +`,
+		`find . -execdir /bin/rm -rf {} +`,
+		`find . -ok /usr/bin/shred {} \;`,
+		`find . -okdir truncate -s 0 {} \;`,
+		`find . -exec /bin/dd of={} \;`,
+	}
+	for _, command := range commands {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+			t.Errorf("%q -> %+v, want ask/P1.find-delete", command, v)
+		}
+	}
+	for _, command := range []string{
+		`find . -exec printf '%s\n' {} +`,
+		`find . -execdir /bin/echo {} +`,
+	} {
+		if v := evalBash(t, command); v != nil {
+			t.Errorf("%q -> %+v, want nil", command, v)
+		}
+	}
+}
+
 func TestCheckBashPrivesc(t *testing.T) {
 	for _, c := range []string{
 		`sudo rm x`,

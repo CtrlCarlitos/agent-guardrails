@@ -53,6 +53,39 @@ func TestGitAskTier(t *testing.T) {
 	}
 }
 
+func TestGitAdditionalDestructiveVerbsAsk(t *testing.T) {
+	cases := map[string]string{
+		`git update-ref -d refs/heads/main`:    "P2.git-ref-delete",
+		`git worktree remove --force old`:      "P2.git-worktree-remove",
+		`git switch --discard-changes feature`: "P2.git-discard",
+		`git rm -r src`:                        "P2.git-rm",
+		`git rm -f generated.go`:               "P2.git-rm",
+		`git rm -rf build`:                     "P2.git-rm",
+	}
+	for command, ruleID := range cases {
+		v := evalGitSafety(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != ruleID {
+			t.Errorf("%q -> %+v, want ask/%s", command, v, ruleID)
+		}
+	}
+}
+
+func TestGitAdditionalDestructiveVerbOptionValuesDoNotAsk(t *testing.T) {
+	for _, command := range []string{
+		`git update-ref refs/heads/d refs/heads/main`,
+		`git update-ref -m -d refs/heads/topic deadbeef`,
+		`git worktree list`,
+		`git switch discard-changes`,
+		`git switch --conflict --discard-changes topic`,
+		`git rm --cached generated.go`,
+		`git rm --pathspec-from-file -f`,
+	} {
+		if v := evalGitSafety(t, command); v != nil {
+			t.Errorf("%q -> %+v, want nil", command, v)
+		}
+	}
+}
+
 func TestGitPushProtected(t *testing.T) {
 	for _, c := range []string{"git push origin main", "git push origin master", "git push --tags"} {
 		v := evalGitSafety(t, c)

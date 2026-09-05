@@ -64,6 +64,25 @@ func checkGitSafety(s Simple) *policy.Verdict {
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-stash-clear",
 				Reason: "discards stashed work with no reflog for the stash contents"}
 		}
+	case "update-ref":
+		if gitOptionPresent(s.Argv, "d", "--delete", map[string]bool{"-m": true}) {
+			return ask("P2.git-ref-delete", "git update-ref -d deletes a ref")
+		}
+	case "worktree":
+		if gitSubcommandArg(s.Argv) == "remove" {
+			return ask("P2.git-worktree-remove", "git worktree remove discards a working tree")
+		}
+	case "switch":
+		if gitOptionPresent(s.Argv, "", "--discard-changes", map[string]bool{
+			"-c": true, "-C": true, "--create": true, "--force-create": true,
+			"--conflict": true, "--orphan": true,
+		}) {
+			return ask("P2.git-discard", "git switch --discard-changes throws away uncommitted work")
+		}
+	case "rm":
+		if gitOptionPresent(s.Argv, "rf", "--force", map[string]bool{"--pathspec-from-file": true}) {
+			return ask("P2.git-rm", "git rm -r/-f removes tracked files")
+		}
 	case "push":
 		args := parseGitPushArgs(s.Argv)
 		if args.force || args.forceWithLease {
@@ -116,6 +135,44 @@ func checkGitSafety(s Simple) *policy.Verdict {
 			Reason: "unrecognized git global option " + unknown + " before the subcommand; cannot verify what this runs"}
 	}
 	return nil
+}
+
+func gitOptionPresent(argv []string, shortFlags, longFlag string, valueOptions map[string]bool) bool {
+	i := gitSubcommandIndex(argv)
+	if i < 0 {
+		return false
+	}
+	for i++; i < len(argv); i++ {
+		arg := argv[i]
+		if arg == "--" {
+			return false
+		}
+		if strings.HasPrefix(arg, "--") {
+			name, _, attached := strings.Cut(arg, "=")
+			if name == longFlag {
+				return !attached
+			}
+			if valueOptions[name] && !attached {
+				i++
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") && len(arg) > 1 {
+			for j := 1; j < len(arg); j++ {
+				name := "-" + arg[j:j+1]
+				if strings.ContainsRune(shortFlags, rune(arg[j])) {
+					return true
+				}
+				if valueOptions[name] {
+					if j+1 == len(arg) {
+						i++
+					}
+					break
+				}
+			}
+		}
+	}
+	return false
 }
 
 type gitPushValueMode uint8
