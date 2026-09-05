@@ -144,6 +144,29 @@ func TestGenConfigOpencodeMergeDeploysPlugin(t *testing.T) {
 	}
 }
 
+func TestGenConfigOpencodeBakesAbsoluteBinary(t *testing.T) {
+	dir := t.TempDir()
+	settings := filepath.Join(dir, "opencode.json")
+	if err := os.WriteFile(settings, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	code := run([]string{"gen-config", "opencode", "--merge", settings, "--binary", "/ABS/SENTINEL/guardrail"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errb.String())
+	}
+	js, err := os.ReadFile(filepath.Join(dir, "guardrail.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(js), "/ABS/SENTINEL/guardrail") {
+		t.Fatalf("deployed plugin does not pin the absolute binary path:\n%s", js)
+	}
+	if strings.Contains(string(js), "process.env.GUARDRAIL_BIN") {
+		t.Error("plugin still resolves its enforcer from the environment")
+	}
+}
+
 func TestGenConfigAntigravityPrint(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := run([]string{"gen-config", "antigravity", "--print", "--binary", "/opt/guardrail"}, strings.NewReader(""), &out, &errb)

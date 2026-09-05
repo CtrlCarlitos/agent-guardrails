@@ -81,7 +81,11 @@ func syncPlane(plane, dir, binary string, merged *policy.Policy, stdout, stderr 
 			return
 		}
 		pluginPath := filepath.Join(pluginDir, "guardrail.js")
-		if err := os.WriteFile(pluginPath, genconfig.OpencodePluginJS, 0o644); err != nil {
+		absBinary, err := filepath.Abs(binary)
+		if err != nil {
+			absBinary = binary
+		}
+		if err := os.WriteFile(pluginPath, genconfig.OpencodePluginFor(absBinary), 0o644); err != nil {
 			fmt.Fprintf(stderr, "guardrail: sync opencode failed: %v\n", err)
 			return
 		}

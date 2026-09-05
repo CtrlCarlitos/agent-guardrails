@@ -5,7 +5,10 @@
 // to be hand-edited in place; edit this source and rebuild instead.
 import { spawnSync } from "node:child_process";
 
-const GUARDRAIL_BIN = process.env.GUARDRAIL_BIN || "guardrail";
+// Absolute path baked in by `guardrail gen-config opencode` at deploy time.
+// Deliberately NOT read from the environment: an agent that can set
+// GUARDRAIL_BIN could otherwise point the enforcer at /bin/true.
+const GUARDRAIL_BIN = "__GUARDRAIL_BIN__";
 
 function callGuardrail(envelope) {
 	const res = spawnSync(GUARDRAIL_BIN, ["hook", "opencode"], {
@@ -25,13 +28,12 @@ function callGuardrail(envelope) {
 	} catch {
 		throw new Error(`guardrail: unparseable response; failing closed. stderr: ${res.stderr}`);
 	}
-	if (decision.decision === "deny") {
-		throw new Error(`guardrail: ${decision.reason}`);
-	}
-	if (decision.decision === "ask") {
-		throw new Error(
-			`guardrail: needs confirmation - ${decision.reason}. Ask the user directly, then retry if they approve.`
-		);
+	if (decision.decision !== "allow") {
+		const reason = decision.reason || "no decision returned";
+		if (decision.decision === "ask") {
+			throw new Error(`guardrail: needs confirmation - ${reason}. Ask the user directly, then retry if they approve.`);
+		}
+		throw new Error(`guardrail: ${reason}`);
 	}
 	if (res.status !== 0) {
 		throw new Error(`guardrail: exited ${res.status}; failing closed`);

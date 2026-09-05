@@ -71,6 +71,26 @@ func TestSyncSinglePlane(t *testing.T) {
 	}
 }
 
+func TestSyncOpencodeBakesAbsoluteBinary(t *testing.T) {
+	dir := t.TempDir()
+	gitInitSync(t, dir)
+	var out, errb bytes.Buffer
+	code := run([]string{"sync", "--dir", dir, "--planes", "opencode", "--binary", "/ABS/SENTINEL/guardrail"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errb.String())
+	}
+	js, err := os.ReadFile(filepath.Join(dir, ".guardrail", "guardrail.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(js), "/ABS/SENTINEL/guardrail") {
+		t.Fatalf("synced plugin does not pin the absolute binary path:\n%s", js)
+	}
+	if strings.Contains(string(js), "process.env.GUARDRAIL_BIN") {
+		t.Error("plugin still resolves its enforcer from the environment")
+	}
+}
+
 func TestSyncOverlayReachesClaudeFloor(t *testing.T) {
 	dir := t.TempDir()
 	gitInitSync(t, dir)

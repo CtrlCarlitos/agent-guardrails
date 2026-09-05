@@ -13,6 +13,12 @@ func stripWrapper(prefix, s string) (string, bool) {
 	return s[len(prefix) : len(s)-1], true
 }
 
+// OpencodePluginFor returns the embedded plugin source with the absolute
+// guardrail path baked in.
+func OpencodePluginFor(binary string) []byte {
+	return []byte(strings.ReplaceAll(string(OpencodePluginJS), "__GUARDRAIL_BIN__", binary))
+}
+
 func OpencodeConfig(pol *policy.Policy, pluginPath string) Fragment {
 	bash := map[string]string{"*": "allow"}
 	for _, g := range bashDenyGlobs() {

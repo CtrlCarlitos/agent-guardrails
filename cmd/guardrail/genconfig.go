@@ -53,11 +53,15 @@ func cmdGenConfig(args []string, stdout, stderr io.Writer) int {
 		}
 		pluginPath := filepath.Join(dir, "guardrail.js")
 		if *mergePath != "" {
+			absBinary, err := filepath.Abs(*binary)
+			if err != nil {
+				absBinary = *binary
+			}
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				fmt.Fprintf(stderr, "guardrail: cannot create plugin dir: %v\n", err)
 				return 2
 			}
-			if err := os.WriteFile(pluginPath, genconfig.OpencodePluginJS, 0o644); err != nil {
+			if err := os.WriteFile(pluginPath, genconfig.OpencodePluginFor(absBinary), 0o644); err != nil {
 				fmt.Fprintf(stderr, "guardrail: cannot write plugin file: %v\n", err)
 				return 2
 			}

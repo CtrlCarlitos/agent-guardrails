@@ -1,11 +1,97 @@
 package genconfig
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestOpencodePluginSourceRetainsDeploymentPlaceholder(t *testing.T) {
+	if !bytes.Contains(OpencodePluginJS, []byte("__GUARDRAIL_BIN__")) {
+		t.Fatal("embedded OpenCode plugin source is missing the deployment placeholder")
+	}
+}
+
+func TestOpencodePluginRequiresExplicitAllow(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is required to exercise the embedded OpenCode plugin")
+	}
+
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "guardrail")
+	fakeGuardrail := `#!/bin/sh
+IFS= read -r _ || :
+case "$GUARDRAIL_TEST_RESPONSE" in
+	allow) printf '%s' '{"decision":"allow","reason":"accepted"}' ;;
+	ask) printf '%s' '{"decision":"ask","reason":"confirm it"}' ;;
+	deny) printf '%s' '{"decision":"deny","reason":"blocked it"}' ;;
+	unknown) printf '%s' '{"decision":"unexpected","reason":"bad verdict"}' ;;
+	empty) ;;
+	malformed) printf '%s' 'not-json' ;;
+esac
+`
+	if err := os.WriteFile(binary, []byte(fakeGuardrail), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pluginPath := filepath.Join(dir, "guardrail.mjs")
+	if err := os.WriteFile(pluginPath, OpencodePluginFor(binary), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := `
+import { pathToFileURL } from "node:url";
+const loaded = await import(pathToFileURL(process.argv[1]).href);
+const plugin = await loaded.default({ directory: process.cwd() });
+try {
+	await plugin["tool.execute.before"](
+		{ tool: "bash", sessionID: "test-session" },
+		{ args: { command: "true" } },
+	);
+	process.stdout.write("allowed");
+} catch (error) {
+	process.stderr.write(error instanceof Error ? error.message : String(error));
+	process.exit(42);
+}
+`
+	tests := []struct {
+		response string
+		wantErr  string
+	}{
+		{response: "allow"},
+		{response: "ask", wantErr: "needs confirmation - confirm it"},
+		{response: "deny", wantErr: "guardrail: blocked it"},
+		{response: "unknown", wantErr: "guardrail: bad verdict"},
+		{response: "empty", wantErr: "guardrail: no decision returned"},
+		{response: "malformed", wantErr: "guardrail: unparseable response"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.response, func(t *testing.T) {
+			cmd := exec.Command(node, "--input-type=module", "--eval", runner, pluginPath)
+			cmd.Env = append(os.Environ(), "GUARDRAIL_TEST_RESPONSE="+tt.response)
+			output, err := cmd.CombinedOutput()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("explicit allow was blocked: %v\n%s", err, output)
+				}
+				if string(output) != "allowed" {
+					t.Fatalf("stdout = %q, want allowed", output)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("%s response was allowed", tt.response)
+			}
+			if !strings.Contains(string(output), tt.wantErr) {
+				t.Fatalf("error = %q, want it to contain %q", output, tt.wantErr)
+			}
+		})
+	}
+}
 
 func TestOpencodeConfigBashPermissions(t *testing.T) {
 	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
