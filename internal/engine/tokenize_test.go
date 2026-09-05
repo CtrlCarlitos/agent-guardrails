@@ -668,6 +668,96 @@ func TestNormalizeShellCDoesNotScanPositionalOrLongOptions(t *testing.T) {
 	}
 }
 
+func TestNormalizeShellCParsesPreCommandOptionsByArity(t *testing.T) {
+	for _, src := range []string{
+		`bash --noprofile -c "rm -rf /"`,
+		`bash -o posix -c "rm -rf /"`,
+		`bash -oposix -c "rm -rf /"`,
+		`bash -O extglob -c "rm -rf /"`,
+		`bash -lOextglob -c "rm -rf /"`,
+		`bash --rcfile=/tmp/bashrc -c "rm -rf /"`,
+		`bash --init-file /tmp/bashrc -c "rm -rf /"`,
+		`sh -o posix -c "rm -rf /"`,
+		`mksh -oposix -c "rm -rf /"`,
+		`fish --no-config -c "rm -rf /"`,
+		`fish --init-command 'printf init' -c "rm -rf /"`,
+	} {
+		got, err := Normalize(src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", src, err)
+			continue
+		}
+		found := false
+		for _, s := range got {
+			if reflect.DeepEqual(s.Argv, []string{"rm", "-rf", "/"}) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Normalize(%q) = %v, want inner {rm -rf /}", src, argvs(got))
+		}
+	}
+}
+
+func TestNormalizeUnknownShellOptionFailsClosed(t *testing.T) {
+	for _, src := range []string{
+		`bash --future-option -c "rm -rf /"`,
+		`bash -Z -c "rm -rf /"`,
+		`fish --future-option -c "rm -rf /"`,
+	} {
+		got, err := Normalize(src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", src, err)
+			continue
+		}
+		if len(got) != 1 || !got[0].Unresolved {
+			t.Errorf("Normalize(%q) = %+v, want one unresolved Simple", src, got)
+		}
+	}
+}
+
+func TestNormalizeChrootRetainsZeroResultAsUnresolved(t *testing.T) {
+	for _, src := range []string{
+		`chroot /new-root command -v git`,
+		`chroot /new-root command -V git`,
+		`chroot /new-root command`,
+		`chroot /new-root exec`,
+	} {
+		got, err := Normalize(src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", src, err)
+			continue
+		}
+		want := []Simple{{Unresolved: true}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("Normalize(%q) = %+v, want %+v", src, got, want)
+		}
+	}
+}
+
+func TestNormalizeNonChrootZeroResultRemainsEmpty(t *testing.T) {
+	for _, src := range []string{`command -v git`, `command -V git`, `command`, `exec`} {
+		got, err := Normalize(src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", src, err)
+			continue
+		}
+		if len(got) != 0 {
+			t.Errorf("Normalize(%q) = %+v, want no Simples", src, got)
+		}
+	}
+
+	got, err := Normalize(`chroot /new-root command git status`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Simple{{Argv: []string{"git", "status"}, Unresolved: true}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Normalize chroot positional command = %+v, want %+v", got, want)
+	}
+}
+
 func TestNormalizeCommandVYieldsNoCommand(t *testing.T) {
 	got, err := Normalize(`command -v git`)
 	if err != nil {

@@ -174,7 +174,7 @@ loop:
 		argv = rest
 	}
 	if len(argv) == 0 {
-		if len(s.Redirects) == 0 && len(s.ReadRedirects) == 0 {
+		if len(s.Redirects) == 0 && len(s.ReadRedirects) == 0 && !chrooted {
 			return nil, nil
 		}
 		s.Argv = argv
@@ -189,8 +189,12 @@ loop:
 	if inner != nil {
 		result = append(result, Simple{Argv: inner, Unresolved: s.Unresolved})
 	}
-	if dashC := shellDashC(argv); dashC != -1 {
-		inner, err := normalizeShellDashC(argv[dashC+1])
+	source, dashC, err := shellDashC(argv)
+	if err != nil {
+		return nil, err
+	}
+	if dashC {
+		inner, err := normalizeShellDashC(source)
 		if err != nil {
 			return nil, err
 		}
@@ -557,20 +561,147 @@ func consumeCommand(argv []string) (rest []string, none bool, err error) {
 	return nil, true, nil
 }
 
-func shellDashC(argv []string) int {
-	switch head(argv) {
-	case "sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh", "mksh", "ash":
-		for i := 1; i+1 < len(argv); i++ {
-			option := argv[i]
-			if option == "-" || option == "--" || !strings.HasPrefix(option, "-") || strings.HasPrefix(option, "--") {
-				return -1
+type shellOptionSpec struct {
+	shortFlags  string
+	shortValues string
+	longFlags   map[string]bool
+	longValues  map[string]bool
+	longCommand map[string]bool
+}
+
+var (
+	bourneShellOptions = shellOptionSpec{
+		shortFlags:  "abCefhiklmnprstuvxX",
+		shortValues: "o",
+	}
+	bashShellOptions = shellOptionSpec{
+		shortFlags:  "abCefhiklmnprstuvxBEHPT",
+		shortValues: "oO",
+		longFlags: map[string]bool{
+			"--debugger": true, "--login": true, "--noediting": true,
+			"--noprofile": true, "--norc": true, "--posix": true,
+			"--restricted": true, "--verbose": true,
+		},
+		longValues: map[string]bool{"--init-file": true, "--rcfile": true},
+	}
+	fishShellOptions = shellOptionSpec{
+		shortFlags:  "iINlnPv",
+		shortValues: "CdDfp",
+		longFlags: map[string]bool{
+			"--interactive": true, "--login": true, "--no-config": true,
+			"--no-execute": true, "--private": true,
+		},
+		longValues: map[string]bool{
+			"--debug": true, "--debug-output": true, "--features": true,
+			"--init-command": true, "--profile": true,
+		},
+		longCommand: map[string]bool{"--command": true},
+	}
+	cShellOptions = shellOptionSpec{shortFlags: "bdefFilmnqstvVxX"}
+)
+
+func shellOptions(shell string) (shellOptionSpec, bool) {
+	switch shell {
+	case "bash":
+		return bashShellOptions, true
+	case "sh", "zsh", "dash", "ksh", "mksh", "ash":
+		return bourneShellOptions, true
+	case "fish":
+		return fishShellOptions, true
+	case "csh", "tcsh":
+		return cShellOptions, true
+	default:
+		return shellOptionSpec{}, false
+	}
+}
+
+func shellDashC(argv []string) (string, bool, error) {
+	shell := head(argv)
+	spec, ok := shellOptions(shell)
+	if !ok {
+		return "", false, nil
+	}
+	for i := 1; i < len(argv); {
+		option := argv[i]
+		if option == "--" || option == "-" || option == "+" {
+			return "", false, nil
+		}
+		if strings.HasPrefix(option, "--") {
+			base := option
+			value := ""
+			attached := false
+			if eq := strings.IndexByte(option, '='); eq >= 0 {
+				base, value, attached = option[:eq], option[eq+1:], true
 			}
-			if strings.Contains(option[1:], "c") && argv[i+1] != "" {
-				return i
+			switch {
+			case spec.longCommand[base]:
+				if attached {
+					return value, true, nil
+				}
+				if i+1 >= len(argv) {
+					return "", false, needsValue(shell, option)
+				}
+				return argv[i+1], true, nil
+			case spec.longValues[base]:
+				if attached {
+					i++
+				} else {
+					if i+1 >= len(argv) {
+						return "", false, needsValue(shell, option)
+					}
+					i += 2
+				}
+			case spec.longFlags[base] && !attached:
+				i++
+			default:
+				return "", false, unknownOpt(shell, option)
+			}
+			continue
+		}
+		if option[0] != '-' && option[0] != '+' {
+			return "", false, nil
+		}
+
+		command := false
+		consumed := false
+		for j := 1; j < len(option); j++ {
+			flag := option[j]
+			switch {
+			case flag == 'c' && option[0] == '-':
+				command = true
+			case strings.ContainsRune(spec.shortFlags, rune(flag)):
+				continue
+			case strings.ContainsRune(spec.shortValues, rune(flag)):
+				if command {
+					return "", false, unknownOpt(shell, option)
+				}
+				if j+1 < len(option) {
+					i++
+				} else {
+					if i+1 >= len(argv) {
+						return "", false, needsValue(shell, "-"+string(flag))
+					}
+					i += 2
+				}
+				consumed = true
+			default:
+				return "", false, unknownOpt(shell, option)
+			}
+			if consumed {
+				break
 			}
 		}
+		if command {
+			if i+1 >= len(argv) {
+				return "", false, needsValue(shell, "-c")
+			}
+			return argv[i+1], true, nil
+		}
+		if !consumed {
+			i++
+		}
 	}
-	return -1
+	return "", false, nil
 }
 
 func runnerInner(argv []string) ([]string, error) {

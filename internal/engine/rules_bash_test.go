@@ -452,6 +452,52 @@ func TestChrootNeverUsesHostPathSafety(t *testing.T) {
 	}
 }
 
+func TestShellOptionsBeforeCReachRules(t *testing.T) {
+	for _, command := range []string{
+		`bash --noprofile -c 'rm -rf /'`,
+		`bash -o posix -c 'rm -rf /'`,
+		`bash -oposix -c 'rm -rf /'`,
+		`bash -O extglob -c 'rm -rf /'`,
+		`bash --rcfile=/tmp/bashrc -c 'rm -rf /'`,
+		`sh -o posix -c 'rm -rf /'`,
+		`mksh -oposix -c 'rm -rf /'`,
+		`fish --no-config -c 'rm -rf /'`,
+		`fish --init-command 'printf init' -c 'rm -rf /'`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Errorf("%q -> %+v, want deny/P1.rm-rf", command, v)
+		}
+	}
+}
+
+func TestUnknownShellOptionFailsClosed(t *testing.T) {
+	for _, command := range []string{
+		`bash --future-option -c 'rm -rf /'`,
+		`bash -Z -c 'rm -rf /'`,
+		`fish --future-option -c 'rm -rf /'`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want ask/P3.unresolved", command, v)
+		}
+	}
+}
+
+func TestChrootZeroResultFailsClosed(t *testing.T) {
+	for _, command := range []string{
+		`chroot /new-root command -v git`,
+		`chroot /new-root command -V git`,
+		`chroot /new-root command`,
+		`chroot /new-root exec`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want ask/P3.unresolved", command, v)
+		}
+	}
+}
+
 func TestCheckBashAllows(t *testing.T) {
 	ok := []string{
 		`rm file.txt`,
