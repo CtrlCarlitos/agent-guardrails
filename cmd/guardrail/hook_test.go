@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -131,6 +132,85 @@ func TestHookStaleGuardrailConfigDegrades(t *testing.T) {
 	code = run([]string{"hook", "claude"}, bytes.NewReader([]byte(ls)), &out, &errb)
 	if code != 0 {
 		t.Fatalf("ls with stale GUARDRAIL_CONFIG: exit %d, want 0", code)
+	}
+}
+
+func TestHookSanitizesOverlayDiscoveryWarning(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	missing := filepath.Join(t.TempDir(), "missing\nforged\tconfig\x7f.toml")
+	t.Setenv("GUARDRAIL_CONFIG", missing)
+
+	payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`
+	var out, errb bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, errb.String())
+	}
+	lines := strings.Split(strings.TrimSuffix(errb.String(), "\n"), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("overlay discovery warning wrote %d lines, want 1: %q", len(lines), errb.String())
+	}
+	if strings.ContainsAny(lines[0], "\r\t\x00\x7f") || !strings.Contains(lines[0], "missing forged config .toml") {
+		t.Fatalf("overlay discovery warning was not sanitized: %q", lines[0])
+	}
+}
+
+func TestHookSanitizesOverlayControlledWarnings(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	overlayPath := filepath.Join(t.TempDir(), "guardrail.toml")
+	overlay := `waive = ["P9.forged\nwarning\tclaim\u007f"]
+[slots]
+safe_roots = ["/definitely-outside\nforged\troot\u007f"]
+`
+	if err := os.WriteFile(overlayPath, []byte(overlay), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GUARDRAIL_CONFIG", overlayPath)
+
+	payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`
+	var out, errb bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, errb.String())
+	}
+	lines := strings.Split(strings.TrimSuffix(errb.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("overlay warnings wrote %d lines, want 2: %q", len(lines), errb.String())
+	}
+	for _, line := range lines {
+		if strings.ContainsAny(line, "\r\t\x00\x7f") {
+			t.Fatalf("overlay warning retained controls: %q", line)
+		}
+	}
+	if !strings.Contains(lines[0], "safe_root /definitely-outside forged root") ||
+		!strings.Contains(lines[1], "waiver of P9.forged warning claim") {
+		t.Fatalf("overlay warnings were not normalized: %q", errb.String())
+	}
+}
+
+func TestHookEmitsOnlyFirstTwentyMergeWarnings(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	overlayPath := filepath.Join(t.TempDir(), "guardrail.toml")
+	waivers := make([]string, 21)
+	for i := range waivers {
+		waivers[i] = fmt.Sprintf("%q", fmt.Sprintf("warning-%02d", i+1))
+	}
+	if err := os.WriteFile(overlayPath, []byte("waive = ["+strings.Join(waivers, ", ")+"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GUARDRAIL_CONFIG", overlayPath)
+
+	payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`
+	var out, errb bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, errb.String())
+	}
+	if strings.Count(errb.String(), "repo requested waiver of") != 20 {
+		t.Fatalf("merge warning count = %d, want 20: %q", strings.Count(errb.String(), "repo requested waiver of"), errb.String())
+	}
+	if strings.Contains(errb.String(), "warning-21") {
+		t.Fatalf("warning 21 reached stderr: %q", errb.String())
 	}
 }
 
@@ -289,6 +369,46 @@ func TestHookOpencodeAuditRecordsCorrectPlane(t *testing.T) {
 	}
 }
 
+func TestHookAuditRetainsRawVerdictReason(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	overlayPath := filepath.Join(t.TempDir(), "guardrail.toml")
+	overlay := `[[rules]]
+id = "project.raw-reason"
+tool = "Bash"
+pattern = "raw-reason-command"
+decision = "deny"
+reason = "raw\nreason\tclaim\u007f"
+`
+	if err := os.WriteFile(overlayPath, []byte(overlay), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GUARDRAIL_CONFIG", overlayPath)
+
+	payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"raw-reason-command"}}`
+	var out, errb bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 2 {
+		t.Fatalf("exit=%d, want 2; stderr=%q", code, errb.String())
+	}
+	if errb.String() != "guardrail: raw reason claim\n" {
+		t.Fatalf("model-facing reason was not sanitized: %q", errb.String())
+	}
+	raw, err := os.ReadFile(filepath.Join(state, "guardrail", "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(raw, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.Reason != "raw\nreason\tclaim\x7f" {
+		t.Fatalf("audit reason = %q, want raw Verdict reason", record.Reason)
+	}
+}
+
 func TestHookAntigravityDeny(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
@@ -380,7 +500,7 @@ func TestHookUsesTopLevelRepoGrantFromSubdirectory(t *testing.T) {
 }
 
 func TestHookSessionStartSanitizesOperatorConfigLoadError(t *testing.T) {
-	configHome := t.TempDir()
+	configHome := filepath.Join(t.TempDir(), "config\nforged\tpath\x7f")
 	t.Setenv("XDG_CONFIG_HOME", configHome)
 	configDir := filepath.Join(configHome, "guardrail")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
@@ -405,7 +525,19 @@ func TestHookSessionStartSanitizesOperatorConfigLoadError(t *testing.T) {
 	if strings.Contains(out.String(), configPath) || strings.Contains(out.String(), "parsing operator config") {
 		t.Fatalf("SessionStart exposed detailed operator error: %s", out.String())
 	}
-	if !strings.Contains(errb.String(), configPath) || !strings.Contains(errb.String(), "parsing operator config") {
-		t.Fatalf("stderr omitted detailed operator error: %s", errb.String())
+	lines := strings.Split(strings.TrimSuffix(errb.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("operator load warnings wrote %d lines, want 2: %q", len(lines), errb.String())
+	}
+	for _, line := range lines {
+		if strings.ContainsAny(line, "\r\t\x00\x7f") {
+			t.Fatalf("operator load warning retained controls: %q", line)
+		}
+	}
+	if !strings.Contains(lines[0], "parsing operator config") || !strings.Contains(lines[0], "config forged path /guardrail/waivers.toml") {
+		t.Fatalf("stderr omitted sanitized operator diagnostics: %q", errb.String())
+	}
+	if lines[1] != generic {
+		t.Fatalf("stderr generic operator warning = %q, want %q", lines[1], generic)
 	}
 }

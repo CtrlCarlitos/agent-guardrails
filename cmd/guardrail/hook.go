@@ -44,49 +44,47 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 0
 		}
 	default:
-		fmt.Fprintf(stderr, "guardrail: unsupported plane %q\n", plane)
+		adapter.EmitModelWarnings([]string{fmt.Sprintf("guardrail: unsupported plane %q", plane)}, stderr)
 		return 2
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "guardrail: unparseable hook payload (%v); failing closed\n", err)
+		adapter.EmitModelWarnings([]string{fmt.Sprintf("guardrail: unparseable hook payload (%v); failing closed", err)}, stderr)
 		return 2
 	}
 
 	base, err := policy.LoadBase()
 	if err != nil {
-		fmt.Fprintf(stderr, "guardrail: cannot load base policy (%v); failing closed\n", err)
+		adapter.EmitModelWarnings([]string{fmt.Sprintf("guardrail: cannot load base policy (%v); failing closed", err)}, stderr)
 		return 2
 	}
 
 	var ov *policy.Overlay
 	if pth, ok, warn := policy.FindOverlayPath(tc.CWD); ok {
 		if warn != "" {
-			fmt.Fprintln(stderr, warn)
+			adapter.EmitModelWarnings([]string{warn}, stderr)
 		}
 		ov, err = policy.LoadOverlay(pth)
 		if err != nil {
-			fmt.Fprintf(stderr, "guardrail: cannot load overlay (%v); failing closed\n", err)
+			adapter.EmitModelWarnings([]string{fmt.Sprintf("guardrail: cannot load overlay (%v); failing closed", err)}, stderr)
 			return 2
 		}
 	} else if warn != "" {
-		fmt.Fprintln(stderr, warn)
+		adapter.EmitModelWarnings([]string{warn}, stderr)
 	}
 
 	op, opErr := policy.LoadOperatorConfig()
 	if opErr != nil {
-		fmt.Fprintf(stderr, "guardrail: operator config unreadable (%v); treating as empty\n", opErr)
+		adapter.EmitModelWarnings([]string{fmt.Sprintf("guardrail: operator config unreadable (%v); treating as empty", opErr)}, stderr)
 	}
 	merged, warnings, err := policy.Merge(base, ov, version, op, tc.RepoRoot)
 	if err != nil {
-		fmt.Fprintf(stderr, "guardrail: invalid overlay (%v); failing closed\n", err)
+		adapter.EmitModelWarnings([]string{fmt.Sprintf("guardrail: invalid overlay (%v); failing closed", err)}, stderr)
 		return 2
 	}
 	if opErr != nil {
 		warnings = append(warnings, "guardrail: operator configuration could not be loaded; operator-authorized policy changes remain disabled")
 	}
-	for _, w := range warnings {
-		fmt.Fprintln(stderr, w)
-	}
+	adapter.EmitModelWarnings(warnings, stderr)
 
 	if tc.Event == "session-start" {
 		text := adapter.PostureText(policy.SortedWaivers(merged), warnings)
@@ -97,11 +95,11 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	if tc.Event == "pre" && tc.SessionID != "" && !merged.Waived["P7.trifecta"] {
 		if session.Path(tc.SessionID) == "" {
-			fmt.Fprintf(stderr, "guardrail: unsafe session id %q; session heuristic disabled\n", tc.SessionID)
+			adapter.EmitModelWarnings([]string{fmt.Sprintf("guardrail: unsafe session id %q; session heuristic disabled", tc.SessionID)}, stderr)
 		} else {
 			st, loadErr := session.Load(tc.SessionID)
 			if loadErr != nil {
-				fmt.Fprintf(stderr, "guardrail: session state read failed (%v)\n", loadErr)
+				adapter.EmitModelWarnings([]string{fmt.Sprintf("guardrail: session state read failed (%v)", loadErr)}, stderr)
 			}
 			isPrivate := engine.IsPrivateDataAccess(tc, merged)
 			isNet := engine.IsNetworkAttempt(tc)
@@ -111,7 +109,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			st.SawPrivateRead = st.SawPrivateRead || isPrivate
 			st.SawNetworkCall = st.SawNetworkCall || isNet
 			if err := session.Save(tc.SessionID, st); err != nil {
-				fmt.Fprintf(stderr, "guardrail: session state write failed (%v)\n", err)
+				adapter.EmitModelWarnings([]string{fmt.Sprintf("guardrail: session state write failed (%v)", err)}, stderr)
 			}
 		}
 	}
@@ -135,7 +133,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		Waivers:   policy.SortedWaivers(merged),
 	}
 	if err := audit.Write(rec, audit.DefaultPath(merged.Slots.AuditLog)); err != nil {
-		fmt.Fprintf(stderr, "guardrail: audit write failed (%v)\n", err)
+		adapter.EmitModelWarnings([]string{fmt.Sprintf("guardrail: audit write failed (%v)", err)}, stderr)
 	}
 
 	switch plane {

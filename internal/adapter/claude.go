@@ -96,11 +96,8 @@ func PostureText(waivers []string, warnings []string) string {
 	if len(waivers) > 0 {
 		b.WriteString("\n\nActive policy waivers in this repo (these rules are OFF): " + strings.Join(waivers, ", "))
 	}
-	if len(warnings) > 20 {
-		warnings = warnings[:20]
-	}
-	for _, w := range warnings {
-		b.WriteString("\n\n" + sanitizeForModel(w))
+	for _, w := range sanitizeWarnings(warnings) {
+		b.WriteString("\n\n" + w)
 	}
 	return b.String()
 }

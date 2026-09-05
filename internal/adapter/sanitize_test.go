@@ -1,11 +1,34 @@
 package adapter
 
 import (
+	"bytes"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
 )
+
+func TestEmitModelWarningsSanitizesAndCapsOutput(t *testing.T) {
+	warnings := make([]string, 21)
+	for i := range warnings {
+		warnings[i] = fmt.Sprintf("warning-%02d", i+1)
+	}
+	warnings[0] = "warning-01\nforged\tline\x7f"
+
+	var out bytes.Buffer
+	EmitModelWarnings(warnings, &out)
+	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	if len(lines) != 20 {
+		t.Fatalf("EmitModelWarnings() wrote %d lines, want 20: %q", len(lines), out.String())
+	}
+	if lines[0] != "warning-01 forged line" {
+		t.Fatalf("EmitModelWarnings() first line = %q, want sanitized warning", lines[0])
+	}
+	if strings.Contains(out.String(), "warning-21") {
+		t.Fatalf("EmitModelWarnings() included warning 21: %q", out.String())
+	}
+}
 
 func TestSanitizeForModelStripsASCIIControlsAndNormalizesWhitespace(t *testing.T) {
 	in := "  alpha\x00beta\x01  gamma\x07delta\x0b epsilon\x1fzeta\x7f eta\n\r\t theta  "
