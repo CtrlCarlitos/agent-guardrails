@@ -66,7 +66,7 @@ func checkGitSafety(s Simple) *policy.Verdict {
 		}
 	case "push":
 		args := parseGitPushArgs(s.Argv)
-		if args.force {
+		if args.force || args.forceWithLease {
 			return nil // P1.git-push-force (checkGit) already denies this; don't duplicate
 		}
 		var forceRefspec, deleteRefspec string
@@ -118,17 +118,56 @@ func checkGitSafety(s Simple) *policy.Verdict {
 	return nil
 }
 
-var gitPushValueFlags = map[string]bool{
-	"-o": true, "--push-option": true, "--receive-pack": true, "--exec": true,
-	"--repo": true, "--server-option": true, "--recurse-submodules": true,
-	"--negotiation-tip": true,
+type gitPushValueMode uint8
+
+const (
+	gitPushNoValue gitPushValueMode = iota
+	gitPushRequiredValue
+	gitPushOptionalValue
+)
+
+type gitPushLongOption struct {
+	name      string
+	valueMode gitPushValueMode
+	negatable bool
+}
+
+var gitPushLongOptions = []gitPushLongOption{
+	{name: "verbose", negatable: true},
+	{name: "quiet", negatable: true},
+	{name: "repo", valueMode: gitPushRequiredValue, negatable: true},
+	{name: "all", negatable: true},
+	{name: "branches", negatable: true},
+	{name: "mirror", negatable: true},
+	{name: "delete", negatable: true},
+	{name: "tags", negatable: true},
+	{name: "dry-run", negatable: true},
+	{name: "porcelain", negatable: true},
+	{name: "force", negatable: true},
+	{name: "force-with-lease", valueMode: gitPushOptionalValue, negatable: true},
+	{name: "force-if-includes", negatable: true},
+	{name: "recurse-submodules", valueMode: gitPushRequiredValue, negatable: true},
+	{name: "thin", negatable: true},
+	{name: "receive-pack", valueMode: gitPushRequiredValue, negatable: true},
+	{name: "exec", valueMode: gitPushRequiredValue, negatable: true},
+	{name: "set-upstream", negatable: true},
+	{name: "progress", negatable: true},
+	{name: "prune", negatable: true},
+	{name: "verify", negatable: true},
+	{name: "follow-tags", negatable: true},
+	{name: "signed", valueMode: gitPushOptionalValue, negatable: true},
+	{name: "atomic", negatable: true},
+	{name: "push-option", valueMode: gitPushRequiredValue, negatable: true},
+	{name: "ipv4"},
+	{name: "ipv6"},
 }
 
 type gitPushArgs struct {
-	force    bool
-	delete   bool
-	tags     bool
-	refspecs []string
+	force          bool
+	forceWithLease bool
+	delete         bool
+	tags           bool
+	refspecs       []string
 }
 
 func parseGitPushArgs(argv []string) gitPushArgs {
@@ -150,30 +189,30 @@ func parseGitPushArgs(argv []string) gitPushArgs {
 		}
 		if !optionsEnded && strings.HasPrefix(a, "--") {
 			base := a
-			if eq := strings.IndexByte(a, '='); eq >= 0 {
+			eq := strings.IndexByte(a, '=')
+			if eq >= 0 {
 				base = a[:eq]
 			}
-			switch base {
-			case "--force-with-lease":
-				args.force = true
-			case "--force":
-				if base == a {
-					args.force = true
-				}
-			case "--delete":
-				if base == a {
-					args.delete = true
-				}
-			case "--tags":
-				if base == a {
-					args.tags = true
-				}
-			}
-			if gitPushValueFlags[base] && base == a {
-				i += 2
-			} else {
+			option, negated, ok := resolveGitPushLongOption(strings.TrimPrefix(base, "--"))
+			if !ok || (negated && eq >= 0) || (!negated && eq >= 0 && option.valueMode == gitPushNoValue) {
 				i++
+				continue
 			}
+			switch option.name {
+			case "force":
+				args.force = !negated
+			case "force-with-lease":
+				args.forceWithLease = !negated
+			case "delete":
+				args.delete = !negated
+			case "tags":
+				args.tags = !negated
+			}
+			if !negated && eq < 0 && option.valueMode == gitPushRequiredValue && i+1 < len(argv) {
+				i += 2
+				continue
+			}
+			i++
 			continue
 		}
 		if !optionsEnded && strings.HasPrefix(a, "-") && len(a) > 1 {
@@ -205,6 +244,30 @@ func parseGitPushArgs(argv []string) gitPushArgs {
 		i++
 	}
 	return args
+}
+
+func resolveGitPushLongOption(name string) (gitPushLongOption, bool, bool) {
+	negated := strings.HasPrefix(name, "no-")
+	if negated {
+		name = strings.TrimPrefix(name, "no-")
+	}
+	for _, option := range gitPushLongOptions {
+		if option.name == name && (!negated || option.negatable) {
+			return option, negated, true
+		}
+	}
+	var match gitPushLongOption
+	found := false
+	for _, option := range gitPushLongOptions {
+		if (!negated || option.negatable) && strings.HasPrefix(option.name, name) {
+			if found {
+				return gitPushLongOption{}, false, false
+			}
+			match = option
+			found = true
+		}
+	}
+	return match, negated, found
 }
 
 var gitProtectedGlobs = []string{"**/.git/config", "**/.git/hooks/**"}

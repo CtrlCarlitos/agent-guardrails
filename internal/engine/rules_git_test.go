@@ -174,6 +174,110 @@ func TestGitPushForceControlsStillDeny(t *testing.T) {
 	}
 }
 
+func TestGitPushUniqueLongOptionAbbreviations(t *testing.T) {
+	cases := map[string]struct {
+		decision policy.Decision
+		ruleID   string
+	}{
+		`git push --force-w origin feature`:              {policy.Deny, "P1.git-push-force"},
+		`git push --force-w=main:expect origin feature`:  {policy.Deny, "P1.git-push-force"},
+		`git push --dele origin old`:                     {policy.Ask, "P2.git-push-delete"},
+		`git push --ta`:                                  {policy.Ask, "P2.git-push-protected"},
+		`git push --no-force-w --force-w origin feature`: {policy.Deny, "P1.git-push-force"},
+		`git push --no-dele --dele origin old`:           {policy.Ask, "P2.git-push-delete"},
+		`git push --no-ta --ta`:                          {policy.Ask, "P2.git-push-protected"},
+	}
+	for c, want := range cases {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != want.decision || v.RuleID != want.ruleID {
+			t.Errorf("%q -> %+v, want %s/%s", c, v, want.decision, want.ruleID)
+		}
+	}
+}
+
+func TestGitPushAbbreviatedValueOptionsConsumeValues(t *testing.T) {
+	for _, c := range []string{
+		`git push --push-o --force origin feature`,
+		`git push --push-o=--force origin feature`,
+		`git push --receive-p --force origin feature`,
+		`git push --push-o`,
+		`git push --repo`,
+	} {
+		if v := evalBash(t, c); v != nil {
+			t.Errorf("%q -> %+v, want nil", c, v)
+		}
+	}
+}
+
+func TestGitPushAmbiguousLongOptionPrefixesDoNotSetState(t *testing.T) {
+	for _, c := range []string{
+		`git push --for origin feature`,
+		`git push --d origin feature`,
+		`git push --t origin feature`,
+	} {
+		if v := evalBash(t, c); v != nil {
+			t.Errorf("%q -> %+v, want nil (ambiguous option must not resolve)", c, v)
+		}
+	}
+}
+
+func TestGitPushBooleanNegationIsSequential(t *testing.T) {
+	allow := []string{
+		`git push --force --no-force origin feature`,
+		`git push -f --no-force origin feature`,
+		`git push --force-with-lease --no-force-with-lease origin feature`,
+		`git push --force-w --no-force-w origin feature`,
+		`git push --delete --no-delete origin feature`,
+		`git push -d --no-delete origin feature`,
+		`git push --tags --no-tags origin feature`,
+	}
+	for _, c := range allow {
+		if v := evalBash(t, c); v != nil {
+			t.Errorf("%q -> %+v, want nil (last negated option wins)", c, v)
+		}
+	}
+
+	deny := []string{
+		`git push --no-force --force origin feature`,
+		`git push --no-force -f origin feature`,
+		`git push --force-with-lease --no-force origin feature`,
+		`git push --force --no-force-with-lease origin feature`,
+	}
+	for _, c := range deny {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.git-push-force" {
+			t.Errorf("%q -> %+v, want deny/P1.git-push-force", c, v)
+		}
+	}
+
+	ask := map[string]string{
+		`git push --no-delete --delete origin old`: "P2.git-push-delete",
+		`git push --no-tags --tags`:                "P2.git-push-protected",
+	}
+	for c, ruleID := range ask {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != ruleID {
+			t.Errorf("%q -> %+v, want ask/%s", c, v, ruleID)
+		}
+	}
+}
+
+func TestGitPushNegatedOptionsDoNotConsumeRepository(t *testing.T) {
+	for _, c := range []string{
+		`git push --force --no-force origin main`,
+		`git push --delete --no-delete origin main`,
+		`git push --tags --no-tags origin main`,
+		`git push --push-option value --no-push-option origin main`,
+		`git push --repo default --no-repo origin main`,
+		`git push --recurse-submodules check --no-recurse-submodules origin main`,
+	} {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P2.git-push-protected" {
+			t.Errorf("%q -> %+v, want ask/P2.git-push-protected", c, v)
+		}
+	}
+}
+
 func TestForceWithLeaseDenied(t *testing.T) {
 	for _, c := range []string{"git push --force-with-lease origin main", "git push --force-with-lease origin feature/x"} {
 		v := evalGitSafety(t, c)
