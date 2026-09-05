@@ -20,6 +20,22 @@ func writeOperatorConfig(t *testing.T, body string) {
 	}
 }
 
+func assertEmptyOperatorConfig(t *testing.T, o *OperatorConfig) {
+	t.Helper()
+	if o == nil {
+		t.Fatal("error must return a non-nil empty config")
+	}
+	if o.Repos == nil {
+		t.Fatal("error must return an initialized repos map")
+	}
+	if len(o.Repos) != 0 {
+		t.Fatalf("error must return no grants, got %v", o.Repos)
+	}
+	if o.AllowsWaiver("/home/u/trusted", "P6.egress") || o.AllowsSecretAllow("/home/u/trusted") || o.AllowsAuditLog("/home/u/trusted") {
+		t.Error("error config must authorize nothing")
+	}
+}
+
 func TestOperatorConfigPathUsesPlatformConfigDirectory(t *testing.T) {
 	if os.PathSeparator == '\\' {
 		t.Skip("Unix environment-variable behavior")
@@ -36,6 +52,67 @@ func TestOperatorConfigPathUsesPlatformConfigDirectory(t *testing.T) {
 	t.Setenv("HOME", home)
 	if got, want := OperatorConfigPath(), filepath.Join(home, ".config", "guardrail", "waivers.toml"); got != want {
 		t.Fatalf("OperatorConfigPath() without XDG_CONFIG_HOME = %q, want %q", got, want)
+	}
+}
+
+func TestOperatorConfigRejectsInvalidConfigRoot(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("Unix environment-variable behavior")
+	}
+
+	tests := []struct {
+		name string
+		xdg  string
+		home string
+		want string
+	}{
+		{name: "relative XDG_CONFIG_HOME", xdg: "relative/config", home: t.TempDir(), want: "XDG_CONFIG_HOME"},
+		{name: "relative HOME fallback", home: "relative/home", want: "home directory"},
+		{name: "unavailable HOME fallback", home: "", want: "home directory"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", tt.xdg)
+			t.Setenv("HOME", tt.home)
+			if got := OperatorConfigPath(); got != "" {
+				t.Fatalf("invalid config root produced path %q", got)
+			}
+			o, err := LoadOperatorConfig()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("LoadOperatorConfig() error = %v, want contextual %q error", err, tt.want)
+			}
+			assertEmptyOperatorConfig(t, o)
+		})
+	}
+}
+
+func TestOperatorConfigRejectsInvalidWindowsConfigRoot(t *testing.T) {
+	tests := []struct {
+		name    string
+		appData string
+	}{
+		{name: "absent", appData: ""},
+		{name: "relative", appData: "relative/appdata"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("APPDATA", tt.appData)
+			if path, err := operatorConfigPath("windows"); err == nil || path != "" {
+				t.Fatalf("operatorConfigPath(windows) = %q, %v; want empty path and error", path, err)
+			}
+		})
+	}
+}
+
+func TestOperatorConfigPathUsesAbsoluteWindowsConfigDirectory(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	got, err := operatorConfigPath("windows")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(appData, "guardrail", "waivers.toml"); got != want {
+		t.Fatalf("operatorConfigPath(windows) = %q, want %q", got, want)
 	}
 }
 
@@ -92,6 +169,9 @@ audit_log = true
 	if !o.AllowsWaiver("/home/u/trusted/../trusted", "P6.egress") {
 		t.Error("equivalent cleaned repo path must match")
 	}
+	if !o.AllowsAuditLog("/home/u/trusted") {
+		t.Error("audit_log grant not honoured")
+	}
 	for _, repo := range []string{"/home/u/trusted/subrepo", "/home/u/trusted-other"} {
 		if o.AllowsWaiver(repo, "P6.egress") || o.AllowsSecretAllow(repo) || o.AllowsAuditLog(repo) {
 			t.Errorf("grant for /home/u/trusted must not cross repo boundary to %s", repo)
@@ -108,9 +188,44 @@ waive = ["P6.egress"]
 	if err == nil {
 		t.Fatal("non-absolute repository grant must return an error")
 	}
-	if o.AllowsWaiver("relative/repo", "P6.egress") {
-		t.Error("non-absolute repository grant must authorize nothing")
+	assertEmptyOperatorConfig(t, o)
+}
+
+func TestOperatorConfigMixedValidAndInvalidGrantsReturnsEmpty(t *testing.T) {
+	const body = `
+["/home/u/trusted"]
+waive = ["P6.egress"]
+
+["relative/repo"]
+waive = ["P1.chmod"]
+`
+	// TOML tables decode into a map, so exercise varying iteration orders.
+	for range 100 {
+		writeOperatorConfig(t, body)
+		o, err := LoadOperatorConfig()
+		if err == nil {
+			t.Fatal("mixed absolute and relative repository grants must return an error")
+		}
+		assertEmptyOperatorConfig(t, o)
 	}
+}
+
+func TestOperatorConfigRejectsDuplicateCleanedRepoGrant(t *testing.T) {
+	writeOperatorConfig(t, `
+["/home/u/trusted"]
+waive = ["P6.egress"]
+
+["/home/u/trusted/."]
+audit_log = true
+`)
+	o, err := LoadOperatorConfig()
+	if err == nil {
+		t.Fatal("distinct repository keys that clean to the same path must return an error")
+	}
+	if !strings.Contains(err.Error(), "same cleaned path") {
+		t.Fatalf("error must identify cleaned-path collision: %v", err)
+	}
+	assertEmptyOperatorConfig(t, o)
 }
 
 func TestOperatorConfigMalformedReturnsEmptyConfigAndError(t *testing.T) {
@@ -122,9 +237,7 @@ func TestOperatorConfigMalformedReturnsEmptyConfigAndError(t *testing.T) {
 	if !strings.Contains(err.Error(), "parsing operator config") {
 		t.Fatalf("error must identify parse operation: %v", err)
 	}
-	if o == nil || o.AllowsWaiver("/home/u/trusted", "P6.egress") {
-		t.Error("malformed operator config must return a non-nil config authorizing nothing")
-	}
+	assertEmptyOperatorConfig(t, o)
 }
 
 func TestOperatorConfigReadError(t *testing.T) {
@@ -142,9 +255,7 @@ func TestOperatorConfigReadError(t *testing.T) {
 	if !strings.Contains(err.Error(), "reading operator config") {
 		t.Fatalf("error must identify read operation: %v", err)
 	}
-	if o == nil {
-		t.Error("read failure must return a non-nil empty config")
-	}
+	assertEmptyOperatorConfig(t, o)
 }
 
 func TestBackstopsAreNeverWaivable(t *testing.T) {

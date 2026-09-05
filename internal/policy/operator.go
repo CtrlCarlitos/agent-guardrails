@@ -31,39 +31,66 @@ type OperatorConfig struct {
 }
 
 func OperatorConfigPath() string {
-	if runtime.GOOS == "windows" {
-		return filepath.Join(os.Getenv("APPDATA"), "guardrail", "waivers.toml")
-	}
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		home, _ := os.UserHomeDir()
+	path, _ := operatorConfigPath(runtime.GOOS)
+	return path
+}
+
+func operatorConfigPath(goos string) (string, error) {
+	var base string
+	if goos == "windows" {
+		base = os.Getenv("APPDATA")
+		if base == "" || !filepath.IsAbs(base) {
+			return "", fmt.Errorf("APPDATA must be an absolute path")
+		}
+	} else if base = os.Getenv("XDG_CONFIG_HOME"); base != "" {
+		if !filepath.IsAbs(base) {
+			return "", fmt.Errorf("XDG_CONFIG_HOME must be an absolute path")
+		}
+	} else {
+		home, err := os.UserHomeDir()
+		if err != nil || !filepath.IsAbs(home) {
+			return "", fmt.Errorf("home directory is unavailable or not absolute")
+		}
 		base = filepath.Join(home, ".config")
 	}
-	return filepath.Join(base, "guardrail", "waivers.toml")
+	return filepath.Join(base, "guardrail", "waivers.toml"), nil
+}
+
+func emptyOperatorConfig() *OperatorConfig {
+	return &OperatorConfig{Repos: map[string]RepoGrant{}}
 }
 
 func LoadOperatorConfig() (*OperatorConfig, error) {
-	o := &OperatorConfig{Repos: map[string]RepoGrant{}}
-	path := OperatorConfigPath()
+	path, err := operatorConfigPath(runtime.GOOS)
+	if err != nil {
+		return emptyOperatorConfig(), fmt.Errorf("resolving operator config path: %w", err)
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return o, nil
+			return emptyOperatorConfig(), nil
 		}
-		return o, fmt.Errorf("reading operator config %s: %w", path, err)
+		return emptyOperatorConfig(), fmt.Errorf("reading operator config %s: %w", path, err)
 	}
 
 	var repos map[string]RepoGrant
 	if err := toml.Unmarshal(raw, &repos); err != nil {
-		return o, fmt.Errorf("parsing operator config %s: %w", path, err)
+		return emptyOperatorConfig(), fmt.Errorf("parsing operator config %s: %w", path, err)
 	}
+	normalized := make(map[string]RepoGrant, len(repos))
+	rawPaths := make(map[string]string, len(repos))
 	for repo, grant := range repos {
 		if !filepath.IsAbs(repo) {
-			return o, fmt.Errorf("operator config repository path %q must be absolute", repo)
+			return emptyOperatorConfig(), fmt.Errorf("operator config repository path %q must be absolute", repo)
 		}
-		o.Repos[filepath.Clean(repo)] = grant
+		cleaned := filepath.Clean(repo)
+		if previous, ok := rawPaths[cleaned]; ok {
+			return emptyOperatorConfig(), fmt.Errorf("operator config repository paths %q and %q have the same cleaned path", previous, repo)
+		}
+		rawPaths[cleaned] = repo
+		normalized[cleaned] = grant
 	}
-	return o, nil
+	return &OperatorConfig{Repos: normalized}, nil
 }
 
 func (o *OperatorConfig) grant(repoRoot string) (RepoGrant, bool) {
