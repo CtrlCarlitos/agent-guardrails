@@ -155,6 +155,38 @@ func TestGuardrailOwnMachineryIsProtected(t *testing.T) {
 	}
 }
 
+func TestOperatorConfigIsProtected(t *testing.T) {
+	protected := []string{
+		"/home/u/.config/guardrail/anything.toml",
+		"/home/u/guardrail/waivers.toml",
+	}
+	for _, p := range protected {
+		read := ToolCall{Tool: "Read", Paths: []string{p}, RepoRoot: "/repo", CWD: "/repo"}
+		if v := checkPaths(read, pathPol()); v != nil {
+			t.Errorf("Read %q -> %+v, want nil (reads are not the risk)", p, v)
+		}
+
+		for _, tool := range []string{"Write", "Edit"} {
+			tc := ToolCall{Tool: tool, Paths: []string{p}, RepoRoot: "/repo", CWD: "/repo"}
+			v := checkPaths(tc, pathPol())
+			if v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
+				t.Errorf("%s %q -> %+v, want deny/P5.self-config", tool, p, v)
+			}
+		}
+	}
+
+	for _, command := range []string{
+		"cp /tmp/evil /home/u/.config/guardrail/anything.toml",
+		"sed -i s/deny/allow/ /home/u/guardrail/waivers.toml",
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, RepoRoot: "/repo", CWD: "/repo"}
+		v := checkPaths(tc, pathPol())
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
+			t.Errorf("Bash %q -> %+v, want deny/P5.self-config", command, v)
+		}
+	}
+}
+
 func TestSelfConfigAndGitProtectedAllowReads(t *testing.T) {
 	allow := []string{
 		"/repo/CLAUDE.md", "/repo/AGENTS.md",

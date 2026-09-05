@@ -326,6 +326,8 @@ var selfConfigGlobs = []string{
 	// replace the thing supervising it (CR-14).
 	"guardrail.toml", "**/guardrail.toml",
 	"**/.guardrail/**",
+	// The operator's authorization must not be writable by the agent it governs.
+	"**/.config/guardrail/**", "**/guardrail/waivers.toml",
 	"opencode.json", "**/opencode.json",
 	"**/.agents/hooks.json",
 	"**/.gemini/config/hooks.json",

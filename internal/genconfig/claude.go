@@ -91,6 +91,7 @@ var selfConfigGlobsFloor = []string{
 	"**/.bashrc", "**/.zshrc", "**/.profile", "**/.bash_profile",
 	"guardrail.toml", "**/guardrail.toml",
 	".guardrail/**",
+	"**/.config/guardrail/**", "**/guardrail/waivers.toml",
 	"opencode.json", "**/opencode.json",
 	".agents/hooks.json",
 	"**/.gemini/config/hooks.json",

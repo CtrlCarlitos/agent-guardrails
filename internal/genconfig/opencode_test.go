@@ -194,6 +194,19 @@ func TestOpencodeConfigProtectsGuardrailOwnMachinery(t *testing.T) {
 	}
 }
 
+func TestOpencodeConfigProtectsOperatorConfig(t *testing.T) {
+	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+	edit := frag["permission"].(map[string]any)["edit"].(map[string]string)
+	for _, path := range []string{
+		"**/.config/guardrail/**",
+		"**/guardrail/waivers.toml",
+	} {
+		if edit[path] != "deny" {
+			t.Errorf("OpenCode edit permission for %q = %q, want deny", path, edit[path])
+		}
+	}
+}
+
 func TestOpencodeConfigPluginRegistered(t *testing.T) {
 	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
 	plugins := frag["plugin"].([]string)

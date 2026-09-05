@@ -133,6 +133,19 @@ func TestClaudeConfigProtectsGuardrailOwnMachinery(t *testing.T) {
 	}
 }
 
+func TestClaudeConfigProtectsOperatorConfig(t *testing.T) {
+	frag := ClaudeConfig(secretPol(), "guardrail")
+	deny := frag["permissions"].(map[string]any)["deny"].([]string)
+	for _, entry := range []string{
+		"Edit(**/.config/guardrail/**)",
+		"Edit(**/guardrail/waivers.toml)",
+	} {
+		if !slices.Contains(deny, entry) {
+			t.Errorf("Claude deny missing %q: %v", entry, deny)
+		}
+	}
+}
+
 func TestClaudeHooks(t *testing.T) {
 	h := claudeHooks("/usr/local/bin/guardrail")
 	pre := h["PreToolUse"].([]any)[0].(map[string]any)
