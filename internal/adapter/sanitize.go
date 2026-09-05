@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io"
 	"regexp"
-	"strings"
-	"unicode"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 )
 
 const maxModelFacingRunes = 200
@@ -13,23 +13,8 @@ const maxModelFacingWarnings = 20
 
 var waiverIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
-// SanitizeForDisplay makes attacker-influenced text safe to place in a
-// human- or model-facing channel. Control characters are stripped so a crafted
-// path cannot forge additional status lines.
-func SanitizeForDisplay(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		if unicode.IsControl(r) {
-			b.WriteRune(' ')
-			continue
-		}
-		b.WriteRune(r)
-	}
-	return strings.Join(strings.Fields(b.String()), " ")
-}
-
 func sanitizeForModel(s string) string {
-	out := SanitizeForDisplay(s)
+	out := safetext.SingleLine(s)
 	if r := []rune(out); len(r) > maxModelFacingRunes {
 		out = string(r[:maxModelFacingRunes]) + "…"
 	}

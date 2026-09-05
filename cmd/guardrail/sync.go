@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/CtrlCarlitos/agent-guardrails/internal/adapter"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 )
 
 func cmdSync(args []string, stdout, stderr io.Writer) int {
@@ -25,13 +25,13 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 		if message == "" {
 			message = err.Error()
 		}
-		fmt.Fprintln(stderr, adapter.SanitizeForDisplay(message))
+		fmt.Fprintln(stderr, safetext.SingleLine(message))
 		return 2
 	}
 
 	absDir, err := filepath.Abs(*dir)
 	if err != nil {
-		fmt.Fprintf(stderr, "guardrail: sync: cannot resolve --dir: %s\n", adapter.SanitizeForDisplay(err.Error()))
+		fmt.Fprintf(stderr, "guardrail: sync: cannot resolve --dir: %s\n", safetext.SingleLine(err.Error()))
 		return 2
 	}
 	repoRoot := absDir
@@ -46,7 +46,7 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 		}
 		resolvedBinary, err = resolveBinaryPath(*binary)
 		if err != nil {
-			fmt.Fprintf(stderr, "guardrail: sync: cannot resolve --binary: %s\n", adapter.SanitizeForDisplay(err.Error()))
+			fmt.Fprintf(stderr, "guardrail: sync: cannot resolve --binary: %s\n", safetext.SingleLine(err.Error()))
 			return 2
 		}
 		break
@@ -54,35 +54,35 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 
 	base, err := policy.LoadBase()
 	if err != nil {
-		fmt.Fprintf(stderr, "guardrail: sync: cannot load base policy: %s\n", adapter.SanitizeForDisplay(err.Error()))
+		fmt.Fprintf(stderr, "guardrail: sync: cannot load base policy: %s\n", safetext.SingleLine(err.Error()))
 		return 2
 	}
 
 	var ov *policy.Overlay
 	if pth, ok, warn := policy.FindOverlayPath(absDir); ok {
 		if warn != "" {
-			fmt.Fprintln(stderr, adapter.SanitizeForDisplay(warn))
+			fmt.Fprintln(stderr, safetext.SingleLine(warn))
 		}
 		ov, err = policy.LoadOverlay(pth)
 		if err != nil {
-			fmt.Fprintf(stderr, "guardrail: sync: cannot load overlay: %s\n", adapter.SanitizeForDisplay(err.Error()))
+			fmt.Fprintf(stderr, "guardrail: sync: cannot load overlay: %s\n", safetext.SingleLine(err.Error()))
 			return 2
 		}
 	} else if warn != "" {
-		fmt.Fprintln(stderr, adapter.SanitizeForDisplay(warn))
+		fmt.Fprintln(stderr, safetext.SingleLine(warn))
 	}
 
 	op, opErr := policy.LoadOperatorConfig()
 	if opErr != nil {
-		fmt.Fprintf(stderr, "guardrail: operator config unreadable (%s); treating as empty\n", adapter.SanitizeForDisplay(opErr.Error()))
+		fmt.Fprintf(stderr, "guardrail: operator config unreadable (%s); treating as empty\n", safetext.SingleLine(opErr.Error()))
 	}
 	merged, warnings, err := policy.Merge(base, ov, version, op, repoRoot)
 	if err != nil {
-		fmt.Fprintf(stderr, "guardrail: sync: invalid overlay: %s\n", adapter.SanitizeForDisplay(err.Error()))
+		fmt.Fprintf(stderr, "guardrail: sync: invalid overlay: %s\n", safetext.SingleLine(err.Error()))
 		return 2
 	}
 	for _, w := range warnings {
-		fmt.Fprintln(stderr, adapter.SanitizeForDisplay(w))
+		fmt.Fprintln(stderr, safetext.SingleLine(w))
 	}
 
 	for _, p := range planes {
@@ -102,20 +102,20 @@ func syncPlane(plane, dir, binary string, merged *policy.Policy, stdout, stderr 
 		target := filepath.Join(dir, ".claude", "settings.json")
 		frag := genconfig.ClaudeConfig(merged, binary)
 		if err := genconfig.MergeInto(target, frag); err != nil {
-			fmt.Fprintf(stderr, "guardrail: sync claude failed: %s\n", adapter.SanitizeForDisplay(err.Error()))
+			fmt.Fprintf(stderr, "guardrail: sync claude failed: %s\n", safetext.SingleLine(err.Error()))
 			return
 		}
-		fmt.Fprintf(stdout, "synced claude -> %s\n", adapter.SanitizeForDisplay(target))
+		fmt.Fprintf(stdout, "synced claude -> %s\n", safetext.SingleLine(target))
 
 	case "opencode":
 		pluginDir := filepath.Join(dir, ".guardrail")
 		if err := os.MkdirAll(pluginDir, 0o755); err != nil {
-			fmt.Fprintf(stderr, "guardrail: sync opencode failed: %s\n", adapter.SanitizeForDisplay(err.Error()))
+			fmt.Fprintf(stderr, "guardrail: sync opencode failed: %s\n", safetext.SingleLine(err.Error()))
 			return
 		}
 		pluginPath := filepath.Join(pluginDir, "guardrail.js")
 		if err := os.WriteFile(pluginPath, genconfig.OpencodePluginFor(binary), 0o644); err != nil {
-			fmt.Fprintf(stderr, "guardrail: sync opencode failed: %s\n", adapter.SanitizeForDisplay(err.Error()))
+			fmt.Fprintf(stderr, "guardrail: sync opencode failed: %s\n", safetext.SingleLine(err.Error()))
 			return
 		}
 		absPlugin, err := filepath.Abs(pluginPath)
@@ -125,25 +125,25 @@ func syncPlane(plane, dir, binary string, merged *policy.Policy, stdout, stderr 
 		target := filepath.Join(dir, "opencode.json")
 		frag := genconfig.OpencodeConfig(merged, absPlugin)
 		if err := genconfig.MergeInto(target, frag); err != nil {
-			fmt.Fprintf(stderr, "guardrail: sync opencode failed: %s\n", adapter.SanitizeForDisplay(err.Error()))
+			fmt.Fprintf(stderr, "guardrail: sync opencode failed: %s\n", safetext.SingleLine(err.Error()))
 			return
 		}
-		fmt.Fprintf(stdout, "synced opencode -> %s\n", adapter.SanitizeForDisplay(target))
+		fmt.Fprintf(stdout, "synced opencode -> %s\n", safetext.SingleLine(target))
 
 	case "antigravity":
 		target := filepath.Join(dir, ".agents", "hooks.json")
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			fmt.Fprintf(stderr, "guardrail: sync antigravity failed: %s\n", adapter.SanitizeForDisplay(err.Error()))
+			fmt.Fprintf(stderr, "guardrail: sync antigravity failed: %s\n", safetext.SingleLine(err.Error()))
 			return
 		}
 		frag := genconfig.AntigravityConfig(binary)
 		if err := genconfig.MergeInto(target, frag); err != nil {
-			fmt.Fprintf(stderr, "guardrail: sync antigravity failed: %s\n", adapter.SanitizeForDisplay(err.Error()))
+			fmt.Fprintf(stderr, "guardrail: sync antigravity failed: %s\n", safetext.SingleLine(err.Error()))
 			return
 		}
-		fmt.Fprintf(stdout, "synced antigravity -> %s\n", adapter.SanitizeForDisplay(target))
+		fmt.Fprintf(stdout, "synced antigravity -> %s\n", safetext.SingleLine(target))
 
 	default:
-		fmt.Fprintf(stderr, "guardrail: sync: unknown plane %q, skipping\n", adapter.SanitizeForDisplay(plane))
+		fmt.Fprintf(stderr, "guardrail: sync: unknown plane %q, skipping\n", safetext.SingleLine(plane))
 	}
 }

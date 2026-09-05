@@ -10,36 +10,36 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/CtrlCarlitos/agent-guardrails/internal/adapter"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 )
 
 func cmdDoctor(args []string, stdout, stderr io.Writer) int {
-	fmt.Fprintf(stdout, "guardrail %s\n", adapter.SanitizeForDisplay(version))
+	fmt.Fprintf(stdout, "guardrail %s\n", safetext.SingleLine(version))
 
 	cwd, _ := os.Getwd()
-	fmt.Fprintf(stdout, "cwd: %s\n", adapter.SanitizeForDisplay(cwd))
+	fmt.Fprintf(stdout, "cwd: %s\n", safetext.SingleLine(cwd))
 	repoRoot := cwd
 	if root, ok := policy.FindRepoRoot(cwd); ok {
 		repoRoot = root
 	}
 
 	if v := os.Getenv("GUARDRAIL_CONFIG"); v != "" {
-		fmt.Fprintf(stdout, "GUARDRAIL_CONFIG: %s\n", adapter.SanitizeForDisplay(v))
+		fmt.Fprintf(stdout, "GUARDRAIL_CONFIG: %s\n", safetext.SingleLine(v))
 	} else {
 		fmt.Fprintln(stdout, "GUARDRAIL_CONFIG: (unset)")
 	}
 
 	base, baseErr := policy.LoadBase()
 	if baseErr != nil {
-		fmt.Fprintf(stdout, "base policy: ERROR %s\n", adapter.SanitizeForDisplay(baseErr.Error()))
+		fmt.Fprintf(stdout, "base policy: ERROR %s\n", safetext.SingleLine(baseErr.Error()))
 		return 0
 	}
 
 	pth, ok, warn := policy.FindOverlayPath(cwd)
 	if warn != "" {
-		fmt.Fprintf(stdout, "overlay: %s\n", adapter.SanitizeForDisplay(strings.TrimPrefix(warn, "guardrail: ")))
+		fmt.Fprintf(stdout, "overlay: %s\n", safetext.SingleLine(strings.TrimPrefix(warn, "guardrail: ")))
 	}
 	var ov *policy.Overlay
 	switch {
@@ -47,10 +47,10 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		o, err := policy.LoadOverlay(pth)
 		if err != nil {
 			fmt.Fprintf(stdout, "overlay: %s (PARSE ERROR: %s)\n",
-				adapter.SanitizeForDisplay(pth), adapter.SanitizeForDisplay(err.Error()))
+				safetext.SingleLine(pth), safetext.SingleLine(err.Error()))
 		} else {
 			ov = o
-			fmt.Fprintf(stdout, "overlay: %s (parsed OK)\n", adapter.SanitizeForDisplay(pth))
+			fmt.Fprintf(stdout, "overlay: %s (parsed OK)\n", safetext.SingleLine(pth))
 		}
 	case warn == "":
 		fmt.Fprintln(stdout, "overlay: none")
@@ -59,11 +59,11 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	op, opErr := policy.LoadOperatorConfig()
 	if opErr != nil {
 		fmt.Fprintf(stderr, "guardrail: operator config unreadable (%s); treating as empty\n",
-			adapter.SanitizeForDisplay(opErr.Error()))
+			safetext.SingleLine(opErr.Error()))
 	}
 	merged, warnings, err := policy.Merge(base, ov, version, op, repoRoot)
 	if err != nil {
-		fmt.Fprintf(stdout, "merge: ERROR %s\n", adapter.SanitizeForDisplay(err.Error()))
+		fmt.Fprintf(stdout, "merge: ERROR %s\n", safetext.SingleLine(err.Error()))
 		return 0
 	}
 	if len(warnings) == 0 {
@@ -71,7 +71,7 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	} else {
 		fmt.Fprintln(stdout, "policy warnings:")
 		for _, w := range warnings {
-			fmt.Fprintf(stdout, "  - %s\n", adapter.SanitizeForDisplay(w))
+			fmt.Fprintf(stdout, "  - %s\n", safetext.SingleLine(w))
 		}
 	}
 
@@ -79,12 +79,12 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	if len(waived) == 0 {
 		fmt.Fprintln(stdout, "waivers: none")
 	} else {
-		fmt.Fprintf(stdout, "waivers: %s\n", adapter.SanitizeForDisplay(strings.Join(waived, ", ")))
+		fmt.Fprintf(stdout, "waivers: %s\n", safetext.SingleLine(strings.Join(waived, ", ")))
 	}
 
-	fmt.Fprintf(stdout, "audit log: %s\n", adapter.SanitizeForDisplay(audit.DefaultPath(merged.Slots.AuditLog)))
+	fmt.Fprintf(stdout, "audit log: %s\n", safetext.SingleLine(audit.DefaultPath(merged.Slots.AuditLog)))
 
-	fmt.Fprintf(stdout, "claude settings: %s\n", adapter.SanitizeForDisplay(claudeSettingsState()))
+	fmt.Fprintf(stdout, "claude settings: %s\n", safetext.SingleLine(claudeSettingsState()))
 	if home, err := os.UserHomeDir(); err == nil {
 		if raw, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json")); err == nil {
 			var doc map[string]any
