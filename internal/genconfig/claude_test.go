@@ -136,12 +136,24 @@ func TestClaudeConfigProtectsGuardrailOwnMachinery(t *testing.T) {
 func TestClaudeConfigProtectsOperatorConfig(t *testing.T) {
 	frag := ClaudeConfig(secretPol(), "guardrail")
 	deny := frag["permissions"].(map[string]any)["deny"].([]string)
-	for _, entry := range []string{
+	want := []string{
 		"Edit(**/.config/guardrail/**)",
 		"Edit(**/guardrail/waivers.toml)",
-	} {
+		"Edit(//**/.config/guardrail/**)",
+		"Edit(//**/guardrail/waivers.toml)",
+	}
+	for _, entry := range want {
 		if !slices.Contains(deny, entry) {
 			t.Errorf("Claude deny missing %q: %v", entry, deny)
+		}
+	}
+
+	validAbsolute := want[2:]
+	for _, entry := range deny {
+		isOperatorAbsolute := strings.HasPrefix(entry, "Edit(//") &&
+			(strings.Contains(entry, ".config/guardrail/") || strings.Contains(entry, "guardrail/waivers.toml"))
+		if isOperatorAbsolute && !slices.Contains(validAbsolute, entry) {
+			t.Errorf("Claude deny contains malformed absolute operator pattern %q", entry)
 		}
 	}
 }

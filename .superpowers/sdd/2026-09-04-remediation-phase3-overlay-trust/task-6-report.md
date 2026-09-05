@@ -82,3 +82,81 @@ Result: PASS for all packages, including `test/adversarial`.
 
 - Antigravity cannot enforce any declarative floor when the Engine is
   unavailable because the plane exposes no native permission layer (ADR-0008).
+
+## Fix Round 1
+
+### Status
+
+Added Claude-specific filesystem-absolute operator-config denies while retaining
+the relative Claude forms and OpenCode's existing compatible forms.
+
+### Report Correction
+
+The original Self-Review claim that both Claude and OpenCode denied the operator
+paths when the Engine was unavailable was incomplete. OpenCode did, but Claude's
+emitted `Edit(**/...)` entries were worktree-relative and did not cover
+filesystem-absolute operator paths. Claude now emits both relative and
+`//`-anchored absolute forms.
+
+### RED
+
+Focused command:
+
+```text
+/usr/local/go/bin/go test ./internal/genconfig -run TestClaudeConfigProtectsOperatorConfig -v
+```
+
+Result: FAIL as expected because Claude omitted
+`Edit(//**/.config/guardrail/**)` and
+`Edit(//**/guardrail/waivers.toml)`.
+
+### GREEN
+
+Focused commands after implementation and `gofmt`:
+
+```text
+/usr/local/go/bin/go test ./internal/genconfig
+/usr/local/go/bin/go test ./internal/engine
+```
+
+Result: PASS.
+
+Full-suite command, run once after implementation and self-review:
+
+```text
+make test
+```
+
+Result: PASS for all packages, including `test/adversarial`.
+
+### Files
+
+- `internal/genconfig/claude.go`: named the shared operator-config floor subset,
+  retained it in `selfConfigGlobsFloor`, and derived Claude-only `//`-anchored
+  edit denies from it.
+- `internal/genconfig/claude_test.go`: requires both relative and absolute
+  Claude forms and rejects malformed absolute operator patterns.
+- `internal/genconfig/opencode_test.go`: retains the relative deny assertions
+  and rejects leakage of Claude-only `//` forms.
+- `.superpowers/sdd/2026-09-04-remediation-phase3-overlay-trust/task-6-report.md`:
+  corrected the original floor claim and recorded fix-round evidence.
+
+### Self-Review
+
+- Claude emits exactly the two required relative operator entries plus their
+  two `//`-anchored absolute variants.
+- Absolute variants are derived from `operatorConfigGlobsFloor`; the pattern
+  literals are not duplicated and cannot drift independently.
+- The malformed-pattern check rejects doubled or otherwise altered absolute
+  operator prefixes while allowing only the two literal expected forms.
+- OpenCode still consumes `selfConfigDenyGlobs` and receives only its original
+  compatible relative keys.
+- `internal/engine` was not modified; its direct file-tool, Bash-mutator, and
+  read-gating behavior remains covered by the focused Engine suite.
+- No existing floor pattern was removed or weakened.
+- `gofmt` and `git diff --check` completed cleanly.
+
+### Concerns
+
+- Antigravity's previously documented lack of a native declarative permission
+  layer remains unchanged (ADR-0008).

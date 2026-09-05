@@ -204,6 +204,9 @@ func TestOpencodeConfigProtectsOperatorConfig(t *testing.T) {
 		if edit[path] != "deny" {
 			t.Errorf("OpenCode edit permission for %q = %q, want deny", path, edit[path])
 		}
+		if got := edit["//"+path]; got != "" {
+			t.Errorf("OpenCode edit permission contains Claude-only absolute form %q = %q", "//"+path, got)
+		}
 	}
 }
 

@@ -85,18 +85,22 @@ func collidesWithAllow(glob string, allow []string) bool {
 // Note the intentional prefix difference on directory entries: the Engine lists use `**/`
 // prefixes (`**/.claude/**`, `**/.github/workflows/**`) because its matcher sees arbitrary
 // absolute paths, while these floor lists keep the plan-literal forms (`.claude/**`,
-// `.github/workflows/**`) because Claude's permission matcher treats them project-relative.
-var selfConfigGlobsFloor = []string{
+// `.github/workflows/**`) because native permission matchers treat them project-relative.
+// Claude additionally needs `//`-anchored forms for operator config outside the worktree.
+var operatorConfigGlobsFloor = []string{
+	"**/.config/guardrail/**", "**/guardrail/waivers.toml",
+}
+
+var selfConfigGlobsFloor = append([]string{
 	".claude/**", "CLAUDE.md", "AGENTS.md", ".mcp.json", ".envrc",
 	"**/.bashrc", "**/.zshrc", "**/.profile", "**/.bash_profile",
 	"guardrail.toml", "**/guardrail.toml",
 	".guardrail/**",
-	"**/.config/guardrail/**", "**/guardrail/waivers.toml",
 	"opencode.json", "**/opencode.json",
 	".agents/hooks.json",
 	"**/.gemini/config/hooks.json",
 	"**/.local/bin/guardrail", "**/bin/guardrail",
-}
+}, operatorConfigGlobsFloor...)
 
 var gitProtectedGlobsFloor = []string{"**/.git/config", "**/.git/hooks/**"}
 
@@ -120,6 +124,14 @@ func selfConfigDenyGlobs() []string {
 	return out
 }
 
+func claudeSelfConfigDenyGlobs() []string {
+	out := selfConfigDenyGlobs()
+	for _, g := range operatorConfigGlobsFloor {
+		out = append(out, "Edit(//"+g+")")
+	}
+	return out
+}
+
 func ciInfraLockAskGlobs() []string {
 	out := make([]string, 0, len(ciInfraLockGlobsFloor))
 	for _, g := range ciInfraLockGlobsFloor {
@@ -130,7 +142,7 @@ func ciInfraLockAskGlobs() []string {
 
 func ClaudeConfig(pol *policy.Policy, binary string) Fragment {
 	deny := append(bashDenyGlobs(), secretDenyGlobs(pol)...)
-	deny = append(deny, selfConfigDenyGlobs()...)
+	deny = append(deny, claudeSelfConfigDenyGlobs()...)
 	ask := append(bashAskGlobs(), ciInfraLockAskGlobs()...)
 	return Fragment{
 		"hooks": claudeHooks(binary),
