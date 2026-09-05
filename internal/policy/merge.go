@@ -58,6 +58,11 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 			warns = append(warns, "guardrail: repo requested a wildcard egress_allowlist entry "+entry+" — DROPPED")
 			continue
 		}
+		if !op.AllowsEgress(repoRoot, entry) {
+			warns = append(warns, "guardrail: repo requested egress_allowlist entry "+entry+
+				", which is NOT authorized in "+OperatorConfigPath()+" — DROPPED")
+			continue
+		}
 		m.Slots.EgressAllowlist = append(m.Slots.EgressAllowlist, entry)
 	}
 

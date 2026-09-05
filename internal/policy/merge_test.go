@@ -36,7 +36,13 @@ func TestMergePreservesBaseAndAppendsTightenings(t *testing.T) {
 		Rules:           []Rule{{ID: "overlay-ask", Decision: Ask}, {ID: "overlay-deny", Decision: Deny}},
 	}
 
-	m, warns := mergeNoOp(t, base, ov)
+	op := &OperatorConfig{Repos: map[string]RepoGrant{
+		"/repo": {EgressAllowlist: []string{"api.example.com"}},
+	}}
+	m, warns, err := Merge(base, ov, "1.0.0", op, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if len(warns) != 0 {
 		t.Fatalf("unexpected warnings: %v", warns)
@@ -135,17 +141,20 @@ func TestMergeNilOrMissingOperatorConfigAuthorizesNothing(t *testing.T) {
 			ov := &Overlay{
 				Waive:       []string{"P6.egress"},
 				SecretAllow: []string{"public/**"},
-				AuditLog:    "/tmp/repo-audit.jsonl",
+				EgressAllowlist: []string{
+					"api.example.com",
+				},
+				AuditLog: "/tmp/repo-audit.jsonl",
 			}
 
 			m, warns, err := Merge(base, ov, "1.0.0", tt.op, "/repo")
 			if err != nil {
 				t.Fatal(err)
 			}
-			if m.Waived["P6.egress"] || len(m.Slots.SecretAllow) != 0 || m.Slots.AuditLog != "/base/audit.jsonl" {
+			if m.Waived["P6.egress"] || len(m.Slots.SecretAllow) != 0 || len(m.Slots.EgressAllowlist) != 0 || m.Slots.AuditLog != "/base/audit.jsonl" {
 				t.Fatalf("unauthorized loosening took effect: %+v", m)
 			}
-			if len(warns) != 3 {
+			if len(warns) != 4 {
 				t.Fatalf("warnings = %v, want one for each dropped request", warns)
 			}
 		})
@@ -274,16 +283,84 @@ func TestMergeSafeRootsFailClosedWithoutAbsoluteRepoRoot(t *testing.T) {
 	}
 }
 
-func TestMergeDropsOnlyTotalWildcardEgressEntries(t *testing.T) {
-	m, warns := mergeNoOp(t, &Policy{Waived: map[string]bool{}}, &Overlay{
+func TestMergeEgressRequiresExactGrantAndRejectsTotalWildcards(t *testing.T) {
+	op := &OperatorConfig{Repos: map[string]RepoGrant{
+		"/repo": {EgressAllowlist: []string{"*", "**", "*.example.com", "api.github.com"}},
+	}}
+	m, warns, err := Merge(&Policy{Waived: map[string]bool{}}, &Overlay{
 		EgressAllowlist: []string{"*", "**", "*.example.com", "api.github.com"},
-	})
+	}, "1.0.0", op, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if !slices.Equal(m.Slots.EgressAllowlist, []string{"*.example.com", "api.github.com"}) {
 		t.Errorf("EgressAllowlist = %v", m.Slots.EgressAllowlist)
 	}
 	if len(warns) != 2 || !strings.Contains(warns[0], "entry *") || !strings.Contains(warns[1], "entry **") {
 		t.Fatalf("wildcard warnings = %v", warns)
+	}
+}
+
+func TestMergeEgressGrantDoesNotTransferAcrossEntryOrRepo(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	configPath := filepath.Join(configHome, "guardrail", "waivers.toml")
+	op := &OperatorConfig{Repos: map[string]RepoGrant{
+		"/repo": {EgressAllowlist: []string{"api.example.com"}},
+	}}
+	base := &Policy{Slots: Slots{EgressAllowlist: []string{"base.example.com"}}, Waived: map[string]bool{}}
+	ov := &Overlay{EgressAllowlist: []string{"API.example.com", "other.example.com", "api.example.com"}}
+
+	for _, repoRoot := range []string{"/repo/subrepo", "/repo-other"} {
+		m, warns, err := Merge(base, ov, "1.0.0", op, repoRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(m.Slots.EgressAllowlist, []string{"base.example.com"}) {
+			t.Errorf("repo %q crossed exact grant boundary: %v", repoRoot, m.Slots.EgressAllowlist)
+		}
+		if len(warns) != 3 {
+			t.Errorf("repo %q warnings = %v, want one per rejected entry", repoRoot, warns)
+		}
+	}
+
+	m, warns, err := Merge(base, ov, "1.0.0", op, "/repo/./")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(m.Slots.EgressAllowlist, []string{"base.example.com", "api.example.com"}) {
+		t.Fatalf("exact grant merge = %v", m.Slots.EgressAllowlist)
+	}
+	want := []string{
+		"guardrail: repo requested egress_allowlist entry API.example.com, which is NOT authorized in " + configPath + " — DROPPED",
+		"guardrail: repo requested egress_allowlist entry other.example.com, which is NOT authorized in " + configPath + " — DROPPED",
+	}
+	if !slices.Equal(warns, want) {
+		t.Fatalf("warnings = %#v, want %#v", warns, want)
+	}
+}
+
+func TestMergeEgressCannotBeAuthorizedByOtherGrants(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	op := &OperatorConfig{Repos: map[string]RepoGrant{
+		"/repo": {Waive: []string{"P6.egress"}, SecretAllow: true, AuditLog: true},
+	}}
+	base := &Policy{Slots: Slots{EgressAllowlist: []string{"base.example.com"}}, Waived: map[string]bool{}}
+	ov := &Overlay{EgressAllowlist: []string{"api.example.com"}}
+
+	m, warns, err := Merge(base, ov, "1.0.0", op, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(m.Slots.EgressAllowlist, []string{"base.example.com"}) {
+		t.Fatalf("unrelated operator grants authorized egress: %v", m.Slots.EgressAllowlist)
+	}
+	want := "guardrail: repo requested egress_allowlist entry api.example.com, which is NOT authorized in " +
+		filepath.Join(configHome, "guardrail", "waivers.toml") + " — DROPPED"
+	if !slices.Equal(warns, []string{want}) {
+		t.Fatalf("warnings = %#v, want %#v", warns, []string{want})
 	}
 }
 
@@ -295,7 +372,7 @@ func TestMergeDroppedRequestWarningsAreStable(t *testing.T) {
 	ov := &Overlay{
 		SafeRoots:        []string{"/outside/one", "/outside/two"},
 		SecretAllow:      []string{"one", "two"},
-		EgressAllowlist:  []string{"*", "**"},
+		EgressAllowlist:  []string{"*", "**", "api.example.com"},
 		AuditLog:         "/tmp/audit.jsonl",
 		Waive:            []string{"P6.egress", "tokenize-failed"},
 		EngineMinVersion: "2.0.0",
@@ -305,6 +382,7 @@ func TestMergeDroppedRequestWarningsAreStable(t *testing.T) {
 		"guardrail: repo requested safe_root /outside/two outside the repository — DROPPED",
 		"guardrail: repo requested a wildcard egress_allowlist entry * — DROPPED",
 		"guardrail: repo requested a wildcard egress_allowlist entry ** — DROPPED",
+		"guardrail: repo requested egress_allowlist entry api.example.com, which is NOT authorized in " + configPath + " — DROPPED",
 		"guardrail: repo requested secret_allow entries, which are NOT authorized in " + configPath + " — secret protection remains ENFORCED",
 		"guardrail: repo requested audit_log /tmp/audit.jsonl, which is NOT authorized in " + configPath + " — the default audit path is retained",
 		"guardrail: repo requested waiver of P6.egress, which is NOT authorized in " + configPath + " — the rule remains ENFORCED",

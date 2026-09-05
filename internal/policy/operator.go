@@ -19,9 +19,10 @@ var neverWaivable = map[string]bool{
 }
 
 type RepoGrant struct {
-	Waive       []string `toml:"waive"`
-	SecretAllow bool     `toml:"secret_allow"`
-	AuditLog    bool     `toml:"audit_log"`
+	Waive           []string `toml:"waive"`
+	SecretAllow     bool     `toml:"secret_allow"`
+	AuditLog        bool     `toml:"audit_log"`
+	EgressAllowlist []string `toml:"egress_allowlist"`
 }
 
 // OperatorConfig is machine-scoped authorization living outside any repo.
@@ -117,4 +118,9 @@ func (o *OperatorConfig) AllowsSecretAllow(repoRoot string) bool {
 func (o *OperatorConfig) AllowsAuditLog(repoRoot string) bool {
 	grant, ok := o.grant(repoRoot)
 	return ok && grant.AuditLog
+}
+
+func (o *OperatorConfig) AllowsEgress(repoRoot, entry string) bool {
+	grant, ok := o.grant(repoRoot)
+	return ok && slices.Contains(grant.EgressAllowlist, entry)
 }

@@ -31,7 +31,8 @@ func assertEmptyOperatorConfig(t *testing.T, o *OperatorConfig) {
 	if len(o.Repos) != 0 {
 		t.Fatalf("error must return no grants, got %v", o.Repos)
 	}
-	if o.AllowsWaiver("/home/u/trusted", "P6.egress") || o.AllowsSecretAllow("/home/u/trusted") || o.AllowsAuditLog("/home/u/trusted") {
+	if o.AllowsWaiver("/home/u/trusted", "P6.egress") || o.AllowsSecretAllow("/home/u/trusted") ||
+		o.AllowsAuditLog("/home/u/trusted") || o.AllowsEgress("/home/u/trusted", "api.example.com") {
 		t.Error("error config must authorize nothing")
 	}
 }
@@ -179,6 +180,33 @@ audit_log = true
 	}
 }
 
+func TestOperatorConfigEgressGrantRequiresExactEntryAndRepo(t *testing.T) {
+	writeOperatorConfig(t, `
+["/home/u/trusted/./"]
+egress_allowlist = ["api.example.com", "*.trusted.example"]
+`)
+	o, err := LoadOperatorConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, entry := range []string{"api.example.com", "*.trusted.example"} {
+		if !o.AllowsEgress("/home/u/trusted/../trusted", entry) {
+			t.Errorf("exact egress entry %q was not authorized for cleaned repository path", entry)
+		}
+	}
+	for _, entry := range []string{"API.example.com", "api.example.com.", "trusted.example", "sub.trusted.example"} {
+		if o.AllowsEgress("/home/u/trusted", entry) {
+			t.Errorf("non-exact egress entry %q was authorized", entry)
+		}
+	}
+	for _, repo := range []string{"/home/u/trusted/subrepo", "/home/u/trusted-other", "/home/u/Trusted", "home/u/trusted"} {
+		if o.AllowsEgress(repo, "api.example.com") {
+			t.Errorf("egress grant crossed exact repository boundary to %q", repo)
+		}
+	}
+}
+
 func TestOperatorConfigRejectsNonAbsoluteRepoGrant(t *testing.T) {
 	writeOperatorConfig(t, `
 ["relative/repo"]
@@ -276,7 +304,7 @@ waive = ["tokenize-failed", "panic-recovered", "P3.unresolved"]
 
 func TestOperatorConfigNilSafe(t *testing.T) {
 	var o *OperatorConfig
-	if o.AllowsWaiver("/x", "P6.egress") || o.AllowsSecretAllow("/x") || o.AllowsAuditLog("/x") {
+	if o.AllowsWaiver("/x", "P6.egress") || o.AllowsSecretAllow("/x") || o.AllowsAuditLog("/x") || o.AllowsEgress("/x", "api.example.com") {
 		t.Error("a nil OperatorConfig must authorize nothing")
 	}
 }
