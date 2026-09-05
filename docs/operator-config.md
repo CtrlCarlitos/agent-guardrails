@@ -9,8 +9,8 @@ may loosen the merged Guardrail Policy. The governing rule is:
 > explicit Operator config grant.
 
 An Operator config grant does nothing by itself. The repository's Overlay must
-also request the corresponding change. This two-file handshake prevents a
-cloned repository from granting itself weaker protection.
+also request the corresponding change. This two-file handshake prevents an
+Overlay alone from authorizing weaker protection.
 
 ## Location
 
@@ -39,10 +39,13 @@ A grant for `/home/alex/src/acme-api` does not match a subrepository, a sibling,
 or a similarly prefixed path. Cleaning does not establish filesystem identity:
 it does not resolve symlinks or identify repositories by Git remote or content.
 
-This exact path binding is deliberate. A grant does not transfer when a
-repository is copied, moved, or renamed, and it does not transfer to another
-clone of the same upstream. Add a new key only after reviewing the Overlay at
-the new absolute path.
+This binding is to the cleaned absolute path, not to repository identity. A
+repository moved, copied, or cloned to a different path does not carry the
+grant to that new path. The grant remains attached to the old path until the
+operator removes it, however, and a different repository later occupying that
+path inherits the stale grant. Remove or review grants when repositories move,
+are deleted, or are replaced; add a new key only after reviewing the Overlay at
+the new path.
 
 ## Supported Grants
 
@@ -114,9 +117,10 @@ the stricter Guardrail Policy, and emits a specific warning: each refused
 Waiver names its rule ID, rejected `safe_roots` entries name their path, and
 refused `secret_allow` or `audit_log` requests name the capability. These
 warnings are deterministic policy output, not an implicit Verdict change.
-Doctor shows the complete merge-warning list. Session start also surfaces a
-sanitized, bounded list (up to 20 warnings), so refusals are visible without
-letting an Overlay flood model context.
+`guardrail doctor` is the universal operator view across all planes and shows
+the complete merge-warning list. Claude SessionStart also places a sanitized,
+bounded list of up to 20 warnings in its posture. OpenCode and Antigravity have
+no SessionStart posture; use Doctor for their complete refusal view.
 
 ## Verify a Grant
 

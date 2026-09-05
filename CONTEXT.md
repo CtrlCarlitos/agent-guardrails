@@ -28,9 +28,10 @@ formatter tiers), and may request permission to `waive` named Base rules.
 _Avoid_: project config, local policy, override file
 
 **Operator config**:
-Machine-scoped authorization outside any repository. Grants a named repository
-permission to loosen specific rules. A repository's Overlay may request; only the
-Operator config may grant.
+Machine-scoped authorization outside any repository. Grants the repository at a
+named absolute path permission to loosen specific rules. An Overlay may request;
+only the Operator config may grant. Authorization remains attached to that path
+until the operator removes it.
 _Avoid_: waiver file, global config, allowlist
 
 **Engine**:
@@ -65,5 +66,5 @@ _Avoid_: linter config, toolchain, profile
 **Waiver**:
 An entry in an Overlay's `waive = [...]` that switches a named Base rule off for that
 project when authorized by the Operator config. Written to the audit log on every hit
-and printed in the session-start banner — never silent.
+and printed in Claude's SessionStart posture — never silent.
 _Avoid_: exception, exclusion, ignore

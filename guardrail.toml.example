@@ -31,5 +31,5 @@ reason  = "infra change — human in the loop"
 # it takes effect only if the operator has authorized this repo for this rule
 # in the Operator config (see docs/operator-config.md and ADR-0010).
 # An unauthorized request is dropped, the rule stays enforced, and the refusal
-# is reported by `guardrail doctor` and at session start.
+# is reported by `guardrail doctor` and in Claude's SessionStart posture.
 # waive = ["P6.egress"]
