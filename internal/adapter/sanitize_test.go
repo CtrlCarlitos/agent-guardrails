@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -30,9 +31,9 @@ func TestEmitModelWarningsSanitizesAndCapsOutput(t *testing.T) {
 	}
 }
 
-func TestSanitizeForModelStripsASCIIControlsAndNormalizesWhitespace(t *testing.T) {
-	in := "  alpha\x00beta\x01  gamma\x07delta\x0b epsilon\x1fzeta\x7f eta\n\r\t theta  "
-	want := "alpha beta gamma delta epsilon zeta eta theta"
+func TestSanitizeForModelStripsUnicodeControlsAndNormalizesWhitespace(t *testing.T) {
+	in := "  alpha\x00beta\x01  gamma\x07delta\x0b epsilon\x1fzeta\x7f eta\u0080iota\u009b31mred\u009fkappa\n\r\t theta  "
+	want := "alpha beta gamma delta epsilon zeta eta iota 31mred kappa theta"
 	if got := sanitizeForModel(in); got != want {
 		t.Fatalf("sanitizeForModel() = %q, want %q", got, want)
 	}
@@ -43,6 +44,25 @@ func TestSanitizeForDisplayStripsControlsAndNormalizesWhitespaceWithoutTruncatin
 	want := "alpha forged claim " + strings.Repeat("界", 200)
 	if got := SanitizeForDisplay(in); got != want {
 		t.Fatalf("SanitizeForDisplay() = %q, want %q", got, want)
+	}
+}
+
+func TestSanitizeForDisplayStripsC1ControlsAndPreservesOtherUnicode(t *testing.T) {
+	in := "alpha\u0080beta\u0085gamma\u009b31mred\u009fdelta cafe界\u200d"
+	want := "alpha beta gamma 31mred delta cafe界\u200d"
+	got := SanitizeForDisplay(in)
+	if got != want {
+		t.Fatalf("SanitizeForDisplay() = %q, want %q", got, want)
+	}
+	for _, payload := range []string{"\u0080", "\u009b31m", "\u009f"} {
+		if strings.Contains(got, payload) {
+			t.Errorf("SanitizeForDisplay() retained control payload %q in %q", payload, got)
+		}
+	}
+	for _, r := range got {
+		if unicode.IsControl(r) {
+			t.Errorf("SanitizeForDisplay() retained Unicode control %U in %q", r, got)
+		}
 	}
 }
 

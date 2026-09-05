@@ -5,6 +5,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 const maxModelFacingRunes = 200
@@ -18,7 +19,7 @@ var waiverIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 func SanitizeForDisplay(s string) string {
 	var b strings.Builder
 	for _, r := range s {
-		if r < 0x20 || r == 0x7f {
+		if unicode.IsControl(r) {
 			b.WriteRune(' ')
 			continue
 		}

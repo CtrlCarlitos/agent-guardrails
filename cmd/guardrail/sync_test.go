@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -35,7 +36,12 @@ func assertTerminalRecords(t *testing.T, output string, want int) []string {
 		t.Fatalf("terminal output has %d records, want %d: %q", len(records), want, output)
 	}
 	for _, record := range records {
-		if strings.IndexFunc(record, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
+		for _, payload := range []string{"\u0080", "\u009b31m", "\u009f"} {
+			if strings.Contains(record, payload) {
+				t.Fatalf("terminal record contains control payload %q: %q", payload, record)
+			}
+		}
+		if strings.IndexFunc(record, unicode.IsControl) >= 0 {
 			t.Fatalf("terminal record contains a control character: %q", record)
 		}
 	}
@@ -290,16 +296,16 @@ func TestSyncSanitizesEveryMergeWarningWithoutCapping(t *testing.T) {
 	gitInitSync(t, dir)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	egress := []string{`"evil\nforged\tentry\u007f"`, `"` + strings.Repeat("x", 250) + `"`}
+	egress := []string{`"evil\nforged\tentry\u007f\u0080\u009b31m\u009f"`, `"` + strings.Repeat("x", 250) + `"`}
 	for i := range 20 {
 		egress = append(egress, fmt.Sprintf("%q", fmt.Sprintf("host-%02d.example", i)))
 	}
-	overlay := `audit_log = "/outside/audit\nforged\tpath\u007f"
-waive = ["P1.rm-rf\nforged\twaiver\u007f"]
+	overlay := `audit_log = "/outside/audit\nforged\tpath\u007f\u0080\u009b31m\u009f"
+waive = ["P1.rm-rf\nforged\twaiver\u007f\u0080\u009b31m\u009f"]
 
 [slots]
-safe_roots = ["/outside/safe\nforged\troot\u007f"]
-secret_allow = ["secret\nforged\tallow\u007f"]
+safe_roots = ["/outside/safe\nforged\troot\u007f\u0080\u009b31m\u009f"]
+secret_allow = ["secret\nforged\tallow\u007f\u0080\u009b31m\u009f"]
 egress_allowlist = [` + strings.Join(egress, ", ") + "]\n"
 	if err := os.WriteFile(filepath.Join(dir, "guardrail.toml"), []byte(overlay), 0o644); err != nil {
 		t.Fatal(err)
@@ -318,7 +324,7 @@ egress_allowlist = [` + strings.Join(egress, ", ") + "]\n"
 		t.Fatalf("egress warnings were lost or combined: %q", errb.String())
 	}
 	for _, marker := range []string{
-		"safe forged root outside the repository",
+		"safe forged root 31m outside the repository",
 		"evil forged entry",
 		strings.Repeat("x", 250),
 		"secret protection remains ENFORCED",
@@ -340,12 +346,12 @@ egress_allowlist = [` + strings.Join(egress, ", ") + "]\n"
 }
 
 func TestSyncSanitizesWarningCallbackAndSuccessfulTargetPath(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "repo\nsynced opencode -> forged\t\x1b[31m\x7f")
+	dir := filepath.Join(t.TempDir(), "repo\nsynced opencode -> forged\t\x1b[31m\x7f\u0080\u009b31m\u009f")
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	gitInitSync(t, dir)
-	t.Setenv("GUARDRAIL_CONFIG", filepath.Join(dir, "missing\nsynced antigravity -> forged\t\x1b[32m\x7f.toml"))
+	t.Setenv("GUARDRAIL_CONFIG", filepath.Join(dir, "missing\nsynced antigravity -> forged\t\x1b[32m\x7f\u0080\u009b31m\u009f.toml"))
 
 	var out, errb bytes.Buffer
 	code := run([]string{"sync", "--dir", dir, "--planes", "claude", "--binary", "guardrail"}, strings.NewReader(""), &out, &errb)
@@ -357,7 +363,7 @@ func TestSyncSanitizesWarningCallbackAndSuccessfulTargetPath(t *testing.T) {
 	if !strings.HasPrefix(outRecords[0], "synced claude -> ") {
 		t.Fatalf("successful target forged a sync status: %q", out.String())
 	}
-	if !strings.Contains(errRecords[0], "missing synced antigravity -> forged [32m .toml") {
+	if !strings.Contains(errRecords[0], "missing synced antigravity -> forged [32m 31m .toml") {
 		t.Fatalf("overlay lookup warning path was not sanitized: %q", errb.String())
 	}
 }
@@ -365,7 +371,7 @@ func TestSyncSanitizesWarningCallbackAndSuccessfulTargetPath(t *testing.T) {
 func TestSyncSanitizesEverySuccessfulTargetPath(t *testing.T) {
 	for _, plane := range []string{"claude", "opencode", "antigravity"} {
 		t.Run(plane, func(t *testing.T) {
-			dir := filepath.Join(t.TempDir(), "repo\nsynced forged\t\x1b[31m\x7f")
+			dir := filepath.Join(t.TempDir(), "repo\nsynced forged\t\x1b[31m\x7f\u0080\u009b31m\u009f")
 			if err := os.Mkdir(dir, 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -393,7 +399,7 @@ func TestSyncSanitizesSyncPlaneErrorsAndUnknownName(t *testing.T) {
 		{plane: "antigravity", blocker: ".agents"},
 	} {
 		t.Run(tt.plane, func(t *testing.T) {
-			dir := filepath.Join(t.TempDir(), "repo\nforged status\t\x1b[31m\x7f")
+			dir := filepath.Join(t.TempDir(), "repo\nforged status\t\x1b[31m\x7f\u0080\u009b31m\u009f")
 			if err := os.Mkdir(dir, 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -414,9 +420,9 @@ func TestSyncSanitizesSyncPlaneErrorsAndUnknownName(t *testing.T) {
 	}
 
 	var out, errb bytes.Buffer
-	syncPlane("evil\nsynced forged\t\x1b[31m\x7f", t.TempDir(), "guardrail", &policy.Policy{}, &out, &errb)
+	syncPlane("evil\nsynced forged\t\x1b[31m\x7f\u0080\u009b31m\u009f", t.TempDir(), "guardrail", &policy.Policy{}, &out, &errb)
 	records := assertTerminalRecords(t, errb.String(), 1)
-	if records[0] != `guardrail: sync: unknown plane "evil synced forged [31m", skipping` {
+	if records[0] != `guardrail: sync: unknown plane "evil synced forged [31m 31m", skipping` {
 		t.Fatalf("unknown plane diagnostic = %q", errb.String())
 	}
 }
@@ -428,7 +434,7 @@ func TestSyncSanitizesResolvedBinaryAndFlagParserErrors(t *testing.T) {
 		t.Setenv("PATH", t.TempDir())
 
 		var out, errb bytes.Buffer
-		code := run([]string{"sync", "--dir", dir, "--planes", "opencode", "--binary", "missing\nsynced forged\t\x1b[31m\x7f"}, strings.NewReader(""), &out, &errb)
+		code := run([]string{"sync", "--dir", dir, "--planes", "opencode", "--binary", "missing\nsynced forged\t\x1b[31m\x7f\u0080\u009b31m\u009f"}, strings.NewReader(""), &out, &errb)
 		if code != 2 {
 			t.Fatalf("exit=%d, want 2", code)
 		}
@@ -440,7 +446,7 @@ func TestSyncSanitizesResolvedBinaryAndFlagParserErrors(t *testing.T) {
 
 	t.Run("flag parser", func(t *testing.T) {
 		var out, errb bytes.Buffer
-		code := run([]string{"sync", "--unknown\nsynced forged\t\x1b[31m\x7f"}, strings.NewReader(""), &out, &errb)
+		code := run([]string{"sync", "--unknown\nsynced forged\t\x1b[31m\x7f\u0080\u009b31m\u009f"}, strings.NewReader(""), &out, &errb)
 		if code != 2 {
 			t.Fatalf("exit=%d, want 2", code)
 		}
@@ -478,7 +484,7 @@ decision = "allow\tforged\u007f"
 	t.Run("operator config", func(t *testing.T) {
 		dir := t.TempDir()
 		gitInitSync(t, dir)
-		configHome := filepath.Join(t.TempDir(), "config\nsynced forged\t\x1b[31m\x7f")
+		configHome := filepath.Join(t.TempDir(), "config\nsynced forged\t\x1b[31m\x7f\u0080\u009b31m\u009f")
 		configDir := filepath.Join(configHome, "guardrail")
 		if err := os.MkdirAll(configDir, 0o755); err != nil {
 			t.Fatal(err)
