@@ -12,6 +12,12 @@ Installed globally via dotfiles; each project layers its own rules in a committe
 
 ## Status
 
+The [2026-09-04 adversarial security review](./docs/reviews/2026-09-04-adversarial-review.md)
+identified the current remediation roadmap. Phase 1 remediation has landed in this
+repository; Phases 2–4 remain outstanding. The M-9 installer fix and Task 10b tooling
+are committed separately on chezmoi branch `guardrail-remediation-phase1`, which
+remains unmerged and unapplied; the installer pin has not been bumped.
+
 The original plan series is complete: Plans 1–6 + the git -C/-c hotfix (v0.4.1) +
 the deployment plan, and Plan 7 (P8 recipes + `guardrail sync`) finished it off.
 `guardrail hook claude` enforces P1/P2/P4/P5/P6, escalates via a two-signal P7
