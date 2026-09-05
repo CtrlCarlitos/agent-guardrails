@@ -356,6 +356,76 @@ func TestOperatorConfigOpaquePathScannerControls(t *testing.T) {
 	}
 }
 
+func TestOperatorConfigOpaqueQuotedPaths(t *testing.T) {
+	deny := []struct {
+		name    string
+		command string
+	}{
+		{"single quoted path", `python3 -c "open('/home/u/.config/a b/../guardrail/waivers.toml', 'w')"`},
+		{"double quoted path", `python3 -c 'open("/home/u/.config/a b/../guardrail/waivers.toml", "w")'`},
+		{"backtick quoted path", "node -e 'require(\"fs\").writeFileSync(`/home/u/.config/a b/../guardrail/waivers.toml`, \"x\")'"},
+		{"escaped quote in path", `python3 -c 'open("/home/u/.config/a\" b/../guardrail/waivers.toml", "w")'`},
+	}
+	for _, test := range deny {
+		t.Run(test.name, func(t *testing.T) {
+			tc := ToolCall{Tool: "Bash", Command: test.command, RepoRoot: "/repo", CWD: "/repo"}
+			if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
+				t.Fatalf("Bash %q -> %+v, want deny/P5.self-config", test.command, v)
+			}
+		})
+	}
+}
+
+func TestOperatorConfigOpaqueFileURLs(t *testing.T) {
+	deny := []struct {
+		name    string
+		command string
+	}{
+		{"percent encoded path", `python3 -c "open('file:///home/u/.config/a%20b/../guardrail/waivers.toml', 'w')"`},
+		{"localhost path", `node -e "console.log('file://localhost/home/u/.config/%67uardrail/waivers.toml')"`},
+		{"Windows drive path", `pwsh -Command "Write-Output file:///C:/Users/u/.config/guardrail/waivers.toml"`},
+		{"malformed percent escape", `python3 -c "print('file:///home/u/.config/guardrail/waivers.toml%ZZ')"`},
+	}
+	for _, test := range deny {
+		t.Run(test.name, func(t *testing.T) {
+			tc := ToolCall{Tool: "Bash", Command: test.command, RepoRoot: "/repo", CWD: "/repo"}
+			if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
+				t.Fatalf("Bash %q -> %+v, want deny/P5.self-config", test.command, v)
+			}
+		})
+	}
+}
+
+func TestOperatorConfigOpaqueCaseInsensitivePaths(t *testing.T) {
+	tc := ToolCall{
+		Tool:     "Bash",
+		Command:  `pwsh -Command 'Set-Content C:\Users\u\.CONFIG\GuardRail\WAIVERS.TOML x'`,
+		RepoRoot: "/repo",
+		CWD:      "/repo",
+	}
+	if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
+		t.Fatalf("mixed-case Windows Operator path -> %+v, want deny/P5.self-config", v)
+	}
+}
+
+func TestOperatorConfigOpaqueRoundTwoControls(t *testing.T) {
+	allow := []struct {
+		name    string
+		command string
+	}{
+		{"HTTPS path text", `node -e "console.log('https://docs.example/.CONFIG/GuardRail/WAIVERS.TOML')"`},
+		{"separate mixed-case fragments", `python3 -c "p='/home/u/.CONFIG/' + 'GuardRail/' + 'WAIVERS.TOML'; open(p, 'w')"`},
+	}
+	for _, test := range allow {
+		t.Run(test.name, func(t *testing.T) {
+			tc := ToolCall{Tool: "Bash", Command: test.command, RepoRoot: "/repo", CWD: "/repo"}
+			if v := checkPaths(tc, pathPol()); v != nil {
+				t.Fatalf("Bash %q -> %+v, want nil", test.command, v)
+			}
+		})
+	}
+}
+
 func TestSelfConfigAndGitProtectedAllowReads(t *testing.T) {
 	allow := []string{
 		"/repo/CLAUDE.md", "/repo/AGENTS.md",

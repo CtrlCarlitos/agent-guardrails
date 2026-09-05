@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"net/url"
 	"path"
 	"path/filepath"
 	"strings"
@@ -383,39 +384,86 @@ func checkSelfConfig(tc ToolCall) *policy.Verdict {
 }
 
 func containsOperatorConfigPath(arg string) bool {
-	fragments := strings.FieldsFunc(arg, func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !strings.ContainsRune(`/\._-$~:%@+`, r)
-	})
-	for _, fragment := range fragments {
-		normalized := strings.ReplaceAll(fragment, `\`, "/")
-		if isURLFragment(normalized) {
-			continue
-		}
-		cleaned := path.Clean(normalized)
-		if strings.Contains(cleaned, "/.config/guardrail/") || strings.Contains(cleaned, "/guardrail/waivers.toml") {
+	for _, candidate := range visiblePathCandidates(arg) {
+		if matchesOperatorConfigPath(candidate) {
 			return true
 		}
 	}
 	return false
 }
 
-func isURLFragment(fragment string) bool {
-	colon := strings.Index(fragment, "://")
-	if colon <= 0 || colon == 1 && isASCIILetter(fragment[0]) {
-		return false
-	}
-	for i := 0; i < colon; i++ {
-		c := fragment[i]
-		if isASCIILetter(c) || i > 0 && (c >= '0' && c <= '9' || c == '+' || c == '-' || c == '.') {
+func visiblePathCandidates(arg string) []string {
+	var candidates []string
+	var unquoted strings.Builder
+	for i := 0; i < len(arg); {
+		if arg[i] != '\'' && arg[i] != '"' && arg[i] != '`' {
+			unquoted.WriteByte(arg[i])
+			i++
 			continue
 		}
-		return false
+		literal, next, ok := quotedLiteral(arg, i)
+		if !ok {
+			unquoted.WriteString(arg[i:])
+			break
+		}
+		candidates = append(candidates, literal)
+		unquoted.WriteByte(' ')
+		i = next
 	}
-	return true
+	tokens := strings.FieldsFunc(unquoted.String(), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !strings.ContainsRune(`/\._-$~:%@+`, r)
+	})
+	return append(candidates, tokens...)
+}
+
+func quotedLiteral(source string, start int) (string, int, bool) {
+	quote := source[start]
+	var literal strings.Builder
+	for i := start + 1; i < len(source); i++ {
+		if source[i] == quote {
+			return literal.String(), i + 1, true
+		}
+		if source[i] == '\\' && i+1 < len(source) && (source[i+1] == quote || source[i+1] == '\\') {
+			i++
+		}
+		literal.WriteByte(source[i])
+	}
+	return "", start, false
+}
+
+func matchesOperatorConfigPath(candidate string) bool {
+	normalized := strings.ReplaceAll(candidate, `\`, "/")
+	parsed, err := url.Parse(normalized)
+	if err != nil {
+		return matchesNormalizedOperatorConfigPath(normalized)
+	}
+	if parsed.Scheme != "" && !isWindowsDrivePath(normalized) {
+		if !strings.EqualFold(parsed.Scheme, "file") {
+			return false
+		}
+		if parsed.Host != "" && !strings.EqualFold(parsed.Host, "localhost") {
+			return false
+		}
+		decoded, err := url.PathUnescape(parsed.EscapedPath())
+		if err != nil {
+			return matchesNormalizedOperatorConfigPath(normalized)
+		}
+		normalized = decoded
+	}
+	return matchesNormalizedOperatorConfigPath(normalized)
+}
+
+func isWindowsDrivePath(candidate string) bool {
+	return len(candidate) >= 3 && isASCIILetter(candidate[0]) && candidate[1] == ':' && candidate[2] == '/'
 }
 
 func isASCIILetter(c byte) bool {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
+
+func matchesNormalizedOperatorConfigPath(candidate string) bool {
+	cleaned := strings.ToLower(path.Clean(strings.ReplaceAll(candidate, `\`, "/")))
+	return strings.Contains(cleaned, "/.config/guardrail/") || strings.Contains(cleaned, "/guardrail/waivers.toml")
 }
 
 func isOpaqueExecutor(executable string) bool {
