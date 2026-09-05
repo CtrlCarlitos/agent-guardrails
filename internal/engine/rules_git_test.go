@@ -85,8 +85,8 @@ func TestGitPushRefspecForms(t *testing.T) {
 		`git push origin HEAD:refs/heads/main`:     "P2.git-push-protected",
 		`git push origin HEAD:refs/heads/master`:   "P2.git-push-protected",
 		`git push origin :refs/heads/feature-gone`: "P2.git-push-delete",
-		`git push --repo origin main`:              "P2.git-push-protected",
-		`git push --repo=origin main`:              "P2.git-push-protected",
+		`git push --repo default origin main`:      "P2.git-push-protected",
+		`git push --repo=default origin main`:      "P2.git-push-protected",
 	}
 	for c, id := range ask {
 		v := evalBash(t, c)
@@ -106,9 +106,70 @@ func TestGitPushRefspecParsingSkipsRemoteAndOptionValues(t *testing.T) {
 		`git push --push-option main origin feature-x`,
 		`git push origin -o main feature-x`,
 		`git push --repo main feature-x`,
+		`git push --repo origin main`,
+		`git push --repo=origin main`,
 	} {
 		if v := evalBash(t, c); v != nil {
 			t.Errorf("%q -> %+v, want nil", c, v)
+		}
+	}
+}
+
+func TestGitPushForceRefspecOutranksEarlierAsk(t *testing.T) {
+	for _, c := range []string{
+		`git push origin main +feature`,
+		`git push origin :old +feature`,
+	} {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P2.git-push-force" {
+			t.Errorf("%q -> %+v, want deny/P2.git-push-force", c, v)
+		}
+	}
+}
+
+func TestGitPushDeleteFlagsAsk(t *testing.T) {
+	for _, c := range []string{
+		`git push -d origin old`,
+		`git push --delete origin old`,
+		`git push origin -d old`,
+		`git push origin --delete old`,
+	} {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P2.git-push-delete" {
+			t.Errorf("%q -> %+v, want ask/P2.git-push-delete", c, v)
+		}
+	}
+}
+
+func TestGitPushForceParsingIgnoresValuesAndLiteralOperands(t *testing.T) {
+	for _, c := range []string{
+		`git push -o --force origin feature`,
+		`git push -o--force origin feature`,
+		`git push --push-option --force origin feature`,
+		`git push --push-option=--force origin feature`,
+		`git push -- --force`,
+		`git push origin -- --force`,
+		`git push -- -f`,
+		`git push -of origin feature`,
+	} {
+		if v := evalBash(t, c); v != nil {
+			t.Errorf("%q -> %+v, want nil", c, v)
+		}
+	}
+}
+
+func TestGitPushForceControlsStillDeny(t *testing.T) {
+	for _, c := range []string{
+		`git push -f origin feature`,
+		`git push -qf origin feature`,
+		`git push -fq origin feature`,
+		`git push --force origin feature`,
+		`git push --force-with-lease origin feature`,
+		`git push --force-with-lease=main:expect origin feature`,
+	} {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.git-push-force" {
+			t.Errorf("%q -> %+v, want deny/P1.git-push-force", c, v)
 		}
 	}
 }

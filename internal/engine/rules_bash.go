@@ -116,7 +116,8 @@ func checkGit(s Simple) *policy.Verdict {
 	sub := gitSubcommand(s.Argv)
 	switch sub {
 	case "push":
-		if hasAnyFlag(s.Argv, "f", "--force", "--force-with-lease") {
+		args := parseGitPushArgs(s.Argv)
+		if args.force {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.git-push-force",
 				Reason: "git push --force overwrites remote history"}
 		}
@@ -149,10 +150,18 @@ var gitValuelessGlobals = map[string]bool{
 // gitSubcommand returns the git subcommand (e.g. "push", "config"), correctly
 // skipping global options that take a separate value token before it.
 func gitSubcommand(argv []string) string {
+	i := gitSubcommandIndex(argv)
+	if i < 0 {
+		return ""
+	}
+	return argv[i]
+}
+
+func gitSubcommandIndex(argv []string) int {
 	for i := 1; i < len(argv); {
 		a := argv[i]
 		if !strings.HasPrefix(a, "-") {
-			return a
+			return i
 		}
 		if gitValueFlags[a] {
 			i += 2
@@ -160,7 +169,7 @@ func gitSubcommand(argv []string) string {
 		}
 		i++
 	}
-	return ""
+	return -1
 }
 
 // gitSubcommandArg returns the token immediately after the git subcommand
@@ -170,19 +179,9 @@ func gitSubcommand(argv []string) string {
 // later token, which bypassed the reflog/remote/stash rules exactly the way
 // the subcommand misparse did.
 func gitSubcommandArg(argv []string) string {
-	for i := 1; i < len(argv); {
-		a := argv[i]
-		if !strings.HasPrefix(a, "-") {
-			if i+1 < len(argv) {
-				return argv[i+1]
-			}
-			return ""
-		}
-		if gitValueFlags[a] {
-			i += 2
-			continue
-		}
-		i++
+	i := gitSubcommandIndex(argv)
+	if i >= 0 && i+1 < len(argv) {
+		return argv[i+1]
 	}
 	return ""
 }

@@ -65,17 +65,22 @@ func checkGitSafety(s Simple) *policy.Verdict {
 				Reason: "discards stashed work with no reflog for the stash contents"}
 		}
 	case "push":
-		if hasAnyFlag(s.Argv, "f", "--force", "--force-with-lease") {
+		args := parseGitPushArgs(s.Argv)
+		if args.force {
 			return nil // P1.git-push-force (checkGit) already denies this; don't duplicate
 		}
-		for _, a := range gitPushRefspecs(s.Argv) {
+		var forceRefspec, deleteRefspec string
+		protected := false
+		for _, a := range args.refspecs {
 			if strings.HasPrefix(a, "+") {
-				return &policy.Verdict{Decision: policy.Deny, RuleID: "P2.git-push-force",
-					Reason: "a leading + in a refspec is a force push: " + a}
+				if forceRefspec == "" {
+					forceRefspec = a
+				}
 			}
 			if strings.HasPrefix(a, ":") {
-				return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-push-delete",
-					Reason: "an empty source in a refspec deletes the remote ref: " + a}
+				if deleteRefspec == "" {
+					deleteRefspec = a
+				}
 			}
 			dst := a
 			if i := strings.LastIndex(a, ":"); i >= 0 {
@@ -83,11 +88,25 @@ func checkGitSafety(s Simple) *policy.Verdict {
 			}
 			dst = strings.TrimPrefix(dst, "refs/heads/")
 			if dst == "main" || dst == "master" {
-				return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-push-protected",
-					Reason: "push to a protected branch"}
+				protected = true
 			}
 		}
-		if hasAnyFlag(s.Argv, "", "--tags") {
+		if forceRefspec != "" {
+			return &policy.Verdict{Decision: policy.Deny, RuleID: "P2.git-push-force",
+				Reason: "a leading + in a refspec is a force push: " + forceRefspec}
+		}
+		if args.delete || deleteRefspec != "" {
+			reason := "git push --delete deletes remote refs"
+			if deleteRefspec != "" {
+				reason = "an empty source in a refspec deletes the remote ref: " + deleteRefspec
+			}
+			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-push-delete", Reason: reason}
+		}
+		if protected {
+			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-push-protected",
+				Reason: "push to a protected branch"}
+		}
+		if args.tags {
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-push-protected",
 				Reason: "pushing tags can overwrite released versions"}
 		}
@@ -105,24 +124,23 @@ var gitPushValueFlags = map[string]bool{
 	"--negotiation-tip": true,
 }
 
-func gitPushRefspecs(argv []string) []string {
-	i := 1
-	for i < len(argv) && strings.HasPrefix(argv[i], "-") {
-		if gitValueFlags[argv[i]] {
-			i += 2
-		} else {
-			i++
-		}
-	}
-	if i >= len(argv) || argv[i] != "push" {
-		return nil
+type gitPushArgs struct {
+	force    bool
+	delete   bool
+	tags     bool
+	refspecs []string
+}
+
+func parseGitPushArgs(argv []string) gitPushArgs {
+	var args gitPushArgs
+	i := gitSubcommandIndex(argv)
+	if i < 0 || argv[i] != "push" {
+		return args
 	}
 
 	i++
-	repositoryFromFlag := false
 	repositorySeen := false
 	optionsEnded := false
-	var refspecs []string
 	for i < len(argv) {
 		a := argv[i]
 		if !optionsEnded && a == "--" {
@@ -130,13 +148,26 @@ func gitPushRefspecs(argv []string) []string {
 			i++
 			continue
 		}
-		if !optionsEnded && strings.HasPrefix(a, "-") {
+		if !optionsEnded && strings.HasPrefix(a, "--") {
 			base := a
 			if eq := strings.IndexByte(a, '='); eq >= 0 {
 				base = a[:eq]
 			}
-			if base == "--repo" {
-				repositoryFromFlag = true
+			switch base {
+			case "--force-with-lease":
+				args.force = true
+			case "--force":
+				if base == a {
+					args.force = true
+				}
+			case "--delete":
+				if base == a {
+					args.delete = true
+				}
+			case "--tags":
+				if base == a {
+					args.tags = true
+				}
 			}
 			if gitPushValueFlags[base] && base == a {
 				i += 2
@@ -145,15 +176,35 @@ func gitPushRefspecs(argv []string) []string {
 			}
 			continue
 		}
-		if !repositoryFromFlag && !repositorySeen {
+		if !optionsEnded && strings.HasPrefix(a, "-") && len(a) > 1 {
+			consumeNext := false
+			for j := 1; j < len(a); j++ {
+				switch a[j] {
+				case 'f':
+					args.force = true
+				case 'd':
+					args.delete = true
+				case 'o':
+					consumeNext = j == len(a)-1
+					j = len(a)
+				}
+			}
+			if consumeNext {
+				i += 2
+			} else {
+				i++
+			}
+			continue
+		}
+		if !repositorySeen {
 			repositorySeen = true
 			i++
 			continue
 		}
-		refspecs = append(refspecs, a)
+		args.refspecs = append(args.refspecs, a)
 		i++
 	}
-	return refspecs
+	return args
 }
 
 var gitProtectedGlobs = []string{"**/.git/config", "**/.git/hooks/**"}
