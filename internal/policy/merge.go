@@ -95,7 +95,7 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 
 	for _, waiver := range ov.Waive {
 		if neverWaivable[waiver] {
-			warns = append(warns, "guardrail: rule "+waiver+" can never be waived (fail-closed backstop) — request IGNORED")
+			warns = append(warns, "guardrail: rule "+waiver+" can never be waived (fail-closed backstop) — request DROPPED")
 			continue
 		}
 		if op.AllowsWaiver(repoRoot, waiver) {

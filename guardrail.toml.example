@@ -5,33 +5,31 @@
 engine_min_version = "0.1"
 
 # Optional: request a different audit-log stream for this repo. This takes
-# effect only when the Operator config grants `audit_log = true` to this repo.
+# effect only when the exact cleaned absolute repository path in the Operator
+# config grants `audit_log = true`.
 # audit_log = ".agents/guardrail.jsonl"
+
+# Switch a Base rule off for this project. This is a Waiver request, not a
+# grant: it takes effect only when the exact cleaned absolute repository path
+# in the Operator config lists this exact rule ID in `waive`. An unauthorized
+# request is dropped, the rule stays enforced, and the refusal is reported by
+# `guardrail doctor` and in Claude's SessionStart posture.
+# waive = ["P7.trifecta"]
 
 [slots]
 # Fill the Base policy's parameterized holes.
 # `secret_allow` entries require an Operator config grant. `safe_roots` has no
 # such grant: every entry must resolve inside this repository or it is dropped.
-# Every `egress_allowlist` entry needs an exact per-repository Operator config
-# grant. Total wildcards `*` and `**` are always dropped, even when granted.
-safe_roots        = ["./tmp", "./.cache"]              # P1: rm -rf permitted here
-egress_allowlist  = ["api.github.com"]                 # P6: hosts curl/wget may reach
-ephemeral_db_glob = "*_scratch"                        # P11 (overlay): DBs safe to mutate
-container_scheme  = "{project}-{worktree}-{service}"   # P1 docker guard: real container names
-
-[recipes]
-# Which language recipes are active here, and any per-tier command overrides.
-enabled = ["go", "python"]
+# Every `egress_allowlist` entry needs a grant containing the exact same string
+# under this exact cleaned absolute repository path in the Operator config.
+# Total wildcards `*` and `**` are always dropped, even when granted.
+safe_roots       = ["./tmp", "./.cache"] # P1: rm -rf permitted here
+egress_allowlist = ["api.github.com"]    # P6: hosts curl/wget may reach
 
 # Extra project rules (added to the Base).
 [[rules]]
-match   = "terraform apply*"
-verdict = "ask"
-reason  = "infra change — human in the loop"
-
-# Switch a Base rule off for this project. This is a REQUEST, not a grant:
-# it takes effect only if the operator has authorized this repo for this rule
-# in the Operator config (see docs/operator-config.md and ADR-0010).
-# An unauthorized request is dropped, the rule stays enforced, and the refusal
-# is reported by `guardrail doctor` and in Claude's SessionStart posture.
-# waive = ["P7.trifecta"]
+id       = "project.terraform-apply"
+tool     = "Bash"
+pattern  = "terraform apply*"
+decision = "ask"
+reason   = "infrastructure change requires operator review"

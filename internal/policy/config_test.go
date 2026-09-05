@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -102,6 +103,45 @@ waive = ["P6.curl-egress"]
 	}
 	if len(ov.Waive) != 1 || ov.Waive[0] != "P6.curl-egress" {
 		t.Errorf("waive wrong: %v", ov.Waive)
+	}
+}
+
+func TestShippedOverlayExampleLoadsAndMerges(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ov, err := LoadOverlay(filepath.Join(repoRoot, "guardrail.toml.example"))
+	if err != nil {
+		t.Fatalf("shipped Overlay example must load: %v", err)
+	}
+	base, err := LoadBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := &OperatorConfig{Repos: map[string]RepoGrant{
+		repoRoot: {EgressAllowlist: []string{"api.github.com"}},
+	}}
+
+	merged, warns, err := Merge(base, ov, "1.0.0", op, repoRoot)
+	if err != nil {
+		t.Fatalf("shipped Overlay example must merge: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Fatalf("shipped Overlay example produced warnings with exact grants: %v", warns)
+	}
+	want := Rule{
+		ID:       "project.terraform-apply",
+		Tool:     "Bash",
+		Pattern:  "terraform apply*",
+		Decision: Ask,
+		Reason:   "infrastructure change requires operator review",
+	}
+	if !slices.Contains(merged.Rules, want) {
+		t.Fatalf("merged rules do not contain the example rule: %+v", merged.Rules)
+	}
+	if !slices.Contains(merged.Slots.EgressAllowlist, "api.github.com") {
+		t.Fatalf("exactly granted example egress entry was not merged: %v", merged.Slots.EgressAllowlist)
 	}
 }
 

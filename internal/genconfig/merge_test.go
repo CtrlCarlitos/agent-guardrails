@@ -447,7 +447,7 @@ func TestMergeIntoOpencodeObjectGlobalFallback(t *testing.T) {
 			}{
 				{name: "ordinary bash explicit allow", permission: "bash", pattern: "echo hello", want: action},
 				{name: "bash exact deny", permission: "bash", pattern: "audit repository", want: "deny"},
-				{name: "secret exception edit", permission: "edit", pattern: ".env.example", want: action},
+				{name: "secret allow edit", permission: "edit", pattern: ".env.example", want: action},
 				{name: "protected config write", permission: "edit", pattern: "guardrail.toml", want: "deny"},
 				{name: "ordinary scalar read", permission: "read", pattern: "notes/file.txt", want: action},
 				{name: "secret scalar read", permission: "read", pattern: "nested/.ssh/id_rsa", want: "deny"},

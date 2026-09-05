@@ -447,7 +447,7 @@ func TestMergeDroppedRequestWarningsAreStable(t *testing.T) {
 		"guardrail: repo requested secret_allow entries, which are NOT authorized in " + configPath + " — secret protection remains ENFORCED",
 		"guardrail: repo requested audit_log /tmp/audit.jsonl, which is NOT authorized in " + configPath + " — the default audit path is retained",
 		"guardrail: repo requested waiver of P6.egress, which is NOT authorized in " + configPath + " — the rule remains ENFORCED",
-		"guardrail: rule tokenize-failed can never be waived (fail-closed backstop) — request IGNORED",
+		"guardrail: rule tokenize-failed can never be waived (fail-closed backstop) — request DROPPED",
 		"guardrail: binary 1.0.0 is older than this repo's engine_min_version 2.0.0",
 	}
 
