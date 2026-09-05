@@ -1070,5 +1070,45 @@
     "cwd": "/repo",
     "repo_root": "/repo",
     "want": "deny"
+  },
+  {
+    "name": "busybox recursive root delete",
+    "tool": "Bash",
+    "command": "busybox rm -rf /",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "absolute busybox recursive root delete",
+    "tool": "Bash",
+    "command": "/bin/busybox rm -rf /",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "absolute env recursive root delete",
+    "tool": "Bash",
+    "command": "/usr/bin/env rm -rf /",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "absolute bash recursive root delete",
+    "tool": "Bash",
+    "command": "/bin/bash -c 'rm -rf /'",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "absolute docker runner recursive root delete",
+    "tool": "Bash",
+    "command": "/usr/bin/docker run --rm alpine rm -rf /",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
   }
 ]

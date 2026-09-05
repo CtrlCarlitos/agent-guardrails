@@ -244,3 +244,29 @@ func TestNormalizeUnwrapsRunners(t *testing.T) {
 		t.Fatalf("expected an inner {rm -rf /data} simple, got %v", argvs(got))
 	}
 }
+
+func TestNormalizeRecognizesAbsoluteWrappersShellsAndRunners(t *testing.T) {
+	cases := []string{
+		`/usr/bin/env rm -rf /`,
+		`/bin/bash -c 'rm -rf /'`,
+		`/usr/bin/docker run --rm alpine rm -rf /`,
+		`busybox rm -rf /`,
+		`/bin/busybox rm -rf /`,
+	}
+	for _, src := range cases {
+		got, err := Normalize(src)
+		if err != nil {
+			t.Fatalf("Normalize(%q): %v", src, err)
+		}
+		found := false
+		for _, s := range got {
+			if reflect.DeepEqual(s.Argv, []string{"rm", "-rf", "/"}) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Normalize(%q) = %v, want inner {rm -rf /}", src, argvs(got))
+		}
+	}
+}

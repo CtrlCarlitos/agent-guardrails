@@ -80,7 +80,7 @@ loop:
 	for len(argv) > 0 {
 		var rest []string
 		var err error
-		switch head := argv[0]; head {
+		switch head(argv) {
 		case "env":
 			rest, err = consumeEnv(argv[1:])
 		case "timeout":
@@ -113,7 +113,11 @@ loop:
 		return nil, nil
 	}
 	result := []Simple{{Argv: argv, Redirects: s.Redirects, Unresolved: s.Unresolved}}
-	if inner := runnerInner(argv); inner != nil {
+	inner, err := runnerInner(argv)
+	if err != nil {
+		return nil, err
+	}
+	if inner != nil {
 		result = append(result, Simple{Argv: inner, Unresolved: s.Unresolved})
 	}
 	if dashC := shellDashC(argv); dashC != -1 {
@@ -328,7 +332,7 @@ func consumeCommand(argv []string) (rest []string, none bool, err error) {
 }
 
 func shellDashC(argv []string) int {
-	switch argv[0] {
+	switch head(argv) {
 	case "sh", "bash", "zsh", "dash", "ksh":
 		for i := 1; i+1 < len(argv); i++ {
 			if argv[i] == "-c" && argv[i+1] != "" {
@@ -339,11 +343,11 @@ func shellDashC(argv []string) int {
 	return -1
 }
 
-func runnerInner(argv []string) []string {
-	switch argv[0] {
+func runnerInner(argv []string) ([]string, error) {
+	switch head(argv) {
 	case "npx", "uvx", "bunx", "make", "just":
 		if len(argv) > 1 {
-			return argv[1:]
+			return argv[1:], nil
 		}
 	case "docker":
 		if len(argv) > 2 && (argv[1] == "run" || argv[1] == "exec") {
@@ -352,13 +356,21 @@ func runnerInner(argv []string) []string {
 				i++
 			}
 			if i+1 < len(argv) {
-				return argv[i+1:] // skip the image/container token
+				return argv[i+1:], nil // skip the image/container token
 			}
 		}
 	case "devbox", "mise", "nix":
 		if len(argv) > 2 {
-			return argv[2:]
+			return argv[2:], nil
 		}
+	case "busybox":
+		if len(argv) == 1 {
+			return nil, nil
+		}
+		if strings.HasPrefix(argv[1], "-") {
+			return nil, fmt.Errorf("busybox: cannot determine applet from %q; failing closed", argv[1])
+		}
+		return argv[1:], nil
 	}
-	return nil
+	return nil, nil
 }

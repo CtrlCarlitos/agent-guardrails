@@ -47,6 +47,44 @@ func TestAbsolutePathHeadsReachDockerAndAskRules(t *testing.T) {
 	}
 }
 
+func TestNormalizationCannotHideRecursiveRootDelete(t *testing.T) {
+	deny := []string{
+		`busybox rm -rf /`,
+		`/bin/busybox rm -rf /`,
+		`/usr/bin/env rm -rf /`,
+		`/bin/bash -c 'rm -rf /'`,
+		`/usr/bin/docker run --rm alpine rm -rf /`,
+	}
+	for _, c := range deny {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", c, v)
+		}
+	}
+}
+
+func TestNormalizationPreservesSafeCommands(t *testing.T) {
+	allow := []string{
+		`busybox echo ok`,
+		`/bin/busybox echo ok`,
+		`/usr/bin/env printf ok`,
+		`/bin/bash -c 'printf ok'`,
+		`/usr/bin/docker run --rm alpine printf ok`,
+	}
+	for _, c := range allow {
+		if v := evalBash(t, c); v != nil {
+			t.Errorf("%q -> %+v, want allow", c, v)
+		}
+	}
+}
+
+func TestBusyBoxAmbiguousAppletFailsClosed(t *testing.T) {
+	v := evalBash(t, `busybox --unknown rm -rf /`)
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "tokenize-failed" {
+		t.Fatalf("-> %+v, want ask/tokenize-failed", v)
+	}
+}
+
 func TestCheckBashDestructive(t *testing.T) {
 	deny := []string{
 		`rm -rf /`,
