@@ -14,9 +14,9 @@ Installed globally via dotfiles; each project layers its own rules in a committe
 
 The [2026-09-04 adversarial security review](./docs/reviews/2026-09-04-adversarial-review.md)
 identified the current remediation roadmap. Phase 1 is published at `v0.9.0-dev`.
-Phase 3 has landed and is the `v0.11.0-dev` target; publication is pending final task
-and whole-phase reviews. Phases 2 and 4 remain outstanding. The installer pin remains
-at `v0.7.0-dev` and has not been bumped because Phase 2 still contains criticals. The
+Phase 3 and its whole-review hardening are published at `v0.11.0-dev`. Phases 2
+and 4 remain outstanding. The installer pin remains at `v0.7.0-dev` and has not
+been bumped because Phase 2 still contains criticals. The
 M-9 installer fix and Task 10b tooling remain on the separate chezmoi branch
 `guardrail-remediation-phase1`, which is unmerged, unapplied, and unpushed.
 
