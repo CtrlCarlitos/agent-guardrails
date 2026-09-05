@@ -146,7 +146,7 @@ egress_allowlist = ["*"]
 
 func TestDoctorStaleConfig(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	missing := filepath.Join(t.TempDir(), "missing\npolicy warnings:\nwaivers:\t\x7f.toml")
+	missing := filepath.Join(t.TempDir(), strings.Repeat("m", 180), "missing\npolicy warnings:\nwaivers:\t\x7f.toml")
 	t.Setenv("GUARDRAIL_CONFIG", missing)
 	var out, errb bytes.Buffer
 	run([]string{"doctor"}, strings.NewReader(""), &out, &errb)
@@ -161,6 +161,60 @@ func TestDoctorStaleConfig(t *testing.T) {
 	}
 	if countDoctorLine(out.String(), "policy warnings: none") != 1 || countDoctorLine(out.String(), "policy warnings:") != 0 {
 		t.Errorf("stale config forged a policy warning section:\n%s", out.String())
+	}
+}
+
+func TestDoctorDoesNotTruncatePolicyWarningDispositions(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configHome := filepath.Join(t.TempDir(), strings.Repeat("c", 180))
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+	dir := t.TempDir()
+	gitInitSync(t, dir)
+	longSafeRoot := "/outside/" + strings.Repeat("s", 220)
+	longWaiver := "P6." + strings.Repeat("w", 220)
+	longSecret := strings.Repeat("x", 220)
+	longAudit := "/tmp/" + strings.Repeat("a", 220) + ".jsonl"
+	overlay := fmt.Sprintf(`audit_log = %q
+waive = [%q]
+
+[slots]
+safe_roots = [%q]
+secret_allow = [%q]
+`, longAudit, longWaiver, longSafeRoot, longSecret)
+	configPath := filepath.Join(dir, "guardrail.toml")
+	if err := os.WriteFile(configPath, []byte(overlay), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GUARDRAIL_CONFIG", configPath)
+
+	oldCWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldCWD); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	})
+
+	var out, errb bytes.Buffer
+	if code := run([]string{"doctor"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("doctor exit = %d, want 0; stderr=%q", code, errb.String())
+	}
+	operatorConfig := filepath.Join(configHome, "guardrail", "waivers.toml")
+	want := []string{
+		"  - guardrail: repo requested safe_root " + longSafeRoot + " outside the repository — DROPPED",
+		"  - guardrail: repo requested secret_allow entries, which are NOT authorized in " + operatorConfig + " — secret protection remains ENFORCED",
+		"  - guardrail: repo requested audit_log " + longAudit + ", which is NOT authorized in " + operatorConfig + " — the default audit path is retained",
+		"  - guardrail: repo requested waiver of " + longWaiver + ", which is NOT authorized in " + operatorConfig + " — the rule remains ENFORCED",
+	}
+	if bullets := doctorPolicyWarningBullets(t, out.String()); !slices.Equal(bullets, want) {
+		t.Fatalf("long policy warning bullets = %#v, want %#v", bullets, want)
 	}
 }
 

@@ -14,7 +14,7 @@ var waiverIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
 // SanitizeForDisplay makes attacker-influenced text safe to place in a
 // human- or model-facing channel. Control characters are stripped so a crafted
-// path cannot forge additional status lines, and the result is truncated.
+// path cannot forge additional status lines.
 func SanitizeForDisplay(s string) string {
 	var b strings.Builder
 	for _, r := range s {
@@ -24,15 +24,15 @@ func SanitizeForDisplay(s string) string {
 		}
 		b.WriteRune(r)
 	}
-	out := strings.Join(strings.Fields(b.String()), " ")
+	return strings.Join(strings.Fields(b.String()), " ")
+}
+
+func sanitizeForModel(s string) string {
+	out := SanitizeForDisplay(s)
 	if r := []rune(out); len(r) > maxModelFacingRunes {
 		out = string(r[:maxModelFacingRunes]) + "…"
 	}
 	return out
-}
-
-func sanitizeForModel(s string) string {
-	return SanitizeForDisplay(s)
 }
 
 func sanitizeWaiverIDs(ids []string) []string {

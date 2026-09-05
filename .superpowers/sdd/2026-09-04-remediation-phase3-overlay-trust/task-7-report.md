@@ -186,3 +186,84 @@ Result: PASS for every package, including `test` and `test/adversarial`.
 ### Concerns
 
 None.
+
+## Fix Round 2
+
+### Status
+
+Separated terminal-safe normalization from model-only length limiting. Doctor
+now prints complete normalized diagnostics and warning dispositions, while every
+Task 5 model-facing path remains capped at 200 runes plus an ellipsis.
+
+### RED
+
+Focused commands:
+
+```text
+/usr/local/go/bin/go test ./internal/adapter -run 'TestSanitizeForDisplayStripsControlsAndNormalizesWhitespaceWithoutTruncating|TestSanitizeForModelTruncatesAtUnicodeRuneBoundary' -count=1 -v
+/usr/local/go/bin/go test ./cmd/guardrail -run 'TestDoctor(StaleConfig|DoesNotTruncatePolicyWarningDispositions|ShowsEveryPolicyWarningOnceInMergeOrder)$' -count=1 -v
+```
+
+Result: FAIL as expected.
+
+- `SanitizeForDisplay` replaced complete normalized text after rune 200 with an
+  ellipsis.
+- A long missing `GUARDRAIL_CONFIG` lost `but that file does not exist; using
+  base policy only`.
+- Long external safe-root, secret-allow, audit-log, and waiver warnings lost
+  their `DROPPED`, `NOT authorized`, retained-default, and `remains ENFORCED`
+  dispositions.
+- The existing exact 25-warning Doctor section remained green, confirming the
+  defect was per-string truncation rather than a warning-count cap.
+
+### GREEN
+
+Focused commands after implementation and `gofmt`:
+
+```text
+/usr/local/go/bin/go test ./internal/adapter -run 'TestSanitizeForDisplay|TestSanitizeForModel|TestEmitModelWarnings|TestPostureText' -count=1 -v
+/usr/local/go/bin/go test ./cmd/guardrail -run TestDoctor -count=1 -v
+```
+
+Result: PASS.
+
+Full-suite command, run once uncached after implementation and self-review:
+
+```text
+/usr/local/go/bin/go test ./... -count=1
+```
+
+Result: PASS for every package, including `test` and `test/adversarial`.
+
+### Files
+
+- `internal/adapter/sanitize.go`: made `SanitizeForDisplay` return the complete
+  control-stripped, whitespace-normalized string; moved the existing 200-rune
+  truncation into `sanitizeForModel` after its display-sanitizer call.
+- `internal/adapter/sanitize_test.go`: requires a normalized display string over
+  200 runes to remain complete while retaining model truncation coverage.
+- `cmd/guardrail/doctor_test.go`: covers complete long stale-config diagnostics
+  and exact long safe-root, secret-allow, audit-log, and waiver warning bullets.
+- `.superpowers/sdd/2026-09-04-remediation-phase3-overlay-trust/task-7-report.md`:
+  records fix-round evidence and review.
+
+### Self-Review
+
+- Control stripping and whitespace normalization still have one implementation
+  in `SanitizeForDisplay`.
+- `sanitizeForModel` delegates to `SanitizeForDisplay` before applying the same
+  `maxModelFacingRunes` boundary and Unicode-safe ellipsis behavior as Task 5.
+- `sanitizeWarnings` and all model-facing emitters still use
+  `sanitizeForModel`; the 20-warning model list cap is unchanged.
+- Doctor still sanitizes every audited dynamic field, but no terminal field or
+  warning is length-limited.
+- Long discovery and Merge messages retain their complete fixed dispositions.
+- The exact section parser still compares all 25 ordered warning bullets,
+  preventing a Doctor warning-count cap or duplicate section from returning.
+- Existing newline, tab, and DEL injection tests remain green.
+- Doctor labels, output ordering, and exit semantics are unchanged.
+- `gofmt` and `git diff --check` completed cleanly.
+
+### Concerns
+
+None.

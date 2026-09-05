@@ -38,9 +38,9 @@ func TestSanitizeForModelStripsASCIIControlsAndNormalizesWhitespace(t *testing.T
 	}
 }
 
-func TestSanitizeForDisplayStripsControlsNormalizesWhitespaceAndCapsRunes(t *testing.T) {
+func TestSanitizeForDisplayStripsControlsAndNormalizesWhitespaceWithoutTruncating(t *testing.T) {
 	in := "  alpha\nforged\tclaim\x7f " + strings.Repeat("界", 200)
-	want := "alpha forged claim " + strings.Repeat("界", 181) + "…"
+	want := "alpha forged claim " + strings.Repeat("界", 200)
 	if got := SanitizeForDisplay(in); got != want {
 		t.Fatalf("SanitizeForDisplay() = %q, want %q", got, want)
 	}
