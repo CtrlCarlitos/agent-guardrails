@@ -640,6 +640,37 @@ func TestHookSessionStart(t *testing.T) {
 	}
 }
 
+func TestHookSessionStartSurfacesSanitizedUnauthorizedWaiverWarning(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
+	if err := os.WriteFile(cfg, []byte(`waive = ["P6.egress\nforged\twarning\u007fclaim"]`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GUARDRAIL_CONFIG", cfg)
+
+	payload := `{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart"}`
+	var out, errb bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, errb.String())
+	}
+	var got struct {
+		HookSpecificOutput struct {
+			AdditionalContext string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	const warning = "guardrail: repo requested waiver of P6.egress forged warning claim, which is NOT authorized"
+	if strings.Count(got.HookSpecificOutput.AdditionalContext, warning) != 1 {
+		t.Fatalf("SessionStart must contain one sanitized unauthorized-waiver warning: %q", got.HookSpecificOutput.AdditionalContext)
+	}
+	if strings.ContainsAny(got.HookSpecificOutput.AdditionalContext, "\r\t\x00\x7f") {
+		t.Fatalf("SessionStart posture retained injected controls: %q", got.HookSpecificOutput.AdditionalContext)
+	}
+}
+
 func TestHookUsesTopLevelRepoGrantFromSubdirectory(t *testing.T) {
 	_, sub := repoWithAuthorizedWaiver(t)
 	payload := fmt.Sprintf(`{"session_id":"s1","cwd":%q,"hook_event_name":"SessionStart"}`, sub)

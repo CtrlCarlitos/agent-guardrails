@@ -63,8 +63,13 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "merge: ERROR %v\n", err)
 		return 0
 	}
-	for _, w := range warnings {
-		fmt.Fprintf(stdout, "  %s\n", w)
+	if len(warnings) == 0 {
+		fmt.Fprintln(stdout, "policy warnings: none")
+	} else {
+		fmt.Fprintln(stdout, "policy warnings:")
+		for _, w := range warnings {
+			fmt.Fprintf(stdout, "  - %s\n", w)
+		}
 	}
 
 	waived := policy.SortedWaivers(merged)

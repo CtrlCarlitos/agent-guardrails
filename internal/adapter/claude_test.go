@@ -63,6 +63,16 @@ func TestPostureText(t *testing.T) {
 	}
 }
 
+func TestPostureTextSanitizesUnauthorizedWaiverWarningToOneLine(t *testing.T) {
+	warning := "guardrail: repo requested waiver of P6.egress\nforged\twarning\x7fclaim, which is NOT authorized; rule remains ENFORCED"
+	want := "guardrail: repo requested waiver of P6.egress forged warning claim, which is NOT authorized; rule remains ENFORCED"
+
+	paragraphs := strings.Split(PostureText(nil, []string{warning}), "\n\n")
+	if got := paragraphs[len(paragraphs)-1]; got != want {
+		t.Fatalf("PostureText() warning paragraph = %q, want one sanitized line %q", got, want)
+	}
+}
+
 func TestEmitClaudeSessionStart(t *testing.T) {
 	var out bytes.Buffer
 	code := EmitClaudeSessionStart("hello agent", &out)
