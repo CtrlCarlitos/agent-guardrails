@@ -1,14 +1,17 @@
 # A project's Overlay. Commit it (or gitignore it) at the repo root.
-# Merged on top of the shipped Base policy: it may ADD and TIGHTEN, and WAIVE a named
-# Base rule (logged), but never silently turn a Base `deny` into `allow`.
+# Merged on top of the shipped Base policy: it may add and tighten freely. Any
+# request that would loosen the Guardrail Policy needs an Operator config grant.
 
 engine_min_version = "0.1"
 
-# Optional: override the global audit-log stream for this repo.
+# Optional: request a different audit-log stream for this repo. This takes
+# effect only when the Operator config grants `audit_log = true` to this repo.
 # audit_log = ".agents/guardrail.jsonl"
 
 [slots]
 # Fill the Base policy's parameterized holes.
+# `secret_allow` entries require an Operator config grant. `safe_roots` has no
+# such grant: every entry must resolve inside this repository or it is dropped.
 safe_roots        = ["./tmp", "./.cache"]              # P1: rm -rf permitted here
 egress_allowlist  = ["api.github.com"]                 # P6: hosts curl/WebFetch may reach
 ephemeral_db_glob = "*_scratch"                        # P11 (overlay): DBs safe to mutate
@@ -24,5 +27,9 @@ match   = "terraform apply*"
 verdict = "ask"
 reason  = "infra change — human in the loop"
 
-# Switch a Base rule off for this project. Logged on every hit + shown at session start.
-# waive = ["P6"]
+# Switch a Base rule off for this project. This is a REQUEST, not a grant:
+# it takes effect only if the operator has authorized this repo for this rule
+# in the Operator config (see docs/operator-config.md and ADR-0010).
+# An unauthorized request is dropped, the rule stays enforced, and the refusal
+# is reported by `guardrail doctor` and at session start.
+# waive = ["P6.egress"]

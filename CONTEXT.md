@@ -24,8 +24,14 @@ _Avoid_: default policy, global rules
 **Overlay**:
 A project's committed `guardrail.toml`. Adds rules, fills the Base's parameterized
 slots (safe roots, egress allowlist, ephemeral-DB pattern, container-naming scheme,
-formatter tiers), and may `waive` named Base rules.
+formatter tiers), and may request permission to `waive` named Base rules.
 _Avoid_: project config, local policy, override file
+
+**Operator config**:
+Machine-scoped authorization outside any repository. Grants a named repository
+permission to loosen specific rules. A repository's Overlay may request; only the
+Operator config may grant.
+_Avoid_: waiver file, global config, allowlist
 
 **Engine**:
 The single `guardrail` binary (Go) that holds all decision logic: normalize an
@@ -58,6 +64,6 @@ _Avoid_: linter config, toolchain, profile
 
 **Waiver**:
 An entry in an Overlay's `waive = [...]` that switches a named Base rule off for that
-project. Written to the audit log on every hit and printed in the session-start
-banner — never silent.
+project when authorized by the Operator config. Written to the audit log on every hit
+and printed in the session-start banner — never silent.
 _Avoid_: exception, exclusion, ignore
