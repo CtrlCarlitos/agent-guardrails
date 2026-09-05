@@ -48,29 +48,26 @@ func TestEmptySessionIDIsNoOp(t *testing.T) {
 }
 
 func TestPathTraversalSessionIDIsRejected(t *testing.T) {
-	base := filepath.Dir(t.TempDir())
+	root := t.TempDir()
+	base := filepath.Join(root, "state", "nested")
 	t.Setenv("XDG_STATE_HOME", base)
-	t.Cleanup(func() { os.RemoveAll(filepath.Join(base, "guardrail")) })
 
-	outside := filepath.Join("/tmp", "pwned.json")
-	original, readErr := os.ReadFile(outside)
-	if readErr == nil {
-		info, err := os.Stat(outside)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { os.WriteFile(outside, original, info.Mode()) })
-	} else if os.IsNotExist(readErr) {
-		t.Cleanup(func() { os.Remove(outside) })
-	} else {
-		t.Fatal(readErr)
+	const traversalID = "../../../../tmp/pwned"
+	sessionsDir := filepath.Join(base, "guardrail", "sessions")
+	outside := filepath.Join(sessionsDir, traversalID+".json")
+	wantOutside := filepath.Join(root, "tmp", "pwned.json")
+	if outside != wantOutside {
+		t.Fatalf("invalid traversal fixture: target = %q, want %q", outside, wantOutside)
+	}
+	if err := os.MkdirAll(filepath.Dir(outside), 0o700); err != nil {
+		t.Fatal(err)
 	}
 	sentinel := []byte("session traversal test sentinel")
 	if err := os.WriteFile(outside, sentinel, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := Save("../../../../tmp/pwned", &State{SawPrivateRead: true}); err != nil {
+	if err := Save(traversalID, &State{SawPrivateRead: true}); err != nil {
 		t.Fatalf("Save(exact traversal) should no-op, not error: %v", err)
 	}
 	if got, err := os.ReadFile(outside); err != nil || string(got) != string(sentinel) {
@@ -79,7 +76,7 @@ func TestPathTraversalSessionIDIsRejected(t *testing.T) {
 	if err := os.WriteFile(outside, []byte(`{"saw_private_read":true}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := Load("../../../../tmp/pwned")
+	loaded, err := Load(traversalID)
 	if err != nil {
 		t.Fatalf("Load(exact traversal) should no-op, not error: %v", err)
 	}
@@ -99,7 +96,7 @@ func TestPathTraversalSessionIDIsRejected(t *testing.T) {
 			t.Errorf("Save(%q) mutated state during no-op", bad)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(base, "guardrail", "sessions")); !os.IsNotExist(err) {
+	if _, err := os.Stat(sessionsDir); !os.IsNotExist(err) {
 		t.Errorf("unsafe session IDs created the sessions dir: %v", err)
 	}
 
