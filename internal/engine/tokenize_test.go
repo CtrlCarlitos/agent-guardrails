@@ -359,15 +359,17 @@ func TestNormalizeConsumesWrapperFlags(t *testing.T) {
 func TestNormalizeConsumesAddedWrapperOptions(t *testing.T) {
 	cases := []string{
 		`setsid -f --fork -w --wait -c --ctty rm -rf /`,
+		`setsid -fw rm -rf /`,
 		`stdbuf -iL -o 0 -eL rm -rf /`,
 		`stdbuf -o0 rm -rf /`,
 		`stdbuf --input=L --output 0 --error=L rm -rf /`,
 		`ionice -c2 -n 7 -t rm -rf /`,
+		`ionice -tc2 rm -rf /`,
 		`ionice --class 2 --classdata=7 --ignore rm -rf /`,
 		`watch -n2 -d -t -b -e rm -rf /`,
+		`watch -dtn2 rm -rf /`,
 		`watch --interval 2 --differences --no-title rm -rf /`,
-		`chroot --userspec=root --groups wheel /new-root rm -rf /`,
-		`chroot --userspec root --groups=wheel /new-root rm -rf /`,
+		`watch --differences=permanent rm -rf /`,
 	}
 	for _, src := range cases {
 		got, err := Normalize(src)
@@ -388,7 +390,6 @@ func TestNormalizeAddedWrappersHonorOptionTerminator(t *testing.T) {
 		`stdbuf -- rm -rf /`,
 		`ionice -- rm -rf /`,
 		`watch -- rm -rf /`,
-		`chroot -- /new-root rm -rf /`,
 	}
 	for _, src := range cases {
 		got, err := Normalize(src)
@@ -401,6 +402,15 @@ func TestNormalizeAddedWrappersHonorOptionTerminator(t *testing.T) {
 			t.Errorf("Normalize(%q) = %v, want %v", src, argvs(got), want)
 		}
 	}
+
+	got, err := Normalize(`chroot -- /new-root rm -rf /`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Simple{{Argv: []string{"rm", "-rf", "/"}, Unresolved: true}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Normalize chroot -- = %+v, want %+v", got, want)
+	}
 }
 
 func TestNormalizeAddedWrapperErrorsFailClosed(t *testing.T) {
@@ -412,9 +422,17 @@ func TestNormalizeAddedWrapperErrorsFailClosed(t *testing.T) {
 		`chroot --future-option /new-root rm -rf /`,
 		`stdbuf --output`,
 		`ionice --class`,
+		`ionice -tc`,
 		`watch --interval`,
+		`watch -dtn`,
+		`watch`,
 		`chroot --userspec`,
 		`chroot`,
+		`chroot /new-root`,
+		`setsid -fz rm -rf /`,
+		`ionice -tz rm -rf /`,
+		`watch -dtz rm -rf /`,
+		`watch --no-title=value rm -rf /`,
 	}
 	for _, src := range cases {
 		got, err := Normalize(src)
@@ -433,8 +451,6 @@ func TestNormalizeAddedWrappersPreserveRedirectDirections(t *testing.T) {
 		`setsid`,
 		`stdbuf -o0`,
 		`ionice -c2`,
-		`watch -n2`,
-		`chroot /new-root`,
 	} {
 		src := prefix + ` cat < input > output`
 		got, err := Normalize(src)
@@ -450,6 +466,95 @@ func TestNormalizeAddedWrappersPreserveRedirectDirections(t *testing.T) {
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("Normalize(%q) = %+v, want %+v", src, got, want)
 		}
+	}
+}
+
+func TestNormalizeWatchTreatsCommandAsShellSource(t *testing.T) {
+	cases := []struct {
+		src  string
+		want []Simple
+	}{
+		{
+			`watch 'rm -rf /'`,
+			[]Simple{{Argv: []string{"rm", "-rf", "/"}}},
+		},
+		{
+			`watch 'printf ok; rm -rf /'`,
+			[]Simple{{Argv: []string{"printf", "ok"}}, {Argv: []string{"rm", "-rf", "/"}}},
+		},
+		{
+			`watch 'printf ok > /etc/passwd'`,
+			[]Simple{{Argv: []string{"printf", "ok"}, Redirects: []string{"/etc/passwd"}}},
+		},
+		{
+			`watch 'printf ok; cat < inner-input' < outer-input > outer-output`,
+			[]Simple{
+				{Redirects: []string{"outer-output"}, ReadRedirects: []string{"outer-input"}},
+				{Argv: []string{"printf", "ok"}},
+				{Argv: []string{"cat"}, ReadRedirects: []string{"inner-input"}},
+			},
+		},
+		{
+			`watch 'printf ok' > "$TARGET"`,
+			[]Simple{
+				{Redirects: []string{`"$TARGET"`}, Unresolved: true},
+				{Argv: []string{"printf", "ok"}, Unresolved: true},
+			},
+		},
+	}
+	for _, c := range cases {
+		got, err := Normalize(c.src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", c.src, err)
+			continue
+		}
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("Normalize(%q) = %+v, want %+v", c.src, got, c.want)
+		}
+	}
+}
+
+func TestNormalizeChrootDerivationsAreUnresolved(t *testing.T) {
+	for _, src := range []string{
+		`chroot --userspec=root --groups wheel /new-root rm -rf /repo`,
+		`chroot --userspec root --groups=wheel /new-root rm -rf /repo`,
+	} {
+		got, err := Normalize(src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", src, err)
+			continue
+		}
+		want := []Simple{{Argv: []string{"rm", "-rf", "/repo"}, Unresolved: true}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("Normalize(%q) = %+v, want %+v", src, got, want)
+		}
+	}
+
+	got, err := Normalize(`chroot /new-root cat < input > output`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Simple{{
+		Argv:          []string{"cat"},
+		Redirects:     []string{"output"},
+		ReadRedirects: []string{"input"},
+		Unresolved:    true,
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Normalize chroot redirects = %+v, want %+v", got, want)
+	}
+
+	got, err = Normalize(`chroot /new-root command -v git < input > output`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = []Simple{{
+		Redirects:     []string{"output"},
+		ReadRedirects: []string{"input"},
+		Unresolved:    true,
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Normalize empty chroot argv = %+v, want %+v", got, want)
 	}
 }
 
@@ -514,6 +619,51 @@ func TestNormalizeUnwrapsAddedShellC(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("Normalize(%q) = %v, want inner {rm -rf /}", src, argvs(got))
+		}
+	}
+}
+
+func TestNormalizeUnwrapsClusteredShellC(t *testing.T) {
+	for _, src := range []string{
+		`mksh -lc "rm -rf /"`,
+		`ash -lc "rm -rf /"`,
+		`csh -fc "rm -rf /"`,
+		`tcsh -fc "rm -rf /"`,
+	} {
+		got, err := Normalize(src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", src, err)
+			continue
+		}
+		found := false
+		for _, s := range got {
+			if reflect.DeepEqual(s.Argv, []string{"rm", "-rf", "/"}) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Normalize(%q) = %v, want inner {rm -rf /}", src, argvs(got))
+		}
+	}
+}
+
+func TestNormalizeShellCDoesNotScanPositionalOrLongOptions(t *testing.T) {
+	for _, src := range []string{
+		`mksh script -lc "rm -rf /"`,
+		`tcsh script -fc "rm -rf /"`,
+		`bash --rcfile -c "rm -rf /"`,
+		`fish --init-command -c "rm -rf /"`,
+	} {
+		got, err := Normalize(src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", src, err)
+			continue
+		}
+		for _, s := range got {
+			if reflect.DeepEqual(s.Argv, []string{"rm", "-rf", "/"}) {
+				t.Errorf("Normalize(%q) incorrectly exposed inner {rm -rf /}: %v", src, argvs(got))
+			}
 		}
 	}
 }

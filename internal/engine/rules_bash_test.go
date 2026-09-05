@@ -343,11 +343,17 @@ func TestWrapperHoles(t *testing.T) {
 		`ionice rm -rf /`,
 		`chroot /new-root rm -rf /`,
 		`watch rm -rf /`,
+		`watch 'rm -rf /'`,
+		`watch 'printf ok; rm -rf /'`,
 		`fish -c "rm -rf /"`,
 		`csh -c "rm -rf /"`,
 		`tcsh -c "rm -rf /"`,
 		`mksh -c "rm -rf /"`,
 		`ash -c "rm -rf /"`,
+		`mksh -lc "rm -rf /"`,
+		`ash -lc "rm -rf /"`,
+		`csh -fc "rm -rf /"`,
+		`tcsh -fc "rm -rf /"`,
 	}
 	for _, c := range deny {
 		v := evalBash(t, c)
@@ -366,9 +372,17 @@ func TestWrapperUnknownAndMissingArgumentsFailClosed(t *testing.T) {
 		`chroot --future-option /new-root rm -rf /`,
 		`stdbuf --output`,
 		`ionice --class`,
+		`ionice -tc`,
 		`watch --interval`,
+		`watch -dtn`,
+		`watch`,
 		`chroot --userspec`,
 		`chroot`,
+		`chroot /new-root`,
+		`setsid -fz rm -rf /`,
+		`ionice -tz rm -rf /`,
+		`watch -dtz rm -rf /`,
+		`watch --no-title=value rm -rf /`,
 	} {
 		v := evalBash(t, c)
 		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
@@ -383,16 +397,58 @@ func TestAddedWrapperAndShellSafeControls(t *testing.T) {
 		`stdbuf --output=0 printf ok`,
 		`ionice --class 2 printf ok`,
 		`watch --interval=2 printf ok`,
-		`chroot /new-root printf ok`,
+		`watch 'printf ok'`,
+		`watch -dtn2 'printf ok'`,
+		`watch --differences=permanent 'printf ok'`,
 		`fish -c "printf ok"`,
 		`csh -c "printf ok"`,
 		`tcsh -c "printf ok"`,
 		`mksh -c "printf ok"`,
 		`ash -c "printf ok"`,
+		`mksh script -lc "rm -rf /"`,
+		`tcsh script -fc "rm -rf /"`,
+		`bash --rcfile -c "rm -rf /"`,
+		`fish --init-command -c "rm -rf /"`,
 	} {
 		if v := evalBash(t, c); v != nil {
 			t.Errorf("%q -> %+v, want allow", c, v)
 		}
+	}
+}
+
+func TestWatchShellSourceReachesRules(t *testing.T) {
+	cases := map[string]struct {
+		decision policy.Decision
+		ruleID   string
+	}{
+		`watch 'rm -rf /'`:                         {policy.Deny, "P1.rm-rf"},
+		`watch 'printf ok; rm -rf /'`:              {policy.Deny, "P1.rm-rf"},
+		`watch 'printf ok > /etc/passwd'`:          {policy.Ask, "P1.redirect"},
+		`watch --differences=permanent 'rm -rf /'`: {policy.Deny, "P1.rm-rf"},
+	}
+	for command, want := range cases {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != want.decision || v.RuleID != want.ruleID {
+			t.Errorf("%q -> %+v, want %s/%s", command, v, want.decision, want.ruleID)
+		}
+	}
+}
+
+func TestChrootNeverUsesHostPathSafety(t *testing.T) {
+	for _, command := range []string{
+		`chroot /tmp/jail rm -rf /repo`,
+		`chroot /tmp/jail printf ok`,
+		`chroot /tmp/jail`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want ask/P3.unresolved", command, v)
+		}
+	}
+
+	v := evalBash(t, `chroot /tmp/jail rm -rf /`)
+	if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+		t.Errorf("destructive chroot inner command -> %+v, want deny/P1.rm-rf", v)
 	}
 }
 

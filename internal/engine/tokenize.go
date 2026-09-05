@@ -122,6 +122,7 @@ func stripAndUnwrap(s Simple) ([]Simple, error) {
 		return []Simple{s}, nil
 	}
 	argv := s.Argv
+	chrooted := false
 loop:
 	for len(argv) > 0 {
 		var rest []string
@@ -141,8 +142,14 @@ loop:
 			rest, err = consumeIonice(argv[1:])
 		case "watch":
 			rest, err = consumeWatch(argv[1:])
+			if err == nil {
+				return normalizeWatch(s, rest, chrooted)
+			}
 		case "chroot":
 			rest, err = consumeChroot(argv[1:])
+			if err == nil {
+				chrooted = true
+			}
 		case "nohup":
 			rest, err = consumeNoFlags("nohup", argv[1:])
 		case "xargs":
@@ -171,6 +178,7 @@ loop:
 			return nil, nil
 		}
 		s.Argv = argv
+		s.Unresolved = s.Unresolved || chrooted
 		return []Simple{s}, nil
 	}
 	result := []Simple{{Argv: argv, Redirects: s.Redirects, ReadRedirects: s.ReadRedirects, Unresolved: s.Unresolved}}
@@ -188,12 +196,45 @@ loop:
 		}
 		result = append(result, inner...)
 	}
+	if chrooted {
+		for i := range result {
+			result[i].Unresolved = true
+		}
+	}
 	return result, nil
 }
 
 // normalizeShellDashC re-tokenizes the literal text passed to a shell's -c flag.
 func normalizeShellDashC(word string) ([]Simple, error) {
 	return Normalize(word)
+}
+
+func normalizeWatch(outer Simple, argv []string, unresolved bool) ([]Simple, error) {
+	if len(argv) == 0 {
+		return nil, fmt.Errorf("watch: missing command argument; failing closed")
+	}
+	inner, err := Normalize(strings.Join(argv, " "))
+	if err != nil {
+		return nil, err
+	}
+	unresolved = unresolved || outer.Unresolved
+	if unresolved {
+		for i := range inner {
+			inner[i].Unresolved = true
+		}
+	}
+	if len(outer.Redirects) > 0 || len(outer.ReadRedirects) > 0 {
+		metadata := Simple{
+			Redirects:     outer.Redirects,
+			ReadRedirects: outer.ReadRedirects,
+			Unresolved:    unresolved,
+		}
+		return append([]Simple{metadata}, inner...), nil
+	}
+	if unresolved && len(inner) == 0 {
+		return []Simple{{Unresolved: true}}, nil
+	}
+	return inner, nil
 }
 
 func literalText(tok string) (string, bool) {
@@ -243,7 +284,7 @@ func needsValue(wrapper, tok string) error {
 
 // consumeKnownFlags skips options belonging to a wrapper. Unknown options fail
 // closed because guessing their arity could make data look like a command.
-func consumeKnownFlags(name string, argv []string, known, valued map[string]bool) ([]string, error) {
+func consumeKnownFlags(name string, argv []string, known, valued, optional map[string]bool) ([]string, error) {
 	for i := 0; i < len(argv); {
 		a := argv[i]
 		if a == "--" {
@@ -252,33 +293,61 @@ func consumeKnownFlags(name string, argv []string, known, valued map[string]bool
 		if !strings.HasPrefix(a, "-") || a == "-" {
 			return argv[i:], nil
 		}
-		if known[a] {
-			i++
-			continue
-		}
-		if valued[a] {
-			if i+1 >= len(argv) {
-				return nil, needsValue(name, a)
+		if strings.HasPrefix(a, "--") {
+			base := a
+			attached := false
+			if eq := strings.IndexByte(a, '='); eq >= 0 {
+				base, attached = a[:eq], true
 			}
-			i += 2
+			switch {
+			case known[base] && !attached:
+				i++
+			case valued[base]:
+				if attached {
+					i++
+				} else {
+					if i+1 >= len(argv) {
+						return nil, needsValue(name, a)
+					}
+					i += 2
+				}
+			case optional[base]:
+				i++
+			default:
+				return nil, unknownOpt(name, a)
+			}
 			continue
 		}
-		if eq := strings.IndexByte(a, '='); eq >= 0 && valued[a[:eq]] {
-			i++
-			continue
-		}
-		attached := false
-		for flag := range valued {
-			if len(flag) == 2 && strings.HasPrefix(a, flag) && len(a) > len(flag) {
-				attached = true
+
+		consumed := false
+		for j := 1; j < len(a); j++ {
+			flag := "-" + a[j:j+1]
+			switch {
+			case known[flag]:
+				continue
+			case valued[flag]:
+				if j+1 < len(a) {
+					i++
+				} else {
+					if i+1 >= len(argv) {
+						return nil, needsValue(name, flag)
+					}
+					i += 2
+				}
+				consumed = true
+			case optional[flag]:
+				i++
+				consumed = true
+			default:
+				return nil, unknownOpt(name, a)
+			}
+			if consumed {
 				break
 			}
 		}
-		if attached {
+		if !consumed {
 			i++
-			continue
 		}
-		return nil, unknownOpt(name, a)
 	}
 	return nil, nil
 }
@@ -289,7 +358,7 @@ func consumeSetsid(argv []string) ([]string, error) {
 		"-w": true, "--wait": true,
 		"-c": true, "--ctty": true,
 	}
-	return consumeKnownFlags("setsid", argv, known, nil)
+	return consumeKnownFlags("setsid", argv, known, nil, nil)
 }
 
 func consumeStdbuf(argv []string) ([]string, error) {
@@ -298,7 +367,7 @@ func consumeStdbuf(argv []string) ([]string, error) {
 		"-o": true, "--output": true,
 		"-e": true, "--error": true,
 	}
-	return consumeKnownFlags("stdbuf", argv, nil, valued)
+	return consumeKnownFlags("stdbuf", argv, nil, valued, nil)
 }
 
 func consumeIonice(argv []string) ([]string, error) {
@@ -307,28 +376,32 @@ func consumeIonice(argv []string) ([]string, error) {
 		"-c": true, "--class": true,
 		"-n": true, "--classdata": true,
 	}
-	return consumeKnownFlags("ionice", argv, known, valued)
+	return consumeKnownFlags("ionice", argv, known, valued, nil)
 }
 
 func consumeWatch(argv []string) ([]string, error) {
 	known := map[string]bool{
-		"-d": true, "--differences": true,
+		"-d": true,
 		"-t": true, "--no-title": true,
 		"-b": true,
 		"-e": true,
 	}
 	valued := map[string]bool{"-n": true, "--interval": true}
-	return consumeKnownFlags("watch", argv, known, valued)
+	optional := map[string]bool{"--differences": true}
+	return consumeKnownFlags("watch", argv, known, valued, optional)
 }
 
 func consumeChroot(argv []string) ([]string, error) {
 	valued := map[string]bool{"--userspec": true, "--groups": true}
-	rest, err := consumeKnownFlags("chroot", argv, nil, valued)
+	rest, err := consumeKnownFlags("chroot", argv, nil, valued, nil)
 	if err != nil {
 		return nil, err
 	}
 	if len(rest) == 0 {
 		return nil, fmt.Errorf("chroot: missing new-root argument; failing closed")
+	}
+	if len(rest) == 1 {
+		return nil, fmt.Errorf("chroot: missing command argument; failing closed")
 	}
 	return rest[1:], nil
 }
@@ -488,7 +561,11 @@ func shellDashC(argv []string) int {
 	switch head(argv) {
 	case "sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh", "mksh", "ash":
 		for i := 1; i+1 < len(argv); i++ {
-			if argv[i] == "-c" && argv[i+1] != "" {
+			option := argv[i]
+			if option == "-" || option == "--" || !strings.HasPrefix(option, "-") || strings.HasPrefix(option, "--") {
+				return -1
+			}
+			if strings.Contains(option[1:], "c") && argv[i+1] != "" {
 				return i
 			}
 		}
