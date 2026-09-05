@@ -3,12 +3,29 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+type failingReader struct {
+	err error
+}
+
+func (r failingReader) Read([]byte) (int, error) {
+	return 0, r.err
+}
+
+func overlayWithWaivers(count int) string {
+	waivers := make([]string, count)
+	for i := range waivers {
+		waivers[i] = fmt.Sprintf("%q", fmt.Sprintf("warning-%02d", i+1))
+	}
+	return "waive = [" + strings.Join(waivers, ", ") + "]\n"
+}
 
 func authorizeOperatorWaivers(t *testing.T, repo string, ids ...string) {
 	t.Helper()
@@ -192,11 +209,7 @@ func TestHookEmitsOnlyFirstTwentyMergeWarnings(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	overlayPath := filepath.Join(t.TempDir(), "guardrail.toml")
-	waivers := make([]string, 21)
-	for i := range waivers {
-		waivers[i] = fmt.Sprintf("%q", fmt.Sprintf("warning-%02d", i+1))
-	}
-	if err := os.WriteFile(overlayPath, []byte("waive = ["+strings.Join(waivers, ", ")+"]\n"), 0o644); err != nil {
+	if err := os.WriteFile(overlayPath, []byte(overlayWithWaivers(21)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("GUARDRAIL_CONFIG", overlayPath)
@@ -211,6 +224,92 @@ func TestHookEmitsOnlyFirstTwentyMergeWarnings(t *testing.T) {
 	}
 	if strings.Contains(errb.String(), "warning-21") {
 		t.Fatalf("warning 21 reached stderr: %q", errb.String())
+	}
+}
+
+func TestHookCumulativeWarningCapPreservesSessionStartOperatorWarning(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	configDir := filepath.Join(configHome, "guardrail")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "waivers.toml"), []byte(`malformed = [`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	overlayPath := filepath.Join(t.TempDir(), "guardrail.toml")
+	if err := os.WriteFile(overlayPath, []byte(overlayWithWaivers(21)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GUARDRAIL_CONFIG", overlayPath)
+
+	payload := `{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart"}`
+	var out, errb bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, errb.String())
+	}
+	if lines := strings.Count(errb.String(), "\n"); lines > 20 {
+		t.Fatalf("stderr wrote %d warning lines, want at most 20: %q", lines, errb.String())
+	}
+	const generic = "guardrail: operator configuration could not be loaded; operator-authorized policy changes remain disabled"
+	if !strings.Contains(out.String(), generic) {
+		t.Fatalf("SessionStart posture omitted generic operator warning: %s", out.String())
+	}
+	if !strings.HasPrefix(errb.String(), "guardrail: operator config unreadable") {
+		t.Fatalf("detailed operator diagnostic was not first: %q", errb.String())
+	}
+}
+
+func TestHookLateSessionWarningCannotExceedCumulativeCap(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	overlayPath := filepath.Join(t.TempDir(), "guardrail.toml")
+	if err := os.WriteFile(overlayPath, []byte(overlayWithWaivers(20)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GUARDRAIL_CONFIG", overlayPath)
+
+	payload := `{"session_id":"../unsafe","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`
+	var out, errb bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, errb.String())
+	}
+	if lines := strings.Count(errb.String(), "\n"); lines > 20 {
+		t.Fatalf("stderr wrote %d warning lines, want at most 20: %q", lines, errb.String())
+	}
+}
+
+func TestHookLateAuditWarningCannotExceedCumulativeCap(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	configDir := filepath.Join(configHome, "guardrail")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "waivers.toml"), []byte("[\"/tmp\"]\naudit_log = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocker, []byte("block"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	auditPath := filepath.Join(blocker, "audit.jsonl")
+	overlayPath := filepath.Join(t.TempDir(), "guardrail.toml")
+	overlay := fmt.Sprintf("audit_log = %q\n", auditPath) + overlayWithWaivers(20)
+	if err := os.WriteFile(overlayPath, []byte(overlay), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GUARDRAIL_CONFIG", overlayPath)
+
+	payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`
+	var out, errb bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, errb.String())
+	}
+	if lines := strings.Count(errb.String(), "\n"); lines > 20 {
+		t.Fatalf("stderr wrote %d warning lines, want at most 20: %q", lines, errb.String())
 	}
 }
 
@@ -463,6 +562,33 @@ func TestHookAntigravityUnparseableIsDenyJSON(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"decision":"deny"`) {
 		t.Fatalf("stdout = %s, want a deny decision", out.String())
+	}
+}
+
+func TestHookAntigravityParseErrorUsesSanitizedDenyProtocol(t *testing.T) {
+	parseErr := errors.New("bad\nforged\t" + strings.Repeat("界", 300) + "\x7f")
+	for _, phase := range []string{"pre", "post"} {
+		t.Run(phase, func(t *testing.T) {
+			var out, errb bytes.Buffer
+			code := run([]string{"hook", "antigravity", phase}, failingReader{err: parseErr}, &out, &errb)
+			if code != 0 || errb.Len() != 0 {
+				t.Fatalf("code=%d, stderr=%q; want exit 0 and no stderr", code, errb.String())
+			}
+			var got map[string]string
+			if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if got["decision"] != "deny" {
+				t.Fatalf("decision = %q, want deny", got["decision"])
+			}
+			reason := got["reason"]
+			if strings.ContainsAny(reason, "\n\r\t\x00\x7f") {
+				t.Fatalf("parse error reason retained controls: %q", reason)
+			}
+			if len([]rune(reason)) != 201 || !strings.HasSuffix(reason, "…") {
+				t.Fatalf("parse error reason was not truncated at 200 runes plus ellipsis: %q", reason)
+			}
+		})
 	}
 }
 
