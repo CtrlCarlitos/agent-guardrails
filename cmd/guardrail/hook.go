@@ -19,42 +19,48 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	plane := args[0]
 
+	var antigravityPhase string
+	if plane == "antigravity" {
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "guardrail: hook antigravity needs a phase (pre, post)")
+			return 2
+		}
+		antigravityPhase = args[1]
+	}
+
+	var highPriorityWarnings []string
+	failClosed := func(reason string) int {
+		highPriorityWarnings = append(highPriorityWarnings, reason)
+		if plane == "antigravity" {
+			v := policy.Verdict{Decision: policy.Deny, Reason: reason}
+			return adapter.EmitAntigravity(v, antigravityPhase, stdout)
+		}
+		adapter.EmitModelWarnings(highPriorityWarnings, stderr)
+		return 2
+	}
+
 	var tc engine.ToolCall
 	var err error
-	var antigravityPhase string
 	switch plane {
 	case "claude":
 		tc, err = adapter.ParseClaude(stdin)
 	case "opencode":
 		tc, err = adapter.ParseOpencode(stdin)
 	case "antigravity":
-		if len(args) < 2 {
-			fmt.Fprintln(stderr, "guardrail: hook antigravity needs a phase (pre, post)")
-			return 2
-		}
-		antigravityPhase = args[1]
 		tc, err = adapter.ParseAntigravity(antigravityPhase, stdin)
-		if err != nil {
-			v := policy.Verdict{Decision: policy.Deny,
-				Reason: fmt.Sprintf("guardrail: unparseable payload (%v); failing closed", err)}
-			return adapter.EmitAntigravity(v, "pre", stdout)
-		}
 	default:
 		adapter.EmitModelWarnings([]string{fmt.Sprintf("guardrail: unsupported plane %q", plane)}, stderr)
 		return 2
 	}
 	if err != nil {
-		adapter.EmitModelWarnings([]string{fmt.Sprintf("guardrail: unparseable hook payload (%v); failing closed", err)}, stderr)
-		return 2
+		return failClosed(fmt.Sprintf("guardrail: unparseable hook payload (%v); failing closed", err))
 	}
 
 	base, err := policy.LoadBase()
 	if err != nil {
-		adapter.EmitModelWarnings([]string{fmt.Sprintf("guardrail: cannot load base policy (%v); failing closed", err)}, stderr)
-		return 2
+		return failClosed(fmt.Sprintf("guardrail: cannot load base policy (%v); failing closed", err))
 	}
 
-	var highPriorityWarnings []string
 	var ov *policy.Overlay
 	if pth, ok, warn := policy.FindOverlayPath(tc.CWD); ok {
 		if warn != "" {
@@ -62,9 +68,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		ov, err = policy.LoadOverlay(pth)
 		if err != nil {
-			highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: cannot load overlay (%v); failing closed", err))
-			adapter.EmitModelWarnings(highPriorityWarnings, stderr)
-			return 2
+			return failClosed(fmt.Sprintf("guardrail: cannot load overlay (%v); failing closed", err))
 		}
 	} else if warn != "" {
 		highPriorityWarnings = append(highPriorityWarnings, warn)
@@ -76,9 +80,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	merged, mergeWarnings, err := policy.Merge(base, ov, version, op, tc.RepoRoot)
 	if err != nil {
-		highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: invalid overlay (%v); failing closed", err))
-		adapter.EmitModelWarnings(highPriorityWarnings, stderr)
-		return 2
+		return failClosed(fmt.Sprintf("guardrail: invalid overlay (%v); failing closed", err))
 	}
 	postureWarnings := mergeWarnings
 	if opErr != nil {

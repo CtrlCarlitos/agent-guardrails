@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,53 @@ type failingReader struct {
 
 func (r failingReader) Read([]byte) (int, error) {
 	return 0, r.err
+}
+
+func hookFailureInput(t *testing.T, plane, failure string) io.Reader {
+	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+
+	var payload string
+	switch plane {
+	case "claude":
+		payload = `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`
+	case "opencode":
+		payload = `{"event":"pre","tool":"bash","command":"ls","cwd":"/tmp"}`
+	case "antigravity":
+		payload = `{"conversationId":"c1","toolCall":{"name":"run_command","args":{"CommandLine":"ls","Cwd":"/tmp"}}}`
+	default:
+		t.Fatalf("unsupported test plane %q", plane)
+	}
+
+	if failure == "malformed_payload" {
+		return strings.NewReader("{")
+	}
+
+	overlayPath := filepath.Join(t.TempDir(), "guardrail\nforged\t\x7f.toml")
+	var overlay string
+	switch failure {
+	case "malformed_overlay":
+		overlay = `malformed = [`
+	case "oversized_overlay":
+		overlay = strings.Repeat("#", (1<<20)+1)
+	case "merge_error":
+		overlay = `[[rules]]
+id = "project.allow"
+tool = "Bash"
+pattern = "ls"
+decision = "allow"
+reason = "project allow rules must be rejected"
+`
+	default:
+		t.Fatalf("unsupported hook failure %q", failure)
+	}
+	if err := os.WriteFile(overlayPath, []byte(overlay), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GUARDRAIL_CONFIG", overlayPath)
+	return strings.NewReader(payload)
 }
 
 func overlayWithWaivers(count int) string {
@@ -593,30 +641,76 @@ func TestHookAntigravityUnparseableIsDenyJSON(t *testing.T) {
 	}
 }
 
-func TestHookAntigravityParseErrorUsesSanitizedDenyProtocol(t *testing.T) {
+func TestHookAntigravityFailuresUsePhaseContract(t *testing.T) {
+	failures := []string{"malformed_payload", "malformed_overlay", "oversized_overlay", "merge_error"}
+	for _, failure := range failures {
+		for _, phase := range []string{"pre", "post"} {
+			t.Run(failure+"/"+phase, func(t *testing.T) {
+				var out, errb bytes.Buffer
+				code := run([]string{"hook", "antigravity", phase}, hookFailureInput(t, "antigravity", failure), &out, &errb)
+				if code != 0 || errb.Len() != 0 {
+					t.Fatalf("code=%d, stderr=%q; want exit 0 and no stderr", code, errb.String())
+				}
+				if phase == "post" {
+					if out.String() != "{}\n" {
+						t.Fatalf("post failure stdout = %q, want exactly %q", out.String(), "{}\n")
+					}
+					return
+				}
+
+				var got map[string]string
+				if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+					t.Fatalf("pre failure stdout is not JSON: %v; stdout=%q", err, out.String())
+				}
+				if got["decision"] != "deny" {
+					t.Fatalf("decision = %q, want deny", got["decision"])
+				}
+				if reason := got["reason"]; reason == "" || strings.ContainsAny(reason, "\n\r\t\x00\x7f") {
+					t.Fatalf("reason must be nonempty and sanitized: %q", reason)
+				}
+			})
+		}
+	}
+}
+
+func TestHookCommandPlaneFailuresRetainExitTwo(t *testing.T) {
+	failures := []string{"malformed_payload", "malformed_overlay", "oversized_overlay", "merge_error"}
+	for _, plane := range []string{"claude", "opencode"} {
+		for _, failure := range failures {
+			t.Run(plane+"/"+failure, func(t *testing.T) {
+				var out, errb bytes.Buffer
+				code := run([]string{"hook", plane}, hookFailureInput(t, plane, failure), &out, &errb)
+				if code != 2 || out.Len() != 0 {
+					t.Fatalf("code=%d, stdout=%q; want exit 2 and no stdout", code, out.String())
+				}
+				if warning := errb.String(); warning == "" || strings.ContainsAny(warning, "\r\t\x00\x7f") || strings.Count(warning, "\n") != 1 {
+					t.Fatalf("stderr must contain one sanitized warning: %q", warning)
+				}
+			})
+		}
+	}
+}
+
+func TestHookAntigravityFailureReasonIsSanitized(t *testing.T) {
 	parseErr := errors.New("bad\nforged\t" + strings.Repeat("界", 300) + "\x7f")
-	for _, phase := range []string{"pre", "post"} {
-		t.Run(phase, func(t *testing.T) {
-			var out, errb bytes.Buffer
-			code := run([]string{"hook", "antigravity", phase}, failingReader{err: parseErr}, &out, &errb)
-			if code != 0 || errb.Len() != 0 {
-				t.Fatalf("code=%d, stderr=%q; want exit 0 and no stderr", code, errb.String())
-			}
-			var got map[string]string
-			if err := json.Unmarshal(out.Bytes(), &got); err != nil {
-				t.Fatal(err)
-			}
-			if got["decision"] != "deny" {
-				t.Fatalf("decision = %q, want deny", got["decision"])
-			}
-			reason := got["reason"]
-			if strings.ContainsAny(reason, "\n\r\t\x00\x7f") {
-				t.Fatalf("parse error reason retained controls: %q", reason)
-			}
-			if len([]rune(reason)) != 201 || !strings.HasSuffix(reason, "…") {
-				t.Fatalf("parse error reason was not truncated at 200 runes plus ellipsis: %q", reason)
-			}
-		})
+	var out, errb bytes.Buffer
+	code := run([]string{"hook", "antigravity", "pre"}, failingReader{err: parseErr}, &out, &errb)
+	if code != 0 || errb.Len() != 0 {
+		t.Fatalf("code=%d, stderr=%q; want exit 0 and no stderr", code, errb.String())
+	}
+	var got map[string]string
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["decision"] != "deny" {
+		t.Fatalf("decision = %q, want deny", got["decision"])
+	}
+	reason := got["reason"]
+	if strings.ContainsAny(reason, "\n\r\t\x00\x7f") {
+		t.Fatalf("parse error reason retained controls: %q", reason)
+	}
+	if len([]rune(reason)) != 201 || !strings.HasSuffix(reason, "…") {
+		t.Fatalf("parse error reason was not truncated at 200 runes plus ellipsis: %q", reason)
 	}
 }
 
