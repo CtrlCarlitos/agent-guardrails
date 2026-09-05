@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -112,13 +113,72 @@ func TestSyncOpencodeResolvesBareBinaryFromPATH(t *testing.T) {
 	}
 }
 
-func TestSyncOpencodeRejectsUnresolvedBareBinaryBeforeDeployment(t *testing.T) {
+func TestSyncMixedPlanesResolveBinaryOnlyForOpencode(t *testing.T) {
+	dir := t.TempDir()
+	gitInitSync(t, dir)
+	binDir := filepath.Join(t.TempDir(), "bin with spaces;$(not-run)")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wantBinary := writePathExecutable(t, binDir, "guardrail-sentinel")
+	t.Setenv("PATH", binDir)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"sync", "--dir", dir, "--planes", "claude,opencode,antigravity", "--binary", "guardrail-sentinel"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errb.String())
+	}
+
+	plugin, err := os.ReadFile(filepath.Join(dir, ".guardrail", "guardrail.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedBinary, err := json.Marshal(wantBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDeclaration := "const GUARDRAIL_BIN = " + string(encodedBinary) + ";"
+	if !strings.Contains(string(plugin), wantDeclaration) {
+		t.Fatalf("OpenCode plugin does not pin the exact PATH result %q:\n%s", wantBinary, plugin)
+	}
+
+	claudeRaw, err := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var claude map[string]any
+	if err := json.Unmarshal(claudeRaw, &claude); err != nil {
+		t.Fatal(err)
+	}
+	claudePre := claude["hooks"].(map[string]any)["PreToolUse"].([]any)[0].(map[string]any)
+	claudeCommand := claudePre["hooks"].([]any)[0].(map[string]any)["command"].(string)
+	if claudeCommand != "guardrail-sentinel hook claude" {
+		t.Fatalf("Claude command = %q, want original bare binary semantics", claudeCommand)
+	}
+
+	antigravityRaw, err := os.ReadFile(filepath.Join(dir, ".agents", "hooks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var antigravity map[string]any
+	if err := json.Unmarshal(antigravityRaw, &antigravity); err != nil {
+		t.Fatal(err)
+	}
+	guardrail := antigravity["guardrail"].(map[string]any)
+	antigravityPre := guardrail["PreToolUse"].([]any)[0].(map[string]any)
+	antigravityCommand := antigravityPre["hooks"].([]any)[0].(map[string]any)["command"].(string)
+	if antigravityCommand != "guardrail-sentinel hook antigravity pre" {
+		t.Fatalf("Antigravity command = %q, want original bare binary semantics", antigravityCommand)
+	}
+}
+
+func TestSyncMixedPlanesRejectUnresolvedBareBinaryBeforeDeployment(t *testing.T) {
 	dir := t.TempDir()
 	gitInitSync(t, dir)
 	t.Setenv("PATH", t.TempDir())
 
 	var out, errb bytes.Buffer
-	code := run([]string{"sync", "--dir", dir, "--planes", "opencode", "--binary", "missing-guardrail"}, strings.NewReader(""), &out, &errb)
+	code := run([]string{"sync", "--dir", dir, "--planes", "claude,opencode,antigravity", "--binary", "missing-guardrail"}, strings.NewReader(""), &out, &errb)
 	if code != 2 {
 		t.Fatalf("exit=%d, want 2; stderr=%s", code, errb.String())
 	}
@@ -129,7 +189,12 @@ func TestSyncOpencodeRejectsUnresolvedBareBinaryBeforeDeployment(t *testing.T) {
 	if out.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", out.String())
 	}
-	for _, path := range []string{filepath.Join(dir, ".guardrail"), filepath.Join(dir, "opencode.json")} {
+	for _, path := range []string{
+		filepath.Join(dir, ".claude"),
+		filepath.Join(dir, ".guardrail"),
+		filepath.Join(dir, "opencode.json"),
+		filepath.Join(dir, ".agents"),
+	} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("%s was deployed on resolution failure: %v", path, err)
 		}

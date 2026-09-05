@@ -71,7 +71,12 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 	}
 
 	for _, p := range planes {
-		syncPlane(strings.TrimSpace(p), absDir, resolvedBinary, merged, stdout, stderr)
+		plane := strings.TrimSpace(p)
+		planeBinary := *binary
+		if plane == "opencode" {
+			planeBinary = resolvedBinary
+		}
+		syncPlane(plane, absDir, planeBinary, merged, stdout, stderr)
 	}
 	return 0
 }
