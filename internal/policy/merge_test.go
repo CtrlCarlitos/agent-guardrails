@@ -47,7 +47,7 @@ func TestMergePreservesBaseAndAppendsTightenings(t *testing.T) {
 	if len(warns) != 0 {
 		t.Fatalf("unexpected warnings: %v", warns)
 	}
-	if !slices.Equal(m.Slots.SafeRoots, []string{"/base/safe", "tmp"}) {
+	if !slices.Equal(m.Slots.SafeRoots, []string{"/base/safe", "/repo/tmp"}) {
 		t.Errorf("SafeRoots = %v", m.Slots.SafeRoots)
 	}
 	if !slices.Equal(m.Slots.SecretGlobs, []string{"**/.env", "*.p12"}) {
@@ -197,6 +197,7 @@ func TestMergeSafeRootsMustResolveUnderAbsoluteRepoRoot(t *testing.T) {
 		"../project-sibling",
 		"../other",
 		"/work/project/assets",
+		"/work/project/cache/../future",
 		"/work/project-prefix",
 		"/etc",
 	}}
@@ -205,7 +206,12 @@ func TestMergeSafeRootsMustResolveUnderAbsoluteRepoRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(m.Slots.SafeRoots, []string{"tmp", ".", "/work/project/assets"}) {
+	if !slices.Equal(m.Slots.SafeRoots, []string{
+		"/work/project/tmp",
+		"/work/project",
+		"/work/project/assets",
+		"/work/project/future",
+	}) {
 		t.Errorf("SafeRoots = %v", m.Slots.SafeRoots)
 	}
 	wantDropped := []string{"../project-sibling", "../other", "/work/project-prefix", "/etc"}
@@ -252,6 +258,24 @@ func TestMergeSafeRootsRejectExistingSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestMergeSafeRootsRejectExternalAliasResolvingIntoRepo(t *testing.T) {
+	repoRoot := t.TempDir()
+	externalDir := t.TempDir()
+	externalAlias := filepath.Join(externalDir, "back-in")
+	if err := os.Symlink(repoRoot, externalAlias); err != nil {
+		t.Fatal(err)
+	}
+
+	requested := filepath.Join(externalAlias, "tmp")
+	m, warns, err := Merge(&Policy{Waived: map[string]bool{}}, &Overlay{SafeRoots: []string{requested}}, "1.0.0", nil, repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Slots.SafeRoots) != 0 || len(warns) != 1 || !strings.Contains(warns[0], "DROPPED") {
+		t.Fatalf("external lexical root was accepted through an in-repo symlink target: policy=%+v warnings=%v", m, warns)
+	}
+}
+
 func TestMergeSafeRootsKeepNonexistentChildUnderResolvedInRepoAncestor(t *testing.T) {
 	repoRoot := t.TempDir()
 	realDir := filepath.Join(repoRoot, "real")
@@ -266,7 +290,7 @@ func TestMergeSafeRootsKeepNonexistentChildUnderResolvedInRepoAncestor(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(m.Slots.SafeRoots, []string{"alias/future/nested"}) || len(warns) != 0 {
+	if !slices.Equal(m.Slots.SafeRoots, []string{filepath.Join(repoRoot, "alias", "future", "nested")}) || len(warns) != 0 {
 		t.Fatalf("nonexistent in-repo descendant was dropped: policy=%+v warnings=%v", m, warns)
 	}
 }
@@ -280,6 +304,17 @@ func TestMergeSafeRootsFailClosedWithoutAbsoluteRepoRoot(t *testing.T) {
 		if len(m.Slots.SafeRoots) != 0 || len(warns) != 2 {
 			t.Errorf("repo root %q did not fail closed: policy=%+v warnings=%v", repoRoot, m, warns)
 		}
+	}
+}
+
+func TestMergeSafeRootsDropUnresolvableRoot(t *testing.T) {
+	repoRoot := t.TempDir()
+	m, warns, err := Merge(&Policy{Waived: map[string]bool{}}, &Overlay{SafeRoots: []string{"bad\x00root"}}, "1.0.0", nil, repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Slots.SafeRoots) != 0 || len(warns) != 1 || !strings.Contains(warns[0], "DROPPED") {
+		t.Fatalf("unresolvable safe root was accepted: policy=%+v warnings=%v", m, warns)
 	}
 }
 

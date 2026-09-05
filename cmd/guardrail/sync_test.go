@@ -3,11 +3,15 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
 func gitInitSync(t *testing.T, dir string) {
@@ -19,6 +23,23 @@ func gitInitSync(t *testing.T, dir string) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
+}
+
+func assertTerminalRecords(t *testing.T, output string, want int) []string {
+	t.Helper()
+	if !strings.HasSuffix(output, "\n") {
+		t.Fatalf("terminal output does not end in a newline: %q", output)
+	}
+	records := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
+	if len(records) != want {
+		t.Fatalf("terminal output has %d records, want %d: %q", len(records), want, output)
+	}
+	for _, record := range records {
+		if strings.IndexFunc(record, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
+			t.Fatalf("terminal record contains a control character: %q", record)
+		}
+	}
+	return records
 }
 
 func TestSyncAllPlanes(t *testing.T) {
@@ -229,4 +250,254 @@ func TestSyncUsesTopLevelRepoGrantFromSubdirectory(t *testing.T) {
 	if !strings.Contains(errb.String(), "guardrail: rule P6.egress is WAIVED for this repo by operator authorization") {
 		t.Fatalf("top-level operator grant was not applied from subdirectory: %s", errb.String())
 	}
+}
+
+func TestSyncMergedRelativeSafeRootIsConsumedAsAbsolute(t *testing.T) {
+	repoRoot := t.TempDir()
+	overlayPath := filepath.Join(repoRoot, "guardrail.toml")
+	if err := os.WriteFile(overlayPath, []byte("[slots]\nsafe_roots = [\"tmp\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ov, err := policy.LoadOverlay(overlayPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, warnings, err := policy.Merge(&policy.Policy{Waived: map[string]bool{}}, ov, "1.0.0", nil, repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+
+	// Use a different RepoRoot so the Engine's implicit repository safety does
+	// not mask whether the merged safe root uses absolute coordinates.
+	target := filepath.Join(repoRoot, "tmp", "cache")
+	otherRepo := filepath.Join(filepath.Dir(repoRoot), "other-repo")
+	verdict := engine.Evaluate(engine.ToolCall{
+		Tool:     "Bash",
+		Command:  "rm -rf " + target,
+		CWD:      otherRepo,
+		RepoRoot: otherRepo,
+	}, merged)
+	if verdict.Decision != policy.Allow {
+		t.Fatalf("absolute target under merged relative safe_root was not consumed as safe: %+v", verdict)
+	}
+}
+
+func TestSyncSanitizesEveryMergeWarningWithoutCapping(t *testing.T) {
+	dir := t.TempDir()
+	gitInitSync(t, dir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	egress := []string{`"evil\nforged\tentry\u007f"`, `"` + strings.Repeat("x", 250) + `"`}
+	for i := range 20 {
+		egress = append(egress, fmt.Sprintf("%q", fmt.Sprintf("host-%02d.example", i)))
+	}
+	overlay := `audit_log = "/outside/audit\nforged\tpath\u007f"
+waive = ["P1.rm-rf\nforged\twaiver\u007f"]
+
+[slots]
+safe_roots = ["/outside/safe\nforged\troot\u007f"]
+secret_allow = ["secret\nforged\tallow\u007f"]
+egress_allowlist = [` + strings.Join(egress, ", ") + "]\n"
+	if err := os.WriteFile(filepath.Join(dir, "guardrail.toml"), []byte(overlay), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	code := run([]string{"sync", "--dir", dir, "--planes", "claude", "--binary", "guardrail"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, errb.String())
+	}
+	records := assertTerminalRecords(t, errb.String(), 26)
+	assertTerminalRecords(t, out.String(), 1)
+
+	joined := strings.Join(records, "\n")
+	if strings.Count(joined, "egress_allowlist entry") != len(egress) {
+		t.Fatalf("egress warnings were lost or combined: %q", errb.String())
+	}
+	for _, marker := range []string{
+		"safe forged root outside the repository",
+		"evil forged entry",
+		strings.Repeat("x", 250),
+		"secret protection remains ENFORCED",
+		"audit forged path",
+		"the default audit path is retained",
+		"P1.rm-rf forged waiver",
+		"which is NOT authorized",
+		"the rule remains ENFORCED",
+	} {
+		if !strings.Contains(joined, marker) {
+			t.Errorf("sanitized warning output omitted %q: %q", marker, errb.String())
+		}
+	}
+	for i := range 20 {
+		if marker := fmt.Sprintf("host-%02d.example", i); !strings.Contains(joined, marker) {
+			t.Errorf("sanitized warning output omitted %q", marker)
+		}
+	}
+}
+
+func TestSyncSanitizesWarningCallbackAndSuccessfulTargetPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "repo\nsynced opencode -> forged\t\x1b[31m\x7f")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitInitSync(t, dir)
+	t.Setenv("GUARDRAIL_CONFIG", filepath.Join(dir, "missing\nsynced antigravity -> forged\t\x1b[32m\x7f.toml"))
+
+	var out, errb bytes.Buffer
+	code := run([]string{"sync", "--dir", dir, "--planes", "claude", "--binary", "guardrail"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, errb.String())
+	}
+	outRecords := assertTerminalRecords(t, out.String(), 1)
+	errRecords := assertTerminalRecords(t, errb.String(), 1)
+	if !strings.HasPrefix(outRecords[0], "synced claude -> ") {
+		t.Fatalf("successful target forged a sync status: %q", out.String())
+	}
+	if !strings.Contains(errRecords[0], "missing synced antigravity -> forged [32m .toml") {
+		t.Fatalf("overlay lookup warning path was not sanitized: %q", errb.String())
+	}
+}
+
+func TestSyncSanitizesEverySuccessfulTargetPath(t *testing.T) {
+	for _, plane := range []string{"claude", "opencode", "antigravity"} {
+		t.Run(plane, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "repo\nsynced forged\t\x1b[31m\x7f")
+			if err := os.Mkdir(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+
+			var out, errb bytes.Buffer
+			syncPlane(plane, dir, "/opt/guardrail", &policy.Policy{Waived: map[string]bool{}}, &out, &errb)
+			records := assertTerminalRecords(t, out.String(), 1)
+			if !strings.HasPrefix(records[0], "synced "+plane+" -> ") {
+				t.Fatalf("status prefix was altered: %q", out.String())
+			}
+			if errb.Len() != 0 {
+				t.Fatalf("stderr = %q, want empty", errb.String())
+			}
+		})
+	}
+}
+
+func TestSyncSanitizesSyncPlaneErrorsAndUnknownName(t *testing.T) {
+	for _, tt := range []struct {
+		plane   string
+		blocker string
+	}{
+		{plane: "claude", blocker: ".claude"},
+		{plane: "opencode", blocker: ".guardrail"},
+		{plane: "antigravity", blocker: ".agents"},
+	} {
+		t.Run(tt.plane, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "repo\nforged status\t\x1b[31m\x7f")
+			if err := os.Mkdir(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, tt.blocker), []byte("block"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			var out, errb bytes.Buffer
+			syncPlane(tt.plane, dir, "guardrail", &policy.Policy{Waived: map[string]bool{}}, &out, &errb)
+			records := assertTerminalRecords(t, errb.String(), 1)
+			if !strings.HasPrefix(records[0], "guardrail: sync "+tt.plane+" failed: ") {
+				t.Fatalf("error prefix was altered: %q", errb.String())
+			}
+			if out.Len() != 0 {
+				t.Fatalf("stdout = %q, want empty", out.String())
+			}
+		})
+	}
+
+	var out, errb bytes.Buffer
+	syncPlane("evil\nsynced forged\t\x1b[31m\x7f", t.TempDir(), "guardrail", &policy.Policy{}, &out, &errb)
+	records := assertTerminalRecords(t, errb.String(), 1)
+	if records[0] != `guardrail: sync: unknown plane "evil synced forged [31m", skipping` {
+		t.Fatalf("unknown plane diagnostic = %q", errb.String())
+	}
+}
+
+func TestSyncSanitizesResolvedBinaryAndFlagParserErrors(t *testing.T) {
+	t.Run("resolved binary", func(t *testing.T) {
+		dir := t.TempDir()
+		gitInitSync(t, dir)
+		t.Setenv("PATH", t.TempDir())
+
+		var out, errb bytes.Buffer
+		code := run([]string{"sync", "--dir", dir, "--planes", "opencode", "--binary", "missing\nsynced forged\t\x1b[31m\x7f"}, strings.NewReader(""), &out, &errb)
+		if code != 2 {
+			t.Fatalf("exit=%d, want 2", code)
+		}
+		records := assertTerminalRecords(t, errb.String(), 1)
+		if !strings.HasPrefix(records[0], "guardrail: sync: cannot resolve --binary: ") {
+			t.Fatalf("binary error prefix was altered: %q", errb.String())
+		}
+	})
+
+	t.Run("flag parser", func(t *testing.T) {
+		var out, errb bytes.Buffer
+		code := run([]string{"sync", "--unknown\nsynced forged\t\x1b[31m\x7f"}, strings.NewReader(""), &out, &errb)
+		if code != 2 {
+			t.Fatalf("exit=%d, want 2", code)
+		}
+		records := assertTerminalRecords(t, errb.String(), 1)
+		if !strings.HasPrefix(records[0], "flag provided but not defined: ") {
+			t.Fatalf("flag error prefix was altered: %q", errb.String())
+		}
+	})
+}
+
+func TestSyncSanitizesInvalidOverlayAndOperatorConfigErrors(t *testing.T) {
+	t.Run("invalid merged overlay", func(t *testing.T) {
+		dir := t.TempDir()
+		gitInitSync(t, dir)
+		overlay := `[[rules]]
+id = "evil\nsynced forged\tname\u007f"
+pattern = "*"
+decision = "allow\tforged\u007f"
+`
+		if err := os.WriteFile(filepath.Join(dir, "guardrail.toml"), []byte(overlay), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		var out, errb bytes.Buffer
+		code := run([]string{"sync", "--dir", dir, "--planes", "claude"}, strings.NewReader(""), &out, &errb)
+		if code != 2 {
+			t.Fatalf("exit=%d, want 2", code)
+		}
+		records := assertTerminalRecords(t, errb.String(), 1)
+		if !strings.HasPrefix(records[0], "guardrail: sync: invalid overlay: ") {
+			t.Fatalf("overlay error prefix was altered: %q", errb.String())
+		}
+	})
+
+	t.Run("operator config", func(t *testing.T) {
+		dir := t.TempDir()
+		gitInitSync(t, dir)
+		configHome := filepath.Join(t.TempDir(), "config\nsynced forged\t\x1b[31m\x7f")
+		configDir := filepath.Join(configHome, "guardrail")
+		if err := os.MkdirAll(configDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(configDir, "waivers.toml"), []byte("invalid = ["), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("XDG_CONFIG_HOME", configHome)
+
+		var out, errb bytes.Buffer
+		code := run([]string{"sync", "--dir", dir, "--planes", "claude"}, strings.NewReader(""), &out, &errb)
+		if code != 0 {
+			t.Fatalf("exit=%d stderr=%q", code, errb.String())
+		}
+		records := assertTerminalRecords(t, errb.String(), 1)
+		if !strings.HasPrefix(records[0], "guardrail: operator config unreadable (") ||
+			!strings.HasSuffix(records[0], "); treating as empty") {
+			t.Fatalf("operator error disposition was altered: %q", errb.String())
+		}
+		assertTerminalRecords(t, out.String(), 1)
+	})
 }

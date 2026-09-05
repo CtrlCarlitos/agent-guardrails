@@ -40,17 +40,20 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 	cleanRoot := filepath.Clean(repoRoot)
 	resolvedRoot, rootErr := resolveThroughExistingAncestor(cleanRoot)
 	for _, sr := range ov.SafeRoots {
-		abs := sr
-		if !filepath.IsAbs(abs) {
-			abs = filepath.Join(cleanRoot, sr)
+		candidate := sr
+		if !filepath.IsAbs(candidate) {
+			candidate = filepath.Join(cleanRoot, candidate)
 		}
-		resolved, resolveErr := resolveThroughExistingAncestor(abs)
-		rel, relErr := filepath.Rel(resolvedRoot, resolved)
-		if !filepath.IsAbs(repoRoot) || rootErr != nil || resolveErr != nil || relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		candidate = filepath.Clean(candidate)
+		lexicalRel, lexicalErr := filepath.Rel(cleanRoot, candidate)
+		resolved, resolveErr := resolveThroughExistingAncestor(candidate)
+		resolvedRel, resolvedRelErr := filepath.Rel(resolvedRoot, resolved)
+		if !filepath.IsAbs(repoRoot) || rootErr != nil || lexicalErr != nil || pathEscapesRoot(lexicalRel) ||
+			resolveErr != nil || resolvedRelErr != nil || pathEscapesRoot(resolvedRel) {
 			warns = append(warns, "guardrail: repo requested safe_root "+sr+" outside the repository — DROPPED")
 			continue
 		}
-		m.Slots.SafeRoots = append(m.Slots.SafeRoots, sr)
+		m.Slots.SafeRoots = append(m.Slots.SafeRoots, candidate)
 	}
 
 	for _, entry := range ov.EgressAllowlist {
@@ -102,6 +105,10 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 		warns = append(warns, fmt.Sprintf("guardrail: binary %s is older than this repo's engine_min_version %s", binaryVersion, ov.EngineMinVersion))
 	}
 	return m, warns, nil
+}
+
+func pathEscapesRoot(rel string) bool {
+	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func resolveThroughExistingAncestor(path string) (string, error) {
