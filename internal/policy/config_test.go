@@ -5,9 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
 
 func gitInit(t *testing.T, dir string) {
@@ -106,14 +109,51 @@ waive = ["P6.curl-egress"]
 	}
 }
 
-func TestShippedOverlayExampleLoadsAndMerges(t *testing.T) {
+func shippedOverlayExamplePath(t *testing.T) (string, string) {
+	t.Helper()
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
-	ov, err := LoadOverlay(filepath.Join(repoRoot, "guardrail.toml.example"))
+	return repoRoot, filepath.Join(repoRoot, "guardrail.toml.example")
+}
+
+func TestShippedOverlayExampleDescribesCommittedOverlay(t *testing.T) {
+	_, examplePath := shippedOverlayExamplePath(t)
+	raw, err := os.ReadFile(examplePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "Copy this file to guardrail.toml and commit the Overlay with your project's rules.") {
+		t.Error("shipped example must instruct projects to copy and commit the Overlay")
+	}
+	if strings.Contains(strings.ToLower(text), "gitignore") {
+		t.Error("shipped example must not suggest leaving the Overlay uncommitted")
+	}
+}
+
+func TestShippedOverlayExampleLoadsAndMerges(t *testing.T) {
+	repoRoot, examplePath := shippedOverlayExamplePath(t)
+	raw, err := os.ReadFile(examplePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contractOverlay, metadata, err := decodeOverlayContract(string(raw))
+	if err != nil {
+		t.Fatalf("decoding shipped Overlay example contract: %v", err)
+	}
+	if keys := undecodedKeyNames(metadata); len(keys) != 0 {
+		t.Fatalf("shipped Overlay example contains unsupported keys: %v", keys)
+	}
+
+	ov, err := LoadOverlay(examplePath)
 	if err != nil {
 		t.Fatalf("shipped Overlay example must load: %v", err)
+	}
+	contractOverlay.Path = examplePath
+	if !reflect.DeepEqual(contractOverlay, ov) {
+		t.Fatalf("strictly decoded Overlay differs from LoadOverlay: strict=%+v loaded=%+v", contractOverlay, ov)
 	}
 	base, err := LoadBase()
 	if err != nil {
@@ -143,6 +183,71 @@ func TestShippedOverlayExampleLoadsAndMerges(t *testing.T) {
 	if !slices.Contains(merged.Slots.EgressAllowlist, "api.github.com") {
 		t.Fatalf("exactly granted example egress entry was not merged: %v", merged.Slots.EgressAllowlist)
 	}
+}
+
+func TestOverlayContractReportsRemovedUnsupportedSlot(t *testing.T) {
+	_, metadata, err := decodeOverlayContract(`
+engine_min_version = "0.1"
+
+[slots]
+ephemeral_db_glob = "*_scratch"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := undecodedKeyNames(metadata); !slices.Equal(got, []string{"slots.ephemeral_db_glob"}) {
+		t.Fatalf("undecoded keys = %v, want removed unsupported slot", got)
+	}
+}
+
+func decodeOverlayContract(raw string) (*Overlay, toml.MetaData, error) {
+	var f struct {
+		EngineMinVersion string   `toml:"engine_min_version"`
+		AuditLog         string   `toml:"audit_log"`
+		Waive            []string `toml:"waive"`
+		Slots            struct {
+			SafeRoots       []string `toml:"safe_roots"`
+			SecretGlobs     []string `toml:"secret_globs"`
+			SecretAllow     []string `toml:"secret_allow"`
+			EgressAllowlist []string `toml:"egress_allowlist"`
+		} `toml:"slots"`
+		Rules []struct {
+			ID       string `toml:"id"`
+			Tool     string `toml:"tool"`
+			Pattern  string `toml:"pattern"`
+			Decision string `toml:"decision"`
+			Reason   string `toml:"reason"`
+		} `toml:"rules"`
+	}
+	metadata, err := toml.Decode(raw, &f)
+	if err != nil {
+		return nil, metadata, err
+	}
+	ov := &Overlay{
+		EngineMinVersion: f.EngineMinVersion,
+		AuditLog:         f.AuditLog,
+		SafeRoots:        f.Slots.SafeRoots,
+		SecretGlobs:      f.Slots.SecretGlobs,
+		SecretAllow:      f.Slots.SecretAllow,
+		EgressAllowlist:  f.Slots.EgressAllowlist,
+		Waive:            f.Waive,
+	}
+	for _, rule := range f.Rules {
+		ov.Rules = append(ov.Rules, Rule{
+			ID: rule.ID, Tool: rule.Tool, Pattern: rule.Pattern,
+			Decision: Decision(rule.Decision), Reason: rule.Reason,
+		})
+	}
+	return ov, metadata, nil
+}
+
+func undecodedKeyNames(metadata toml.MetaData) []string {
+	keys := metadata.Undecoded()
+	names := make([]string, 0, len(keys))
+	for _, key := range keys {
+		names = append(names, key.String())
+	}
+	return names
 }
 
 func TestOverlayTooLargeIsRejected(t *testing.T) {

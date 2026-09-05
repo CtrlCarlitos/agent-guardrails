@@ -1,4 +1,4 @@
-# A project's Overlay. Commit it (or gitignore it) at the repo root.
+# Copy this file to guardrail.toml and commit the Overlay with your project's rules.
 # Merged on top of the shipped Base policy: it may add and tighten freely. Any
 # request that would loosen the Guardrail Policy needs an Operator config grant.
 
