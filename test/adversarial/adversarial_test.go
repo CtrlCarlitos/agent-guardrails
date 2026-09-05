@@ -153,19 +153,124 @@ func TestAdversarialCorpus(t *testing.T) {
 				code = exitErr.ExitCode()
 			}
 
-			got := "allow"
-			switch {
-			case code == 2:
-				got = "deny"
-			case code != 0:
-				t.Fatalf("hook exited %d; stdout=%s stderr=%s", code, stdout.String(), stderr.String())
-			case strings.Contains(stdout.String(), `"permissionDecision":"ask"`):
-				got = "ask"
+			got, err := classifyClaudeResult(code, stdout.String(), stderr.String())
+			if err != nil {
+				t.Fatalf("invalid Claude hook result: %v (exit=%d stdout=%s stderr=%s)", err, code, stdout.String(), stderr.String())
 			}
 			if got != e.Want {
 				t.Fatalf("got %s, want %s (exit=%d stdout=%s stderr=%s)", got, e.Want, code, stdout.String(), stderr.String())
 			}
 		})
+	}
+}
+
+func TestClassifyClaudeResult(t *testing.T) {
+	tests := []struct {
+		name   string
+		code   int
+		stdout string
+		stderr string
+		want   string
+		fail   bool
+	}{
+		{name: "allow", code: 0, want: "allow"},
+		{name: "ask", code: 0, stdout: `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"confirm"}}` + "\n", want: "ask"},
+		{name: "deny", code: 2, stderr: "guardrail: blocked by policy\n", want: "deny"},
+		{name: "exit two without guardrail stderr", code: 2, stderr: "command failed\n", fail: true},
+		{name: "exit two with panic", code: 2, stderr: "panic: runtime failure\n", fail: true},
+		{name: "exit two with guardrail-prefixed fatal", code: 2, stderr: "guardrail: fatal error: concurrent map writes\n", fail: true},
+		{name: "exit two with stdout", code: 2, stdout: `{"hookSpecificOutput":{"permissionDecision":"ask"}}`, stderr: "guardrail: blocked by policy\n", fail: true},
+		{name: "unknown exit", code: 3, stderr: "guardrail: unexpected failure\n", fail: true},
+		{name: "invalid success stdout", code: 0, stdout: "not-json\n", fail: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := classifyClaudeResult(test.code, test.stdout, test.stderr)
+			if test.fail {
+				if err == nil {
+					t.Fatalf("classifyClaudeResult(%d, %q, %q) = %q, want error", test.code, test.stdout, test.stderr, got)
+				}
+				return
+			}
+			if err != nil || got != test.want {
+				t.Fatalf("classifyClaudeResult(%d, %q, %q) = %q, %v; want %q, nil", test.code, test.stdout, test.stderr, got, err, test.want)
+			}
+		})
+	}
+}
+
+func TestClassifyClaudeResultRejectsExitTwoCrashProcess(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestFakeClaudeCrashProcess$")
+	cmd.Env = append(os.Environ(), "GO_WANT_FAKE_CLAUDE_CRASH=1")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("fake crash error = %v, want process exit error", err)
+	}
+	if code := exitErr.ExitCode(); code != 2 {
+		t.Fatalf("fake crash exit = %d, want 2", code)
+	}
+	if got, err := classifyClaudeResult(exitErr.ExitCode(), stdout.String(), stderr.String()); err == nil {
+		t.Fatalf("fake crash classified as %q; stderr=%q", got, stderr.String())
+	}
+}
+
+func TestFakeClaudeCrashProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_FAKE_CLAUDE_CRASH") != "1" {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "panic: simulated Go runtime crash")
+	os.Exit(2)
+}
+
+func classifyClaudeResult(code int, stdout, stderr string) (string, error) {
+	combined := strings.ToLower(stdout + "\n" + stderr)
+	for _, marker := range []string{"panic:", "fatal error:", "runtime:", "goroutine "} {
+		if strings.Contains(combined, marker) {
+			return "", fmt.Errorf("hook output contains Go crash marker %q", marker)
+		}
+	}
+
+	switch code {
+	case 2:
+		if stdout != "" {
+			return "", errors.New("deny exit included contradictory stdout")
+		}
+		if stderr == "" {
+			return "", errors.New("deny exit had empty stderr")
+		}
+		for _, line := range strings.Split(strings.TrimSuffix(stderr, "\n"), "\n") {
+			line = strings.TrimSuffix(line, "\r")
+			if !strings.HasPrefix(line, "guardrail: ") {
+				return "", fmt.Errorf("deny stderr line does not match guardrail contract: %q", line)
+			}
+		}
+		return "deny", nil
+	case 0:
+		if stdout == "" {
+			return "allow", nil
+		}
+		var response struct {
+			HookSpecificOutput struct {
+				HookEventName            string `json:"hookEventName"`
+				PermissionDecision       string `json:"permissionDecision"`
+				PermissionDecisionReason string `json:"permissionDecisionReason"`
+			} `json:"hookSpecificOutput"`
+		}
+		if err := json.Unmarshal([]byte(stdout), &response); err != nil {
+			return "", fmt.Errorf("exit-zero stdout is not Claude hook JSON: %w", err)
+		}
+		hook := response.HookSpecificOutput
+		if hook.PermissionDecision != "ask" || hook.PermissionDecisionReason == "" ||
+			(hook.HookEventName != "PreToolUse" && hook.HookEventName != "PostToolUse") {
+			return "", errors.New("exit-zero stdout does not match Claude ask contract")
+		}
+		return "ask", nil
+	default:
+		return "", fmt.Errorf("hook exited with nonstandard status %d", code)
 	}
 }
 
