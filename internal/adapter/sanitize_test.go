@@ -38,6 +38,14 @@ func TestSanitizeForModelStripsASCIIControlsAndNormalizesWhitespace(t *testing.T
 	}
 }
 
+func TestSanitizeForDisplayStripsControlsNormalizesWhitespaceAndCapsRunes(t *testing.T) {
+	in := "  alpha\nforged\tclaim\x7f " + strings.Repeat("界", 200)
+	want := "alpha forged claim " + strings.Repeat("界", 181) + "…"
+	if got := SanitizeForDisplay(in); got != want {
+		t.Fatalf("SanitizeForDisplay() = %q, want %q", got, want)
+	}
+}
+
 func TestSanitizeForModelTruncatesAtUnicodeRuneBoundary(t *testing.T) {
 	want := strings.Repeat("界", 200) + "…"
 	got := sanitizeForModel(strings.Repeat("界", 200) + "終")

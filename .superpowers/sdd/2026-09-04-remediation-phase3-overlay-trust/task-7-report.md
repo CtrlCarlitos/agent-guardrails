@@ -94,6 +94,95 @@ to `PostureText` with high-priority posture diagnostics prepended.
 
 ## Concerns
 
-- The full suite is not green because Task 6's generated operator-config deny
-  entries have not been propagated to the Claude and OpenCode golden fixtures.
-  Updating those unrelated fixtures is outside Task 7's no-unrelated-edits scope.
+- Resolved after Task 7: Task 6 fix commit `edb4a9a` synchronized the Claude and
+  OpenCode golden fixtures. The uncached full suite then passed with
+  `/usr/local/go/bin/go test ./... -count=1`.
+
+## Fix Round 1
+
+### Status
+
+Sanitized every dynamic, potentially untrusted Doctor display value through the
+shared adapter boundary while preserving fixed labels, exit semantics, every
+Merge warning, and useful error status around the 200-rune per-value cap.
+
+Reworked policy-warning assertions to parse the exact lines between
+`policy warnings:` and `waivers:` and compare the complete ordered bullet slice.
+
+### RED
+
+Focused commands:
+
+```text
+/usr/local/go/bin/go test ./internal/adapter -run TestSanitizeForDisplay -count=1 -v
+/usr/local/go/bin/go test ./cmd/guardrail -run 'TestDoctor(Basics|ShowsEveryPolicyWarningOnceInMergeOrder|StaleConfig|SanitizesOverlayParseErrorPath|SanitizesOperatorConfigError|SanitizesAuthorizedAuditPath)$' -count=1 -v
+```
+
+Results: FAIL as expected.
+
+- The adapter package had no exported display sanitizer.
+- Newline, tab, and DEL characters in CWD, config/overlay paths, refused values,
+  operator-config errors, and authorized audit paths forged extra Doctor lines
+  and fake `policy warnings:`/`waivers:` headings.
+- A second RED cycle showed that sanitizing a complete long parse/operator
+  diagnostic could consume the cap before fixed `PARSE ERROR` or
+  `treating as empty` status text.
+
+### GREEN
+
+Focused commands after implementation and `gofmt`:
+
+```text
+/usr/local/go/bin/go test ./internal/adapter -run 'TestSanitizeForDisplay|TestSanitizeForModel|TestEmitModelWarnings|TestPostureText' -count=1 -v
+/usr/local/go/bin/go test ./cmd/guardrail -run TestDoctor -count=1 -v
+```
+
+Result: PASS.
+
+Full-suite command, run once uncached after implementation and self-review:
+
+```text
+/usr/local/go/bin/go test ./... -count=1
+```
+
+Result: PASS for every package, including `test` and `test/adversarial`.
+
+### Files
+
+- `internal/adapter/sanitize.go`: exported `SanitizeForDisplay`; retained
+  model-facing behavior by making `sanitizeForModel` delegate to it.
+- `internal/adapter/sanitize_test.go`: locks control stripping, whitespace
+  normalization, and the 200-rune Unicode-safe display cap.
+- `cmd/guardrail/doctor.go`: sanitizes version, CWD, config and overlay paths,
+  discovery/load diagnostics, base/operator/Merge errors, every warning, waiver
+  display, audit path, and Claude settings state.
+- `cmd/guardrail/doctor_test.go`: parses the exact warning section, compares all
+  25 expected bullets in order, proves no Doctor list cap, and covers forged
+  paths, refused values, parse/operator errors, and an authorized audit path.
+- `.superpowers/sdd/2026-09-04-remediation-phase3-overlay-trust/task-7-report.md`:
+  records fix-round evidence and review.
+
+### Self-Review
+
+- `SanitizeForDisplay` is the sole implementation of control stripping,
+  whitespace normalization, and rune truncation; `sanitizeForModel` delegates,
+  so model and terminal semantics cannot drift.
+- Doctor applies the sanitizer per dynamic value, not to fixed labels or counts.
+- Parse paths and parse errors receive independent 200-rune budgets, preserving
+  the fixed `PARSE ERROR` marker even for long paths.
+- Operator errors receive their own 200-rune budget while the fixed
+  `operator config unreadable` and `treating as empty` text remains visible.
+- Warning sanitization occurs inside the existing loop with no slice cap; the
+  exact 25-bullet test includes external `safe_root`, wildcard egress,
+  `secret_allow`, `audit_log`, and 21 rejected waivers.
+- Newline, tab, and DEL injection in valid TOML becomes one exact bullet line;
+  injected CWD/config/overlay text cannot create a second heading or status.
+- The authorized audit-path test proves the final `audit log:` value is also
+  sanitized, not only its unauthorized warning form.
+- Existing labels, warning order, no-warning form, surrounding output, and exit
+  code 0 remain unchanged.
+- `gofmt` and `git diff --check` completed cleanly.
+
+### Concerns
+
+None.

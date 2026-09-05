@@ -12,11 +12,10 @@ const maxModelFacingWarnings = 20
 
 var waiverIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
-// sanitizeForModel makes attacker-influenced text safe to place in a channel
-// the model reads. Control characters are stripped so a crafted path cannot
-// forge additional "guardrail:" lines, and the result is truncated so it
-// cannot flood the context window.
-func sanitizeForModel(s string) string {
+// SanitizeForDisplay makes attacker-influenced text safe to place in a
+// human- or model-facing channel. Control characters are stripped so a crafted
+// path cannot forge additional status lines, and the result is truncated.
+func SanitizeForDisplay(s string) string {
 	var b strings.Builder
 	for _, r := range s {
 		if r < 0x20 || r == 0x7f {
@@ -30,6 +29,10 @@ func sanitizeForModel(s string) string {
 		out = string(r[:maxModelFacingRunes]) + "…"
 	}
 	return out
+}
+
+func sanitizeForModel(s string) string {
+	return SanitizeForDisplay(s)
 }
 
 func sanitizeWaiverIDs(ids []string) []string {
