@@ -54,30 +54,30 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	var stderrWarnings []string
+	var highPriorityWarnings []string
 	var ov *policy.Overlay
 	if pth, ok, warn := policy.FindOverlayPath(tc.CWD); ok {
 		if warn != "" {
-			stderrWarnings = append(stderrWarnings, warn)
+			highPriorityWarnings = append(highPriorityWarnings, warn)
 		}
 		ov, err = policy.LoadOverlay(pth)
 		if err != nil {
-			stderrWarnings = append(stderrWarnings, fmt.Sprintf("guardrail: cannot load overlay (%v); failing closed", err))
-			adapter.EmitModelWarnings(stderrWarnings, stderr)
+			highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: cannot load overlay (%v); failing closed", err))
+			adapter.EmitModelWarnings(highPriorityWarnings, stderr)
 			return 2
 		}
 	} else if warn != "" {
-		stderrWarnings = append(stderrWarnings, warn)
+		highPriorityWarnings = append(highPriorityWarnings, warn)
 	}
 
 	op, opErr := policy.LoadOperatorConfig()
 	if opErr != nil {
-		stderrWarnings = append(stderrWarnings, fmt.Sprintf("guardrail: operator config unreadable (%v); treating as empty", opErr))
+		highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: operator config unreadable (%v); treating as empty", opErr))
 	}
 	merged, mergeWarnings, err := policy.Merge(base, ov, version, op, tc.RepoRoot)
 	if err != nil {
-		stderrWarnings = append(stderrWarnings, fmt.Sprintf("guardrail: invalid overlay (%v); failing closed", err))
-		adapter.EmitModelWarnings(stderrWarnings, stderr)
+		highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: invalid overlay (%v); failing closed", err))
+		adapter.EmitModelWarnings(highPriorityWarnings, stderr)
 		return 2
 	}
 	postureWarnings := mergeWarnings
@@ -86,9 +86,9 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			"guardrail: operator configuration could not be loaded; operator-authorized policy changes remain disabled",
 		}, mergeWarnings...)
 	}
-	stderrWarnings = append(stderrWarnings, postureWarnings...)
 
 	if tc.Event == "session-start" {
+		stderrWarnings := append(append([]string{}, highPriorityWarnings...), mergeWarnings...)
 		adapter.EmitModelWarnings(stderrWarnings, stderr)
 		text := adapter.PostureText(policy.SortedWaivers(merged), postureWarnings)
 		return adapter.EmitClaudeSessionStart(text, stdout)
@@ -98,11 +98,11 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	if tc.Event == "pre" && tc.SessionID != "" && !merged.Waived["P7.trifecta"] {
 		if session.Path(tc.SessionID) == "" {
-			stderrWarnings = append(stderrWarnings, fmt.Sprintf("guardrail: unsafe session id %q; session heuristic disabled", tc.SessionID))
+			highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: unsafe session id %q; session heuristic disabled", tc.SessionID))
 		} else {
 			st, loadErr := session.Load(tc.SessionID)
 			if loadErr != nil {
-				stderrWarnings = append(stderrWarnings, fmt.Sprintf("guardrail: session state read failed (%v)", loadErr))
+				highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: session state read failed (%v)", loadErr))
 			}
 			isPrivate := engine.IsPrivateDataAccess(tc, merged)
 			isNet := engine.IsNetworkAttempt(tc)
@@ -112,7 +112,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			st.SawPrivateRead = st.SawPrivateRead || isPrivate
 			st.SawNetworkCall = st.SawNetworkCall || isNet
 			if err := session.Save(tc.SessionID, st); err != nil {
-				stderrWarnings = append(stderrWarnings, fmt.Sprintf("guardrail: session state write failed (%v)", err))
+				highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: session state write failed (%v)", err))
 			}
 		}
 	}
@@ -136,8 +136,9 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		Waivers:   policy.SortedWaivers(merged),
 	}
 	if err := audit.Write(rec, audit.DefaultPath(merged.Slots.AuditLog)); err != nil {
-		stderrWarnings = append(stderrWarnings, fmt.Sprintf("guardrail: audit write failed (%v)", err))
+		highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: audit write failed (%v)", err))
 	}
+	stderrWarnings := append(append([]string{}, highPriorityWarnings...), mergeWarnings...)
 	adapter.EmitModelWarnings(stderrWarnings, stderr)
 
 	switch plane {

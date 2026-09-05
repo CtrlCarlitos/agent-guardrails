@@ -249,15 +249,28 @@ func TestHookCumulativeWarningCapPreservesSessionStartOperatorWarning(t *testing
 	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
 		t.Fatalf("exit=%d stderr=%q", code, errb.String())
 	}
-	if lines := strings.Count(errb.String(), "\n"); lines > 20 {
-		t.Fatalf("stderr wrote %d warning lines, want at most 20: %q", lines, errb.String())
+	lines := strings.Split(strings.TrimSuffix(errb.String(), "\n"), "\n")
+	if len(lines) != 20 {
+		t.Fatalf("stderr wrote %d warning lines, want 20: %q", len(lines), errb.String())
 	}
 	const generic = "guardrail: operator configuration could not be loaded; operator-authorized policy changes remain disabled"
+	if !strings.HasPrefix(lines[0], "guardrail: operator config unreadable") {
+		t.Fatalf("detailed operator diagnostic was not first: %q", errb.String())
+	}
+	if strings.Contains(errb.String(), generic) {
+		t.Fatalf("stderr duplicated generic and detailed operator warnings: %q", errb.String())
+	}
+	if !strings.Contains(errb.String(), "warning-19") || strings.Contains(errb.String(), "warning-20") {
+		t.Fatalf("stderr did not truncate lower-priority Merge warnings: %q", errb.String())
+	}
 	if !strings.Contains(out.String(), generic) {
 		t.Fatalf("SessionStart posture omitted generic operator warning: %s", out.String())
 	}
-	if !strings.HasPrefix(errb.String(), "guardrail: operator config unreadable") {
-		t.Fatalf("detailed operator diagnostic was not first: %q", errb.String())
+	if genericAt, mergeAt := strings.Index(out.String(), generic), strings.Index(out.String(), "warning-01"); genericAt < 0 || mergeAt < 0 || genericAt > mergeAt {
+		t.Fatalf("SessionStart posture did not prioritize generic operator warning: %s", out.String())
+	}
+	if !strings.Contains(out.String(), "warning-19") || strings.Contains(out.String(), "warning-20") {
+		t.Fatalf("SessionStart posture did not truncate lower-priority Merge warnings: %s", out.String())
 	}
 }
 
@@ -275,8 +288,15 @@ func TestHookLateSessionWarningCannotExceedCumulativeCap(t *testing.T) {
 	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
 		t.Fatalf("exit=%d stderr=%q", code, errb.String())
 	}
-	if lines := strings.Count(errb.String(), "\n"); lines > 20 {
-		t.Fatalf("stderr wrote %d warning lines, want at most 20: %q", lines, errb.String())
+	lines := strings.Split(strings.TrimSuffix(errb.String(), "\n"), "\n")
+	if len(lines) != 20 {
+		t.Fatalf("stderr wrote %d warning lines, want 20: %q", len(lines), errb.String())
+	}
+	if !strings.Contains(lines[0], "unsafe session id") || strings.ContainsAny(lines[0], "\r\t\x00\x7f") {
+		t.Fatalf("unsafe-session warning was not first and sanitized: %q", lines[0])
+	}
+	if !strings.Contains(errb.String(), "warning-19") || strings.Contains(errb.String(), "warning-20") {
+		t.Fatalf("stderr did not truncate lower-priority Merge warnings: %q", errb.String())
 	}
 }
 
@@ -291,7 +311,7 @@ func TestHookLateAuditWarningCannotExceedCumulativeCap(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(configDir, "waivers.toml"), []byte("[\"/tmp\"]\naudit_log = true\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	blocker := filepath.Join(t.TempDir(), "not-a-directory\nforged\tpath\x7f")
 	if err := os.WriteFile(blocker, []byte("block"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -308,8 +328,16 @@ func TestHookLateAuditWarningCannotExceedCumulativeCap(t *testing.T) {
 	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
 		t.Fatalf("exit=%d stderr=%q", code, errb.String())
 	}
-	if lines := strings.Count(errb.String(), "\n"); lines > 20 {
-		t.Fatalf("stderr wrote %d warning lines, want at most 20: %q", lines, errb.String())
+	lines := strings.Split(strings.TrimSuffix(errb.String(), "\n"), "\n")
+	if len(lines) != 20 {
+		t.Fatalf("stderr wrote %d warning lines, want 20: %q", len(lines), errb.String())
+	}
+	if !strings.Contains(lines[0], "audit write failed") || strings.ContainsAny(lines[0], "\r\t\x00\x7f") ||
+		!strings.Contains(lines[0], "not-a-directory forged path") {
+		t.Fatalf("audit warning was not first and sanitized: %q", lines[0])
+	}
+	if !strings.Contains(errb.String(), "warning-19") || strings.Contains(errb.String(), "warning-20") {
+		t.Fatalf("stderr did not truncate lower-priority Merge warnings: %q", errb.String())
 	}
 }
 
@@ -652,8 +680,8 @@ func TestHookSessionStartSanitizesOperatorConfigLoadError(t *testing.T) {
 		t.Fatalf("SessionStart exposed detailed operator error: %s", out.String())
 	}
 	lines := strings.Split(strings.TrimSuffix(errb.String(), "\n"), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("operator load warnings wrote %d lines, want 2: %q", len(lines), errb.String())
+	if len(lines) != 1 {
+		t.Fatalf("operator load warnings wrote %d lines, want 1: %q", len(lines), errb.String())
 	}
 	for _, line := range lines {
 		if strings.ContainsAny(line, "\r\t\x00\x7f") {
@@ -663,7 +691,7 @@ func TestHookSessionStartSanitizesOperatorConfigLoadError(t *testing.T) {
 	if !strings.Contains(lines[0], "parsing operator config") || !strings.Contains(lines[0], "config forged path /guardrail/waivers.toml") {
 		t.Fatalf("stderr omitted sanitized operator diagnostics: %q", errb.String())
 	}
-	if lines[1] != generic {
-		t.Fatalf("stderr generic operator warning = %q, want %q", lines[1], generic)
+	if strings.Contains(errb.String(), generic) {
+		t.Fatalf("stderr duplicated the generic posture warning: %q", errb.String())
 	}
 }
