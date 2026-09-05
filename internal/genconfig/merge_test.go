@@ -278,3 +278,116 @@ func TestMergeIntoOpencodePermissionIdempotent(t *testing.T) {
 		t.Fatalf("OpenCode merge is not byte-idempotent:\n--- first ---\n%s\n--- second ---\n%s", first, second)
 	}
 }
+
+func TestMergeIntoOpencodeTopLevelScalarPermission(t *testing.T) {
+	for _, action := range []string{"allow", "ask", "deny"} {
+		t.Run(action, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "opencode.json")
+			existing := []byte(`{"theme":"dark","plugin":["existing"],"permission":"` + action + `"}`)
+			if err := os.WriteFile(p, existing, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := MergeInto(p, OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
+				t.Fatal(err)
+			}
+			root := readJSON(t, p)
+			if root["theme"] != "dark" || len(root["plugin"].([]any)) != 2 {
+				t.Fatalf("unrelated config was not merged: %#v", root)
+			}
+			if action == "deny" {
+				if root["permission"] != "deny" {
+					t.Fatalf("permission = %#v, want scalar deny", root["permission"])
+				}
+				return
+			}
+
+			permission := root["permission"].(map[string]any)
+			if permission["*"] != action {
+				t.Fatalf("permission wildcard = %#v, want %q", permission["*"], action)
+			}
+			rules := readOpencodePermissionRules(t, p, "edit")
+			if got := opencodeFindLast(rules, "ordinary/nested.txt"); got != action {
+				t.Errorf("ordinary edit = %q, want %q", got, action)
+			}
+			if got := opencodeFindLast(rules, ".env.example"); got != action {
+				t.Errorf("generated allow weakened %q fallback: %q", action, got)
+			}
+			if got := opencodeFindLast(rules, "nested/.ssh/id_rsa"); got != "deny" {
+				t.Errorf("generated deny = %q, want deny", got)
+			}
+		})
+	}
+}
+
+func TestMergeIntoOpencodeCategoryScalarPermission(t *testing.T) {
+	denyPattern := map[string]string{
+		"bash": "rm -rf tmp",
+		"read": "nested/.ssh/id_rsa",
+		"edit": "nested/.ssh/id_rsa",
+	}
+	allowPattern := map[string]string{
+		"bash": "ordinary/nested command",
+		"read": ".env.example",
+		"edit": ".env.example",
+	}
+	for _, category := range []string{"bash", "read", "edit"} {
+		for _, action := range []string{"allow", "ask", "deny"} {
+			t.Run(category+"/"+action, func(t *testing.T) {
+				p := filepath.Join(t.TempDir(), "opencode.json")
+				existing := map[string]any{
+					"theme": "dark",
+					"permission": map[string]any{
+						category:             action,
+						"external_directory": map[string]any{"~/projects/**": "allow"},
+					},
+				}
+				raw, err := json.Marshal(existing)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(p, raw, 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := MergeInto(p, OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
+					t.Fatal(err)
+				}
+
+				root := readJSON(t, p)
+				permission := root["permission"].(map[string]any)
+				if root["theme"] != "dark" || permission["external_directory"] == nil {
+					t.Fatalf("unrelated config was not preserved: %#v", root)
+				}
+				if action == "deny" {
+					if permission[category] != "deny" {
+						t.Fatalf("permission.%s = %#v, want scalar deny", category, permission[category])
+					}
+					return
+				}
+
+				rules := readOpencodePermissionRules(t, p, category)
+				if got := opencodeFindLast(rules, allowPattern[category]); got != action {
+					t.Errorf("generated allow weakened %s fallback: %q", action, got)
+				}
+				if got := opencodeFindLast(rules, denyPattern[category]); got != "deny" {
+					t.Errorf("generated deny = %q, want deny", got)
+				}
+			})
+		}
+	}
+}
+
+func TestMergeIntoOpencodeUnknownCollision(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "opencode.json")
+	existing := []byte(`{"permission":{"bash":{"rm -rf *":{"mode":"audit"}}}}`)
+	if err := os.WriteFile(p, existing, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := MergeInto(p, OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"mode": "audit"}
+	got := readJSON(t, p)["permission"].(map[string]any)["bash"].(map[string]any)["rm -rf *"]
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unknown exact collision = %#v, want %#v", got, want)
+	}
+}

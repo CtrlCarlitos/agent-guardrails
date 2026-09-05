@@ -22,7 +22,7 @@ func OpencodePluginFor(binary string) []byte {
 }
 
 func OpencodeConfig(pol *policy.Policy, pluginPath string) Fragment {
-	bash := map[string]string{"*": "allow"}
+	bash := orderedPermissionRules{"*": "allow"}
 	for _, g := range bashDenyGlobs() {
 		if p, ok := stripWrapper("Bash(", g); ok {
 			bash[p] = "deny"
@@ -34,8 +34,8 @@ func OpencodeConfig(pol *policy.Policy, pluginPath string) Fragment {
 		}
 	}
 
-	read := map[string]string{}
-	edit := map[string]string{}
+	read := orderedPermissionRules{}
+	edit := orderedPermissionRules{}
 	for _, g := range secretDenyGlobs(pol) {
 		if p, ok := stripWrapper("Read(", g); ok {
 			read[p] = "deny"

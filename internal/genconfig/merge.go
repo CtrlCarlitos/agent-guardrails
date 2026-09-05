@@ -120,9 +120,20 @@ func permissionVerdictRank(value any) int {
 }
 
 func mergeOpencodePermission(existing map[string]any, generated map[string]any) {
-	permission, ok := toStringAnyMap(existing["permission"])
-	if !ok {
-		permission = map[string]any{}
+	existingPermission, present := existing["permission"]
+	permission, object := toStringAnyMap(existingPermission)
+	inheritedFallback := ""
+	if !object {
+		if present {
+			action, recognized := existingPermission.(string)
+			if !recognized || permissionVerdictRank(action) == 0 || action == "deny" {
+				return
+			}
+			inheritedFallback = action
+			permission = map[string]any{"*": action}
+		} else {
+			permission = map[string]any{}
+		}
 	}
 
 	for category, value := range generated {
@@ -135,13 +146,27 @@ func mergeOpencodePermission(existing map[string]any, generated map[string]any) 
 			deepMerge(permission, map[string]any{category: value})
 			continue
 		}
-		rules, ok := toStringAnyMap(permission[category])
-		if !ok {
+		existingCategory, categoryPresent := permission[category]
+		rules, categoryObject := toStringAnyMap(existingCategory)
+		if !categoryObject {
+			fallback := inheritedFallback
+			if categoryPresent {
+				action, recognized := existingCategory.(string)
+				if !recognized || permissionVerdictRank(action) == 0 || action == "deny" {
+					continue
+				}
+				fallback = action
+			}
 			rules = map[string]any{}
+			if fallback != "" {
+				rules["*"] = fallback
+			}
 		}
 		for pattern, generatedVerdict := range generatedRules {
 			existingVerdict, present := rules[pattern]
-			if !present || permissionVerdictRank(generatedVerdict) > permissionVerdictRank(existingVerdict) {
+			existingRank := permissionVerdictRank(existingVerdict)
+			generatedRank := permissionVerdictRank(generatedVerdict)
+			if !present || existingRank > 0 && generatedRank > existingRank {
 				rules[pattern] = generatedVerdict
 			}
 		}
@@ -213,6 +238,8 @@ func toStringAnyMap(v any) (map[string]any, bool) {
 			out[k] = x
 		}
 		return out, true
+	case orderedPermissionRules:
+		return map[string]any(m), true
 	default:
 		return nil, false
 	}

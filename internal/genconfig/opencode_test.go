@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -22,6 +23,11 @@ func readOpencodePermissionRules(t *testing.T, path, category string) []opencode
 	if err != nil {
 		t.Fatal(err)
 	}
+	return parseOpencodePermissionRules(t, raw, category)
+}
+
+func parseOpencodePermissionRules(t *testing.T, raw []byte, category string) []opencodePermissionRule {
+	t.Helper()
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &root); err != nil {
 		t.Fatal(err)
@@ -51,23 +57,58 @@ func readOpencodePermissionRules(t *testing.T, path, category string) []opencode
 }
 
 func opencodeGlobMatches(pattern, value string) bool {
+	pattern = strings.ReplaceAll(pattern, "\\", "/")
+	value = strings.ReplaceAll(value, "\\", "/")
 	var expression strings.Builder
-	expression.WriteByte('^')
 	for i := 0; i < len(pattern); {
 		switch {
-		case strings.HasPrefix(pattern[i:], "**"):
-			expression.WriteString(".*")
-			i += 2
 		case pattern[i] == '*':
-			expression.WriteString("[^/]*")
+			expression.WriteString(".*")
+			i++
+		case pattern[i] == '?':
+			expression.WriteByte('.')
 			i++
 		default:
 			expression.WriteString(regexp.QuoteMeta(pattern[i : i+1]))
 			i++
 		}
 	}
-	expression.WriteByte('$')
-	return regexp.MustCompile(expression.String()).MatchString(value)
+	body := expression.String()
+	if strings.HasSuffix(body, " .*") {
+		body = strings.TrimSuffix(body, " .*") + "( .*)?"
+	}
+	return regexp.MustCompile("(?s)^" + body + "$").MatchString(value)
+}
+
+func assertOpencodeRulesOrdered(t *testing.T, rules []opencodePermissionRule) {
+	t.Helper()
+	previousRank := -1
+	previousPattern := ""
+	for _, rule := range rules {
+		rank := map[any]int{"allow": 1, "ask": 2, "deny": 3}[rule.value]
+		if rank < previousRank || rank == previousRank && rule.pattern < previousPattern {
+			t.Fatalf("permission rules are not ordered by verdict then pattern: %q follows %q", rule.pattern, previousPattern)
+		}
+		previousRank = rank
+		previousPattern = rule.pattern
+	}
+}
+
+func TestOpencodeGlobMatchesDocumentedWildcards(t *testing.T) {
+	for _, tt := range []struct {
+		pattern string
+		value   string
+		want    bool
+	}{
+		{pattern: "*", value: "nested/path", want: true},
+		{pattern: "src/?.go", value: "src/x.go", want: true},
+		{pattern: "src/?.go", value: "src/xy.go", want: false},
+		{pattern: "src/?", value: "src//", want: true},
+	} {
+		if got := opencodeGlobMatches(tt.pattern, tt.value); got != tt.want {
+			t.Errorf("match(%q, %q) = %v, want %v", tt.pattern, tt.value, got, tt.want)
+		}
+	}
 }
 
 // OpenCode resolves overlapping permission patterns with findLast.
@@ -216,7 +257,7 @@ try {
 
 func TestOpencodeConfigBashPermissions(t *testing.T) {
 	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
-	bash := frag["permission"].(map[string]any)["bash"].(map[string]string)
+	bash := frag["permission"].(map[string]any)["bash"].(orderedPermissionRules)
 	if bash["*"] != "allow" {
 		t.Errorf(`bash["*"] = %q, want "allow"`, bash["*"])
 	}
@@ -230,8 +271,8 @@ func TestOpencodeConfigBashPermissions(t *testing.T) {
 
 func TestOpencodeConfigReadEditPermissions(t *testing.T) {
 	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
-	read := frag["permission"].(map[string]any)["read"].(map[string]string)
-	edit := frag["permission"].(map[string]any)["edit"].(map[string]string)
+	read := frag["permission"].(map[string]any)["read"].(orderedPermissionRules)
+	edit := frag["permission"].(map[string]any)["edit"].(orderedPermissionRules)
 	if read["**/.ssh/**"] != "deny" {
 		t.Errorf(`read["**/.ssh/**"] = %q`, read["**/.ssh/**"])
 	}
@@ -248,7 +289,7 @@ func TestOpencodeConfigReadEditPermissions(t *testing.T) {
 
 func TestOpencodeConfigProtectsGuardrailOwnMachinery(t *testing.T) {
 	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
-	edit := frag["permission"].(map[string]any)["edit"].(map[string]string)
+	edit := frag["permission"].(map[string]any)["edit"].(orderedPermissionRules)
 	want := []string{
 		"guardrail.toml",
 		"**/guardrail.toml",
@@ -269,7 +310,7 @@ func TestOpencodeConfigProtectsGuardrailOwnMachinery(t *testing.T) {
 
 func TestOpencodeConfigProtectsOperatorConfig(t *testing.T) {
 	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
-	edit := frag["permission"].(map[string]any)["edit"].(map[string]string)
+	edit := frag["permission"].(map[string]any)["edit"].(orderedPermissionRules)
 	for _, path := range []string{
 		"**/.config/guardrail/**",
 		"**/guardrail/waivers.toml",
@@ -277,8 +318,8 @@ func TestOpencodeConfigProtectsOperatorConfig(t *testing.T) {
 		if edit[path] != "deny" {
 			t.Errorf("OpenCode edit permission for %q = %q, want deny", path, edit[path])
 		}
-		if got := edit["//"+path]; got != "" {
-			t.Errorf("OpenCode edit permission contains Claude-only absolute form %q = %q", "//"+path, got)
+		if got := edit["//"+path]; got != nil {
+			t.Errorf("OpenCode edit permission contains Claude-only absolute form %q = %v", "//"+path, got)
 		}
 	}
 }
@@ -288,6 +329,46 @@ func TestOpencodeConfigPluginRegistered(t *testing.T) {
 	plugins := frag["plugin"].([]string)
 	if len(plugins) != 1 || plugins[0] != "/x/guardrail.js" {
 		t.Errorf("plugin = %v", plugins)
+	}
+}
+
+func TestOpencodeConfigOrderedStandaloneOutput(t *testing.T) {
+	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+	first, err := json.MarshalIndent(frag, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := json.MarshalIndent(frag, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatalf("standalone OpenCode output is not byte-idempotent:\n--- first ---\n%s\n--- second ---\n%s", first, second)
+	}
+	if !json.Valid(first) {
+		t.Fatalf("standalone OpenCode output is invalid JSON:\n%s", first)
+	}
+	if !bytes.Contains(first, []byte("\n    \"bash\": {\n")) {
+		t.Fatalf("standalone OpenCode output is not pretty JSON:\n%s", first)
+	}
+	for _, category := range []string{"bash", "read", "edit"} {
+		assertOpencodeRulesOrdered(t, parseOpencodePermissionRules(t, first, category))
+	}
+}
+
+func TestOrderedPermissionRulesPreserveJSONEscaping(t *testing.T) {
+	key := "quoted\"\\\n<key>"
+	want := map[string]any{"nested": "quoted\"\\\n<value>"}
+	raw, err := json.MarshalIndent(orderedPermissionRules{key: want}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("ordered rules emitted invalid escaped JSON: %v\n%s", err, raw)
+	}
+	if !reflect.DeepEqual(got[key], want) {
+		t.Fatalf("escaped value = %#v, want %#v", got[key], want)
 	}
 }
 
@@ -349,16 +430,7 @@ func TestMergeIntoOpencodePermissionPrecedence(t *testing.T) {
 	}
 
 	rules := readOpencodePermissionRules(t, p, "edit")
-	previousRank := -1
-	previousPattern := ""
-	for _, rule := range rules {
-		rank := map[any]int{"allow": 1, "ask": 2, "deny": 3}[rule.value]
-		if rank < previousRank || rank == previousRank && rule.pattern < previousPattern {
-			t.Fatalf("permission rules are not ordered by verdict then pattern: %q follows %q", rule.pattern, previousPattern)
-		}
-		previousRank = rank
-		previousPattern = rule.pattern
-	}
+	assertOpencodeRulesOrdered(t, rules)
 	for _, tt := range []struct {
 		path string
 		want string
