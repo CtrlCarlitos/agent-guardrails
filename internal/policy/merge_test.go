@@ -3,6 +3,7 @@ package policy
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -255,6 +256,31 @@ func TestMergeSafeRootsRejectExistingSymlinkEscape(t *testing.T) {
 	}
 	if len(m.Slots.SafeRoots) != 0 || len(warns) != 1 || !strings.Contains(warns[0], "DROPPED") {
 		t.Fatalf("symlink escape was accepted: policy=%+v warnings=%v", m, warns)
+	}
+}
+
+func TestMergeSafeRootsRejectSymlinkDotDotEscape(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	repoRoot := t.TempDir()
+	outside := t.TempDir()
+	outsideSubdir := filepath.Join(outside, "subdir")
+	if err := os.Mkdir(outsideSubdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideSubdir, filepath.Join(repoRoot, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	separator := string(filepath.Separator)
+	requested := "alias" + separator + ".." + separator + "future"
+
+	m, warns, err := Merge(&Policy{Waived: map[string]bool{}}, &Overlay{SafeRoots: []string{requested}}, "1.0.0", nil, repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Slots.SafeRoots) != 0 || len(warns) != 1 || !strings.Contains(warns[0], "DROPPED") {
+		t.Fatalf("symlink/.. escape was accepted: policy=%+v warnings=%v", m, warns)
 	}
 }
 

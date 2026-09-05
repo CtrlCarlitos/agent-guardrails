@@ -283,6 +283,10 @@ func TestOperatorConfigMissingLeafAliasWrites(t *testing.T) {
 	if err := os.Mkdir(operatorDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	operatorSubdir := filepath.Join(operatorDir, "subdir")
+	if err := os.Mkdir(operatorSubdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	alias := filepath.Join(t.TempDir(), "innocent")
 	if err := os.Symlink(operatorDir, alias); err != nil {
 		t.Fatal(err)
@@ -291,24 +295,43 @@ func TestOperatorConfigMissingLeafAliasWrites(t *testing.T) {
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
 		t.Fatalf("Operator config leaf must not exist before the attempted write: %v", err)
 	}
+	traversalDir := t.TempDir()
+	traversalAlias := filepath.Join(traversalDir, "innocent")
+	if err := os.Symlink(operatorSubdir, traversalAlias); err != nil {
+		t.Fatal(err)
+	}
+	separator := string(filepath.Separator)
+	traversalTarget := traversalAlias + separator + ".." + separator + "waivers.toml"
+	relativeTraversalTarget := "innocent" + separator + ".." + separator + "waivers.toml"
+	if _, err := os.Stat(traversalTarget); !os.IsNotExist(err) {
+		t.Fatalf("Operator config traversal leaf must not exist before the attempted write: %v", err)
+	}
 
 	tests := []struct {
 		name string
 		call ToolCall
+		cwd  string
 	}{
-		{"native Write", ToolCall{Tool: "Write", Paths: []string{target}}},
-		{"native Edit", ToolCall{Tool: "Edit", Paths: []string{target}}},
-		{"native MultiEdit", ToolCall{Tool: "MultiEdit", Paths: []string{target}}},
-		{"Bash redirect", ToolCall{Tool: "Bash", Command: "printf x > " + target}},
-		{"Bash destination", ToolCall{Tool: "Bash", Command: "cp /tmp/evil " + target}},
-		{"Bash all args", ToolCall{Tool: "Bash", Command: "tee " + target}},
-		{"Bash dd output", ToolCall{Tool: "Bash", Command: "dd if=/tmp/evil of=" + target}},
-		{"Bash in-place sed", ToolCall{Tool: "Bash", Command: "sed -i s/x/y/ " + target}},
+		{"native Write", ToolCall{Tool: "Write", Paths: []string{target}}, ""},
+		{"native Edit", ToolCall{Tool: "Edit", Paths: []string{target}}, ""},
+		{"native MultiEdit", ToolCall{Tool: "MultiEdit", Paths: []string{target}}, ""},
+		{"Bash redirect", ToolCall{Tool: "Bash", Command: "printf x > " + target}, ""},
+		{"Bash destination", ToolCall{Tool: "Bash", Command: "cp /tmp/evil " + target}, ""},
+		{"Bash all args", ToolCall{Tool: "Bash", Command: "tee " + target}, ""},
+		{"Bash dd output", ToolCall{Tool: "Bash", Command: "dd if=/tmp/evil of=" + target}, ""},
+		{"Bash in-place sed", ToolCall{Tool: "Bash", Command: "sed -i s/x/y/ " + target}, ""},
+		{"native symlink parent traversal", ToolCall{Tool: "Write", Paths: []string{traversalTarget}}, ""},
+		{"Bash symlink parent traversal", ToolCall{Tool: "Bash", Command: "printf x > " + traversalTarget}, ""},
+		{"relative symlink parent traversal", ToolCall{Tool: "Write", Paths: []string{relativeTraversalTarget}}, traversalDir},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			test.call.CWD = t.TempDir()
-			v := checkPaths(test.call, pathPol())
+			call := test.call
+			call.CWD = test.cwd
+			if call.CWD == "" {
+				call.CWD = t.TempDir()
+			}
+			v := checkPaths(call, pathPol())
 			if v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
 				t.Fatalf("-> %+v, want deny/P5.self-config", v)
 			}

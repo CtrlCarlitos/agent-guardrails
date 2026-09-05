@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -277,14 +278,21 @@ func resolvePath(p, cwd string) string {
 	if strings.HasPrefix(p, "~") {
 		return p // treat "~" as outside any safe root; do not expand
 	}
-	if filepath.IsAbs(p) {
-		return filepath.Clean(p)
+	if filepath.IsAbs(p) || cwd == "" {
+		return p
 	}
-	return filepath.Clean(filepath.Join(cwd, p))
+	if os.IsPathSeparator(cwd[len(cwd)-1]) {
+		return cwd + p
+	}
+	return cwd + string(filepath.Separator) + p
 }
 
 func withinSafe(target, repoRoot string, safeRoots []string) bool {
-	if target == "~" || strings.HasPrefix(target, "~/") || target == "/" {
+	if target == "~" || strings.HasPrefix(target, "~/") {
+		return false
+	}
+	target = filepath.Clean(target)
+	if target == "/" {
 		return false
 	}
 	roots := append([]string{repoRoot}, safeRoots...)

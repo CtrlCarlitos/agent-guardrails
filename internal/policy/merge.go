@@ -41,13 +41,18 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 	cleanRoot := filepath.Clean(repoRoot)
 	resolvedRoot, rootErr := pathutil.ResolveThroughExistingAncestor(cleanRoot)
 	for _, sr := range ov.SafeRoots {
+		rawCandidate := sr
+		if !filepath.IsAbs(rawCandidate) {
+			rawCandidate = cleanRoot + string(filepath.Separator) + rawCandidate
+		}
+		resolved, resolveErr := pathutil.ResolveThroughExistingAncestor(rawCandidate)
+
 		candidate := sr
 		if !filepath.IsAbs(candidate) {
 			candidate = filepath.Join(cleanRoot, candidate)
 		}
 		candidate = filepath.Clean(candidate)
 		lexicalRel, lexicalErr := filepath.Rel(cleanRoot, candidate)
-		resolved, resolveErr := pathutil.ResolveThroughExistingAncestor(candidate)
 		resolvedRel, resolvedRelErr := filepath.Rel(resolvedRoot, resolved)
 		if !filepath.IsAbs(repoRoot) || rootErr != nil || lexicalErr != nil || pathEscapesRoot(lexicalRel) ||
 			resolveErr != nil || resolvedRelErr != nil || pathEscapesRoot(resolvedRel) {
