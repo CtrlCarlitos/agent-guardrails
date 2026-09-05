@@ -162,7 +162,7 @@ func TestGitSpaceFormGlobalOptions(t *testing.T) {
 }
 
 func TestGitKnownValuelessGlobalsStillParse(t *testing.T) {
-	for _, c := range []string{`git --no-pager reset --hard`, `git -P reset --hard`, `git --bare reset --hard`} {
+	for _, c := range []string{`git --no-pager reset --hard`, `git -p reset --hard`, `git -P reset --hard`, `git --bare reset --hard`} {
 		v := evalBash(t, c)
 		if v == nil || v.Decision != policy.Deny {
 			t.Errorf("%q -> %+v, want deny (valueless global must not shift the subcommand)", c, v)
@@ -171,14 +171,55 @@ func TestGitKnownValuelessGlobalsStillParse(t *testing.T) {
 }
 
 func TestGitUnknownGlobalFailsClosed(t *testing.T) {
-	v := evalBash(t, `git --some-future-option x reset --hard`)
-	if v == nil || (v.Decision != policy.Deny && v.Decision != policy.Ask) {
-		t.Fatalf("-> %+v, want deny or ask, never allow", v)
+	for _, c := range []string{
+		`git --some-future-option x reset --hard`,
+		`git --future=x status`,
+		`git -- status`,
+	} {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P2.git-unknown-global" {
+			t.Errorf("%q -> %+v, want ask/P2.git-unknown-global", c, v)
+		}
+	}
+}
+
+func TestGitUnknownGlobalDoesNotDowngradeKnownDeny(t *testing.T) {
+	cases := map[string]string{
+		`git --future=x reset --hard`:                         "P2.git-reset-hard",
+		`git --future=x config --global core.hooksPath /evil`: "P2.git-config-write",
+		`git --future=x push --force origin main`:             "P1.git-push-force",
+	}
+	for c, ruleID := range cases {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != ruleID {
+			t.Errorf("%q -> %+v, want deny/%s", c, v, ruleID)
+		}
+	}
+}
+
+func TestGitAttachedShortGlobalsReachRules(t *testing.T) {
+	cases := map[string]string{
+		`git -C/r reset --hard`:                          "P2.git-reset-hard",
+		`git -ca=b config --global core.hooksPath /evil`: "P2.git-config-write",
+		`git -C/r push --force origin main`:              "P1.git-push-force",
+	}
+	for c, ruleID := range cases {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != ruleID {
+			t.Errorf("%q -> %+v, want deny/%s", c, v, ruleID)
+		}
 	}
 }
 
 func TestGitReadOnlyStillAllowed(t *testing.T) {
-	for _, c := range []string{`git status`, `git --no-pager log --oneline`, `git -C . diff`} {
+	for _, c := range []string{
+		`git status`,
+		`git --no-pager log --oneline`,
+		`git -p log --oneline`,
+		`git -C . diff`,
+		`git -C/r diff`,
+		`git -ca=b status`,
+	} {
 		if v := evalBash(t, c); v != nil {
 			t.Errorf("%q -> %+v, want nil", c, v)
 		}

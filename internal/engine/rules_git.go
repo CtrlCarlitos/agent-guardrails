@@ -8,10 +8,7 @@ func checkGitSafety(s Simple) *policy.Verdict {
 	if head(s.Argv) != "git" || len(s.Argv) < 2 {
 		return nil
 	}
-	if unknown := gitSubcommandUnknownFlag(s.Argv); unknown != "" {
-		return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-unknown-global",
-			Reason: "unrecognized git global option " + unknown + " before the subcommand; cannot verify what this runs"}
-	}
+	unknown := gitSubcommandUnknownFlag(s.Argv)
 	sub := gitSubcommand(s.Argv)
 	switch sub {
 	case "reset":
@@ -79,6 +76,10 @@ func checkGitSafety(s Simple) *policy.Verdict {
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-push-protected",
 				Reason: "pushing tags can overwrite released versions"}
 		}
+	}
+	if unknown != "" {
+		return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-unknown-global",
+			Reason: "unrecognized git global option " + unknown + " before the subcommand; cannot verify what this runs"}
 	}
 	return nil
 }

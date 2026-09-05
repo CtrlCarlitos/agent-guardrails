@@ -141,7 +141,7 @@ var gitValueFlags = map[string]bool{
 
 // gitValuelessGlobals are global options that take no following token.
 var gitValuelessGlobals = map[string]bool{
-	"-P": true, "--no-pager": true, "--paginate": true, "--bare": true,
+	"-p": true, "-P": true, "--no-pager": true, "--paginate": true, "--bare": true,
 	"--literal-pathspecs": true, "--no-replace-objects": true,
 	"--help": true, "--version": true, "--no-optional-locks": true,
 }
@@ -209,6 +209,10 @@ func gitSubcommandUnknownFlag(argv []string) string {
 			continue
 		}
 		if gitValuelessGlobals[base] {
+			i++
+			continue
+		}
+		if !strings.HasPrefix(a, "--") {
 			i++
 			continue
 		}
