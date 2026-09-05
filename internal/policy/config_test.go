@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -102,4 +103,73 @@ waive = ["P6.curl-egress"]
 	if len(ov.Waive) != 1 || ov.Waive[0] != "P6.curl-egress" {
 		t.Errorf("waive wrong: %v", ov.Waive)
 	}
+}
+
+func TestOverlayTooLargeIsRejected(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "guardrail.toml")
+	big := bytes.Repeat([]byte{'#'}, (1<<20)+1)
+	if err := os.WriteFile(p, big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadOverlay(p); err == nil {
+		t.Fatal("an oversized overlay must be rejected, not parsed")
+	}
+}
+
+func TestOversizedOverlayIsRejectedBeforeParsing(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "guardrail.toml")
+	big := bytes.Repeat([]byte{'['}, (1<<20)+1)
+	if err := os.WriteFile(p, big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadOverlay(p)
+	if err == nil || !strings.Contains(err.Error(), "over the 1048576 limit") {
+		t.Fatalf("an oversized malformed overlay must fail the size check first: %v", err)
+	}
+}
+
+func TestNormalOverlayStillLoads(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "guardrail.toml")
+	if err := os.WriteFile(p, []byte("engine_min_version = \"1.0\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadOverlay(p); err != nil {
+		t.Fatalf("a normal overlay must load: %v", err)
+	}
+}
+
+func TestOverlayExactlyAtSizeLimitStillLoads(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "guardrail.toml")
+	prefix := []byte("engine_min_version = \"1.0\"\n#")
+	raw := append(prefix, bytes.Repeat([]byte{'x'}, (1<<20)-len(prefix))...)
+	if err := os.WriteFile(p, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadOverlay(p); err != nil {
+		t.Fatalf("an overlay exactly at the size limit must load: %v", err)
+	}
+}
+
+func TestLoadOverlayPreservesReadErrors(t *testing.T) {
+	t.Run("missing", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), "missing.toml")
+		if _, err := LoadOverlay(p); err == nil || !strings.Contains(err.Error(), "reading overlay "+p) {
+			t.Fatalf("missing overlay must retain the read error: %v", err)
+		}
+	})
+
+	t.Run("directory", func(t *testing.T) {
+		p := t.TempDir()
+		if _, err := LoadOverlay(p); err == nil || !strings.Contains(err.Error(), "reading overlay "+p) {
+			t.Fatalf("unreadable overlay must retain the read error: %v", err)
+		}
+	})
 }

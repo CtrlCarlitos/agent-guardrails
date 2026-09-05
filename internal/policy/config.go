@@ -2,6 +2,7 @@ package policy
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 )
+
+const maxOverlayBytes = 1 << 20
 
 type Overlay struct {
 	EngineMinVersion string
@@ -53,9 +56,21 @@ func FindRepoRoot(cwd string) (string, bool) {
 }
 
 func LoadOverlay(pth string) (*Overlay, error) {
-	raw, err := os.ReadFile(pth)
+	if fi, err := os.Stat(pth); err == nil && fi.Size() > maxOverlayBytes {
+		return nil, fmt.Errorf("overlay %s is %d bytes, over the %d limit; refusing to parse",
+			pth, fi.Size(), maxOverlayBytes)
+	}
+	overlayFile, err := os.Open(pth)
 	if err != nil {
 		return nil, fmt.Errorf("reading overlay %s: %w", pth, err)
+	}
+	defer overlayFile.Close()
+	raw, err := io.ReadAll(io.LimitReader(overlayFile, maxOverlayBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("reading overlay %s: %w", pth, err)
+	}
+	if len(raw) > maxOverlayBytes {
+		return nil, fmt.Errorf("overlay %s is over the %d limit; refusing to parse", pth, maxOverlayBytes)
 	}
 	var f struct {
 		EngineMinVersion string   `toml:"engine_min_version"`
