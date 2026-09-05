@@ -129,20 +129,32 @@ func checkGit(s Simple) *policy.Verdict {
 	return nil
 }
 
+// gitValueFlags are git global options that consume a following token.
+// Missing one shifts subcommand parsing and silently disables every git rule
+// — exactly the class the v0.4.1 hotfix closed for -C/-c and the 2026-09-04
+// review reopened through --git-dir. Keep this list complete.
+var gitValueFlags = map[string]bool{
+	"-C": true, "-c": true, "--namespace": true,
+	"--git-dir": true, "--work-tree": true, "--exec-path": true,
+	"--attr-source": true, "--super-prefix": true, "--config-env": true,
+}
+
+// gitValuelessGlobals are global options that take no following token.
+var gitValuelessGlobals = map[string]bool{
+	"-P": true, "--no-pager": true, "--paginate": true, "--bare": true,
+	"--literal-pathspecs": true, "--no-replace-objects": true,
+	"--help": true, "--version": true, "--no-optional-locks": true,
+}
+
 // gitSubcommand returns the git subcommand (e.g. "push", "config"), correctly
-// skipping global options that take a separate value token — "-C <path>" and
-// "-c <key>=<value>" (repeatable) — before it. Getting this wrong previously
-// made "git -C . push --force" return "." as the subcommand, silently
-// bypassing every git-safety rule (checkGit and checkGitSafety both key off
-// this function's return value).
+// skipping global options that take a separate value token before it.
 func gitSubcommand(argv []string) string {
-	valueFlags := map[string]bool{"-C": true, "-c": true, "--namespace": true}
 	for i := 1; i < len(argv); {
 		a := argv[i]
 		if !strings.HasPrefix(a, "-") {
 			return a
 		}
-		if valueFlags[a] {
+		if gitValueFlags[a] {
 			i += 2
 			continue
 		}
@@ -158,7 +170,6 @@ func gitSubcommand(argv []string) string {
 // later token, which bypassed the reflog/remote/stash rules exactly the way
 // the subcommand misparse did.
 func gitSubcommandArg(argv []string) string {
-	valueFlags := map[string]bool{"-C": true, "-c": true, "--namespace": true}
 	for i := 1; i < len(argv); {
 		a := argv[i]
 		if !strings.HasPrefix(a, "-") {
@@ -167,11 +178,41 @@ func gitSubcommandArg(argv []string) string {
 			}
 			return ""
 		}
-		if valueFlags[a] {
+		if gitValueFlags[a] {
 			i += 2
 			continue
 		}
 		i++
+	}
+	return ""
+}
+
+// gitSubcommandUnknownFlag returns the first --flag preceding the subcommand
+// that this code does not recognise. A new git global option must fail closed
+// rather than silently shift the subcommand.
+func gitSubcommandUnknownFlag(argv []string) string {
+	for i := 1; i < len(argv); {
+		a := argv[i]
+		if !strings.HasPrefix(a, "-") {
+			return ""
+		}
+		base := a
+		if eq := strings.Index(a, "="); eq >= 0 {
+			base = a[:eq]
+		}
+		if gitValueFlags[base] {
+			if strings.Contains(a, "=") {
+				i++
+			} else {
+				i += 2
+			}
+			continue
+		}
+		if gitValuelessGlobals[base] {
+			i++
+			continue
+		}
+		return a
 	}
 	return ""
 }

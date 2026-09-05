@@ -141,3 +141,46 @@ func TestGitPrefixesDontCreateFalsePositives(t *testing.T) {
 		}
 	}
 }
+
+func TestGitSpaceFormGlobalOptions(t *testing.T) {
+	deny := []string{
+		`git --git-dir /r/.git push --force origin main`,
+		`git --work-tree /r --git-dir /r/.git clean -fdx`,
+		`git --git-dir /r/.git config --global core.hooksPath /tmp/evil`,
+		`git --work-tree /r reset --hard`,
+		`git --exec-path /x clean -fdx`,
+		`git --attr-source HEAD push --force`,
+		`git --super-prefix x reset --hard`,
+		`git --config-env=k=V push --force`,
+	}
+	for _, c := range deny {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", c, v)
+		}
+	}
+}
+
+func TestGitKnownValuelessGlobalsStillParse(t *testing.T) {
+	for _, c := range []string{`git --no-pager reset --hard`, `git -P reset --hard`, `git --bare reset --hard`} {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny (valueless global must not shift the subcommand)", c, v)
+		}
+	}
+}
+
+func TestGitUnknownGlobalFailsClosed(t *testing.T) {
+	v := evalBash(t, `git --some-future-option x reset --hard`)
+	if v == nil || (v.Decision != policy.Deny && v.Decision != policy.Ask) {
+		t.Fatalf("-> %+v, want deny or ask, never allow", v)
+	}
+}
+
+func TestGitReadOnlyStillAllowed(t *testing.T) {
+	for _, c := range []string{`git status`, `git --no-pager log --oneline`, `git -C . diff`} {
+		if v := evalBash(t, c); v != nil {
+			t.Errorf("%q -> %+v, want nil", c, v)
+		}
+	}
+}

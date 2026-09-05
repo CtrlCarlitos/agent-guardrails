@@ -8,6 +8,10 @@ func checkGitSafety(s Simple) *policy.Verdict {
 	if head(s.Argv) != "git" || len(s.Argv) < 2 {
 		return nil
 	}
+	if unknown := gitSubcommandUnknownFlag(s.Argv); unknown != "" {
+		return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-unknown-global",
+			Reason: "unrecognized git global option " + unknown + " before the subcommand; cannot verify what this runs"}
+	}
 	sub := gitSubcommand(s.Argv)
 	switch sub {
 	case "reset":
