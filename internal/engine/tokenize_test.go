@@ -188,7 +188,7 @@ func TestNormalizeConsumesWrapperFlags(t *testing.T) {
 	}
 }
 
-func TestNormalizeRejectsUnknownWrapperFlags(t *testing.T) {
+func TestNormalizeMarksUnknownWrapperFlagsUnresolved(t *testing.T) {
 	for _, src := range []string{
 		`env --frobnicate ls`,
 		`nohup -x ls`,
@@ -197,8 +197,17 @@ func TestNormalizeRejectsUnknownWrapperFlags(t *testing.T) {
 		`timeout --frobnicate 5 ls`,
 		`nice --frobnicate ls`,
 	} {
-		if _, err := Normalize(src); err == nil {
-			t.Errorf("Normalize(%q): want error for unrecognized wrapper flag", src)
+		got, err := Normalize(src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", src, err)
+			continue
+		}
+		want, err := splitSimples(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || !got[0].Unresolved || !reflect.DeepEqual(got[0].Argv, want[0].Argv) {
+			t.Errorf("Normalize(%q) = %+v, want original argv marked unresolved", src, got)
 		}
 	}
 }

@@ -65,11 +65,16 @@ func Normalize(command string) ([]Simple, error) {
 	}
 	var out []Simple
 	for _, s := range base {
-		stripped, err := stripAndUnwrap(s)
+		expanded, err := stripAndUnwrap(s)
 		if err != nil {
-			return nil, err
+			// This statement's wrappers could not be understood. Keep it
+			// unknowable so sibling statements are still evaluated.
+			degraded := s
+			degraded.Unresolved = true
+			out = append(out, degraded)
+			continue
 		}
-		out = append(out, stripped...)
+		out = append(out, expanded...)
 	}
 	return out, nil
 }

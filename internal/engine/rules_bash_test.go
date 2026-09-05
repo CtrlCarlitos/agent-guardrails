@@ -80,6 +80,31 @@ func TestNormalizationPreservesSafeCommands(t *testing.T) {
 
 func TestBusyBoxAmbiguousAppletFailsClosed(t *testing.T) {
 	v := evalBash(t, `busybox --unknown rm -rf /`)
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+		t.Fatalf("-> %+v, want ask/P3.unresolved", v)
+	}
+}
+
+func TestFailingStatementDoesNotMaskAnotherDeny(t *testing.T) {
+	// `env -Z x` is an unrecognized env option -> that statement is unknowable.
+	// The rm -rf / in the same command must still deny.
+	for _, c := range []string{`rm -rf /; env -Z x`, `env -Z x; rm -rf /`} {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny (a junk wrapper must not soften a real deny)", c, v)
+		}
+	}
+}
+
+func TestUnknowableStatementAloneStillAsks(t *testing.T) {
+	v := evalBash(t, `env -Z x`)
+	if v == nil || v.Decision != policy.Ask {
+		t.Fatalf("-> %+v, want ask", v)
+	}
+}
+
+func TestSourceParseFailureStillFailsClosed(t *testing.T) {
+	v := evalBash(t, `echo "unterminated`)
 	if v == nil || v.Decision != policy.Ask || v.RuleID != "tokenize-failed" {
 		t.Fatalf("-> %+v, want ask/tokenize-failed", v)
 	}
