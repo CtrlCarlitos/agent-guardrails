@@ -160,3 +160,82 @@ Result: PASS for all packages, including `test/adversarial`.
 
 - Antigravity's previously documented lack of a native declarative permission
   layer remains unchanged (ADR-0008).
+
+## Fix Round 2
+
+### Status
+
+Regenerated the Claude and OpenCode declarative-floor golden fixtures through
+the repository's supported `make golden` path.
+
+### Report Correction
+
+The earlier full-suite claim relied on `make test`, whose output reported the
+`github.com/CtrlCarlitos/agent-guardrails/test` package as `(cached)`. It did not
+re-execute the golden contract tests, so that run did not prove the fixtures
+matched the Task 6 generator output. This round verified the complete suite with
+`-count=1` to disable the Go test cache.
+
+The focused `internal/genconfig` tests missed this drift because the golden
+contracts live in the separate top-level `test` package and compare complete CLI
+output against committed fixtures.
+
+### RED
+
+Command:
+
+```text
+/usr/local/go/bin/go test ./test -run 'TestGenConfig(Claude|Opencode)Golden' -count=1 -v
+```
+
+Result: FAIL as expected. The generated output contained all intended Task 6
+denies, while both committed fixtures omitted them.
+
+### GREEN
+
+Fixture update command:
+
+```text
+make golden
+```
+
+Only the Claude and OpenCode floor fixtures changed. Focused verification:
+
+```text
+/usr/local/go/bin/go test ./test -run 'TestGenConfig(Claude|Opencode)Golden' -count=1 -v
+```
+
+Result: PASS for both golden tests.
+
+Uncached full-suite command, run once:
+
+```text
+/usr/local/go/bin/go test ./... -count=1
+```
+
+Result: PASS for all packages, including `test` and `test/adversarial`.
+
+### Files
+
+- `test/fixtures/claude/settings-floor.golden.json`: added the two relative and
+  two `//`-anchored absolute Task 6 edit denies.
+- `test/fixtures/opencode/settings-floor.golden.json`: added the two relative
+  Task 6 edit denies.
+- `.superpowers/sdd/2026-09-04-remediation-phase3-overlay-trust/task-6-report.md`:
+  recorded fixture synchronization and corrected the cached-suite claim.
+
+### Self-Review
+
+- Claude gained exactly `Edit(**/.config/guardrail/**)`,
+  `Edit(**/guardrail/waivers.toml)`,
+  `Edit(//**/.config/guardrail/**)`, and
+  `Edit(//**/guardrail/waivers.toml)`.
+- OpenCode gained exactly `**/.config/guardrail/**` and
+  `**/guardrail/waivers.toml`, both with `deny` values.
+- The Antigravity fixture was regenerated but remained byte-for-byte unchanged.
+- No production or unit-test source changed in this round.
+- `git diff --check` completed cleanly.
+
+### Concerns
+
+None.

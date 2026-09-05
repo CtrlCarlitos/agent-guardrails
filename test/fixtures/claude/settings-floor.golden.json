@@ -183,8 +183,12 @@
       "Edit(**/.gemini/config/hooks.json)",
       "Edit(**/.local/bin/guardrail)",
       "Edit(**/bin/guardrail)",
+      "Edit(**/.config/guardrail/**)",
+      "Edit(**/guardrail/waivers.toml)",
       "Edit(**/.git/config)",
-      "Edit(**/.git/hooks/**)"
+      "Edit(**/.git/hooks/**)",
+      "Edit(//**/.config/guardrail/**)",
+      "Edit(//**/guardrail/waivers.toml)"
     ]
   }
 }
