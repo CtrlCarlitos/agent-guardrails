@@ -70,6 +70,49 @@ func TestGitPushProtected(t *testing.T) {
 	}
 }
 
+func TestGitPushRefspecForms(t *testing.T) {
+	deny := []string{`git push origin +main`, `git push origin +HEAD:refs/heads/main`}
+	for _, c := range deny {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P2.git-push-force" {
+			t.Errorf("%q -> %+v, want deny/P2.git-push-force (+refspec is a force push)", c, v)
+		}
+	}
+	ask := map[string]string{
+		`git push origin :main`:                    "P2.git-push-delete",
+		`git push origin main:main`:                "P2.git-push-protected",
+		`git push origin dev:main`:                 "P2.git-push-protected",
+		`git push origin HEAD:refs/heads/main`:     "P2.git-push-protected",
+		`git push origin HEAD:refs/heads/master`:   "P2.git-push-protected",
+		`git push origin :refs/heads/feature-gone`: "P2.git-push-delete",
+		`git push --repo origin main`:              "P2.git-push-protected",
+		`git push --repo=origin main`:              "P2.git-push-protected",
+	}
+	for c, id := range ask {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != id {
+			t.Errorf("%q -> %+v, want ask/%s", c, v, id)
+		}
+	}
+	if v := evalBash(t, `git push origin dev:feature-x`); v != nil {
+		t.Errorf("non-protected refspec -> %+v, want nil", v)
+	}
+}
+
+func TestGitPushRefspecParsingSkipsRemoteAndOptionValues(t *testing.T) {
+	for _, c := range []string{
+		`git push main feature-x`,
+		`git push -o main origin feature-x`,
+		`git push --push-option main origin feature-x`,
+		`git push origin -o main feature-x`,
+		`git push --repo main feature-x`,
+	} {
+		if v := evalBash(t, c); v != nil {
+			t.Errorf("%q -> %+v, want nil", c, v)
+		}
+	}
+}
+
 func TestForceWithLeaseDenied(t *testing.T) {
 	for _, c := range []string{"git push --force-with-lease origin main", "git push --force-with-lease origin feature/x"} {
 		v := evalGitSafety(t, c)

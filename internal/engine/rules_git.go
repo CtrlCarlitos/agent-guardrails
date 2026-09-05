@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"strings"
+
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
@@ -66,8 +68,21 @@ func checkGitSafety(s Simple) *policy.Verdict {
 		if hasAnyFlag(s.Argv, "f", "--force", "--force-with-lease") {
 			return nil // P1.git-push-force (checkGit) already denies this; don't duplicate
 		}
-		for _, a := range nonFlagArgs(s.Argv) {
-			if a == "main" || a == "master" {
+		for _, a := range gitPushRefspecs(s.Argv) {
+			if strings.HasPrefix(a, "+") {
+				return &policy.Verdict{Decision: policy.Deny, RuleID: "P2.git-push-force",
+					Reason: "a leading + in a refspec is a force push: " + a}
+			}
+			if strings.HasPrefix(a, ":") {
+				return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-push-delete",
+					Reason: "an empty source in a refspec deletes the remote ref: " + a}
+			}
+			dst := a
+			if i := strings.LastIndex(a, ":"); i >= 0 {
+				dst = a[i+1:]
+			}
+			dst = strings.TrimPrefix(dst, "refs/heads/")
+			if dst == "main" || dst == "master" {
 				return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-push-protected",
 					Reason: "push to a protected branch"}
 			}
@@ -82,6 +97,63 @@ func checkGitSafety(s Simple) *policy.Verdict {
 			Reason: "unrecognized git global option " + unknown + " before the subcommand; cannot verify what this runs"}
 	}
 	return nil
+}
+
+var gitPushValueFlags = map[string]bool{
+	"-o": true, "--push-option": true, "--receive-pack": true, "--exec": true,
+	"--repo": true, "--server-option": true, "--recurse-submodules": true,
+	"--negotiation-tip": true,
+}
+
+func gitPushRefspecs(argv []string) []string {
+	i := 1
+	for i < len(argv) && strings.HasPrefix(argv[i], "-") {
+		if gitValueFlags[argv[i]] {
+			i += 2
+		} else {
+			i++
+		}
+	}
+	if i >= len(argv) || argv[i] != "push" {
+		return nil
+	}
+
+	i++
+	repositoryFromFlag := false
+	repositorySeen := false
+	optionsEnded := false
+	var refspecs []string
+	for i < len(argv) {
+		a := argv[i]
+		if !optionsEnded && a == "--" {
+			optionsEnded = true
+			i++
+			continue
+		}
+		if !optionsEnded && strings.HasPrefix(a, "-") {
+			base := a
+			if eq := strings.IndexByte(a, '='); eq >= 0 {
+				base = a[:eq]
+			}
+			if base == "--repo" {
+				repositoryFromFlag = true
+			}
+			if gitPushValueFlags[base] && base == a {
+				i += 2
+			} else {
+				i++
+			}
+			continue
+		}
+		if !repositoryFromFlag && !repositorySeen {
+			repositorySeen = true
+			i++
+			continue
+		}
+		refspecs = append(refspecs, a)
+		i++
+	}
+	return refspecs
 }
 
 var gitProtectedGlobs = []string{"**/.git/config", "**/.git/hooks/**"}
