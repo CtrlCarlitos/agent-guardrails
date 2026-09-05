@@ -1142,5 +1142,13 @@
     "cwd": "/repo",
     "repo_root": "/repo",
     "want": "deny"
+  },
+  {
+    "name": "visible python operator config write",
+    "tool": "Bash",
+    "command": "python3 -c \"open('/home/u/.config/guardrail/waivers.toml', 'w').write('x')\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
   }
 ]

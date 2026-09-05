@@ -100,6 +100,50 @@ func TestCheckPathsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestOutsideRepoSymlinkTargets(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	repo := t.TempDir()
+	outside := t.TempDir()
+	secretDir := filepath.Join(outside, ".ssh")
+	if err := os.MkdirAll(secretDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(secretDir, "id_rsa")
+	allowedSecret := filepath.Join(secretDir, ".env.example")
+	benign := filepath.Join(outside, "notes.txt")
+	for _, target := range []string{secret, allowedSecret, benign} {
+		if err := os.WriteFile(target, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	secretAlias := filepath.Join(t.TempDir(), "innocent")
+	allowedAlias := filepath.Join(t.TempDir(), "example")
+	benignAlias := filepath.Join(t.TempDir(), "notes")
+	for alias, target := range map[string]string{
+		secretAlias:  secret,
+		allowedAlias: allowedSecret,
+		benignAlias:  benign,
+	} {
+		if err := os.Symlink(target, alias); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tc := ToolCall{Tool: "Read", Paths: []string{secretAlias}, RepoRoot: repo, CWD: repo}
+	if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny || v.RuleID != "P4.secret-path" {
+		t.Fatalf("Read outside-repo secret alias -> %+v, want deny/P4.secret-path", v)
+	}
+	for _, alias := range []string{allowedAlias, benignAlias} {
+		tc.Paths = []string{alias}
+		if v := checkPaths(tc, pathPol()); v != nil {
+			t.Errorf("Read benign/allowed outside-repo alias %q -> %+v, want nil", alias, v)
+		}
+	}
+}
+
 func TestGitProtectedPathWrite(t *testing.T) {
 	tc := ToolCall{Tool: "Edit", Paths: []string{"/repo/.git/hooks/pre-commit"}, RepoRoot: "/repo", CWD: "/repo"}
 	v := checkPaths(tc, pathPol())
@@ -183,6 +227,85 @@ func TestOperatorConfigIsProtected(t *testing.T) {
 		v := checkPaths(tc, pathPol())
 		if v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
 			t.Errorf("Bash %q -> %+v, want deny/P5.self-config", command, v)
+		}
+	}
+}
+
+func TestOperatorConfigAliasWrites(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	repo := t.TempDir()
+	operatorDir := filepath.Join(t.TempDir(), "guardrail")
+	if err := os.MkdirAll(operatorDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	operatorConfig := filepath.Join(operatorDir, "waivers.toml")
+	if err := os.WriteFile(operatorConfig, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "innocent.toml")
+	if err := os.Symlink(operatorConfig, alias); err != nil {
+		t.Fatal(err)
+	}
+
+	write := ToolCall{Tool: "Write", Paths: []string{alias}, RepoRoot: repo, CWD: repo}
+	if v := checkPaths(write, pathPol()); v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
+		t.Fatalf("Write Operator-config alias -> %+v, want deny/P5.self-config", v)
+	}
+	for _, command := range []string{
+		"cp /tmp/evil " + alias,
+		"dd if=/tmp/evil of=" + alias,
+		"tee " + alias,
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, RepoRoot: repo, CWD: repo}
+		if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
+			t.Errorf("Bash %q -> %+v, want deny/P5.self-config", command, v)
+		}
+	}
+
+	for _, read := range []ToolCall{
+		{Tool: "Read", Paths: []string{alias}, RepoRoot: repo, CWD: repo},
+		{Tool: "Bash", Command: "cat " + operatorConfig, RepoRoot: repo, CWD: repo},
+	} {
+		if v := checkPaths(read, pathPol()); v != nil {
+			t.Errorf("read Operator config -> %+v, want nil", v)
+		}
+	}
+}
+
+func TestOperatorConfigOpaqueExecutors(t *testing.T) {
+	deny := []string{
+		`python3 -c "open('/home/u/.config/guardrail/waivers.toml', 'w')"`,
+		`/usr/bin/Python3.12 -c "open('/home/u/guardrail/waivers.toml', 'w')"`,
+		`node -e "require('fs').writeFileSync('/home/u/.config/guardrail/waivers.toml', 'x')"`,
+		`perl -e "open(F, '>/home/u/guardrail/waivers.toml')"`,
+		`ruby3.3 -e "File.write('/home/u/.config/guardrail/waivers.toml', 'x')"`,
+		`php8.3 -r "file_put_contents('/home/u/guardrail/waivers.toml', 'x');"`,
+		`lua5.4 -e "io.open('/home/u/.config/guardrail/waivers.toml', 'w')"`,
+		`awk "BEGIN { print \"x\" > \"/home/u/guardrail/waivers.toml\" }"`,
+		`powershell.exe -Command "Set-Content /home/u/.config/guardrail/waivers.toml x"`,
+		`pwsh -Command "Set-Content /home/u/guardrail/waivers.toml x"`,
+	}
+	for _, command := range deny {
+		tc := ToolCall{Tool: "Bash", Command: command, RepoRoot: "/repo", CWD: "/repo"}
+		if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
+			t.Errorf("Bash %q -> %+v, want deny/P5.self-config", command, v)
+		}
+	}
+
+	allow := []string{
+		`python3 -c "print('ok')"`,
+		`node -e "console.log('ok')"`,
+		`perl -e "print 'ok'"`,
+		`pwsh -Command "Write-Output ok"`,
+		`python3 -c "p='/' + '.config/' + 'guardrail/'; open(p + 'waivers.toml', 'w')"`,
+		`cat /home/u/.config/guardrail/waivers.toml`,
+	}
+	for _, command := range allow {
+		tc := ToolCall{Tool: "Bash", Command: command, RepoRoot: "/repo", CWD: "/repo"}
+		if v := checkPaths(tc, pathPol()); v != nil {
+			t.Errorf("Bash %q -> %+v, want nil", command, v)
 		}
 	}
 }

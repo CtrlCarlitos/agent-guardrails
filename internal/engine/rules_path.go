@@ -53,17 +53,13 @@ func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	for _, c := range candidates {
 		c = strings.TrimPrefix(c, "~/")
 		c = strings.TrimPrefix(c, "~")
-		if matchesAnyGlob(c, pol.Slots.SecretAllow) {
-			continue
+		if v := checkSecretPath(c, pol); v != nil {
+			return v
 		}
-		if matchesAnyGlob(c, pol.Slots.SecretGlobs) {
-			if !pol.Waived["P4.secret-path"] {
-				return &policy.Verdict{Decision: policy.Deny, RuleID: "P4.secret-path",
-					Reason: "access to a credential/secret path: " + c}
+		if resolved, ok := resolveExistingPath(c, tc.CWD); ok {
+			if v := checkSecretPath(resolved, pol); v != nil {
+				return v
 			}
-			// waived here: skip the secret-path verdict but still check this
-			// candidate (and the rest) for symlink escape; Evaluate re-filters
-			// waived rules as the single semantic waiver point.
 		}
 		if v := checkSymlinkEscape(c, tc); v != nil {
 			return v
@@ -82,6 +78,25 @@ func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		return v
 	}
 	return nil
+}
+
+func checkSecretPath(candidate string, pol *policy.Policy) *policy.Verdict {
+	if matchesAnyGlob(candidate, pol.Slots.SecretAllow) || !matchesAnyGlob(candidate, pol.Slots.SecretGlobs) {
+		return nil
+	}
+	if pol.Waived["P4.secret-path"] {
+		return nil
+	}
+	return &policy.Verdict{Decision: policy.Deny, RuleID: "P4.secret-path",
+		Reason: "access to a credential/secret path: " + candidate}
+}
+
+func resolveExistingPath(candidate, cwd string) (string, bool) {
+	resolved, err := filepath.EvalSymlinks(resolvePath(candidate, cwd))
+	if err != nil {
+		return "", false
+	}
+	return filepath.ToSlash(resolved), true
 }
 
 type destinationCommandSpec struct {
@@ -339,12 +354,61 @@ func checkSelfConfig(tc ToolCall) *policy.Verdict {
 		return nil
 	}
 	for _, c := range writeCandidates(tc) {
-		if matchesAnyGlob(strings.TrimPrefix(c, "./"), selfConfigGlobs) {
+		protected := matchesAnyGlob(strings.TrimPrefix(c, "./"), selfConfigGlobs)
+		if resolved, ok := resolveExistingPath(c, tc.CWD); ok {
+			protected = protected || matchesAnyGlob(resolved, selfConfigGlobs)
+		}
+		if protected {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
 				Reason: "write to the agent's own guardrail/shell config: " + c}
 		}
 	}
+	if tc.IsBash() {
+		if simples, err := Normalize(tc.Command); err == nil {
+			for _, s := range simples {
+				if !isOpaqueExecutor(head(s.Argv)) {
+					continue
+				}
+				for _, arg := range s.Argv[1:] {
+					normalized := strings.ReplaceAll(arg, `\`, "/")
+					if strings.Contains(normalized, "/.config/guardrail/") || strings.Contains(normalized, "/guardrail/waivers.toml") {
+						return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
+							Reason: "opaque command names the Operator config: " + head(s.Argv)}
+					}
+				}
+			}
+		}
+	}
 	return nil
+}
+
+func isOpaqueExecutor(executable string) bool {
+	name := strings.ToLower(path.Base(strings.ReplaceAll(executable, `\`, "/")))
+	name = strings.TrimSuffix(name, ".exe")
+	for _, base := range []string{"python", "node", "perl", "ruby", "php", "lua", "awk", "powershell", "pwsh"} {
+		if name == base || strings.HasPrefix(name, base) && isVersionSuffix(name[len(base):]) {
+			return true
+		}
+	}
+	return false
+}
+
+func isVersionSuffix(suffix string) bool {
+	suffix = strings.TrimPrefix(suffix, "-")
+	if suffix == "" {
+		return false
+	}
+	hasDigit := false
+	for _, r := range suffix {
+		if r >= '0' && r <= '9' {
+			hasDigit = true
+			continue
+		}
+		if r != '.' {
+			return false
+		}
+	}
+	return hasDigit
 }
 
 var ciInfraLockGlobs = []string{
