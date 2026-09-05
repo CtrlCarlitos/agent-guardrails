@@ -133,6 +133,16 @@ loop:
 			rest, err = consumeTimeout(argv[1:])
 		case "nice":
 			rest, err = consumeNice(argv[1:])
+		case "setsid":
+			rest, err = consumeSetsid(argv[1:])
+		case "stdbuf":
+			rest, err = consumeStdbuf(argv[1:])
+		case "ionice":
+			rest, err = consumeIonice(argv[1:])
+		case "watch":
+			rest, err = consumeWatch(argv[1:])
+		case "chroot":
+			rest, err = consumeChroot(argv[1:])
 		case "nohup":
 			rest, err = consumeNoFlags("nohup", argv[1:])
 		case "xargs":
@@ -229,6 +239,98 @@ func unknownOpt(wrapper, tok string) error {
 
 func needsValue(wrapper, tok string) error {
 	return fmt.Errorf("%s: option %q requires a value; failing closed", wrapper, tok)
+}
+
+// consumeKnownFlags skips options belonging to a wrapper. Unknown options fail
+// closed because guessing their arity could make data look like a command.
+func consumeKnownFlags(name string, argv []string, known, valued map[string]bool) ([]string, error) {
+	for i := 0; i < len(argv); {
+		a := argv[i]
+		if a == "--" {
+			return argv[i+1:], nil
+		}
+		if !strings.HasPrefix(a, "-") || a == "-" {
+			return argv[i:], nil
+		}
+		if known[a] {
+			i++
+			continue
+		}
+		if valued[a] {
+			if i+1 >= len(argv) {
+				return nil, needsValue(name, a)
+			}
+			i += 2
+			continue
+		}
+		if eq := strings.IndexByte(a, '='); eq >= 0 && valued[a[:eq]] {
+			i++
+			continue
+		}
+		attached := false
+		for flag := range valued {
+			if len(flag) == 2 && strings.HasPrefix(a, flag) && len(a) > len(flag) {
+				attached = true
+				break
+			}
+		}
+		if attached {
+			i++
+			continue
+		}
+		return nil, unknownOpt(name, a)
+	}
+	return nil, nil
+}
+
+func consumeSetsid(argv []string) ([]string, error) {
+	known := map[string]bool{
+		"-f": true, "--fork": true,
+		"-w": true, "--wait": true,
+		"-c": true, "--ctty": true,
+	}
+	return consumeKnownFlags("setsid", argv, known, nil)
+}
+
+func consumeStdbuf(argv []string) ([]string, error) {
+	valued := map[string]bool{
+		"-i": true, "--input": true,
+		"-o": true, "--output": true,
+		"-e": true, "--error": true,
+	}
+	return consumeKnownFlags("stdbuf", argv, nil, valued)
+}
+
+func consumeIonice(argv []string) ([]string, error) {
+	known := map[string]bool{"-t": true, "--ignore": true}
+	valued := map[string]bool{
+		"-c": true, "--class": true,
+		"-n": true, "--classdata": true,
+	}
+	return consumeKnownFlags("ionice", argv, known, valued)
+}
+
+func consumeWatch(argv []string) ([]string, error) {
+	known := map[string]bool{
+		"-d": true, "--differences": true,
+		"-t": true, "--no-title": true,
+		"-b": true,
+		"-e": true,
+	}
+	valued := map[string]bool{"-n": true, "--interval": true}
+	return consumeKnownFlags("watch", argv, known, valued)
+}
+
+func consumeChroot(argv []string) ([]string, error) {
+	valued := map[string]bool{"--userspec": true, "--groups": true}
+	rest, err := consumeKnownFlags("chroot", argv, nil, valued)
+	if err != nil {
+		return nil, err
+	}
+	if len(rest) == 0 {
+		return nil, fmt.Errorf("chroot: missing new-root argument; failing closed")
+	}
+	return rest[1:], nil
 }
 
 func consumeEnv(argv []string) ([]string, error) {
@@ -384,7 +486,7 @@ func consumeCommand(argv []string) (rest []string, none bool, err error) {
 
 func shellDashC(argv []string) int {
 	switch head(argv) {
-	case "sh", "bash", "zsh", "dash", "ksh":
+	case "sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh", "mksh", "ash":
 		for i := 1; i+1 < len(argv); i++ {
 			if argv[i] == "-c" && argv[i+1] != "" {
 				return i

@@ -273,7 +273,7 @@ func checkDiskDestroyers(s Simple) *policy.Verdict {
 
 func checkAskTier(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	switch head(s.Argv) {
-	case "sudo", "su", "doas":
+	case "sudo", "su", "doas", "pkexec", "run0", "systemd-run", "flatpak-spawn", "toolbox", "distrobox-host-exec", "parallel":
 		return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.privesc",
 			Reason: "privilege escalation removes every other guardrail's ground truth"}
 	case "chmod":

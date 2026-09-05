@@ -317,10 +317,81 @@ func TestCheckBashAskTier(t *testing.T) {
 }
 
 func TestCheckBashPrivesc(t *testing.T) {
-	for _, c := range []string{`sudo rm x`, `su -`, `doas pkg_add x`} {
+	for _, c := range []string{
+		`sudo rm x`,
+		`su -`,
+		`doas pkg_add x`,
+		`pkexec printf ok`,
+		`run0 printf ok`,
+		`systemd-run printf ok`,
+		`flatpak-spawn --host printf ok`,
+		`toolbox printf ok`,
+		`distrobox-host-exec printf ok`,
+		`parallel rm -rf ::: /`,
+	} {
 		v := evalBash(t, c)
 		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.privesc" {
 			t.Errorf("%q -> %+v, want deny/P1.privesc", c, v)
+		}
+	}
+}
+
+func TestWrapperHoles(t *testing.T) {
+	deny := []string{
+		`setsid rm -rf /`,
+		`stdbuf -o0 rm -rf /`,
+		`ionice rm -rf /`,
+		`chroot /new-root rm -rf /`,
+		`watch rm -rf /`,
+		`fish -c "rm -rf /"`,
+		`csh -c "rm -rf /"`,
+		`tcsh -c "rm -rf /"`,
+		`mksh -c "rm -rf /"`,
+		`ash -c "rm -rf /"`,
+	}
+	for _, c := range deny {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Errorf("%q -> %+v, want deny/P1.rm-rf", c, v)
+		}
+	}
+}
+
+func TestWrapperUnknownAndMissingArgumentsFailClosed(t *testing.T) {
+	for _, c := range []string{
+		`setsid --future-option rm -rf /`,
+		`stdbuf --future-option rm -rf /`,
+		`ionice --future-option rm -rf /`,
+		`watch --future-option rm -rf /`,
+		`chroot --future-option /new-root rm -rf /`,
+		`stdbuf --output`,
+		`ionice --class`,
+		`watch --interval`,
+		`chroot --userspec`,
+		`chroot`,
+	} {
+		v := evalBash(t, c)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want ask/P3.unresolved", c, v)
+		}
+	}
+}
+
+func TestAddedWrapperAndShellSafeControls(t *testing.T) {
+	for _, c := range []string{
+		`setsid printf ok`,
+		`stdbuf --output=0 printf ok`,
+		`ionice --class 2 printf ok`,
+		`watch --interval=2 printf ok`,
+		`chroot /new-root printf ok`,
+		`fish -c "printf ok"`,
+		`csh -c "printf ok"`,
+		`tcsh -c "printf ok"`,
+		`mksh -c "printf ok"`,
+		`ash -c "printf ok"`,
+	} {
+		if v := evalBash(t, c); v != nil {
+			t.Errorf("%q -> %+v, want allow", c, v)
 		}
 	}
 }
