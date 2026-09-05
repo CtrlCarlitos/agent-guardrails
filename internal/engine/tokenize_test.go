@@ -915,7 +915,7 @@ func TestNormalizeDockerFamilyRunExecValuedOptions(t *testing.T) {
 		`docker --context dev run --mount type=bind,src=/,dst=/host --name x alpine rm -rf /`,
 		`docker exec --env A=b --workdir /host container rm -rf /`,
 		`podman run --network host alpine rm -rf /`,
-		`nerdctl exec --entrypoint=/bin/sh container rm -rf /`,
+		`nerdctl exec --env=A=b container rm -rf /`,
 		`docker run -- --name rm -rf /`,
 	}
 	for _, src := range cases {
@@ -951,11 +951,88 @@ func TestRunnerInnerKeepsFlagsAfterImage(t *testing.T) {
 func TestRunnerInnerRejectsMissingDockerOptionValues(t *testing.T) {
 	for _, argv := range [][]string{
 		{"docker", "run", "--name"},
+		{"docker", "run", "--hostname"},
+		{"docker", "run", "--platform"},
+		{"docker", "run", "--label"},
+		{"docker", "run", "--pull"},
 		{"podman", "exec", "--workdir"},
 		{"nerdctl", "run", "-v"},
 	} {
 		if _, err := runnerInner(argv); err == nil {
 			t.Errorf("runnerInner(%q) error = nil, want missing-value error", argv)
+		}
+	}
+}
+
+func TestNormalizeDockerRunUsesRunSpecificOptionArity(t *testing.T) {
+	cases := []string{
+		`docker run --rm --hostname sandbox -v /:/host alpine rm -rf /host`,
+		`docker run --platform linux/amd64 alpine rm -rf /`,
+		`docker run --platform=linux/amd64 alpine rm -rf /`,
+		`docker run --label role=test alpine rm -rf /`,
+		`docker run --label=role=test alpine rm -rf /`,
+		`docker run --pull always alpine rm -rf /`,
+		`docker run --pull=always alpine rm -rf /`,
+		`docker run --hostname --force --label /tmp/label alpine rm -rf /`,
+		`docker run -itv/:/host -lrole=test alpine rm -rf /`,
+	}
+	for _, src := range cases {
+		got, err := Normalize(src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", src, err)
+			continue
+		}
+		found := false
+		for _, s := range got {
+			if len(s.Argv) >= 2 && s.Argv[0] == "rm" && s.Argv[1] == "-rf" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Normalize(%q) = %v, want inner rm -rf", src, argvs(got))
+		}
+	}
+}
+
+func TestNormalizeDockerExecUsesExecSpecificOptionArity(t *testing.T) {
+	cases := []string{
+		`docker exec --detach-keys ctrl-x -e A=b -u 0 -w /tmp container rm -rf /`,
+		`docker exec --detach-keys=ctrl-x -iteA=b -u0 -w/tmp container rm -rf /`,
+		`podman exec --env-file /tmp/env container rm -rf /`,
+		`nerdctl exec --privileged container rm -rf /`,
+	}
+	for _, src := range cases {
+		got, err := Normalize(src)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", src, err)
+			continue
+		}
+		found := false
+		for _, s := range got {
+			if reflect.DeepEqual(s.Argv, []string{"rm", "-rf", "/"}) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Normalize(%q) = %v, want inner {rm -rf /}", src, argvs(got))
+		}
+	}
+}
+
+func TestDockerRunExecUnknownOrMalformedOptionsFailClosed(t *testing.T) {
+	commands := []string{
+		`docker run --future value alpine rm -rf /`,
+		`docker exec --future value container rm -rf /`,
+		`docker run --rm=maybe alpine rm -rf /`,
+		`docker exec --privileged=maybe container rm -rf /`,
+		`docker exec --hostname sandbox container rm -rf /`,
+	}
+	for _, command := range commands {
+		v := evalBash(t, command)
+		if v == nil || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want non-allow/P3.unresolved", command, v)
 		}
 	}
 }

@@ -755,11 +755,18 @@ func runnerInner(argv []string) ([]string, error) {
 			return argv[1:], nil
 		}
 	case "docker", "podman", "nerdctl":
-		subcommand := dockerSubcommandIndex(argv)
+		subcommand, err := dockerSubcommandIndex(argv)
+		if err != nil {
+			return nil, err
+		}
 		if subcommand >= 0 && (argv[subcommand] == "run" || argv[subcommand] == "exec") {
-			i, missing := skipDockerOptions(argv, subcommand+1, dockerRunExecValuedOptions)
-			if missing != "" {
-				return nil, needsValue(head(argv), missing)
+			spec := dockerRunOptionSpec
+			if argv[subcommand] == "exec" {
+				spec = dockerExecOptionSpec
+			}
+			i, err := skipDockerOptions(head(argv)+" "+argv[subcommand], argv, subcommand+1, spec)
+			if err != nil {
+				return nil, err
 			}
 			if i+1 < len(argv) {
 				return argv[i+1:], nil // skip the image/container token

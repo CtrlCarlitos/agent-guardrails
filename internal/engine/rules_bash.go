@@ -4,6 +4,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -221,32 +222,94 @@ func gitSubcommandUnknownFlag(argv []string) string {
 	return ""
 }
 
-var dockerGlobalValuedOptions = map[string]bool{
-	"--address": true, "--cgroup-manager": true, "--config": true,
-	"--connection": true, "--conmon": true, "--context": true, "--data-root": true,
-	"--database-backend": true, "--events-backend": true, "--host": true,
-	"--host-gateway-ip": true, "--hosts-dir": true, "--identity": true,
-	"--log-level": true, "--module": true, "--namespace": true,
-	"--network-config-dir": true, "--root": true, "--runroot": true,
-	"--runtime": true, "--snapshotter": true, "--storage-driver": true,
-	"--storage-opt": true, "--tlscacert": true, "--tlscert": true,
-	"--tlskey": true, "--tmpdir": true, "--url": true,
-	"-a": true, "-c": true, "-H": true, "-l": true, "-n": true,
+type dockerOptionSpec struct {
+	flags  map[string]bool
+	values map[string]bool
 }
 
-var dockerComposeValuedOptions = map[string]bool{
-	"--ansi": true, "--env-file": true, "--file": true,
-	"--log-level": true, "--parallel": true, "--profile": true,
-	"--progress": true, "--project-directory": true, "--project-name": true,
-	"-f": true, "-p": true,
+func dockerOptionNames(names ...string) map[string]bool {
+	out := make(map[string]bool, len(names))
+	for _, name := range names {
+		out[name] = true
+	}
+	return out
 }
 
-var dockerRunExecValuedOptions = map[string]bool{
-	"--detach-keys": true, "--entrypoint": true, "--env": true,
-	"--env-file": true, "--mount": true, "--name": true,
-	"--network": true, "--publish": true, "--user": true,
-	"--volume": true, "--workdir": true,
-	"-e": true, "-p": true, "-u": true, "-v": true, "-w": true,
+var dockerGlobalOptionSpecs = map[string]dockerOptionSpec{
+	"docker": {
+		flags: dockerOptionNames("-D", "--debug", "--help", "--tls", "--tlsverify", "-v", "--version"),
+		values: dockerOptionNames(
+			"--config", "-c", "--context", "-H", "--host", "-l", "--log-level",
+			"--tlscacert", "--tlscert", "--tlskey",
+		),
+	},
+	"podman": {
+		flags: dockerOptionNames("--help", "--remote", "--syslog", "--transient-store", "-v", "--version"),
+		values: dockerOptionNames(
+			"--cgroup-manager", "-c", "--connection", "--conmon", "--events-backend",
+			"--hooks-dir", "--identity", "--log-level", "--module", "--network-cmd-path",
+			"--out", "--root", "--runroot", "--runtime", "--runtime-flag", "--ssh",
+			"--storage-driver", "--storage-opt", "--tmpdir", "--url",
+		),
+	},
+	"nerdctl": {
+		flags: dockerOptionNames(
+			"--bridge-nftables", "--debug", "--debug-full", "--experimental", "--help",
+			"--insecure-registry", "-v", "--version",
+		),
+		values: dockerOptionNames(
+			"-a", "--address", "--cgroup-manager", "--cni-netconfpath", "--data-root",
+			"--host-gateway-ip", "--hosts-dir", "--log-level", "-n", "--namespace", "--snapshotter",
+		),
+	},
+}
+
+var dockerComposeOptionSpec = dockerOptionSpec{
+	flags: dockerOptionNames(
+		"--all-resources", "--compatibility", "--dry-run", "--help", "--no-ansi",
+		"--skip-hostname-check", "--tls", "--tlsverify", "--verbose", "-v", "--version",
+	),
+	values: dockerOptionNames(
+		"--ansi", "--env-file", "-f", "--file", "-H", "--host", "--log-level",
+		"--parallel", "--profile", "--progress", "--project-directory", "-p", "--project-name",
+		"--tlscacert", "--tlscert", "--tlskey",
+	),
+}
+
+var dockerGroupOptionSpec = dockerOptionSpec{
+	flags: dockerOptionNames("--help"),
+}
+
+var dockerRunOptionSpec = dockerOptionSpec{
+	flags: dockerOptionNames(
+		"-d", "--detach", "--disable-content-trust", "--help", "--init", "-i", "--interactive",
+		"--oom-kill-disable", "-P", "--privileged", "--publish-all", "--read-only", "--rm",
+		"--sig-proxy", "-t", "--tty", "--use-api-socket",
+	),
+	values: dockerOptionNames(
+		"--add-host", "--annotation", "-a", "--attach", "--blkio-weight", "--blkio-weight-device",
+		"--cap-add", "--cap-drop", "--cgroup-parent", "--cgroupns", "--cidfile", "-c", "--cpu-period",
+		"--cpu-quota", "--cpu-rt-period", "--cpu-rt-runtime", "--cpu-shares", "--cpus", "--cpuset-cpus",
+		"--cpuset-mems", "--device", "--device-cgroup-rule", "--device-read-bps", "--device-read-iops",
+		"--device-write-bps", "--device-write-iops", "--dns", "--dns-option", "--dns-search", "--domainname",
+		"--entrypoint", "-e", "--env", "--env-file", "--expose", "--gpus", "--group-add", "--health-cmd",
+		"--health-interval", "--health-retries", "--health-start-interval", "--health-start-period", "--health-timeout",
+		"-h", "--hostname", "--ip", "--ip6", "--ipc", "--isolation", "--kernel-memory", "-l", "--label",
+		"--label-file", "--link", "--link-local-ip", "--log-driver", "--log-opt", "--mac-address", "-m", "--memory",
+		"--memory-reservation", "--memory-swap", "--memory-swappiness", "--mount", "--name", "--network",
+		"--network-alias", "--oom-score-adj", "--pid", "--pids-limit", "--platform", "-p", "--publish", "--pull",
+		"--restart", "--runtime", "--security-opt", "--shm-size", "--stop-signal", "--stop-timeout", "--storage-opt",
+		"--sysctl", "--tmpfs", "--ulimit", "-u", "--user", "--uts", "-v", "--volume", "--volume-driver",
+		"--volumes-from", "-w", "--workdir",
+	),
+}
+
+var dockerExecOptionSpec = dockerOptionSpec{
+	flags: dockerOptionNames("-d", "--detach", "--help", "-i", "--interactive", "--privileged", "-t", "--tty"),
+	values: dockerOptionNames(
+		"--detach-keys", "-e", "--env", "--env-file", "--preserve-fd", "--preserve-fds",
+		"-u", "--user", "-w", "--workdir",
+	),
 }
 
 var dockerSubcommandGroups = map[string]bool{
@@ -254,87 +317,142 @@ var dockerSubcommandGroups = map[string]bool{
 	"network": true, "system": true, "volume": true,
 }
 
-func dockerOptionConsumesNext(arg string, valued map[string]bool) bool {
-	if strings.HasPrefix(arg, "--") {
-		base := arg
-		if eq := strings.IndexByte(arg, '='); eq >= 0 {
-			base = arg[:eq]
-		}
-		if !valued[base] {
-			return false
-		}
-		return !strings.Contains(arg, "=")
-	}
-	if len(arg) < 2 || arg[0] != '-' {
-		return false
-	}
-	for i := 1; i < len(arg); i++ {
-		if valued["-"+string(arg[i])] {
-			return i == len(arg)-1
-		}
-	}
-	return false
-}
-
-func skipDockerOptions(argv []string, start int, valued map[string]bool) (int, string) {
+func skipDockerOptions(scope string, argv []string, start int, spec dockerOptionSpec) (int, error) {
 	for start < len(argv) {
 		arg := argv[start]
 		if arg == "--" {
-			return start + 1, ""
+			return start + 1, nil
 		}
 		if arg == "-" || !strings.HasPrefix(arg, "-") {
-			return start, ""
+			return start, nil
 		}
-		if dockerOptionConsumesNext(arg, valued) {
-			if start+1 >= len(argv) {
-				return len(argv), arg
+		if strings.HasPrefix(arg, "--") {
+			base := arg
+			value := ""
+			attached := false
+			if eq := strings.IndexByte(arg, '='); eq >= 0 {
+				base, value, attached = arg[:eq], arg[eq+1:], true
 			}
-			start += 2
+			switch {
+			case spec.values[base]:
+				if attached {
+					start++
+				} else {
+					if start+1 >= len(argv) {
+						return start, needsValue(scope, arg)
+					}
+					start += 2
+				}
+			case spec.flags[base]:
+				if attached {
+					if _, err := strconv.ParseBool(value); err != nil {
+						return start, unknownOpt(scope, arg)
+					}
+				}
+				start++
+			default:
+				return start, unknownOpt(scope, arg)
+			}
 			continue
 		}
-		start++
+
+		consumed := false
+		for i := 1; i < len(arg); i++ {
+			option := "-" + arg[i:i+1]
+			switch {
+			case spec.values[option]:
+				if i+1 < len(arg) {
+					start++
+				} else {
+					if start+1 >= len(argv) {
+						return start, needsValue(scope, option)
+					}
+					start += 2
+				}
+				consumed = true
+			case spec.flags[option]:
+				if i+1 < len(arg) && arg[i+1] == '=' {
+					if _, err := strconv.ParseBool(arg[i+2:]); err != nil {
+						return start, unknownOpt(scope, arg)
+					}
+					start++
+					consumed = true
+				}
+			default:
+				return start, unknownOpt(scope, arg)
+			}
+			if consumed {
+				break
+			}
+		}
+		if !consumed {
+			start++
+		}
 	}
-	return start, ""
+	return start, nil
 }
 
-func dockerSubcommandIndex(argv []string) int {
-	i, missing := skipDockerOptions(argv, 1, dockerGlobalValuedOptions)
-	if missing != "" || i >= len(argv) {
-		return -1
+func dockerSubcommandIndex(argv []string) (int, error) {
+	spec, ok := dockerGlobalOptionSpecs[head(argv)]
+	if !ok {
+		return -1, nil
 	}
-	return i
+	i, err := skipDockerOptions(head(argv)+" global", argv, 1, spec)
+	if err != nil || i >= len(argv) {
+		return -1, err
+	}
+	return i, nil
 }
 
-// dockerSubcommandChain keeps command words while consuming option values at
-// the family-global and Compose scopes where they are valid.
-func dockerSubcommandChain(argv []string) []string {
+func parseDockerSubcommandChain(argv []string) ([]string, error) {
 	if len(argv) < 2 {
-		return nil
+		return nil, nil
 	}
 	if head(argv) == "docker-compose" {
-		i, missing := skipDockerOptions(argv, 1, dockerComposeValuedOptions)
-		if missing != "" || i >= len(argv) {
-			return nil
+		i, err := skipDockerOptions("docker-compose", argv, 1, dockerComposeOptionSpec)
+		if err != nil || i >= len(argv) {
+			return nil, err
 		}
-		return []string{argv[i]}
+		return []string{argv[i]}, nil
 	}
 
-	i := dockerSubcommandIndex(argv)
+	i, err := dockerSubcommandIndex(argv)
+	if err != nil {
+		return nil, err
+	}
 	if i < 0 {
-		return nil
+		return nil, nil
 	}
 	chain := []string{argv[i]}
+	if chain[0] == "run" || chain[0] == "exec" {
+		spec := dockerRunOptionSpec
+		if chain[0] == "exec" {
+			spec = dockerExecOptionSpec
+		}
+		_, err := skipDockerOptions(head(argv)+" "+chain[0], argv, i+1, spec)
+		return chain, err
+	}
 	if chain[0] != "compose" && !dockerSubcommandGroups[chain[0]] {
-		return chain
+		return chain, nil
 	}
-	var valued map[string]bool
+	spec := dockerGroupOptionSpec
 	if chain[0] == "compose" {
-		valued = dockerComposeValuedOptions
+		spec = dockerComposeOptionSpec
 	}
-	i, missing := skipDockerOptions(argv, i+1, valued)
-	if missing == "" && i < len(argv) {
+	i, err = skipDockerOptions(head(argv)+" "+chain[0], argv, i+1, spec)
+	if err != nil {
+		return nil, err
+	}
+	if i < len(argv) {
 		chain = append(chain, argv[i])
 	}
+	return chain, nil
+}
+
+// dockerSubcommandChain preserves the simple interface used by matching and
+// returns no chain when strict option parsing cannot establish one safely.
+func dockerSubcommandChain(argv []string) []string {
+	chain, _ := parseDockerSubcommandChain(argv)
 	return chain
 }
 
@@ -357,7 +475,11 @@ func checkDocker(s Simple, rawCmd string) *policy.Verdict {
 	default:
 		return nil
 	}
-	chain := dockerSubcommandChain(s.Argv)
+	chain, err := parseDockerSubcommandChain(s.Argv)
+	if err != nil {
+		return &policy.Verdict{Decision: policy.Ask, RuleID: "P3.unresolved",
+			Reason: "docker option parsing could not establish the command boundary"}
+	}
 	if command == "docker-compose" {
 		chain = append([]string{"compose"}, chain...)
 	}

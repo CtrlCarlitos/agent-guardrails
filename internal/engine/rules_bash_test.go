@@ -356,13 +356,61 @@ func TestDockerSubcommandChainHandlesOptionsAndMissingValues(t *testing.T) {
 		{[]string{"docker", "--", "volume", "rm", "cache"}, []string{"volume", "rm"}},
 		{[]string{"docker-compose", "-pdemo", "down"}, []string{"down"}},
 		{[]string{"docker", "--context"}, nil},
-		{[]string{"docker", "compose", "--file"}, []string{"compose"}},
+		{[]string{"docker", "compose", "--file"}, nil},
 	}
 	for _, tc := range cases {
 		got := dockerSubcommandChain(tc.argv)
 		if !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("dockerSubcommandChain(%q) = %q, want %q", tc.argv, got, tc.want)
 		}
+	}
+}
+
+func TestDockerUnknownOrMalformedPreCommandOptionsFailClosed(t *testing.T) {
+	commands := []string{
+		`docker --future value compose down`,
+		`docker --context`,
+		`docker --debug=maybe compose down`,
+		`docker compose --future value down`,
+		`docker compose --file`,
+		`docker compose --dry-run=maybe down`,
+		`docker image --future value prune`,
+		`docker-compose --future value down`,
+		`docker-compose -p`,
+		`podman --future value system prune`,
+		`nerdctl --future value image prune`,
+	}
+	for _, command := range commands {
+		v := evalBash(t, command)
+		if v == nil || v.Decision == policy.Allow || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want non-allow/P3.unresolved", command, v)
+		}
+	}
+}
+
+func TestDockerKnownValuelessOptionsRemainUsable(t *testing.T) {
+	commands := []string{
+		`docker --debug ps`,
+		`docker --debug=false ps`,
+		`docker compose --dry-run up -d`,
+		`docker compose --dry-run=false ps`,
+		`docker image --help`,
+		`docker-compose --verbose ps`,
+		`podman --syslog ps`,
+		`nerdctl --debug ps`,
+	}
+	for _, command := range commands {
+		if v := evalBash(t, command); v != nil {
+			t.Errorf("%q -> %+v, want nil", command, v)
+		}
+	}
+}
+
+func TestDockerRunValuedOptionsReachInnerRules(t *testing.T) {
+	command := `docker run --rm --hostname sandbox -v /:/host alpine rm -rf /host`
+	v := evalBash(t, command)
+	if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+		t.Fatalf("%q -> %+v, want deny/P1.rm-rf", command, v)
 	}
 }
 
