@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -204,5 +205,50 @@ egress_allowlist = ["evil.example.com", "other.example.com"]
 				t.Errorf("stderr incorrectly shows refusal of the exact granted destination: %q", stderr.String())
 			}
 		})
+	}
+}
+
+// An authorized secret_allow grant must not also disable symlink-escape
+// checking: a repo-internal symlink pointing at a secret outside the repo is
+// still an escape, even when the operator has widened secret_allow.
+func TestAuthorizedSecretAllowStillBlocksSymlinkEscape(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	bin := buildAdversarialBinary(t)
+
+	repo := t.TempDir()
+	exec.Command("git", "-C", repo, "init", "-q").Run()
+	os.WriteFile(filepath.Join(repo, "guardrail.toml"),
+		[]byte("[slots]\nsecret_allow = [\"**\"]\n"), 0o644)
+
+	secretDir := t.TempDir()
+	secret := filepath.Join(secretDir, "id_rsa")
+	os.WriteFile(secret, []byte("PRIVATE KEY"), 0o600)
+	link := filepath.Join(repo, "innocent.txt")
+	if err := os.Symlink(secret, link); err != nil {
+		t.Fatal(err)
+	}
+
+	// Operator config that DOES authorize secret_allow for this repo.
+	cfgHome := t.TempDir()
+	os.MkdirAll(filepath.Join(cfgHome, "guardrail"), 0o700)
+	os.WriteFile(filepath.Join(cfgHome, "guardrail", "waivers.toml"),
+		[]byte("[\""+repo+"\"]\nsecret_allow = true\n"), 0o600)
+
+	payload, _ := json.Marshal(map[string]any{
+		"session_id": "adv", "cwd": repo, "hook_event_name": "PreToolUse",
+		"tool_name": "Read", "tool_input": map[string]any{"file_path": link},
+	})
+	cmd := exec.Command(bin, "hook", "claude")
+	cmd.Stdin = bytes.NewReader(payload)
+	cmd.Env = append(os.Environ(),
+		"XDG_STATE_HOME="+t.TempDir(),
+		"XDG_CONFIG_HOME="+cfgHome,
+		"GUARDRAIL_CONFIG="+filepath.Join(repo, "guardrail.toml"))
+	_ = cmd.Run()
+	if cmd.ProcessState.ExitCode() != 2 {
+		t.Fatalf("exit %d, want 2 - an authorized secret_allow must not disable symlink-escape checking",
+			cmd.ProcessState.ExitCode())
 	}
 }

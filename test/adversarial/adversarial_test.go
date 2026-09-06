@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -21,16 +22,18 @@ import (
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/recipe"
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/session"
+	"mvdan.cc/sh/v3/syntax"
 )
 
 type entry struct {
-	Name     string   `json:"name"`
-	Tool     string   `json:"tool"`
-	Command  string   `json:"command,omitempty"`
-	Paths    []string `json:"paths,omitempty"`
-	CWD      string   `json:"cwd"`
-	RepoRoot string   `json:"repo_root"`
-	Want     string   `json:"want"`
+	Name            string   `json:"name"`
+	Tool            string   `json:"tool"`
+	Command         string   `json:"command,omitempty"`
+	Paths           []string `json:"paths,omitempty"`
+	CWD             string   `json:"cwd"`
+	RepoRoot        string   `json:"repo_root"`
+	Want            string   `json:"want"`
+	MaterializeRepo bool     `json:"materialize_repo,omitempty"`
 }
 
 var (
@@ -110,7 +113,11 @@ func TestAdversarialCorpus(t *testing.T) {
 		}
 		e := e
 		t.Run(e.Name, func(t *testing.T) {
-			cwd := materializeRepo(t, e)
+			cwd, physicalRoot := materializeRepo(t, e)
+			callEntry, err := materializeLogicalRepo(e, physicalRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
 			sessionID := fmt.Sprintf("adv-%03d", i)
 			in := map[string]any{
 				"session_id":      sessionID,
@@ -119,10 +126,10 @@ func TestAdversarialCorpus(t *testing.T) {
 				"tool_name":       e.Tool,
 			}
 			ti := map[string]any{}
-			if e.Command != "" {
-				ti["command"] = e.Command
+			if callEntry.Command != "" {
+				ti["command"] = callEntry.Command
 			} else {
-				ti["file_path"] = e.Paths[0]
+				ti["file_path"] = callEntry.Paths[0]
 			}
 			in["tool_input"] = ti
 			payload, err := json.Marshal(in)
@@ -383,7 +390,7 @@ func validateEntry(e entry, names map[string]bool) error {
 	}
 }
 
-func materializeRepo(t *testing.T, e entry) string {
+func materializeRepo(t *testing.T, e entry) (string, string) {
 	t.Helper()
 	logicalRoot := filepath.Clean(filepath.FromSlash(e.RepoRoot))
 	logicalCWD := filepath.Clean(filepath.FromSlash(e.CWD))
@@ -402,5 +409,99 @@ func materializeRepo(t *testing.T, e entry) string {
 	if err := os.MkdirAll(cwd, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return cwd
+	return cwd, repo
+}
+
+func materializeLogicalRepo(e entry, physicalRoot string) (entry, error) {
+	if !e.MaterializeRepo {
+		return e, nil
+	}
+	logicalRoot := filepath.ToSlash(filepath.Clean(e.RepoRoot))
+	physicalRoot = filepath.ToSlash(filepath.Clean(physicalRoot))
+	replacePath := func(value string) (string, bool) {
+		if value == logicalRoot {
+			return physicalRoot, true
+		}
+		if strings.HasPrefix(value, logicalRoot+"/") {
+			return physicalRoot + strings.TrimPrefix(value, logicalRoot), true
+		}
+		return value, false
+	}
+
+	if e.Command != "" {
+		file, err := syntax.NewParser().Parse(strings.NewReader(e.Command), "")
+		if err != nil {
+			return entry{}, fmt.Errorf("parse materialized command: %w", err)
+		}
+		type replacement struct {
+			start, end int
+			value      string
+		}
+		var replacements []replacement
+		syntax.Walk(file, func(node syntax.Node) bool {
+			word, ok := node.(*syntax.Word)
+			if !ok || len(word.Parts) != 1 {
+				return true
+			}
+			literal, ok := word.Parts[0].(*syntax.Lit)
+			if !ok {
+				return false
+			}
+			value, replace := replacePath(literal.Value)
+			if replace {
+				replacements = append(replacements, replacement{
+					start: int(word.Pos().Offset()), end: int(word.End().Offset()), value: value,
+				})
+			}
+			return false
+		})
+		sort.Slice(replacements, func(i, j int) bool { return replacements[i].start > replacements[j].start })
+		for _, replacement := range replacements {
+			e.Command = e.Command[:replacement.start] + replacement.value + e.Command[replacement.end:]
+		}
+	}
+	if len(e.Paths) > 0 {
+		paths := append([]string(nil), e.Paths...)
+		for i, path := range paths {
+			if value, replace := replacePath(path); replace {
+				paths[i] = value
+			}
+		}
+		e.Paths = paths
+	}
+	return e, nil
+}
+
+func TestMaterializeLogicalRepoIsExplicitAndTokenAware(t *testing.T) {
+	physicalRoot := "/tmp/physical-repo"
+	command := `> /repo/build.log; printf '%s\n' https://example.com/repo /repository /tmp/repo`
+
+	disabled := entry{Command: command, Paths: []string{"/repo/a"}, RepoRoot: "/repo"}
+	got, err := materializeLogicalRepo(disabled, physicalRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Command != command || strings.Join(got.Paths, "|") != "/repo/a" {
+		t.Fatalf("disabled materialization changed entry: command=%q paths=%v", got.Command, got.Paths)
+	}
+
+	enabled := disabled
+	enabled.MaterializeRepo = true
+	enabled.Paths = []string{"/repo/a", "/repository/b", "https://example.com/repo"}
+	got, err = materializeLogicalRepo(enabled, physicalRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCommand := `> /tmp/physical-repo/build.log; printf '%s\n' https://example.com/repo /repository /tmp/repo`
+	if got.Command != wantCommand {
+		t.Errorf("command = %q, want %q", got.Command, wantCommand)
+	}
+	if want := "/tmp/physical-repo/a|/repository/b|https://example.com/repo"; strings.Join(got.Paths, "|") != want {
+		t.Errorf("paths = %v, want %q", got.Paths, want)
+	}
+
+	enabled.Command = `echo "unterminated`
+	if _, err := materializeLogicalRepo(enabled, physicalRoot); err == nil {
+		t.Fatal("malformed opted-in command returned nil error")
+	}
 }
