@@ -236,11 +236,15 @@ func TestGlobMatchingIgnoresDotSegments(t *testing.T) {
 }
 
 func TestCheckPathsBashReader(t *testing.T) {
-	tc := ToolCall{Tool: "Bash", Command: `cat ~/.aws/credentials`}
-	if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny {
-		t.Errorf("cat credentials -> %+v, want deny", v)
+	for _, tc := range []ToolCall{
+		{Tool: "Bash", Command: `cat ~/.aws/credentials`},
+		{Tool: "Bash", Command: `cat.exe id_rsa`, CWD: "/home/u/.ssh", RepoRoot: "/repo"},
+	} {
+		if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", tc.Command, v)
+		}
 	}
-	tc = ToolCall{Tool: "Bash", Command: `/bin/cat ~/.aws/credentials`}
+	tc := ToolCall{Tool: "Bash", Command: `/bin/cat ~/.aws/credentials`}
 	if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny {
 		t.Errorf("absolute cat credentials -> %+v, want deny", v)
 	}

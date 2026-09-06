@@ -635,10 +635,8 @@ func matchesNormalizedOperatorConfigPath(candidate string) bool {
 }
 
 func isOpaqueExecutor(executable string) bool {
-	name := strings.ToLower(path.Base(strings.ReplaceAll(executable, `\`, "/")))
-	name = strings.TrimSuffix(name, ".exe")
 	for _, base := range []string{"python", "node", "perl", "ruby", "php", "lua", "awk", "powershell", "pwsh"} {
-		if name == base || strings.HasPrefix(name, base) && isVersionSuffix(name[len(base):]) {
+		if executable == base || strings.HasPrefix(executable, base) && isVersionSuffix(executable[len(base):]) {
 			return true
 		}
 	}

@@ -14,7 +14,8 @@ func head(argv []string) string {
 	if len(argv) == 0 {
 		return ""
 	}
-	return path.Base(argv[0])
+	name := strings.ToLower(path.Base(strings.ReplaceAll(argv[0], `\`, "/")))
+	return strings.TrimSuffix(name, ".exe")
 }
 
 func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
@@ -779,7 +780,7 @@ func checkAskTier(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 				return ask("P1.find-delete", "find -delete is a bulk deletion primitive")
 			}
 			if (a == "-exec" || a == "-execdir" || a == "-ok" || a == "-okdir") &&
-				i+1 < len(s.Argv) && destructive[path.Base(s.Argv[i+1])] {
+				i+1 < len(s.Argv) && destructive[head(s.Argv[i+1:])] {
 				return ask("P1.find-delete", "find "+a+" invokes a destructive command")
 			}
 		}

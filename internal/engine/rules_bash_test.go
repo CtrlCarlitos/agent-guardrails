@@ -19,6 +19,22 @@ func evalBash(t *testing.T, cmd string) *policy.Verdict {
 	return checkBash(ToolCall{Tool: "Bash", Command: cmd, CWD: "/repo", RepoRoot: "/repo"}, bashPol())
 }
 
+func TestHeadCanonicalizesExecutableIdentity(t *testing.T) {
+	for _, test := range []struct {
+		executable string
+		want       string
+	}{
+		{"cat.exe", "cat"},
+		{"CAT", "cat"},
+		{`C:\bin\cat.exe`, "cat"},
+		{"/usr/bin/cat", "cat"},
+	} {
+		if got := head([]string{test.executable}); got != test.want {
+			t.Errorf("head(%q) = %q, want %q", test.executable, got, test.want)
+		}
+	}
+}
+
 func TestAbsolutePathHeadsAreMatched(t *testing.T) {
 	deny := []string{
 		`/bin/rm -rf /`,
@@ -1015,6 +1031,8 @@ func TestFindDestructiveExecFamiliesAsk(t *testing.T) {
 	commands := []string{
 		`find . -exec rm -rf {} +`,
 		`find . -execdir /bin/rm -rf {} +`,
+		`find . -exec RM.EXE -rf {} +`,
+		`find . -exec 'C:\bin\rm.exe' -rf {} +`,
 		`find . -ok /usr/bin/shred {} \;`,
 		`find . -okdir truncate -s 0 {} \;`,
 		`find . -exec /bin/dd of={} \;`,
