@@ -55,7 +55,7 @@ outside-repository symlink laundering is fixed by resolved-target checks. The
 Engine also denies visible opaque-interpreter references to Operator config, but
 it is a static tool-call guard, not an operating-system sandbox: dynamically
 concealed same-user writes remain outside its boundary. Phase 2's original
-findings are fixed and locked in the 190-case adversarial corpus; the remaining
+findings are fixed and locked in the 195-case adversarial corpus; the remaining
 repository findings are assigned to Phase 4.
 
 `make smoke` runs a best-effort end-to-end check against a real `claude` session

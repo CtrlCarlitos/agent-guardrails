@@ -200,6 +200,47 @@ func TestGitPushRepoOptionMakesFollowingOperandARefspec(t *testing.T) {
 	}
 }
 
+func TestGitPushRepoOptionReclassifiesEarlierOperandsAsRefspecs(t *testing.T) {
+	cases := map[string]struct {
+		decision policy.Decision
+		ruleID   string
+	}{
+		`git push +main --repo=origin`:                  {policy.Deny, "P2.git-push-force"},
+		`git push +main --repo origin`:                  {policy.Deny, "P2.git-push-force"},
+		`git push +HEAD:refs/heads/main --rep=origin`:   {policy.Deny, "P2.git-push-force"},
+		`git push :main --repo=origin`:                  {policy.Ask, "P2.git-push-delete"},
+		`git push :refs/heads/old --repo origin`:        {policy.Ask, "P2.git-push-delete"},
+		`git push dev:main --repo=origin`:               {policy.Ask, "P2.git-push-protected"},
+		`git push HEAD:refs/heads/master --repo origin`: {policy.Ask, "P2.git-push-protected"},
+		`git push --repo=origin -- +main`:               {policy.Deny, "P2.git-push-force"},
+		`git --future=x push feature --repo=origin`:     {policy.Ask, "P2.git-unknown-global"},
+	}
+	for command, want := range cases {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != want.decision || v.RuleID != want.ruleID {
+			t.Errorf("%q -> %+v, want %s/%s", command, v, want.decision, want.ruleID)
+		}
+	}
+
+	for _, command := range []string{
+		`git push feature --repo=origin`,
+		`git push feature --repo origin`,
+		`git push origin feature --repo=mirror`,
+		`git push origin feature`,
+		`git push +main -- --repo=origin`,
+		`git push +main --no-repo`,
+	} {
+		if v := evalBash(t, command); v != nil {
+			t.Errorf("%q -> %+v, want nil", command, v)
+		}
+	}
+
+	v := evalBash(t, `git push origin +main --repo=mirror`)
+	if v == nil || v.Decision != policy.Deny || v.RuleID != "P2.git-push-force" {
+		t.Errorf("positional repository combination -> %+v, want deny/P2.git-push-force", v)
+	}
+}
+
 func TestGitPushForceRefspecOutranksEarlierAsk(t *testing.T) {
 	for _, c := range []string{
 		`git push origin main +feature`,

@@ -1519,5 +1519,45 @@
     "cwd": "/repo",
     "repo_root": "/repo",
     "want": "deny"
+  },
+  {
+    "name": "git force refspec before attached repo option",
+    "tool": "Bash",
+    "command": "git push +main --repo=origin",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "git force refspec before split repo option",
+    "tool": "Bash",
+    "command": "git push +main --repo origin",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "git delete refspec before repo option",
+    "tool": "Bash",
+    "command": "git push :main --repo=origin",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask"
+  },
+  {
+    "name": "git protected refspec before repo option",
+    "tool": "Bash",
+    "command": "git push dev:main --repo origin",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask"
+  },
+  {
+    "name": "git feature refspec before repo option control",
+    "tool": "Bash",
+    "command": "git push feature --repo=origin",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
   }
 ]

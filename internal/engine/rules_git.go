@@ -279,6 +279,7 @@ func parseGitPushArgs(argv []string) gitPushArgs {
 	i++
 	repositorySeen := false
 	optionsEnded := false
+	var operands []string
 	for i < len(argv) {
 		a := argv[i]
 		if !optionsEnded && a == "--" {
@@ -337,14 +338,13 @@ func parseGitPushArgs(argv []string) gitPushArgs {
 			}
 			continue
 		}
-		if !repositorySeen {
-			repositorySeen = true
-			i++
-			continue
-		}
-		args.refspecs = append(args.refspecs, a)
+		operands = append(operands, a)
 		i++
 	}
+	if !repositorySeen && len(operands) > 0 {
+		operands = operands[1:]
+	}
+	args.refspecs = append(args.refspecs, operands...)
 	return args
 }
 
