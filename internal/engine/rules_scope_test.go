@@ -97,6 +97,34 @@ func TestRootOnlyGlobsFollowSymlinks(t *testing.T) {
 	}
 }
 
+// H-7: matching is case-insensitive for every list, not only secrets. On APFS
+// and NTFS each of these opens the same file as its canonical-case sibling.
+func TestGlobMatchingIsCaseInsensitiveAcrossLists(t *testing.T) {
+	pol := pathPol()
+	for _, c := range []struct {
+		tool, path, rule string
+		want             policy.Decision
+	}{
+		{"Read", "/home/u/.SSH/ID_RSA", "P4.secret-path", policy.Deny},
+		{"Read", "/home/u/.Ssh/id_rsa", "P4.secret-path", policy.Deny},
+		{"Read", "/repo/.ENV", "P4.secret-path", policy.Deny},
+		{"Read", "/home/u/.AWS/credentials", "P4.secret-path", policy.Deny},
+		{"Write", "/home/u/.BASHRC", "P5.self-config", policy.Deny},
+		{"Write", "/repo/claude.MD", "P5.self-config", policy.Deny},
+		{"Write", "/repo/.Claude/settings.json", "P5.self-config", policy.Deny},
+		{"Write", "/repo/.GIT/config", "P2.git-protected-path", policy.Deny},
+		{"Write", "/repo/.git/HOOKS/pre-commit", "P2.git-protected-path", policy.Deny},
+		{"Write", "/repo/MAKEFILE", "P5.ci-infra-lockfile", policy.Ask},
+		{"Write", "/repo/.GitHub/Workflows/ci.yml", "P5.ci-infra-lockfile", policy.Ask},
+	} {
+		tc := ToolCall{Tool: c.tool, Paths: []string{c.path}, CWD: "/repo", RepoRoot: "/repo"}
+		v := checkPaths(tc, pol)
+		if v == nil || v.Decision != c.want || v.RuleID != c.rule {
+			t.Errorf("%s %q -> %+v, want %s/%s", c.tool, c.path, v, c.want, c.rule)
+		}
+	}
+}
+
 func TestNoBasenameFallbackForSecretGlobs(t *testing.T) {
 	// With "**/" prefixes the base globs still match at depth without the
 	// fallback; a bare glob would now match only a path that IS that name.

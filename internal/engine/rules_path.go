@@ -463,7 +463,7 @@ func checkGitProtectedPaths(tc ToolCall) *policy.Verdict {
 
 // selfConfigGlobs match anywhere on the filesystem; selfConfigRootOnly match
 // only at the repository root (review M-5: a nested docs/templates/CLAUDE.md is
-// documentation, not the agent's instruction file). `.envrc` is deliberately
+// documentation, not the plane's instruction file). `.envrc` is deliberately
 // "anywhere": direnv executes the .envrc of every directory entered.
 var selfConfigGlobs = []string{
 	"**/.claude/**", "**/.envrc",
@@ -704,14 +704,14 @@ func repoRelative(p, cwd, repoRoot string) (string, bool) {
 	if repoRoot == "" {
 		return "", false
 	}
-	q := p
-	if !filepath.IsAbs(q) {
+	absPath := p
+	if !filepath.IsAbs(absPath) {
 		if cwd == "" {
 			return "", false
 		}
-		q = filepath.Join(cwd, q)
+		absPath = filepath.Join(cwd, absPath)
 	}
-	rel, err := filepath.Rel(strings.ToLower(filepath.Clean(repoRoot)), strings.ToLower(filepath.Clean(q)))
+	rel, err := filepath.Rel(strings.ToLower(filepath.Clean(repoRoot)), strings.ToLower(filepath.Clean(absPath)))
 	if err != nil {
 		return "", false
 	}
@@ -719,8 +719,8 @@ func repoRelative(p, cwd, repoRoot string) (string, bool) {
 	if rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
 		return "", false
 	}
-	// Re-derive the original-case form of the same length so callers see the
-	// path as written; matching is case-insensitive in matchesScoped anyway.
+	// The result is lowercased, because containment was computed on lowercased
+	// inputs. That is fine for its only consumer: matchesAnyGlob folds case too.
 	return rel, true
 }
 
