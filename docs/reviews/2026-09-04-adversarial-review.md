@@ -17,7 +17,7 @@ adversarial suite now validates the plane response and its matching audit record
 before classifying a Verdict; exit status alone is not accepted as proof.
 
 Phase 2 is complete: CR-3, CR-4, CR-5, CR-6, CR-10, CR-11, CR-13, H-1, H-3,
-and H-4 are fixed and locked in the 178-case adversarial corpus. Only Phase 4
+and H-4 are fixed and locked in the 190-case adversarial corpus. Only Phase 4
 findings remain outstanding in this repository: CR-9; H-2, H-6, H-7, H-10; and
 M-2 through M-7. M-9 remains partially fixed external chezmoi deployment work.
 Phase 3 hardening operates at the static tool-call boundary, not as an
