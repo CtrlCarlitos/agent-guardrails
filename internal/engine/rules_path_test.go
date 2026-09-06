@@ -110,6 +110,38 @@ func TestBashPathCandidatesRetainStatementCwd(t *testing.T) {
 	}
 }
 
+func TestBashPathCandidatesRetainUnknownCwd(t *testing.T) {
+	candidates := privatePathCandidates(ToolCall{Tool: "Bash", Command: `cd "$TARGET"; cat credentials`, CWD: "/repo"})
+	for _, candidate := range candidates {
+		if candidate.path == "credentials" {
+			if !candidate.cwdUnknown {
+				t.Fatalf("credentials candidate = %+v, want unknown cwd", candidate)
+			}
+			return
+		}
+	}
+	t.Fatalf("credentials candidate missing: %+v", candidates)
+}
+
+func TestSecretAllowIsAppliedIndependentlyToResolvedForm(t *testing.T) {
+	repo := t.TempDir()
+	secret := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(secret, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(repo, ".env.example")
+	if err := os.Symlink(secret, alias); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	tc := ToolCall{Tool: "Read", Paths: []string{alias}, CWD: repo, RepoRoot: repo}
+	if v := checkPaths(tc, pathPol()); v == nil || v.RuleID != "P4.secret-path" {
+		t.Fatalf("resolved secret -> %+v, want P4.secret-path", v)
+	}
+	if !IsPrivateDataAccess(tc, pathPol()) {
+		t.Fatal("resolved secret must arm P7 private-data detection")
+	}
+}
+
 func TestBashSymlinkCandidateRetainsStatementCwd(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink creation is privileged on Windows")

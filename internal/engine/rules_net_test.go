@@ -113,6 +113,29 @@ func TestDownloadPipeShellDoesNotCrossPipelineBoundaries(t *testing.T) {
 	}
 }
 
+func TestDownloadPipeShellFunctionAndEvalIngressUsesInnerFlow(t *testing.T) {
+	pol := netPol("example.com")
+	negative := []string{
+		`consume() { cat; sh; }; curl https://example.com/install.sh | consume`,
+		`curl https://example.com/install.sh | eval 'cat; sh'`,
+	}
+	for _, command := range negative {
+		if v := evalNet(t, command, pol); v != nil {
+			t.Errorf("%q -> %+v, want nil after consuming cat", command, v)
+		}
+	}
+	positive := []string{
+		`pass() { printf x; sh; }; curl https://example.com/install.sh | pass`,
+		`curl https://example.com/install.sh | eval 'printf x; sh'`,
+	}
+	for _, command := range positive {
+		v := evalNet(t, command, pol)
+		if v == nil || v.RuleID != "P6.download-pipe-shell" {
+			t.Errorf("%q -> %+v, want P6.download-pipe-shell", command, v)
+		}
+	}
+}
+
 func TestDownloadPipeShellConditionalIngressPaths(t *testing.T) {
 	pol := netPol("example.com")
 	deny := []string{

@@ -868,6 +868,67 @@ func TestConfiguredSafeRootDestinationSymlinkOutsideSafeRootsAsks(t *testing.T) 
 	}
 }
 
+func TestPhysicalContainmentAppliesToRmRedirectAndSafeRootItself(t *testing.T) {
+	repo := t.TempDir()
+	escape := filepath.Join(repo, "escape")
+	if err := os.Symlink("/etc", escape); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	cases := []struct {
+		command string
+		ruleID  string
+	}{
+		{fmt.Sprintf(`rm -rf %q`, filepath.Join(escape, "missing")), "P1.rm-rf"},
+		{fmt.Sprintf(`printf x > %q`, filepath.Join(escape, "missing")), "P1.redirect"},
+		{fmt.Sprintf(`cp source %q`, filepath.Join(escape, "missing")), "P1.out-of-repo-write"},
+		{fmt.Sprintf(`mv %q %q`, filepath.Join(escape, "missing"), filepath.Join(repo, "moved")), "P1.out-of-repo-write"},
+	}
+	for _, test := range cases {
+		tc := ToolCall{Tool: "Bash", Command: test.command, CWD: repo, RepoRoot: repo}
+		if v := checkBash(tc, bashPol()); v == nil || v.RuleID != test.ruleID {
+			t.Errorf("%q -> %+v, want %s", test.command, v, test.ruleID)
+		}
+	}
+
+	safeAlias := filepath.Join(repo, "safe-alias")
+	if err := os.Symlink("/etc", safeAlias); err != nil {
+		t.Skipf("create safe-root symlink: %v", err)
+	}
+	pol := bashPol()
+	pol.Slots.SafeRoots = []string{safeAlias}
+	command := fmt.Sprintf(`cp source %q`, filepath.Join(safeAlias, "missing"))
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: ""}
+	if v := checkBash(tc, pol); v == nil || v.RuleID != "P1.out-of-repo-write" {
+		t.Fatalf("configured symlink root %q -> %+v, want P1.out-of-repo-write", command, v)
+	}
+}
+
+func TestUnknownSimpleCwdNeverFallsBackToToolCallCwd(t *testing.T) {
+	repo := t.TempDir()
+	simple := Simple{Argv: []string{"rm", "-rf", "."}, Unresolved: true, cwdUnknown: true}
+	tc := ToolCall{Tool: "Bash", CWD: repo, RepoRoot: repo}
+	if cwd := simpleCwd(simple, tc); cwd != "" {
+		t.Fatalf("simpleCwd = %q, want empty unknown cwd", cwd)
+	}
+	if v := checkRmRf(simple, tc, bashPol()); v != nil {
+		t.Fatalf("unknown relative cwd -> %+v, want P3 to remain authoritative", v)
+	}
+}
+
+func TestConservativeCdBranchesRemainNonAllowAtVerdictLevel(t *testing.T) {
+	if v := evalBash(t, `! cd /etc || rm -rf /`); v == nil || v.Decision == policy.Allow {
+		t.Fatalf("negated cd branch -> %+v, want non-allow", v)
+	}
+
+	repo := t.TempDir()
+	created := filepath.Join(repo, "created")
+	command := fmt.Sprintf(`(mkdir %q); cd %q && rm -rf /`, created, created)
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+	if v := checkBash(tc, bashPol()); v == nil || v.Decision == policy.Allow {
+		t.Fatalf("created-directory cd branch -> %+v, want non-allow", v)
+	}
+}
+
 func TestMoveSourceSymlinkOutsideSafeRootsAsks(t *testing.T) {
 	repo := t.TempDir()
 	escape := filepath.Join(repo, "escape")

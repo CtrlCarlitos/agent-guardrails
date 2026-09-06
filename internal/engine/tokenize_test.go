@@ -1397,6 +1397,20 @@ func TestNormalizeCdPathAssignmentsAndModes(t *testing.T) {
 	if last := got[len(got)-1]; last.Cwd != "" || !last.Unresolved {
 		t.Fatalf("conflicting cd modes last = %+v, want unresolved cwd", last)
 	}
+
+	firstRoot := t.TempDir()
+	secondRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(secondRoot, "created"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	command := fmt.Sprintf(`mkdir %q; CDPATH=%q cd created && pwd`, filepath.Join(firstRoot, "created"), firstRoot+string(os.PathListSeparator)+secondRoot)
+	got, err = Normalize(command, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := got[len(got)-1]; last.Cwd != "" || !last.Unresolved {
+		t.Fatalf("post-mutation CDPATH selection last = %+v, want unknown cwd", last)
+	}
 }
 
 func TestNormalizeUnknownCwdIsStickyAcrossRecursiveSources(t *testing.T) {
@@ -1515,4 +1529,189 @@ func TestNormalizeFunctionsOnlyWhenInvoked(t *testing.T) {
 			t.Errorf("Normalize(%q) last = %+v, want unresolved cwd", command, last)
 		}
 	}
+}
+
+func TestNormalizeNegatedAndRedirectedCdKeepsFailureReachable(t *testing.T) {
+	repo := t.TempDir()
+	commands := []string{
+		`! cd /etc || rm -rf /`,
+		fmt.Sprintf(`cd /etc > %q || rm -rf /`, filepath.Join(repo, "missing", "out")),
+	}
+	for _, command := range commands {
+		got, err := Normalize(command, repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasArgv(got, []string{"rm", "-rf", "/"}) {
+			t.Errorf("Normalize(%q) omitted reachable rm: %+v", command, got)
+		}
+	}
+
+	inaccessible := filepath.Join(repo, "inaccessible")
+	if err := os.Mkdir(inaccessible, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Normalize(fmt.Sprintf(`cd %q; pwd`, inaccessible), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := got[len(got)-1]; !last.Unresolved || last.Cwd != "" {
+		t.Fatalf("inaccessible cd last = %+v, want unknown cwd", last)
+	}
+	got, err = Normalize(fmt.Sprintf(`cd %q || rm -rf /`, inaccessible), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasArgv(got, []string{"rm", "-rf", "/"}) {
+		t.Fatalf("inaccessible cd omitted failure branch: %+v", got)
+	}
+}
+
+func TestNormalizeRepeatableLoopsDoNotPublishOnePassCwd(t *testing.T) {
+	repo := t.TempDir()
+	start := filepath.Join(repo, "one", "two")
+	if err := os.MkdirAll(start, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	commands := []string{
+		`for item in a b; do cd ..; done; pwd`,
+		`while true; do cd ..; break; done; pwd`,
+		`until false; do cd ..; continue; done; pwd`,
+	}
+	for _, command := range commands {
+		got, err := Normalize(command, start)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if last := got[len(got)-1]; !last.Unresolved || last.Cwd != "" {
+			t.Errorf("Normalize(%q) last = %+v, want unknown post-loop cwd", command, last)
+		}
+	}
+
+	got, err := Normalize(`while condition; do rm -rf /; break; done; pwd`, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasArgv(got, []string{"rm", "-rf", "/"}) {
+		t.Fatalf("repeatable loop omitted reachable rm: %+v", got)
+	}
+}
+
+func TestNormalizeIsolatedFilesystemEffectsKeepCreatedCdReachable(t *testing.T) {
+	repo := t.TempDir()
+	commands := []string{
+		fmt.Sprintf(`(mkdir %q); cd %q && rm -rf /`, filepath.Join(repo, "subshell"), filepath.Join(repo, "subshell")),
+		fmt.Sprintf(`mkdir %q | cat; cd %q && rm -rf /`, filepath.Join(repo, "pipeline"), filepath.Join(repo, "pipeline")),
+		fmt.Sprintf(`mkdir %q & cd %q && rm -rf /`, filepath.Join(repo, "background"), filepath.Join(repo, "background")),
+		fmt.Sprintf(`value=$(mkdir %q); cd %q && rm -rf /`, filepath.Join(repo, "substitution"), filepath.Join(repo, "substitution")),
+		fmt.Sprintf(`bash -c 'mkdir %q'; cd %q && rm -rf /`, filepath.Join(repo, "shell"), filepath.Join(repo, "shell")),
+		fmt.Sprintf(`watch 'mkdir %q'; cd %q && rm -rf /`, filepath.Join(repo, "watch"), filepath.Join(repo, "watch")),
+	}
+	for _, command := range commands {
+		got, err := Normalize(command, repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasArgv(got, []string{"rm", "-rf", "/"}) {
+			t.Errorf("Normalize(%q) omitted created-directory branch: %+v", command, got)
+		}
+	}
+}
+
+func TestNormalizeRecursiveSourcesCarryCdPathEnvironment(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, "ssl"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CDPATH", "/etc")
+	for _, command := range []string{
+		`bash -c 'cd ssl; pwd'`,
+		`watch 'cd ssl; pwd'`,
+	} {
+		got, err := Normalize(command, repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if last := got[len(got)-1]; last.Cwd == filepath.Join(repo, "ssl") && !last.Unresolved {
+			t.Errorf("Normalize(%q) falsely resolved child cd locally: %+v", command, last)
+		}
+	}
+
+	t.Setenv("CDPATH", "")
+	got, err := Normalize(`CDPATH=/etc bash -c 'cd ssl; pwd'`, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := got[len(got)-1]; last.Cwd == filepath.Join(repo, "ssl") && !last.Unresolved {
+		t.Fatalf("assigned child CDPATH falsely resolved locally: %+v", last)
+	}
+
+	got, err = Normalize(`setpath() { CDPATH=/etc; }; setpath; cd ssl; pwd`, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := got[len(got)-1]; last.Cwd != "/etc/ssl" || last.Unresolved {
+		t.Fatalf("function CDPATH assignment last = %+v, want /etc/ssl", last)
+	}
+}
+
+func TestNormalizeFunctionBypassDefinitionsAndControlAreConservative(t *testing.T) {
+	for _, command := range []string{
+		`danger() { rm -rf /; }; command danger`,
+		`danger() { rm -rf /; }; builtin danger`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hasArgv(got, []string{"rm", "-rf", "/"}) {
+			t.Errorf("Normalize(%q) ignored function bypass: %+v", command, got)
+		}
+	}
+
+	for _, command := range []string{
+		`outer() { inner() { rm -rf /; }; }; outer; inner`,
+		`eval 'danger() { rm -rf /; }'; danger`,
+		`eval() { rm -rf /; }; eval`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasArgv(got, []string{"rm", "-rf", "/"}) {
+			t.Errorf("Normalize(%q) missed reachable function body: %+v", command, got)
+		}
+	}
+
+	got, err := Normalize(`stop() { return 1; cd /etc; }; stop; pwd`, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := got[len(got)-1]; !last.Unresolved || last.Cwd != "" {
+		t.Fatalf("post-return function state = %+v, want unknown cwd", last)
+	}
+
+	for _, command := range []string{
+		`choose() { return "$STATUS"; }; choose && rm -rf /`,
+		`choose() { return "$STATUS"; }; choose || rm -rf /`,
+		`if condition; then danger() { rm -rf /; }; fi; danger`,
+		`false() { :; }; danger() { if false; then rm -rf /; fi; }; danger`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasArgv(got, []string{"rm", "-rf", "/"}) {
+			t.Errorf("Normalize(%q) omitted conservative function path: %+v", command, got)
+		}
+	}
+}
+
+func hasArgv(simples []Simple, want []string) bool {
+	for _, simple := range simples {
+		if reflect.DeepEqual(simple.Argv, want) {
+			return true
+		}
+	}
+	return false
 }

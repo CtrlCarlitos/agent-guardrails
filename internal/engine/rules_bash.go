@@ -82,13 +82,15 @@ func checkDestinationWrites(s Simple, tc ToolCall, pol *policy.Policy) *policy.V
 	}
 	if command == "mv" {
 		for _, source := range moveSourceTargets(s.Argv) {
-			resolved := resolvePath(source, cwd)
-			if withinAuthorizedPath(source, cwd, tc.RepoRoot, pol.Slots.SafeRoots, true) {
+			candidate := pathCandidate{path: source, cwd: cwd, cwdUnknown: s.cwdUnknown}
+			authorized, lexical := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, true)
+			if authorized {
 				continue
 			}
-			if _, _, lexicallyAuthorized := authorizedPathCandidates(source, cwd, tc.RepoRoot, pol.Slots.SafeRoots, true); lexicallyAuthorized {
+			if lexical || candidate.cwdUnknown && !filepath.IsAbs(source) {
 				return ask("P1.out-of-repo-write", "moves a source that resolves outside the repo and configured safe roots: "+source)
 			}
+			resolved := resolvePath(source, cwd)
 			if _, err := os.Lstat(resolved); !os.IsNotExist(err) {
 				return ask("P1.out-of-repo-write", "moves a source outside the repo and configured safe roots: "+source)
 			}
@@ -98,59 +100,65 @@ func checkDestinationWrites(s Simple, tc ToolCall, pol *policy.Policy) *policy.V
 		if command == "rsync" && rsyncRemoteTarget(target) {
 			return ask("P1.out-of-repo-write", "writes to a remote destination outside configured safe roots: "+target)
 		}
-		if !withinAuthorizedPath(target, cwd, tc.RepoRoot, pol.Slots.SafeRoots, true) {
+		candidate := pathCandidate{path: target, cwd: cwd, cwdUnknown: s.cwdUnknown}
+		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, true); !authorized {
 			return ask("P1.out-of-repo-write", "writes to a path outside the repo and configured safe roots: "+target)
 		}
 	}
 	return nil
 }
 
-func withinAuthorizedPath(target, cwd, repoRoot string, safeRoots []string, allowTemp bool) bool {
-	target, roots, lexicallyAuthorized := authorizedPathCandidates(target, cwd, repoRoot, safeRoots, allowTemp)
-	if !lexicallyAuthorized {
-		return false
-	}
-	target, ok := resolveExistingPath(target, "")
-	if !ok {
-		return false
-	}
-	for _, root := range roots {
-		root, ok = resolveExistingPath(root, "")
-		if ok && withinSafe(target, root, nil) {
-			return true
-		}
-	}
-	return false
+type authorizedRoot struct {
+	lexical  string
+	physical string
 }
 
-func authorizedPathCandidates(target, cwd, repoRoot string, safeRoots []string, allowTemp bool) (string, []string, bool) {
-	if target == "~" || strings.HasPrefix(target, "~/") {
-		return "", nil, false
+func authorizedPath(candidate pathCandidate, repoRoot string, safeRoots []string, allowTemp bool) (authorized, lexical bool) {
+	if candidate.path == "~" || strings.HasPrefix(candidate.path, "~/") || candidate.cwdUnknown && !filepath.IsAbs(candidate.path) {
+		return false, false
 	}
-	target, err := filepath.Abs(resolvePath(target, cwd))
+	target, err := filepath.Abs(resolvePath(candidate.path, candidate.cwd))
 	if err != nil {
-		return "", nil, false
+		return false, false
 	}
-	configuredRoots := append([]string{repoRoot}, safeRoots...)
-	if allowTemp {
-		configuredRoots = append(configuredRoots, os.TempDir())
+	physicalTarget, ok := resolveExistingPath(target, "")
+	if !ok {
+		return false, false
 	}
-	var roots []string
-	lexicallyAuthorized := false
-	for _, root := range configuredRoots {
+	var roots []authorizedRoot
+	addRoot := func(root string, rejectSymlink bool) {
 		if root == "" {
-			continue
+			return
 		}
-		root, err = filepath.Abs(resolvePath(root, cwd))
-		if err != nil {
-			continue
+		if candidate.cwdUnknown && !filepath.IsAbs(root) {
+			return
 		}
-		roots = append(roots, root)
-		if withinSafe(target, root, nil) {
-			lexicallyAuthorized = true
+		root, err = filepath.Abs(resolvePath(root, candidate.cwd))
+		if err != nil || filepath.Clean(root) == string(filepath.Separator) {
+			return
+		}
+		physical, ok := resolveExistingPath(root, "")
+		if !ok || rejectSymlink && filepath.Clean(physical) != filepath.Clean(root) {
+			return
+		}
+		roots = append(roots, authorizedRoot{lexical: root, physical: physical})
+	}
+	addRoot(repoRoot, false)
+	for _, root := range safeRoots {
+		addRoot(root, true)
+	}
+	if allowTemp {
+		addRoot(os.TempDir(), false)
+	}
+	for _, root := range roots {
+		if withinSafe(target, root.lexical, nil) {
+			lexical = true
+			if withinSafe(physicalTarget, root.physical, nil) {
+				return true, true
+			}
 		}
 	}
-	return target, roots, lexicallyAuthorized
+	return false, lexical
 }
 
 func rsyncRemoteTarget(target string) bool {
@@ -272,7 +280,11 @@ func checkRmRf(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		return nil
 	}
 	for _, raw := range nonFlagArgs(s.Argv) {
-		if !withinSafe(resolvePath(raw, simpleCwd(s, tc)), tc.RepoRoot, pol.Slots.SafeRoots) {
+		candidate := pathCandidate{path: raw, cwd: simpleCwd(s, tc), cwdUnknown: s.cwdUnknown}
+		if candidate.cwdUnknown && !filepath.IsAbs(raw) {
+			continue // P3 owns runtime-relative targets whose cwd is unknowable.
+		}
+		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, false); !authorized {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.rm-rf",
 				Reason: "recursive/forced rm of a path outside the repo and configured safe roots: " + raw}
 		}
@@ -733,7 +745,11 @@ func checkAskTier(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		return ask("P1.kill", "killall/pkill can terminate unrelated work")
 	}
 	for _, r := range s.Redirects {
-		if !withinSafe(resolvePath(r, simpleCwd(s, tc)), tc.RepoRoot, pol.Slots.SafeRoots) {
+		candidate := pathCandidate{path: r, cwd: simpleCwd(s, tc), cwdUnknown: s.cwdUnknown}
+		if candidate.cwdUnknown && !filepath.IsAbs(r) {
+			continue // Preserve P3 without resolving against the guardrail process cwd.
+		}
+		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, false); !authorized {
 			return ask("P1.redirect", "output redirection onto a path outside the repo/safe roots: "+r)
 		}
 	}
@@ -758,6 +774,9 @@ func resolvePath(p, cwd string) string {
 }
 
 func simpleCwd(s Simple, tc ToolCall) string {
+	if s.cwdUnknown {
+		return ""
+	}
 	if s.Cwd != "" {
 		return s.Cwd
 	}

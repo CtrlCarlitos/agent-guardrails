@@ -21,6 +21,7 @@ type Simple struct {
 	pipelines     []pipelinePosition
 	cwdUnknown    bool
 	origin        *syntax.Stmt
+	shellState    cwdState
 }
 
 type pipelinePosition struct {
@@ -76,6 +77,7 @@ func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pip
 			s.Unresolved = state.unknown
 			s.cwdUnknown = state.unknown
 			s.origin = stmt
+			s.shellState = state
 		}
 		for _, w := range args {
 			raw := src[w.Pos().Offset():w.End().Offset()]
@@ -285,6 +287,17 @@ const (
 	conditionFalse
 )
 
+func (truth conditionTruth) negated() conditionTruth {
+	switch truth {
+	case conditionTrue:
+		return conditionFalse
+	case conditionFalse:
+		return conditionTrue
+	default:
+		return conditionUnknown
+	}
+}
+
 func markIfClauseIngress(positions map[*syntax.Stmt][]pipelinePosition, clause *syntax.IfClause, position pipelinePosition, shadowedConstants map[string]bool) stdinFlow {
 	if len(clause.Cond) == 0 {
 		return markPipelineList(positions, clause.Then, position, shadowedConstants) // plain else
@@ -322,23 +335,27 @@ func literalCondition(stmts []*syntax.Stmt, shadowedConstants map[string]bool) c
 	stmt := stmts[0]
 	call, ok := stmt.Cmd.(*syntax.CallExpr)
 	if !ok || len(call.Args) != 1 || len(call.Assigns) != 0 || len(stmt.Redirs) != 0 ||
-		stmt.Negated || stmt.Background || stmt.Coprocess {
+		stmt.Background || stmt.Coprocess {
 		return conditionUnknown
 	}
 	name := call.Args[0].Lit()
+	truth := conditionUnknown
 	switch name {
 	case ":":
-		return conditionTrue
+		truth = conditionTrue
 	case "true":
 		if !shadowedConstants[name] {
-			return conditionTrue
+			truth = conditionTrue
 		}
 	case "false":
 		if !shadowedConstants[name] {
-			return conditionFalse
+			truth = conditionFalse
 		}
 	}
-	return conditionUnknown
+	if stmt.Negated {
+		return truth.negated()
+	}
+	return truth
 }
 
 func markCaseClauseIngress(positions map[*syntax.Stmt][]pipelinePosition, clause *syntax.CaseClause, position pipelinePosition, shadowedConstants map[string]bool) stdinFlow {
@@ -499,19 +516,33 @@ const (
 )
 
 func forClauseIterations(clause *syntax.ForClause) loopIterations {
+	return analyzeForClause(clause).iterations
+}
+
+type forClauseAnalysis struct {
+	iterations loopIterations
+	mayRepeat  bool
+}
+
+func analyzeForClause(clause *syntax.ForClause) forClauseAnalysis {
 	words, ok := clause.Loop.(*syntax.WordIter)
 	if !ok || !words.InPos.IsValid() {
-		return iterationPossible
+		return forClauseAnalysis{iterations: iterationPossible, mayRepeat: true}
 	}
 	if len(words.Items) == 0 {
-		return iterationNone
+		return forClauseAnalysis{iterations: iterationNone}
 	}
+	facts := forClauseAnalysis{iterations: iterationPossible, mayRepeat: len(words.Items) > 1}
 	for _, word := range words.Items {
 		if wordGuaranteesField(word) {
-			return iterationGuaranteed
+			facts.iterations = iterationGuaranteed
+		}
+		value, static := staticWord(word, false)
+		if !static || strings.ContainsAny(value, "*?[") {
+			facts.mayRepeat = true
 		}
 	}
-	return iterationPossible
+	return facts
 }
 
 func wordGuaranteesField(word *syntax.Word) bool {
@@ -722,6 +753,19 @@ func bothOutcome(state cwdState) cwdOutcome {
 	return cwdOutcome{success: state, failure: state, canSuccess: true, canFailure: true}
 }
 
+func (out cwdOutcome) negated() cwdOutcome {
+	return cwdOutcome{
+		success:    out.failure,
+		failure:    out.success,
+		canSuccess: out.canFailure,
+		canFailure: out.canSuccess,
+	}
+}
+
+func (out cwdOutcome) hasFilesystemUncertainty() bool {
+	return out.canSuccess && out.success.fsUncertain || out.canFailure && out.failure.fsUncertain
+}
+
 func (out cwdOutcome) merged() cwdState {
 	switch {
 	case out.canSuccess && out.canFailure:
@@ -759,7 +803,8 @@ func mergeOutcomes(outcomes ...cwdOutcome) cwdOutcome {
 }
 
 type shellFunction struct {
-	source string
+	source    string
+	uncertain bool
 }
 
 type cwdWalker struct {
@@ -770,6 +815,9 @@ type cwdWalker struct {
 	functions    map[string]shellFunction
 	active       map[string]bool
 	shadowed     map[string]bool
+	pipelines    map[*syntax.Stmt][]pipelinePosition
+	recursive    map[*syntax.Stmt]cwdState
+	uncertainDef bool
 }
 
 func (w *cwdWalker) list(stmts []*syntax.Stmt, state cwdState) cwdOutcome {
@@ -782,18 +830,30 @@ func (w *cwdWalker) list(stmts []*syntax.Stmt, state cwdState) cwdOutcome {
 
 func (w *cwdWalker) stmt(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 	if declaration, ok := stmt.Cmd.(*syntax.FuncDecl); ok && !stmt.Background && !stmt.Coprocess {
-		w.functions[declaration.Name.Value] = shellFunction{source: w.src[declaration.Body.Pos().Offset():declaration.Body.End().Offset()]}
+		w.functions[declaration.Name.Value] = shellFunction{
+			source:    w.src[declaration.Body.Pos().Offset():declaration.Body.End().Offset()],
+			uncertain: w.uncertainDef || state.unknown,
+		}
 		return successOutcome(state)
 	}
 	w.states[stmt] = state
-	w.redirectExpansions(stmt.Redirs, state)
+	if w.redirectExpansions(stmt.Redirs, state) {
+		state.fsUncertain = true
+	}
 
 	if stmt.Background || stmt.Coprocess {
 		child := w.isolated()
 		child.command(stmt, state)
+		// The parent races an arbitrary child command, whose filesystem effects
+		// cannot be observed from the pre-execution filesystem.
+		state.fsUncertain = true
 		return bothOutcome(state)
 	}
-	return w.command(stmt, state)
+	out := w.command(stmt, state)
+	if stmt.Negated {
+		out = out.negated()
+	}
+	return out
 }
 
 func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
@@ -801,13 +861,16 @@ func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 	case nil:
 		return bothOutcome(state)
 	case *syntax.CallExpr:
-		w.expansions(command, state)
+		if w.expansions(command, state) {
+			state.fsUncertain = true
+		}
 		return w.call(stmt, command, state)
 	case *syntax.BinaryCmd:
 		switch command.Op {
 		case syntax.Pipe, syntax.PipeAll:
-			w.isolated().stmt(command.X, state)
-			w.isolated().stmt(command.Y, state)
+			left := w.isolated().stmt(command.X, state)
+			right := w.isolated().stmt(command.Y, state)
+			state.fsUncertain = state.fsUncertain || left.hasFilesystemUncertainty() || right.hasFilesystemUncertainty()
 			return bothOutcome(state)
 		case syntax.AndStmt:
 			left := w.stmt(command.X, state)
@@ -834,23 +897,30 @@ func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 		return w.list(command.Stmts, state)
 	case *syntax.Subshell:
 		child := w.isolated().list(command.Stmts, state)
+		state.fsUncertain = state.fsUncertain || child.hasFilesystemUncertainty()
 		return cwdOutcome{success: state, failure: state, canSuccess: child.canSuccess, canFailure: child.canFailure}
 	case *syntax.IfClause:
 		return w.ifClause(command, state)
 	case *syntax.WhileClause:
 		return w.whileClause(command, state)
 	case *syntax.ForClause:
-		w.expansions(command.Loop, state)
+		if w.expansions(command.Loop, state) {
+			state.fsUncertain = true
+		}
 		switch forClauseIterations(command) {
 		case iterationNone:
 			return successOutcome(state)
-		case iterationGuaranteed:
-			body := w.list(command.Do, state)
-			return bothOutcome(body.merged())
-		default:
-			body := w.list(command.Do, state)
-			return bothOutcome(mergeCwd(state, body.merged()))
 		}
+		uncertainBody := forClauseIterations(command) == iterationPossible || forClauseMayRepeat(command)
+		body := w.withUncertainDefinitions(uncertainBody, func() cwdOutcome { return w.list(command.Do, state) })
+		post := body.merged()
+		if forClauseIterations(command) == iterationPossible {
+			post = mergeCwd(state, post)
+		}
+		if forClauseMayRepeat(command) && cwdMayChange(state, post) {
+			post = unknownCwd(state, post)
+		}
+		return bothOutcome(post)
 	case *syntax.CaseClause:
 		return w.caseClause(command, state)
 	case *syntax.TimeClause:
@@ -859,7 +929,9 @@ func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 		w.isolated().stmt(command.Body, state)
 		return bothOutcome(state)
 	default:
-		w.expansions(command, state)
+		if w.expansions(command, state) {
+			state.fsUncertain = true
+		}
 		return bothOutcome(state)
 	}
 	return bothOutcome(cwdState{unknown: true})
@@ -873,13 +945,17 @@ func (w *cwdWalker) ifClause(clause *syntax.IfClause, state cwdState) cwdOutcome
 	truth := literalCondition(clause.Cond, w.shadowed)
 	var paths []cwdOutcome
 	if truth != conditionFalse && condition.canSuccess {
-		paths = append(paths, w.list(clause.Then, condition.success))
+		paths = append(paths, w.withUncertainDefinitions(truth == conditionUnknown, func() cwdOutcome {
+			return w.list(clause.Then, condition.success)
+		}))
 	}
 	if truth != conditionTrue && condition.canFailure {
 		if clause.Else == nil {
 			paths = append(paths, successOutcome(condition.failure))
 		} else {
-			paths = append(paths, w.ifClause(clause.Else, condition.failure))
+			paths = append(paths, w.withUncertainDefinitions(truth == conditionUnknown, func() cwdOutcome {
+				return w.ifClause(clause.Else, condition.failure)
+			}))
 		}
 	}
 	return mergeOutcomes(paths...)
@@ -897,11 +973,17 @@ func (w *cwdWalker) whileClause(clause *syntax.WhileClause, state cwdState) cwdO
 	if !bodyReachable {
 		return successOutcome(exitState)
 	}
-	body := w.list(clause.Do, bodyState)
-	if truth == conditionUnknown {
-		return bothOutcome(mergeCwd(exitState, body.merged()))
+	body := w.withUncertainDefinitions(true, func() cwdOutcome { return w.list(clause.Do, bodyState) })
+	bodyPost := body.merged()
+	if cwdMayChange(state, bodyPost) {
+		bodyPost = unknownCwd(state, bodyPost)
 	}
-	return bothOutcome(body.merged())
+	if truth == conditionUnknown {
+		return bothOutcome(mergeCwd(exitState, bodyPost))
+	}
+	// A syntactically endless loop can still exit through break or an
+	// unmodelled status/control transfer. Keep following commands reachable.
+	return bothOutcome(bodyPost)
 }
 
 func (w *cwdWalker) caseClause(clause *syntax.CaseClause, state cwdState) cwdOutcome {
@@ -927,9 +1009,19 @@ func (w *cwdWalker) caseClause(clause *syntax.CaseClause, state cwdState) cwdOut
 		for _, pattern := range item.Patterns {
 			w.expansions(pattern, state)
 		}
-		exits = append(exits, w.list(item.Stmts, state).merged())
+		exits = append(exits, w.withUncertainDefinitions(true, func() cwdOutcome {
+			return w.list(item.Stmts, state)
+		}).merged())
 	}
 	return bothOutcome(mergeCwd(exits...))
+}
+
+func (w *cwdWalker) withUncertainDefinitions(uncertain bool, walk func() cwdOutcome) cwdOutcome {
+	previous := w.uncertainDef
+	w.uncertainDef = previous || uncertain
+	out := walk()
+	w.uncertainDef = previous
+	return out
 }
 
 func staticCaseExecution(items []*syntax.CaseItem, matches []bool) []int {
@@ -952,21 +1044,23 @@ func staticCaseExecution(items []*syntax.CaseItem, matches []bool) []int {
 	return executed
 }
 
-func (w *cwdWalker) expansions(node syntax.Node, state cwdState) {
+func (w *cwdWalker) expansions(node syntax.Node, state cwdState) bool {
 	if node == nil {
-		return
+		return false
 	}
+	filesystemUncertain := false
 	syntax.Walk(node, func(node syntax.Node) bool {
 		switch expansion := node.(type) {
 		case *syntax.CmdSubst:
-			w.isolated().list(expansion.Stmts, state)
+			filesystemUncertain = filesystemUncertain || w.isolated().list(expansion.Stmts, state).hasFilesystemUncertainty()
 			return false
 		case *syntax.ProcSubst:
-			w.isolated().list(expansion.Stmts, state)
+			filesystemUncertain = filesystemUncertain || w.isolated().list(expansion.Stmts, state).hasFilesystemUncertainty()
 			return false
 		}
 		return true
 	})
+	return filesystemUncertain
 }
 
 func (w *cwdWalker) isolated() *cwdWalker {
@@ -983,12 +1077,14 @@ func cloneFunctions(functions map[string]shellFunction) map[string]shellFunction
 	return clone
 }
 
-func (w *cwdWalker) redirectExpansions(redirs []*syntax.Redirect, state cwdState) {
+func (w *cwdWalker) redirectExpansions(redirs []*syntax.Redirect, state cwdState) bool {
+	filesystemUncertain := false
 	for _, redirect := range redirs {
 		if redirect.Word != nil {
-			w.expansions(redirect.Word, state)
+			filesystemUncertain = filesystemUncertain || w.expansions(redirect.Word, state)
 		}
 	}
+	return filesystemUncertain
 }
 
 func simpleForCall(src string, stmt *syntax.Stmt, call *syntax.CallExpr) Simple {
@@ -1019,32 +1115,56 @@ func (w *cwdWalker) call(stmt *syntax.Stmt, call *syntax.CallExpr, state cwdStat
 		return successOutcome(applyCallAssignments(state, call))
 	}
 	simple := simpleForCall(w.src, stmt, call)
-	argv := directCommandArgv(simple.Argv)
+	argv, bypassFunction := directCommandArgv(simple.Argv)
 	if len(argv) == 0 {
 		return bothOutcome(state)
 	}
 	local := applyCallAssignments(state, call)
+	w.recursive[stmt] = local
 
+	if function, ok := w.functions[argv[0]]; ok && !bypassFunction {
+		out := w.functionCall(stmt, simple, argv[0], function, local)
+		if callAssignsCDPath(call) {
+			out = unknownCDPath(out)
+		}
+		return out
+	}
 	if argv[0] == "eval" {
 		return w.eval(stmt, simple, argv, local)
 	}
-	if function, ok := w.functions[argv[0]]; ok {
-		return w.functionCall(stmt, simple, argv[0], function, local)
-	}
-	if simple.Unresolved && len(w.functions) > 0 {
+	if simple.Unresolved && len(w.functions) > 0 && !bypassFunction {
 		return bothOutcome(cwdState{unknown: true})
 	}
 	switch argv[0] {
 	case "cd":
-		return restoreCDPath(cdOutcome(local, simple, argv), state)
+		out := restoreCDPath(cdOutcome(local, simple, argv), state)
+		if len(stmt.Redirs) > 0 {
+			failedRedirect := state
+			failedRedirect.fsUncertain = true
+			out = mergeOutcomes(out, cwdOutcome{failure: failedRedirect, canFailure: true})
+			if out.canSuccess {
+				out.success.fsUncertain = true
+			}
+		}
+		return out
 	case "pushd", "popd":
 		return bothOutcome(cwdState{unknown: true})
+	case "return", "break", "continue":
+		return bothOutcome(unknownCwd(state))
 	}
 
+	_, shellCommand, _ := shellDashC(argv)
+	if shellCommand || argv[0] == "watch" {
+		state.fsUncertain = true
+	}
 	if len(simple.Redirects) > 0 || len(writeTargets(simple)) > 0 {
 		state.fsUncertain = true
 	}
-	switch literalCondition([]*syntax.Stmt{stmt}, w.shadowed) {
+	truth := literalCondition([]*syntax.Stmt{stmt}, w.shadowed)
+	if stmt.Negated {
+		truth = truth.negated() // stmt applies negation after the command outcome.
+	}
+	switch truth {
 	case conditionTrue:
 		return successOutcome(state)
 	case conditionFalse:
@@ -1070,34 +1190,37 @@ func restoreCDPath(out cwdOutcome, persistent cwdState) cwdOutcome {
 	return out
 }
 
-func directCommandArgv(argv []string) []string {
+func directCommandArgv(argv []string) ([]string, bool) {
+	bypassFunction := false
 	for len(argv) > 0 && (argv[0] == "command" || argv[0] == "builtin") {
+		bypassFunction = true
 		argv = argv[1:]
 	}
-	return argv
+	return argv, bypassFunction
 }
 
 func (w *cwdWalker) eval(stmt *syntax.Stmt, simple Simple, argv []string, state cwdState) cwdOutcome {
 	if state.unknown || simple.Unresolved {
-		w.replacements[stmt] = []Simple{{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: true}}
+		w.replacements[stmt] = []Simple{{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: true, pipelines: w.pipelines[stmt]}}
 		return bothOutcome(cwdState{unknown: true})
 	}
 	if len(argv) == 1 {
 		w.replacements[stmt] = nil
 		return successOutcome(state)
 	}
-	result, err := normalizeWithState(strings.Join(argv[1:], " "), state, w.ctx, w.functions, w.active)
+	result, err := normalizeWithState(strings.Join(argv[1:], " "), state, w.ctx, w.functions, w.active, w.pipelines[stmt])
 	if err != nil {
-		w.replacements[stmt] = []Simple{{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: true}}
+		w.replacements[stmt] = []Simple{{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: true, pipelines: w.pipelines[stmt]}}
 		return bothOutcome(cwdState{unknown: true})
 	}
 	w.replacements[stmt] = result.simples
+	w.functions = cloneFunctions(result.functions)
 	return result.outcome
 }
 
 func (w *cwdWalker) functionCall(stmt *syntax.Stmt, simple Simple, name string, function shellFunction, state cwdState) cwdOutcome {
 	if w.active[name] {
-		w.replacements[stmt] = []Simple{{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: true}}
+		w.replacements[stmt] = []Simple{{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: true, pipelines: w.pipelines[stmt]}}
 		return bothOutcome(cwdState{unknown: true})
 	}
 	active := make(map[string]bool, len(w.active)+1)
@@ -1105,12 +1228,20 @@ func (w *cwdWalker) functionCall(stmt *syntax.Stmt, simple Simple, name string, 
 		active[activeName] = true
 	}
 	active[name] = true
-	result, err := normalizeWithState(function.source, state, w.ctx, w.functions, active)
+	result, err := normalizeWithState(function.source, state, w.ctx, w.functions, active, w.pipelines[stmt])
 	if err != nil {
-		w.replacements[stmt] = []Simple{{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: true}}
+		w.replacements[stmt] = []Simple{{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: true, pipelines: w.pipelines[stmt]}}
 		return bothOutcome(cwdState{unknown: true})
 	}
 	w.replacements[stmt] = result.simples
+	w.functions = cloneFunctions(result.functions)
+	if function.uncertain {
+		for functionName, definition := range w.functions {
+			definition.uncertain = true
+			w.functions[functionName] = definition
+		}
+		return mergeOutcomes(result.outcome, bothOutcome(unknownCwd(state, result.outcome.merged())))
+	}
 	return result.outcome
 }
 
@@ -1137,6 +1268,31 @@ func applyCallAssignments(state cwdState, call *syntax.CallExpr) cwdState {
 	return state
 }
 
+func callAssignsCDPath(call *syntax.CallExpr) bool {
+	for _, assignment := range call.Assigns {
+		if assignment.Name != nil && assignment.Name.Value == "CDPATH" {
+			return true
+		}
+	}
+	return false
+}
+
+func unknownCDPath(out cwdOutcome) cwdOutcome {
+	mark := func(state cwdState) cwdState {
+		state.cdpath = ""
+		state.cdpathSet = false
+		state.cdpathUnknown = true
+		return state
+	}
+	if out.canSuccess {
+		out.success = mark(out.success)
+	}
+	if out.canFailure {
+		out.failure = mark(out.failure)
+	}
+	return out
+}
+
 type cdDirectoryStatus uint8
 
 const (
@@ -1157,6 +1313,10 @@ func cdOutcome(state cwdState, simple Simple, argv []string) cwdOutcome {
 	success := state
 	success.cwd = resolved
 	success.unknown = resolved == ""
+	if state.fsUncertain && cdUsesSearchPath(state, target) {
+		success = cwdState{unknown: true, fsUncertain: true}
+		status = cdDirectoryUnknown
+	}
 	if physical && state.fsUncertain {
 		success = cwdState{unknown: true}
 		status = cdDirectoryUnknown
@@ -1184,6 +1344,13 @@ func cdOutcome(state cwdState, simple Simple, argv []string) cwdOutcome {
 	default:
 		return cwdOutcome{success: success, failure: state, canSuccess: true, canFailure: true}
 	}
+}
+
+func cdUsesSearchPath(state cwdState, target string) bool {
+	if filepath.IsAbs(target) || target == "." || target == ".." || strings.HasPrefix(target, "."+string(filepath.Separator)) || strings.HasPrefix(target, ".."+string(filepath.Separator)) {
+		return false
+	}
+	return state.cdpathUnknown || state.cdpathSet && state.cdpath != ""
 }
 
 func parseCdArgs(args []string) (target string, physical bool, ok bool) {
@@ -1233,6 +1400,10 @@ func resolveCdTarget(state cwdState, target string, physical bool) (string, cdDi
 		return "", cdDirectoryUnknown
 	}
 	if state.cdpathSet {
+		if state.cdpath == "" {
+			candidate := cdCandidate(state.cwd, target, physical)
+			return candidate, cdDirectoryState(candidate)
+		}
 		unknown := false
 		for _, entry := range filepath.SplitList(state.cdpath) {
 			if entry == "" {
@@ -1243,6 +1414,9 @@ func resolveCdTarget(state cwdState, target string, physical bool) (string, cdDi
 			candidate := cdCandidate(entry, target, physical)
 			switch status := cdDirectoryState(candidate); status {
 			case cdDirectoryAccessible:
+				if unknown {
+					return "", cdDirectoryUnknown
+				}
 				return candidate, status
 			case cdDirectoryUnknown:
 				unknown = true
@@ -1283,11 +1457,11 @@ func cdDirectoryState(candidate string) cdDirectoryStatus {
 	if !info.IsDir() {
 		return cdDirectoryMissing
 	}
-	directory, err := os.Open(candidate)
-	if err != nil {
+	if info.Mode().Perm()&0o111 == 0 {
 		return cdDirectoryUnknown
 	}
-	if err := directory.Close(); err != nil {
+	searchProbe := strings.TrimSuffix(candidate, string(filepath.Separator)) + string(filepath.Separator) + "."
+	if _, err := os.Stat(searchProbe); err != nil {
 		return cdDirectoryUnknown
 	}
 	return cdDirectoryAccessible
@@ -1297,22 +1471,34 @@ func mergeCwd(states ...cwdState) cwdState {
 	if len(states) == 0 {
 		return cwdState{unknown: true}
 	}
-	first := states[0]
-	if first.unknown {
-		return cwdState{unknown: true}
-	}
-	merged := first
+	merged := states[0]
 	for _, state := range states[1:] {
-		if state.unknown || state.cwd != first.cwd {
-			return cwdState{unknown: true}
-		}
 		merged.fsUncertain = merged.fsUncertain || state.fsUncertain
+		if state.unknown || merged.unknown || state.cwd != merged.cwd {
+			merged.cwd = ""
+			merged.unknown = true
+		}
 		if state.cdpathUnknown || merged.cdpathUnknown || state.cdpathSet != merged.cdpathSet || state.cdpath != merged.cdpath {
 			merged.cdpathUnknown = true
 			merged.cdpathSet = false
 		}
 	}
 	return merged
+}
+
+func unknownCwd(states ...cwdState) cwdState {
+	state := mergeCwd(states...)
+	state.cwd = ""
+	state.unknown = true
+	return state
+}
+
+func cwdMayChange(before, after cwdState) bool {
+	return before.unknown != after.unknown || before.cwd != after.cwd
+}
+
+func forClauseMayRepeat(clause *syntax.ForClause) bool {
+	return analyzeForClause(clause).mayRepeat
 }
 
 // Normalize returns every command that will actually execute, with no-op
@@ -1327,21 +1513,31 @@ func normalizeWithContext(command, cwd string, ctx *normalizeContext) ([]Simple,
 		state.cdpath = cdpath
 		state.cdpathSet = true
 	}
-	result, err := normalizeWithState(command, state, ctx, nil, nil)
+	result, err := normalizeWithState(command, state, ctx, nil, nil, nil)
 	return result.simples, err
 }
 
 type normalizeResult struct {
-	simples []Simple
-	outcome cwdOutcome
+	simples   []Simple
+	outcome   cwdOutcome
+	functions map[string]shellFunction
 }
 
-func normalizeWithState(command string, state cwdState, ctx *normalizeContext, functions map[string]shellFunction, active map[string]bool) (normalizeResult, error) {
+func normalizeWithState(command string, state cwdState, ctx *normalizeContext, functions map[string]shellFunction, active map[string]bool, inherited []pipelinePosition) (normalizeResult, error) {
 	f, err := syntax.NewParser().Parse(strings.NewReader(command), "")
 	if err != nil {
 		return normalizeResult{}, err
 	}
 	pipelines := pipelinePositions(f, ctx)
+	shadowed := shadowedStaticCommandNames(f)
+	for name := range functions {
+		if name == "true" || name == "false" {
+			shadowed[name] = true
+		}
+	}
+	for _, position := range inherited {
+		markPipelineList(pipelines, f.Stmts, position, shadowed)
+	}
 	if functions == nil {
 		functions = make(map[string]shellFunction)
 	} else {
@@ -1357,12 +1553,17 @@ func normalizeWithState(command string, state cwdState, ctx *normalizeContext, f
 		replacements: make(map[*syntax.Stmt][]Simple),
 		functions:    functions,
 		active:       active,
-		shadowed:     shadowedStaticCommandNames(f),
+		shadowed:     shadowed,
+		pipelines:    pipelines,
+		recursive:    make(map[*syntax.Stmt]cwdState),
 	}
 	outcome := walker.list(f.Stmts, state)
 	base := extractSimples(command, f, pipelines, walker.states)
 	var out []Simple
 	for _, s := range base {
+		if recursiveState, ok := walker.recursive[s.origin]; ok {
+			s.shellState = recursiveState
+		}
 		if replacement, ok := walker.replacements[s.origin]; ok {
 			out = append(out, replacementWithOuterMetadata(s, replacement)...)
 			continue
@@ -1374,15 +1575,17 @@ func normalizeWithState(command string, state cwdState, ctx *normalizeContext, f
 			degraded := s
 			degraded.Unresolved = true
 			degraded.origin = nil
+			degraded.shellState = cwdState{}
 			out = append(out, degraded)
 			continue
 		}
 		for index := range expanded {
 			expanded[index].origin = nil
+			expanded[index].shellState = cwdState{}
 		}
 		out = append(out, expanded...)
 	}
-	return normalizeResult{simples: out, outcome: outcome}, nil
+	return normalizeResult{simples: out, outcome: outcome, functions: cloneFunctions(walker.functions)}, nil
 }
 
 func replacementWithOuterMetadata(outer Simple, replacement []Simple) []Simple {
@@ -1400,8 +1603,8 @@ func replacementWithOuterMetadata(outer Simple, replacement []Simple) []Simple {
 	for _, inner := range replacement {
 		inner.Unresolved = inner.Unresolved || outer.Unresolved
 		inner.cwdUnknown = inner.cwdUnknown || outer.cwdUnknown
-		inner.pipelines = append(inner.pipelines, outer.pipelines...)
 		inner.origin = nil
+		inner.shellState = cwdState{}
 		result = append(result, inner)
 	}
 	return result
@@ -1474,25 +1677,22 @@ loop:
 		s.Unresolved = s.Unresolved || chrooted
 		return []Simple{s}, nil
 	}
-	result := []Simple{{Argv: argv, Redirects: s.Redirects, ReadRedirects: s.ReadRedirects, Cwd: s.Cwd, Unresolved: s.Unresolved, pipelines: s.pipelines, cwdUnknown: s.cwdUnknown}}
+	result := []Simple{{Argv: argv, Redirects: s.Redirects, ReadRedirects: s.ReadRedirects, Cwd: s.Cwd, Unresolved: s.Unresolved, pipelines: s.pipelines, cwdUnknown: s.cwdUnknown, shellState: s.shellState}}
 	inner, err := runnerInner(argv)
 	if err != nil {
 		return nil, err
 	}
 	if inner != nil {
-		result = append(result, Simple{Argv: inner, Cwd: s.Cwd, Unresolved: s.Unresolved, pipelines: s.pipelines, cwdUnknown: s.cwdUnknown})
+		result = append(result, Simple{Argv: inner, Cwd: s.Cwd, Unresolved: s.Unresolved, pipelines: s.pipelines, cwdUnknown: s.cwdUnknown, shellState: s.shellState})
 	}
 	source, dashC, err := shellDashC(argv)
 	if err != nil {
 		return nil, err
 	}
 	if dashC {
-		inner, err := normalizeShellDashC(source, cwdState{cwd: s.Cwd, unknown: s.cwdUnknown}, ctx)
+		inner, err := normalizeShellDashC(source, s.shellState, s.pipelines, ctx)
 		if err != nil {
 			return nil, err
-		}
-		for i := range inner {
-			inner[i].pipelines = append(inner[i].pipelines, s.pipelines...)
 		}
 		result = append(result, inner...)
 	}
@@ -1505,8 +1705,8 @@ loop:
 }
 
 // normalizeShellDashC re-tokenizes the literal text passed to a shell's -c flag.
-func normalizeShellDashC(word string, state cwdState, ctx *normalizeContext) ([]Simple, error) {
-	result, err := normalizeWithState(word, state, ctx, nil, nil)
+func normalizeShellDashC(word string, state cwdState, inherited []pipelinePosition, ctx *normalizeContext) ([]Simple, error) {
+	result, err := normalizeWithState(word, state, ctx, nil, nil, inherited)
 	return result.simples, err
 }
 
@@ -1514,7 +1714,7 @@ func normalizeWatch(outer Simple, argv []string, unresolved bool, ctx *normalize
 	if len(argv) == 0 {
 		return nil, fmt.Errorf("watch: missing command argument; failing closed")
 	}
-	result, err := normalizeWithState(strings.Join(argv, " "), cwdState{cwd: outer.Cwd, unknown: outer.cwdUnknown}, ctx, nil, nil)
+	result, err := normalizeWithState(strings.Join(argv, " "), outer.shellState, ctx, nil, nil, outer.pipelines)
 	if err != nil {
 		return nil, err
 	}
@@ -1524,9 +1724,6 @@ func normalizeWatch(outer Simple, argv []string, unresolved bool, ctx *normalize
 		for i := range inner {
 			inner[i].Unresolved = true
 		}
-	}
-	for i := range inner {
-		inner[i].pipelines = append(inner[i].pipelines, outer.pipelines...)
 	}
 	if len(outer.Redirects) > 0 || len(outer.ReadRedirects) > 0 {
 		metadata := Simple{

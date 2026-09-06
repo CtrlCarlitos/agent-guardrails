@@ -1,8 +1,6 @@
 package engine
 
 import (
-	"strings"
-
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/session"
 )
@@ -13,15 +11,7 @@ import (
 // that introduced this function.
 func IsPrivateDataAccess(tc ToolCall, pol *policy.Policy) bool {
 	for _, candidate := range privatePathCandidates(tc) {
-		path := strings.TrimPrefix(strings.TrimPrefix(candidate.path, "~/"), "~")
-		if matchesAnyGlob(path, pol.Slots.SecretAllow) {
-			continue
-		}
-		if matchesAnyGlob(path, pol.Slots.SecretGlobs) {
-			return true
-		}
-		if resolved, ok := resolveExistingPath(path, candidate.cwd); ok &&
-			!matchesAnyGlob(resolved, pol.Slots.SecretAllow) && matchesAnyGlob(resolved, pol.Slots.SecretGlobs) {
+		if _, secret := classifiedSecretPath(candidate, pol); secret {
 			return true
 		}
 	}

@@ -41,17 +41,11 @@ func isWriteToolCall(tool string) bool {
 func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	candidates := privatePathCandidates(tc)
 	for _, candidate := range candidates {
-		path := strings.TrimPrefix(candidate.path, "~/")
-		path = strings.TrimPrefix(path, "~")
-		if v := checkSecretPath(path, pol); v != nil {
-			return v
+		if secret, ok := classifiedSecretPath(candidate, pol); ok && !pol.Waived["P4.secret-path"] {
+			return &policy.Verdict{Decision: policy.Deny, RuleID: "P4.secret-path",
+				Reason: "access to a credential/secret path: " + secret}
 		}
-		if resolved, ok := resolveExistingPath(path, candidate.cwd); ok {
-			if v := checkSecretPath(resolved, pol); v != nil {
-				return v
-			}
-		}
-		if v := checkSymlinkEscape(path, candidate.cwd, tc); v != nil {
+		if v := checkSymlinkEscape(candidate, tc); v != nil {
 			return v
 		}
 	}
@@ -71,8 +65,9 @@ func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 }
 
 type pathCandidate struct {
-	path string
-	cwd  string
+	path       string
+	cwd        string
+	cwdUnknown bool
 }
 
 func privatePathCandidates(tc ToolCall) []pathCandidate {
@@ -88,13 +83,13 @@ func privatePathCandidates(tc ToolCall) []pathCandidate {
 			for _, s := range simples {
 				if pathReaders[head(s.Argv)] {
 					for _, path := range nonFlagArgs(s.Argv) {
-						candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd})
+						candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown})
 					}
 				}
 				paths := append(append([]string{}, s.Redirects...), s.ReadRedirects...)
 				paths = append(paths, writeTargets(s)...)
 				for _, path := range paths {
-					candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd})
+					candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown})
 				}
 			}
 		}
@@ -102,15 +97,25 @@ func privatePathCandidates(tc ToolCall) []pathCandidate {
 	return candidates
 }
 
-func checkSecretPath(candidate string, pol *policy.Policy) *policy.Verdict {
-	if matchesAnyGlob(candidate, pol.Slots.SecretAllow) || !matchesAnyGlob(candidate, pol.Slots.SecretGlobs) {
-		return nil
+func classifiedSecretPath(candidate pathCandidate, pol *policy.Policy) (string, bool) {
+	for _, form := range pathCandidateForms(candidate) {
+		if matchesAnyGlob(form, pol.Slots.SecretAllow) {
+			continue
+		}
+		if matchesAnyGlob(form, pol.Slots.SecretGlobs) {
+			return form, true
+		}
 	}
-	if pol.Waived["P4.secret-path"] {
-		return nil
+	return "", false
+}
+
+func pathCandidateForms(candidate pathCandidate) []string {
+	raw := strings.TrimPrefix(strings.TrimPrefix(candidate.path, "~/"), "~")
+	forms := []string{raw}
+	if resolved, ok := resolvePathCandidate(pathCandidate{path: raw, cwd: candidate.cwd, cwdUnknown: candidate.cwdUnknown}); ok && resolved != raw {
+		forms = append(forms, resolved)
 	}
-	return &policy.Verdict{Decision: policy.Deny, RuleID: "P4.secret-path",
-		Reason: "access to a credential/secret path: " + candidate}
+	return forms
 }
 
 func resolveExistingPath(candidate, cwd string) (string, bool) {
@@ -119,6 +124,13 @@ func resolveExistingPath(candidate, cwd string) (string, bool) {
 		return "", false
 	}
 	return filepath.ToSlash(resolved), true
+}
+
+func resolvePathCandidate(candidate pathCandidate) (string, bool) {
+	if candidate.cwdUnknown && !filepath.IsAbs(candidate.path) {
+		return "", false
+	}
+	return resolveExistingPath(candidate.path, candidate.cwd)
 }
 
 type destinationCommandSpec struct {
@@ -427,7 +439,7 @@ func writeCandidates(tc ToolCall) []pathCandidate {
 		if simples, err := Normalize(tc.Command, tc.CWD); err == nil {
 			for _, s := range simples {
 				for _, path := range append(append([]string{}, s.Redirects...), writeTargets(s)...) {
-					out = append(out, pathCandidate{path: path, cwd: s.Cwd})
+					out = append(out, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown})
 				}
 			}
 		}
@@ -442,7 +454,7 @@ func checkGitProtectedPaths(tc ToolCall) *policy.Verdict {
 	for _, candidate := range writeCandidates(tc) {
 		path := candidate.path
 		protected := matchesAnyGlob(strings.TrimPrefix(path, "./"), gitProtectedGlobs)
-		if resolved, ok := resolveExistingPath(path, candidate.cwd); ok {
+		if resolved, ok := resolvePathCandidate(candidate); ok {
 			protected = protected || matchesAnyGlob(resolved, gitProtectedGlobs)
 		}
 		if protected {
@@ -475,7 +487,7 @@ func checkSelfConfig(tc ToolCall) *policy.Verdict {
 	for _, candidate := range writeCandidates(tc) {
 		path := candidate.path
 		protected := matchesAnyGlob(strings.TrimPrefix(path, "./"), selfConfigGlobs)
-		if resolved, ok := resolveExistingPath(path, candidate.cwd); ok {
+		if resolved, ok := resolvePathCandidate(candidate); ok {
 			protected = protected || matchesAnyGlob(resolved, selfConfigGlobs)
 		}
 		if protected {
@@ -633,7 +645,7 @@ func checkCIInfraLockfile(tc ToolCall) *policy.Verdict {
 	for _, candidate := range writeCandidates(tc) {
 		path := candidate.path
 		protected := matchesAnyGlob(strings.TrimPrefix(path, "./"), ciInfraLockGlobs)
-		if resolved, ok := resolveExistingPath(path, candidate.cwd); ok {
+		if resolved, ok := resolvePathCandidate(candidate); ok {
 			protected = protected || matchesAnyGlob(resolved, ciInfraLockGlobs)
 		}
 		if protected {
@@ -675,7 +687,11 @@ func matchesAnyGlob(p string, globs []string) bool {
 	return false
 }
 
-func checkSymlinkEscape(cand, cwd string, tc ToolCall) *policy.Verdict {
+func checkSymlinkEscape(candidate pathCandidate, tc ToolCall) *policy.Verdict {
+	cand := strings.TrimPrefix(strings.TrimPrefix(candidate.path, "~/"), "~")
+	if candidate.cwdUnknown && !filepath.IsAbs(cand) {
+		return nil
+	}
 	if tc.RepoRoot == "" || filepath.IsAbs(cand) && !strings.HasPrefix(filepath.Clean(cand), filepath.Clean(tc.RepoRoot)) {
 		// only guard paths that claim to be inside the repo
 		if !strings.HasPrefix(filepath.Clean(cand), filepath.Clean(tc.RepoRoot)) {
@@ -684,7 +700,7 @@ func checkSymlinkEscape(cand, cwd string, tc ToolCall) *policy.Verdict {
 	}
 	abs := cand
 	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(cwd, cand)
+		abs = filepath.Join(candidate.cwd, cand)
 	}
 	if !strings.HasPrefix(filepath.Clean(abs), filepath.Clean(tc.RepoRoot)+string(filepath.Separator)) {
 		return nil
