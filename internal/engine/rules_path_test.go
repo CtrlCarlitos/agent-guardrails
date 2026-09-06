@@ -3,7 +3,9 @@ package engine
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -252,6 +254,512 @@ func TestCheckPathsBashReader(t *testing.T) {
 	if v := checkPaths(tc, pathPol()); v != nil {
 		t.Errorf("grep src -> %+v, want nil", v)
 	}
+}
+
+func TestParsedOperandRolesRecoverPathValuesIntact(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		argv []string
+		want parsedOperand
+	}{
+		{"root", []string{"cat", "/"}, parsedOperand{value: "/", role: operandPath}},
+		{"parent relative", []string{"grep", "-f../secrets/id_rsa", "x"}, parsedOperand{value: "../secrets/id_rsa", role: operandPath}},
+		{"dot relative", []string{"grep", "-f./id_rsa", "x"}, parsedOperand{value: "./id_rsa", role: operandPath}},
+		{"tilde relative", []string{"grep", "-f~/.ssh/id_rsa", "x"}, parsedOperand{value: "~/.ssh/id_rsa", role: operandPath}},
+		{"hidden relative", []string{"somenewtool", ".ssh/id_rsa"}, parsedOperand{value: ".ssh/id_rsa", role: operandPath}},
+		{"Windows separators", []string{"grep", `-fC:\Users\u\.ssh\id_rsa`, "x"}, parsedOperand{value: `C:\Users\u\.ssh\id_rsa`, role: operandPath}},
+		{"long attached", []string{"grep", "--file=../secrets/id_rsa", "x"}, parsedOperand{value: "../secrets/id_rsa", role: operandPath}},
+		{"flag shaped after terminator", []string{"cat", "--", "--id_rsa"}, parsedOperand{value: "--id_rsa", role: operandPath}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, got := range parseOperandRoles(test.argv) {
+				if got == test.want {
+					return
+				}
+			}
+			t.Fatalf("parseOperandRoles(%q) = %+v, want to contain %+v", test.argv, parseOperandRoles(test.argv), test.want)
+		})
+	}
+}
+
+func TestGenericUnknownOptionsMakeOnlyTheirValuesUncertain(t *testing.T) {
+	for _, test := range []struct {
+		argv []string
+		want []parsedOperand
+	}{
+		{
+			[]string{"base64", "--future", "id_rsa", "/repo/input"},
+			[]parsedOperand{{value: "id_rsa", role: operandUncertain}, {value: "/repo/input", role: operandPath}},
+		},
+		{
+			[]string{"base64", "--future=id_rsa", "/repo/input"},
+			[]parsedOperand{{value: "id_rsa", role: operandUncertain}, {value: "/repo/input", role: operandPath}},
+		},
+		{
+			[]string{"somenewtool", "--", "--id_rsa"},
+			[]parsedOperand{{value: "--id_rsa", role: operandNonPath}},
+		},
+	} {
+		if got := parseOperandRoles(test.argv); !reflect.DeepEqual(got, test.want) {
+			t.Errorf("parseOperandRoles(%q) = %+v, want %+v", test.argv, got, test.want)
+		}
+	}
+
+	tc := ToolCall{Tool: "Bash", Command: `somenewtool --future id_rsa`, CWD: "/home/u/.ssh", RepoRoot: "/repo"}
+	if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny {
+		t.Errorf("unknown option's uncertain bare value -> %+v, want deny", v)
+	}
+}
+
+func TestGrepAndSedParsedOperandRoles(t *testing.T) {
+	tests := []struct {
+		name string
+		argv []string
+		want []parsedOperand
+	}{
+		{
+			"grep positional pattern",
+			[]string{"grep", "*.pem", "/repo/build.log"},
+			[]parsedOperand{{value: "*.pem", role: operandNonPath}, {value: "/repo/build.log", role: operandPath}},
+		},
+		{
+			"grep late abbreviated regexp",
+			[]string{"grep", "/repo/build.log", "--reg=*.pem"},
+			[]parsedOperand{{value: "/repo/build.log", role: operandPath}, {value: "*.pem", role: operandNonPath}},
+		},
+		{
+			"grep context does not shift pattern",
+			[]string{"grep", "--after-c", "2", "id_rsa", "/repo/log"},
+			[]parsedOperand{{value: "2", role: operandNonPath}, {value: "id_rsa", role: operandNonPath}, {value: "/repo/log", role: operandPath}},
+		},
+		{
+			"grep pattern and file after terminator",
+			[]string{"grep", "--", "--id_rsa", "/home/u/.ssh/id_rsa"},
+			[]parsedOperand{{value: "--id_rsa", role: operandNonPath}, {value: "/home/u/.ssh/id_rsa", role: operandPath}},
+		},
+		{
+			"grep pattern file makes first positional an input",
+			[]string{"grep", "-f", "/repo/patterns", "/home/u/.ssh/id_rsa"},
+			[]parsedOperand{{value: "/repo/patterns", role: operandPath}, {value: "/home/u/.ssh/id_rsa", role: operandPath}},
+		},
+		{
+			"unknown short owns only its uncertain value",
+			[]string{"grep", "-Q", "id_rsa", "*.pem", "/repo/log"},
+			[]parsedOperand{{value: "id_rsa", role: operandUncertain}, {value: "*.pem", role: operandNonPath}, {value: "/repo/log", role: operandPath}},
+		},
+		{
+			"unknown long owns only its uncertain value",
+			[]string{"grep", "--future", "id_rsa", "*.pem", "/repo/log"},
+			[]parsedOperand{{value: "id_rsa", role: operandUncertain}, {value: "*.pem", role: operandNonPath}, {value: "/repo/log", role: operandPath}},
+		},
+		{
+			"sed late abbreviated expression",
+			[]string{"sed", "/repo/a.txt", "--exp=s/.env/.cfg/"},
+			[]parsedOperand{{value: "/repo/a.txt", role: operandPath}, {value: "s/.env/.cfg/", role: operandNonPath}},
+		},
+		{
+			"sed line length does not shift script",
+			[]string{"sed", "-l", "80", "s/.env/.cfg/", "/repo/a.txt"},
+			[]parsedOperand{{value: "80", role: operandNonPath}, {value: "s/.env/.cfg/", role: operandNonPath}, {value: "/repo/a.txt", role: operandPath}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := parseOperandRoles(test.argv); !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("parseOperandRoles(%q) = %+v, want %+v", test.argv, got, test.want)
+			}
+		})
+	}
+}
+
+func TestSecretReadsViaCommandOperands(t *testing.T) {
+	for _, command := range []string{
+		`cp /home/u/.ssh/id_rsa /tmp/x`,
+		`mv /home/u/.ssh/id_rsa /tmp/x`,
+		`base64 /home/u/.aws/credentials`,
+		`tar cf - /home/u/.ssh/id_rsa`,
+		`openssl rsa -in /home/u/.ssh/id_rsa`,
+		`md5sum /home/u/.ssh/id_rsa`,
+		`dd if=/home/u/.ssh/id_rsa`,
+		`grep -f/home/u/.ssh/id_rsa x`,
+		`grep -f../.ssh/id_rsa x`,
+		`somenewtool /home/u/.ssh/id_rsa`,
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", command, v)
+		}
+	}
+}
+
+func TestBareFilenameReaderHintsAndUnlistedResidue(t *testing.T) {
+	for _, command := range []string{`cat id_rsa`, `head -n1 id_rsa`, `base64 id_rsa`, `cp id_rsa /tmp/x`} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/home/u/.ssh", RepoRoot: "/repo"}
+		if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", command, v)
+		}
+	}
+
+	tc := ToolCall{Tool: "Bash", Command: `somenewtool id_rsa`, CWD: "/home/u/.ssh", RepoRoot: "/repo"}
+	wantAllow(t, "unlisted bare-name residue", checkPaths(tc, pathPol()))
+}
+
+func TestGrepAndSedProgramsAreNotPathCandidates(t *testing.T) {
+	for _, command := range []string{
+		`grep '*.pem' /repo/build.log`,
+		`grep -r id_rsa /repo/src`,
+		`grep -e '*.pem' /repo/build.log`,
+		`grep /repo/build.log -e '*.pem'`,
+		`grep --regexp='*.pem' /repo/build.log`,
+		`grep --reg='*.pem' /repo/build.log`,
+		`grep -A 2 id_rsa /repo/src`,
+		`sed 's/.env/.cfg/' /repo/a.txt`,
+		`sed /repo/a.txt -e 's/.env/.cfg/'`,
+		`sed /repo/a.txt --exp='s/.env/.cfg/'`,
+		`sed -l 80 's/.env/.cfg/' /repo/a.txt`,
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		wantAllow(t, command, checkPaths(tc, pathPol()))
+	}
+
+	for _, command := range []string{
+		`grep -f /home/u/.ssh/id_rsa /repo/log`,
+		`grep --file=/home/u/.ssh/id_rsa /repo/log`,
+		`grep -f /repo/patterns /home/u/.ssh/id_rsa`,
+		`sed -f/home/u/.ssh/id_rsa /repo/a.txt`,
+		`sed --file /home/u/.ssh/id_rsa /repo/a.txt`,
+		`grep -- id_rsa /home/u/.ssh/id_rsa`,
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", command, v)
+		}
+	}
+}
+
+func TestSedInPlaceUsesParsedFileRoles(t *testing.T) {
+	for _, test := range []struct {
+		command string
+		ruleID  string
+	}{
+		{`sed -i /repo/.git/config -e s/x/y/`, "P2.git-protected-path"},
+		{`sed --in-p /repo/CLAUDE.md --exp=s/x/y/`, "P5.self-config"},
+	} {
+		tc := ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny || v.RuleID != test.ruleID {
+			t.Errorf("%q -> %+v, want deny/%s", test.command, v, test.ruleID)
+		}
+	}
+}
+
+func TestSedInPlaceDoesNotWriteItsScriptFile(t *testing.T) {
+	simple := Simple{Argv: []string{"sed", "-i", "-f", "/repo/.git/config", "/repo/a.txt"}}
+	want := []string{"/repo/a.txt"}
+	if got := writeTargets(simple); !reflect.DeepEqual(got, want) {
+		t.Fatalf("writeTargets(%q) = %q, want %q", simple.Argv, got, want)
+	}
+}
+
+func TestJQParsedOperandRoles(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		argv []string
+		want []parsedOperand
+	}{
+		{
+			"named literals and input",
+			[]string{"jq", "--arg", "key", ".env", ".[$key]", "/repo/x.json"},
+			[]parsedOperand{{value: "key", role: operandNonPath}, {value: ".env", role: operandNonPath}, {value: ".[$key]", role: operandNonPath}, {value: "/repo/x.json", role: operandPath}},
+		},
+		{
+			"named file",
+			[]string{"jq", "--rawfile", "key", "/home/u/.ssh/id_rsa", ".", "/repo/x.json"},
+			[]parsedOperand{{value: "key", role: operandNonPath}, {value: "/home/u/.ssh/id_rsa", role: operandPath}, {value: ".", role: operandNonPath}, {value: "/repo/x.json", role: operandPath}},
+		},
+		{
+			"filter file",
+			[]string{"jq", "-f/home/u/.ssh/id_rsa", "/repo/x.json"},
+			[]parsedOperand{{value: "/home/u/.ssh/id_rsa", role: operandPath}, {value: "/repo/x.json", role: operandPath}},
+		},
+		{
+			"unknown value does not become filter",
+			[]string{"jq", "--future", "id_rsa", ".", "/repo/x.json"},
+			[]parsedOperand{{value: "id_rsa", role: operandUncertain}, {value: ".", role: operandNonPath}, {value: "/repo/x.json", role: operandPath}},
+		},
+		{
+			"terminator preserves flag shaped input",
+			[]string{"jq", "--", ".", "--id_rsa"},
+			[]parsedOperand{{value: ".", role: operandNonPath}, {value: "--id_rsa", role: operandPath}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := parseOperandRoles(test.argv); !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("parseOperandRoles(%q) = %+v, want %+v", test.argv, got, test.want)
+			}
+		})
+	}
+}
+
+func TestJQReadOperandSemantics(t *testing.T) {
+	allow := []string{
+		`jq '.env' /repo/pkg.json`,
+		`jq '.ssh.keys[]' /repo/cfg.json`,
+		`jq --arg k '.env' '.[$k]' /repo/x.json`,
+		`jq --argjson k '{"id_rsa":1}' '.' /repo/x.json`,
+		`jq -n '.' /home/u/.ssh/id_rsa`,
+		`jq --null-input '.' /home/u/.ssh/id_rsa`,
+		`jq --args '.' /home/u/.ssh/id_rsa`,
+		`jq --jsonargs '.' /home/u/.ssh/id_rsa`,
+	}
+	for _, command := range allow {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		wantAllow(t, command, checkPaths(tc, pathPol()))
+	}
+
+	deny := []string{
+		`jq . ~/.claude.json`,
+		`jq -f /home/u/.ssh/id_rsa /repo/x.json`,
+		`jq -L/home/u/.ssh /repo/x.json`,
+		`jq --rawfile k /home/u/.ssh/id_rsa '.' /repo/x.json`,
+		`jq --slurpfile k /home/u/.ssh/id_rsa '.' /repo/x.json`,
+		`jq --run-tests /home/u/.ssh/id_rsa`,
+		`jq --future id_rsa '.' /repo/x.json`,
+		`jq -- '.' --id_rsa`,
+	}
+	for _, command := range deny {
+		cwd := "/repo"
+		if strings.Contains(command, "--future") || strings.Contains(command, "--id_rsa") {
+			cwd = "/home/u/.ssh"
+		}
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: cwd, RepoRoot: "/repo"}
+		if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", command, v)
+		}
+	}
+}
+
+func TestYQParsedOperandRoles(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		argv []string
+		want []parsedOperand
+	}{
+		{
+			"front matter is not a path",
+			[]string{"yq", "-f", "process", "id_rsa"},
+			[]parsedOperand{{value: "process", role: operandNonPath}, {value: "id_rsa", role: operandUncertain}},
+		},
+		{
+			"forced expression",
+			[]string{"yq", "--expression", ".env", "/repo/x.yml"},
+			[]parsedOperand{{value: ".env", role: operandNonPath}, {value: "/repo/x.yml", role: operandPath}},
+		},
+		{
+			"expression file",
+			[]string{"yq", "--from-file=/home/u/.ssh/id_rsa", "/repo/x.yml"},
+			[]parsedOperand{{value: "/home/u/.ssh/id_rsa", role: operandPath}, {value: "/repo/x.yml", role: operandPath}},
+		},
+		{
+			"split expression and file",
+			[]string{"yq", "-s/home/u/.ssh/id_rsa", "--split-exp-file", "/home/u/.aws/credentials", ".", "/repo/x.yml"},
+			[]parsedOperand{{value: "/home/u/.ssh/id_rsa", role: operandNonPath}, {value: "/home/u/.aws/credentials", role: operandPath}, {value: ".", role: operandUncertain}, {value: "/repo/x.yml", role: operandPath}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := parseOperandRoles(test.argv); !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("parseOperandRoles(%q) = %+v, want %+v", test.argv, got, test.want)
+			}
+		})
+	}
+}
+
+func TestYQReadOperandSemantics(t *testing.T) {
+	for _, command := range []string{
+		`yq -f /home/u/.ssh/id_rsa --expression '.' /repo/x.yml`,
+		`yq --front-matter=extract --expression '.env' /repo/x.yml`,
+		`yq -s '/home/u/.ssh/id_rsa' --expression '.' /repo/x.yml`,
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		wantAllow(t, command, checkPaths(tc, pathPol()))
+	}
+
+	for _, test := range []struct {
+		command string
+		cwd     string
+	}{
+		{`yq -f process id_rsa`, "/home/u/.ssh"},
+		{`yq --front-matter extract id_rsa`, "/home/u/.ssh"},
+		{`yq --from-file /home/u/.ssh/id_rsa /repo/x.yml`, "/repo"},
+		{`yq --split-exp-file=/home/u/.ssh/id_rsa '.' /repo/x.yml`, "/repo"},
+	} {
+		tc := ToolCall{Tool: "Bash", Command: test.command, CWD: test.cwd, RepoRoot: "/repo"}
+		if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", test.command, v)
+		}
+	}
+}
+
+func TestAWKParsedOperandRoles(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		argv []string
+		want []parsedOperand
+	}{
+		{
+			"field separator assignment and program",
+			[]string{"awk", "-F:", "-v", "key=/home/u/.ssh/id_rsa", "/id_rsa/", "/repo/log"},
+			[]parsedOperand{{value: ":", role: operandNonPath}, {value: "key=/home/u/.ssh/id_rsa", role: operandNonPath}, {value: "/id_rsa/", role: operandNonPath}, {value: "/repo/log", role: operandPath}},
+		},
+		{
+			"program and loader files",
+			[]string{"awk", "-f/home/u/.ssh/id_rsa", "-i", "/home/u/.aws/credentials", "/repo/log"},
+			[]parsedOperand{{value: "/home/u/.ssh/id_rsa", role: operandPath}, {value: "/home/u/.aws/credentials", role: operandPath}, {value: "/repo/log", role: operandPath}},
+		},
+		{
+			"late source makes prior positional a file",
+			[]string{"awk", "/repo/log", "--source", "/id_rsa/"},
+			[]parsedOperand{{value: "/repo/log", role: operandPath}, {value: "/id_rsa/", role: operandNonPath}},
+		},
+		{
+			"assignment does not become program",
+			[]string{"awk", "key=/home/u/.ssh/id_rsa", "/id_rsa/", "/repo/log"},
+			[]parsedOperand{{value: "key=/home/u/.ssh/id_rsa", role: operandNonPath}, {value: "/id_rsa/", role: operandNonPath}, {value: "/repo/log", role: operandPath}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := parseOperandRoles(test.argv); !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("parseOperandRoles(%q) = %+v, want %+v", test.argv, got, test.want)
+			}
+		})
+	}
+}
+
+func TestAWKReadOperandSemantics(t *testing.T) {
+	for _, command := range []string{
+		`awk -F: '/id_rsa/' /repo/passwd.txt`,
+		`awk -v key=/home/u/.ssh/id_rsa '/id_rsa/' /repo/log`,
+		`awk key=/home/u/.ssh/id_rsa '/id_rsa/' /repo/log`,
+		`awk --source 'BEGIN { print "/home/u/.ssh/id_rsa" }' /repo/log`,
+		`awk -- '/id_rsa/' /repo/log`,
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		wantAllow(t, command, checkPaths(tc, pathPol()))
+	}
+
+	for _, command := range []string{
+		`awk -f /home/u/.ssh/id_rsa /repo/log`,
+		`awk -E/home/u/.ssh/id_rsa /repo/log`,
+		`awk -i /home/u/.ssh/id_rsa '/ok/' /repo/log`,
+		`awk -l/home/u/.ssh/id_rsa '/ok/' /repo/log`,
+		`awk '/ok/' /home/u/.ssh/id_rsa`,
+		`awk /home/u/.ssh/id_rsa --source '{print}'`,
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", command, v)
+		}
+	}
+}
+
+func TestTarParsedOperandRolesKeepPerOperandCertainty(t *testing.T) {
+	argv := []string{
+		"tar", "--future", "id_rsa", "--exclude", "/home/u/.ssh/id_rsa",
+		"--exclude-from=/home/u/.aws/credentials", "-zjJav", "-X../patterns", "/repo/src",
+	}
+	want := []parsedOperand{
+		{value: "id_rsa", role: operandUncertain},
+		{value: "/home/u/.ssh/id_rsa", role: operandNonPath},
+		{value: "/home/u/.aws/credentials", role: operandPath},
+		{value: "../patterns", role: operandPath},
+		{value: "/repo/src", role: operandPath},
+	}
+	if got := parseOperandRoles(argv); !reflect.DeepEqual(got, want) {
+		t.Fatalf("parseOperandRoles(%q) = %+v, want %+v", argv, got, want)
+	}
+}
+
+func TestTarReadOperandSemantics(t *testing.T) {
+	for _, command := range []string{
+		`tar --exclude /home/u/.ssh/id_rsa -z -j -J -a -v -cf /tmp/a.tar /repo/src`,
+		`tar --exclude=/home/u/.ssh/id_rsa --gzip --bzip2 --xz --auto-compress --verbose -cf /tmp/a.tar /repo/src`,
+		`tar --future value --exclude /home/u/.ssh/id_rsa /repo/src`,
+		`tar --future --exclude /home/u/.ssh/id_rsa /repo/src`,
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		wantAllow(t, command, checkPaths(tc, pathPol()))
+	}
+
+	for _, test := range []struct {
+		command string
+		cwd     string
+	}{
+		{`tar --exclude-from /home/u/.ssh/id_rsa -cf /tmp/a.tar /repo/src`, "/repo"},
+		{`tar --exclude-from=/home/u/.ssh/id_rsa -cf /tmp/a.tar /repo/src`, "/repo"},
+		{`tar -X/home/u/.ssh/id_rsa -cf /tmp/a.tar /repo/src`, "/repo"},
+		{`tar --future id_rsa --exclude /repo/secret -cf /tmp/a.tar /repo/src`, "/home/u/.ssh"},
+	} {
+		tc := ToolCall{Tool: "Bash", Command: test.command, CWD: test.cwd, RepoRoot: "/repo"}
+		if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", test.command, v)
+		}
+	}
+}
+
+func TestDDInputOperandIsAnExactPath(t *testing.T) {
+	want := []parsedOperand{
+		{value: "/home/u/.ssh/id_rsa", role: operandPath},
+		{value: "/tmp/output", role: operandNonPath},
+		{value: "direct", role: operandNonPath},
+	}
+	argv := []string{"dd", "if=/home/u/.ssh/id_rsa", "of=/tmp/output", "iflag=direct"}
+	if got := parseOperandRoles(argv); !reflect.DeepEqual(got, want) {
+		t.Fatalf("parseOperandRoles(%q) = %+v, want %+v", argv, got, want)
+	}
+}
+
+func TestDDInputFollowsSymlinks(t *testing.T) {
+	root := t.TempDir()
+	secret := filepath.Join(root, "outside", "id_rsa")
+	if err := os.MkdirAll(filepath.Dir(secret), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secret, []byte("k"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(repo, "innocent.bin")
+	if err := os.Symlink(secret, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	tc := ToolCall{Tool: "Bash", Command: "dd if=" + link + " of=/tmp/x", CWD: repo, RepoRoot: repo}
+	if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny {
+		t.Errorf("dd if=<symlink to secret> -> %+v, want deny", v)
+	}
+}
+
+func TestOpaqueSourceBoundary(t *testing.T) {
+	for _, command := range []string{
+		`python3 -c "print(open('/home/u/.ssh/id_rsa').read())"`,
+		`python3 -c "print('/home/u/.ssh/id_rsa')"`,
+		`node -e "require('fs').readFileSync('/home/u/.ssh/id_rsa')"`,
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", command, v)
+		}
+	}
+
+	tc := ToolCall{Tool: "Bash", Command: `python3 -c "print('/repo/docs/cert.pem')"`, CWD: "/repo", RepoRoot: "/repo"}
+	if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Ask {
+		t.Errorf("ambiguous path in source -> %+v, want ask", v)
+	}
+	tc.Command = `python3 -c "print('hello world')"`
+	wantAllow(t, "ordinary source", checkPaths(tc, pathPol()))
+	tc.Command = `awk 'BEGIN { print "/home/u/.ssh/id_rsa" }' /repo/log`
+	wantAllow(t, "awk program is not opaque source", checkPaths(tc, pathPol()))
 }
 
 func TestBashPathCandidatesRetainStatementCwd(t *testing.T) {

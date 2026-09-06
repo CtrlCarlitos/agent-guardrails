@@ -12,12 +12,6 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-var pathReaders = map[string]bool{
-	"cat": true, "head": true, "tail": true, "grep": true, "egrep": true, "fgrep": true,
-	"sed": true, "awk": true, "less": true, "more": true, "bat": true, "xxd": true,
-	"od": true, "strings": true,
-}
-
 func isFileTool(tool string) bool {
 	switch strings.ToLower(tool) {
 	case "read", "edit", "write", "multiedit":
@@ -83,9 +77,23 @@ func privatePathCandidates(tc ToolCall) []pathCandidate {
 		simples, err := Normalize(tc.Command, tc.CWD)
 		if err == nil {
 			for _, s := range simples {
-				if pathReaders[head(s.Argv)] {
-					for _, path := range nonFlagArgs(s.Argv) {
+				operands := parseOperandRoles(s.Argv)
+				for _, operand := range operands {
+					if operand.role != operandNonPath {
+						path := operand.value
 						candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
+					}
+				}
+				if isOpaqueExecutor(head(s.Argv)) {
+					for _, operand := range operands {
+						if operand.role == operandNonPath {
+							continue
+						}
+						for _, path := range visiblePathCandidates(operand.value) {
+							if looksLikePathOperand(path) {
+								candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
+							}
+						}
 					}
 				}
 				paths := append(append([]string{}, s.Redirects...), s.ReadRedirects...)
@@ -449,13 +457,17 @@ func writeTargets(s Simple) []string {
 	}
 	// sed -i edits in place; without -i it is a reader.
 	if command == "sed" {
-		if !hasAnyFlag(s.Argv, "i", "--in-place") {
+		operands, inPlace := parsePatternCommandOperands(s.Argv, sedOperandOptions)
+		if !inPlace {
 			return nil
 		}
-		if len(args) > 1 {
-			return args[1:] // args[0] is the script
+		var paths []string
+		for _, operand := range operands {
+			if operand.writeTarget {
+				paths = append(paths, operand.value)
+			}
 		}
-		return nil
+		return paths
 	}
 	if spec, ok := mutatingDestinationCommands[command]; ok {
 		return destinationTargets(s.Argv, spec)
