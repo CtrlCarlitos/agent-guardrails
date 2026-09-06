@@ -1425,25 +1425,25 @@
     "want": "deny"
   },
   {
-    "name": "git split repo option force refspec",
-    "tool": "Bash",
-    "command": "git push --repo origin +main",
-    "cwd": "/repo",
-    "repo_root": "/repo",
-    "want": "deny"
-  },
-  {
-    "name": "git attached repo option force refspec",
+    "name": "git attached repo option force shaped repository control",
     "tool": "Bash",
     "command": "git push --repo=origin +main",
     "cwd": "/repo",
     "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "git split repo option positional repository force refspec",
+    "tool": "Bash",
+    "command": "git push --repo backup origin +main",
+    "cwd": "/repo",
+    "repo_root": "/repo",
     "want": "deny"
   },
   {
-    "name": "git repo option feature refspec control",
+    "name": "git positional repository benign refspec before repo option control",
     "tool": "Bash",
-    "command": "git push --repo=origin dev:feature",
+    "command": "git push main feature --repo=origin",
     "cwd": "/repo",
     "repo_root": "/repo",
     "want": "allow"
@@ -1521,43 +1521,43 @@
     "want": "deny"
   },
   {
-    "name": "git force refspec before attached repo option",
+    "name": "git positional repository force refspec before attached repo option",
     "tool": "Bash",
-    "command": "git push +main --repo=origin",
+    "command": "git push origin +main --repo=backup",
     "cwd": "/repo",
     "repo_root": "/repo",
     "want": "deny"
   },
   {
-    "name": "git force refspec before split repo option",
+    "name": "git positional repository delete refspec before split repo option",
     "tool": "Bash",
-    "command": "git push +main --repo origin",
+    "command": "git push origin :main --repo backup",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask"
+  },
+  {
+    "name": "git positional repository protected refspec before repo option",
+    "tool": "Bash",
+    "command": "git push origin dev:main --repo=backup",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask"
+  },
+  {
+    "name": "git abbreviated repo option positional repository force refspec",
+    "tool": "Bash",
+    "command": "git push --rep=backup origin +main",
     "cwd": "/repo",
     "repo_root": "/repo",
     "want": "deny"
   },
   {
-    "name": "git delete refspec before repo option",
+    "name": "git end marker positional repository force refspec",
     "tool": "Bash",
-    "command": "git push :main --repo=origin",
+    "command": "git push --repo=backup -- origin +main",
     "cwd": "/repo",
     "repo_root": "/repo",
-    "want": "ask"
-  },
-  {
-    "name": "git protected refspec before repo option",
-    "tool": "Bash",
-    "command": "git push dev:main --repo origin",
-    "cwd": "/repo",
-    "repo_root": "/repo",
-    "want": "ask"
-  },
-  {
-    "name": "git feature refspec before repo option control",
-    "tool": "Bash",
-    "command": "git push feature --repo=origin",
-    "cwd": "/repo",
-    "repo_root": "/repo",
-    "want": "allow"
+    "want": "deny"
   }
 ]

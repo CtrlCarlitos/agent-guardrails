@@ -277,7 +277,6 @@ func parseGitPushArgs(argv []string) gitPushArgs {
 	}
 
 	i++
-	repositorySeen := false
 	optionsEnded := false
 	var operands []string
 	for i < len(argv) {
@@ -297,9 +296,6 @@ func parseGitPushArgs(argv []string) gitPushArgs {
 			if !ok || (negated && eq >= 0) || (!negated && eq >= 0 && option.valueMode == gitPushNoValue) {
 				i++
 				continue
-			}
-			if option.name == "repo" && !negated {
-				repositorySeen = true
 			}
 			switch option.name {
 			case "force":
@@ -341,7 +337,7 @@ func parseGitPushArgs(argv []string) gitPushArgs {
 		operands = append(operands, a)
 		i++
 	}
-	if !repositorySeen && len(operands) > 0 {
+	if len(operands) > 0 {
 		operands = operands[1:]
 	}
 	args.refspecs = append(args.refspecs, operands...)
