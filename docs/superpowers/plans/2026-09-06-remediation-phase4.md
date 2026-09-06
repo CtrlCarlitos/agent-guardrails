@@ -12,6 +12,8 @@
 
 **Policy schema change:** Task 2 adds `secret_dirs`, Task 3 adds `secret_ask_globs`. Each is a new `[slots]` list and touches **`internal/policy/base.go`, `policy.go`, `config.go`, `merge.go` and their tests** — the same places `SecretGlobs` is wired today. Both are additive and tightening-only: no Operator grant needed, old Overlays keep working.
 
+**Tests verified on HEAD (`fd101e3`).** Every engine test below was extracted verbatim into `internal/engine/` in a scratch worktree, with `argPathValues` stubbed to `nonFlagArgs`. Result: **all compile; all fail on HEAD, each for the defect its task describes.** Failures confirmed: root-only globs deny at depth (`P5.self-config`, `P5.ci-infra-lockfile`) and `/etc/CLAUDE.md` denies; `~/.ssh/.env.example` allows (H-2); `translations.key` and `id_rsa.pub` deny, `cert.pem` denies rather than asks (M-2/M-3); agent memory write denies (NF-1); `git clean -nxd` denies (M-6); `.SSH/ID_RSA` allows (H-7); every flag-attached form is dropped (T5); `cp`/`mv`/`base64`/`tar`/`openssl`/`dd`/`somenewtool` and both `python3 -c` forms allow (CR-9); `grep '*.pem'`, `grep -r id_rsa`, `grep -e '*.pem'` all deny (existing false positives). Cases that already pass on HEAD are regression locks and are marked as such in the tests.
+
 ## Global Constraints
 
 - **Verify glob and path behaviour by executing it, never by reading it.** `**/` matches zero segments; `root+"/"` becomes `"//"` at the root; `filepath.Rel` returns `../…` rather than an error. Each of these hid a prior-revision error.
@@ -142,11 +144,13 @@ func TestSecretDirsAreUnwaivableByFilenameAllow(t *testing.T) {
 	wantAllow(t, "/repo/.env.example", checkPaths(tc, pol))
 }
 
-// In internal/policy: an Overlay may add a secret dir and can never remove one.
-// Use the same fixture/merge helpers merge_test.go already uses.
+// In internal/policy/merge_test.go — uses the existing mergeNoOp helper.
+// An Overlay may add a secret dir and can never remove one.
 func TestSecretDirsMergeIsAdditiveOnly(t *testing.T) {
-	m := mergeWithOverlay(t, Config{SecretDirs: []string{"**/.vault/**"}})
-	for _, want := range []string{"**/.vault/**", "**/.ssh/**"} {
+	base := &Policy{Slots: Slots{SecretDirs: []string{"**/.ssh/**"}}}
+	ov := &Overlay{SecretDirs: []string{"**/.vault/**"}}
+	m, _ := mergeNoOp(t, base, ov)
+	for _, want := range []string{"**/.ssh/**", "**/.vault/**"} {
 		if !slices.Contains(m.Slots.SecretDirs, want) {
 			t.Errorf("merged SecretDirs = %v, want to contain %q", m.Slots.SecretDirs, want)
 		}
@@ -203,6 +207,9 @@ func TestSecretTiers(t *testing.T) {
 }
 
 func TestStrongestVerdictWinsAcrossCandidates(t *testing.T) {
+	// ▶ On HEAD the three deny cases pass trivially (cert.pem denies today).
+	// They become the real aggregation check the moment the ask tier lands,
+	// which is why this test lives in the same task as the tier.
 	pol := pathPol()
 	for _, c := range []string{
 		`cat /repo/docs/cert.pem /home/u/.ssh/id_rsa`, // ask first, deny second
@@ -327,7 +334,7 @@ func TestArgPathValues(t *testing.T) {
 
 **Required behaviour.**
 - The reader list becomes a **hint**, renamed `pathOperandCommands`, extended with `wc diff cmp file nl tac rev cut sort uniq tee base32 base64 md5sum sha1sum sha256sum cp mv install rsync scp tar zip gzip openssl gpg dd jq yq`. For a listed command every operand from `argPathValues` is a candidate, bare filenames included. For any other command an operand must be path-shaped (contains a separator or starts with `~`).
-- **Program/pattern/filter operands are excluded.** For `grep`/`egrep`/`fgrep` the first non-flag operand is the pattern unless `-e`/`-f`/`--regexp`/`--file` was given; for `sed` the first operand is the script unless `-e`/`-f`; for `awk` the first operand is the program unless `-f`; for `jq`/`yq` the first operand is the filter. These operands are never candidates.
+- **Program/pattern/filter operands are excluded.** For `grep`/`egrep`/`fgrep`: the token consumed by `-e`/`--regexp` is the pattern and is excluded; the token consumed by `-f`/`--file` **is a path** and is included; when neither flag is present the first non-flag operand is the pattern and is excluded. For `sed`: the token consumed by `-e` is the script (excluded), by `-f` a path (included); otherwise the first operand is the script. For `awk`: `-f` consumes a path; otherwise the first operand is the program. For `jq`/`yq`: the first operand is the filter. (▶ On HEAD, `grep -e '*.pem' file` denies because `*.pem` is seen as an operand — the `-e` value must be excluded explicitly, not just "first operand".)
 - For `isOpaqueExecutor` commands, every `visiblePathCandidates` token that is path-shaped is a candidate. **Boundary, stated:** inside opaque source we match the literal presence of a secret path and do not distinguish access from mention; a `secret_dirs` path denies, an ambiguous one asks, source with no path is untouched.
 - Redirects and `writeTargets` unchanged.
 
@@ -354,7 +361,9 @@ func TestSecretReadsViaAnyCommand(t *testing.T) {
 }
 
 func TestBareFilenameReadsAreNotRegressed(t *testing.T) {
-	// ▶ these deny on the deployed v0.12.0-dev; the reader hint keeps them working
+	// ▶ `cat id_rsa` and `head -n1 id_rsa` deny on HEAD and on the deployed
+	// binary — those two are REGRESSION LOCKS. `base64` and `cp` are new
+	// coverage from the extended reader list; on HEAD they allow.
 	pol := pathPol()
 	for _, c := range []string{`cat id_rsa`, `head -n1 id_rsa`, `base64 id_rsa`, `cp id_rsa /tmp/x`} {
 		tc := ToolCall{Tool: "Bash", Command: c, CWD: "/home/u/.ssh", RepoRoot: "/repo"}
