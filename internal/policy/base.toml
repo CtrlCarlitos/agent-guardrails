@@ -6,16 +6,19 @@ safe_roots       = []
 egress_allowlist = []
 audit_log        = ""
 
+# Every glob is matched against the full path; "**/" means "at any depth".
+# There is no basename fallback (review M-2/M-4/M-5), so a bare name here would
+# match only a path that is exactly that name.
 secret_globs = [
-  "**/.env", ".env.*", "**/.env.*",
+  "**/.env", "**/.env.*",
   "**/.ssh/**", "**/.aws/**", "**/.config/gcloud/**",
   "**/.kube/config", "**/.netrc", "**/.npmrc", "**/.pypirc",
   "**/.docker/config.json", "**/.git-credentials",
-  "id_rsa*", "id_ed25519*", "*.pem", "*.key",
-  "service-account*.json", "**/.claude.json",
+  "**/id_rsa*", "**/id_ed25519*", "**/*.pem", "**/*.key",
+  "**/service-account*.json", "**/.claude.json",
   "/root/.ssh/**",
 ]
 
 secret_allow = [
-  "**/.env.example", ".env.example", "**/.env.sample", ".env.sample",
+  "**/.env.example", "**/.env.sample",
 ]

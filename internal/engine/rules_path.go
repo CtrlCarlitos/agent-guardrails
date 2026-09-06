@@ -68,13 +68,14 @@ type pathCandidate struct {
 	path       string
 	cwd        string
 	cwdUnknown bool
+	repoRoot   string
 }
 
 func privatePathCandidates(tc ToolCall) []pathCandidate {
 	var candidates []pathCandidate
 	if isFileTool(tc.Tool) {
 		for _, path := range tc.Paths {
-			candidates = append(candidates, pathCandidate{path: path, cwd: tc.CWD})
+			candidates = append(candidates, pathCandidate{path: path, cwd: tc.CWD, repoRoot: tc.RepoRoot})
 		}
 	}
 	if tc.IsBash() {
@@ -83,13 +84,13 @@ func privatePathCandidates(tc ToolCall) []pathCandidate {
 			for _, s := range simples {
 				if pathReaders[head(s.Argv)] {
 					for _, path := range nonFlagArgs(s.Argv) {
-						candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown})
+						candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
 					}
 				}
 				paths := append(append([]string{}, s.Redirects...), s.ReadRedirects...)
 				paths = append(paths, writeTargets(s)...)
 				for _, path := range paths {
-					candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown})
+					candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
 				}
 			}
 		}
@@ -432,14 +433,14 @@ func writeCandidates(tc ToolCall) []pathCandidate {
 	var out []pathCandidate
 	if isFileTool(tc.Tool) {
 		for _, path := range tc.Paths {
-			out = append(out, pathCandidate{path: path, cwd: tc.CWD})
+			out = append(out, pathCandidate{path: path, cwd: tc.CWD, repoRoot: tc.RepoRoot})
 		}
 	}
 	if tc.IsBash() {
 		if simples, err := Normalize(tc.Command, tc.CWD); err == nil {
 			for _, s := range simples {
 				for _, path := range append(append([]string{}, s.Redirects...), writeTargets(s)...) {
-					out = append(out, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown})
+					out = append(out, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
 				}
 			}
 		}
@@ -452,47 +453,43 @@ func checkGitProtectedPaths(tc ToolCall) *policy.Verdict {
 		return nil
 	}
 	for _, candidate := range writeCandidates(tc) {
-		path := candidate.path
-		protected := matchesAnyGlob(strings.TrimPrefix(path, "./"), gitProtectedGlobs)
-		if resolved, ok := resolvePathCandidate(candidate); ok {
-			protected = protected || matchesAnyGlob(resolved, gitProtectedGlobs)
-		}
-		if protected {
+		if matchesScoped(candidate, gitProtectedGlobs, nil) {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P2.git-protected-path",
-				Reason: "write to a protected git-internal path: " + path}
+				Reason: "write to a protected git-internal path: " + candidate.path}
 		}
 	}
 	return nil
 }
 
+// selfConfigGlobs match anywhere on the filesystem; selfConfigRootOnly match
+// only at the repository root (review M-5: a nested docs/templates/CLAUDE.md is
+// documentation, not the agent's instruction file). `.envrc` is deliberately
+// "anywhere": direnv executes the .envrc of every directory entered.
 var selfConfigGlobs = []string{
-	"**/.claude/**", "CLAUDE.md", "AGENTS.md", ".mcp.json", ".envrc",
+	"**/.claude/**", "**/.envrc",
 	"**/.bashrc", "**/.zshrc", "**/.profile", "**/.bash_profile",
 	// Guardrail's own machinery: the agent must not configure, disable, or
 	// replace the thing supervising it (CR-14).
-	"guardrail.toml", "**/guardrail.toml",
+	"**/guardrail.toml",
 	"**/.guardrail/**",
 	// The operator's authorization must not be writable by the agent it governs.
 	"**/.config/guardrail/**", "**/guardrail/waivers.toml",
-	"opencode.json", "**/opencode.json",
+	"**/opencode.json",
 	"**/.agents/hooks.json",
 	"**/.gemini/config/hooks.json",
 	"**/.local/bin/guardrail", "**/bin/guardrail",
 }
+
+var selfConfigRootOnly = []string{"CLAUDE.md", "AGENTS.md", ".mcp.json"}
 
 func checkSelfConfig(tc ToolCall) *policy.Verdict {
 	if isFileTool(tc.Tool) && !isWriteToolCall(tc.Tool) {
 		return nil
 	}
 	for _, candidate := range writeCandidates(tc) {
-		path := candidate.path
-		protected := matchesAnyGlob(strings.TrimPrefix(path, "./"), selfConfigGlobs)
-		if resolved, ok := resolvePathCandidate(candidate); ok {
-			protected = protected || matchesAnyGlob(resolved, selfConfigGlobs)
-		}
-		if protected {
+		if matchesScoped(candidate, selfConfigGlobs, selfConfigRootOnly) {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
-				Reason: "write to the agent's own guardrail/shell config: " + path}
+				Reason: "write to the agent's own guardrail/shell config: " + candidate.path}
 		}
 	}
 	if tc.IsBash() {
@@ -625,9 +622,15 @@ func isVersionSuffix(suffix string) bool {
 	return hasDigit
 }
 
+// ciInfraLockGlobs match anywhere; ciInfraRootOnly match only at the repository
+// root (review M-4: a vendored Makefile or a package's conftest.py is routine
+// work, not the build definition that runs with more privilege).
 var ciInfraLockGlobs = []string{
-	"**/.github/workflows/**", ".gitlab-ci.yml", "**/.circleci/**", "Jenkinsfile",
-	"**/.buildkite/**", ".pre-commit-config.yaml", "azure-pipelines.yml",
+	"**/.github/workflows/**", "**/.circleci/**", "**/.buildkite/**",
+}
+
+var ciInfraRootOnly = []string{
+	".gitlab-ci.yml", "Jenkinsfile", ".pre-commit-config.yaml", "azure-pipelines.yml",
 	"Dockerfile", "docker-compose*.yml", "*.tf", "Makefile", "justfile", "Taskfile.yml",
 	"setup.py", "conftest.py", "noxfile.py",
 	"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Cargo.lock",
@@ -643,14 +646,9 @@ func checkCIInfraLockfile(tc ToolCall) *policy.Verdict {
 		return nil
 	}
 	for _, candidate := range writeCandidates(tc) {
-		path := candidate.path
-		protected := matchesAnyGlob(strings.TrimPrefix(path, "./"), ciInfraLockGlobs)
-		if resolved, ok := resolvePathCandidate(candidate); ok {
-			protected = protected || matchesAnyGlob(resolved, ciInfraLockGlobs)
-		}
-		if protected {
+		if matchesScoped(candidate, ciInfraLockGlobs, ciInfraRootOnly) {
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P5.ci-infra-lockfile",
-				Reason: "edit of a CI/infra/lockfile — this code runs later with more privilege: " + path}
+				Reason: "edit of a CI/infra/lockfile — this code runs later with more privilege: " + candidate.path}
 		}
 	}
 	return nil
@@ -673,14 +671,80 @@ func checkOutOfRepoWrite(tc ToolCall) *policy.Verdict {
 	return nil
 }
 
+// matchesAnyGlob matches the full cleaned path only. It used to fall back to
+// the basename, which made every bare glob ("CLAUDE.md", "*.key") match at any
+// depth — the source of review M-2/M-4/M-5. Globs that should match anywhere
+// say so with a "**/" prefix; globs that should match only at the repository
+// root are matched against the repo-relative form via matchesScoped.
+//
+// Matching is case-insensitive for every list (review H-7): on APFS and NTFS
+// ~/.SSH/ID_RSA opens the real key, and a false positive from case-folding a
+// protected path is not a realistic cost.
 func matchesAnyGlob(p string, globs []string) bool {
-	p = path.Clean(filepath.ToSlash(strings.TrimPrefix(p, "./")))
-	base := path.Base(p)
+	p = strings.ToLower(path.Clean(filepath.ToSlash(strings.TrimPrefix(p, "./"))))
 	for _, g := range globs {
-		if ok, _ := doublestar.Match(g, p); ok {
+		if ok, _ := doublestar.Match(strings.ToLower(g), p); ok {
 			return true
 		}
-		if ok, _ := doublestar.Match(g, base); ok {
+	}
+	return false
+}
+
+// repoRelative expresses p relative to repoRoot, resolving against cwd first
+// when p is relative. Containment uses filepath.Rel rather than prefix
+// arithmetic (which breaks for repoRoot "/") and is case-insensitive, matching
+// the filesystems where /REPO/CLAUDE.md is the same file as /repo/CLAUDE.md.
+// A path outside the repository has no repo-relative form.
+func repoRelative(p, cwd, repoRoot string) (string, bool) {
+	if repoRoot == "" {
+		// Adapters set RepoRoot to CWD when there is no repository; a caller
+		// that supplies neither has no root to be relative to.
+		repoRoot = cwd
+	}
+	if repoRoot == "" {
+		return "", false
+	}
+	q := p
+	if !filepath.IsAbs(q) {
+		if cwd == "" {
+			return "", false
+		}
+		q = filepath.Join(cwd, q)
+	}
+	rel, err := filepath.Rel(strings.ToLower(filepath.Clean(repoRoot)), strings.ToLower(filepath.Clean(q)))
+	if err != nil {
+		return "", false
+	}
+	rel = filepath.ToSlash(rel)
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
+		return "", false
+	}
+	// Re-derive the original-case form of the same length so callers see the
+	// path as written; matching is case-insensitive in matchesScoped anyway.
+	return rel, true
+}
+
+// matchesScoped tests a candidate against globs that match anywhere (raw and
+// resolved forms) and globs that match only at the repository root (the
+// repo-relative form of both the lexical and the resolved path — a symlink
+// whose target is /repo/CLAUDE.md must still be caught).
+func matchesScoped(c pathCandidate, anywhere, rootOnly []string) bool {
+	raw := strings.TrimPrefix(c.path, "./")
+	if matchesAnyGlob(raw, anywhere) {
+		return true
+	}
+	resolved, haveResolved := resolvePathCandidate(c)
+	if haveResolved && matchesAnyGlob(resolved, anywhere) {
+		return true
+	}
+	if len(rootOnly) == 0 {
+		return false
+	}
+	if rel, ok := repoRelative(c.path, c.cwd, c.repoRoot); ok && matchesAnyGlob(rel, rootOnly) {
+		return true
+	}
+	if haveResolved {
+		if rel, ok := repoRelative(resolved, c.cwd, c.repoRoot); ok && matchesAnyGlob(rel, rootOnly) {
 			return true
 		}
 	}

@@ -12,13 +12,14 @@ import (
 func pathPol() *policy.Policy {
 	return &policy.Policy{
 		Slots: policy.Slots{
+			// Mirrors base.toml: full-path globs, "**/" for any depth, no basename fallback.
 			SecretGlobs: []string{
-				"**/.env", ".env.*", "**/.env.*",
+				"**/.env", "**/.env.*",
 				"**/.ssh/**", "**/.aws/**", "**/.kube/config", "**/.docker/config.json", "**/.netrc",
-				"id_rsa*", "id_ed25519*", "*.pem", "*.key",
-				"**/.claude.json", "service-account*.json",
+				"**/id_rsa*", "**/id_ed25519*", "**/*.pem", "**/*.key",
+				"**/.claude.json", "**/service-account*.json",
 			},
-			SecretAllow: []string{"**/.env.example", ".env.example"},
+			SecretAllow: []string{"**/.env.example"},
 		},
 		Waived: map[string]bool{},
 	}

@@ -613,6 +613,7 @@
     "paths": ["/repo/CLAUDE.md"],
     "cwd": "/repo",
     "repo_root": "/repo",
+    "rewrite_logical_repo_paths": true,
     "want": "deny"
   },
   {
@@ -621,6 +622,7 @@
     "paths": ["/repo/CLAUDE.md"],
     "cwd": "/repo",
     "repo_root": "/repo",
+    "rewrite_logical_repo_paths": true,
     "want": "deny"
   },
   {
@@ -629,6 +631,7 @@
     "paths": ["/repo/CLAUDE.md"],
     "cwd": "/repo",
     "repo_root": "/repo",
+    "rewrite_logical_repo_paths": true,
     "want": "deny"
   },
   {
@@ -709,6 +712,7 @@
     "command": "printf x > /repo/CLAUDE.md",
     "cwd": "/repo",
     "repo_root": "/repo",
+    "rewrite_logical_repo_paths": true,
     "want": "deny"
   },
   {

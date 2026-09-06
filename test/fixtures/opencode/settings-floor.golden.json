@@ -69,8 +69,6 @@
     "edit": {
       "**/.env.example": "allow",
       "**/.env.sample": "allow",
-      ".env.example": "allow",
-      ".env.sample": "allow",
       "*.tf": "ask",
       ".buildkite/**": "ask",
       ".circleci/**": "ask",
@@ -97,6 +95,8 @@
       "setup.py": "ask",
       "uv.lock": "ask",
       "yarn.lock": "ask",
+      "**/*.key": "deny",
+      "**/*.pem": "deny",
       "**/.aws/**": "deny",
       "**/.bash_profile": "deny",
       "**/.bashrc": "deny",
@@ -120,9 +120,10 @@
       "**/bin/guardrail": "deny",
       "**/guardrail.toml": "deny",
       "**/guardrail/waivers.toml": "deny",
+      "**/id_ed25519*": "deny",
+      "**/id_rsa*": "deny",
       "**/opencode.json": "deny",
-      "*.key": "deny",
-      "*.pem": "deny",
+      "**/service-account*.json": "deny",
       ".agents/hooks.json": "deny",
       ".claude/**": "deny",
       ".envrc": "deny",
@@ -132,16 +133,13 @@
       "AGENTS.md": "deny",
       "CLAUDE.md": "deny",
       "guardrail.toml": "deny",
-      "id_ed25519*": "deny",
-      "id_rsa*": "deny",
-      "opencode.json": "deny",
-      "service-account*.json": "deny"
+      "opencode.json": "deny"
     },
     "read": {
       "**/.env.example": "allow",
       "**/.env.sample": "allow",
-      ".env.example": "allow",
-      ".env.sample": "allow",
+      "**/*.key": "deny",
+      "**/*.pem": "deny",
       "**/.aws/**": "deny",
       "**/.claude.json": "deny",
       "**/.config/gcloud/**": "deny",
@@ -153,12 +151,10 @@
       "**/.npmrc": "deny",
       "**/.pypirc": "deny",
       "**/.ssh/**": "deny",
-      "*.key": "deny",
-      "*.pem": "deny",
-      "/root/.ssh/**": "deny",
-      "id_ed25519*": "deny",
-      "id_rsa*": "deny",
-      "service-account*.json": "deny"
+      "**/id_ed25519*": "deny",
+      "**/id_rsa*": "deny",
+      "**/service-account*.json": "deny",
+      "/root/.ssh/**": "deny"
     }
   },
   "plugin": [
