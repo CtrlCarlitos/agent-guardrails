@@ -47,10 +47,13 @@ func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 			take(v)
 		}
 	}
-	candidates := privatePathCandidates(tc)
-	for _, candidate := range candidates {
+	parsed := parsePrivatePaths(tc)
+	for _, candidate := range parsed.candidates {
 		take(classifySecretPath(candidate, pol, true))
 		takeWaivable(checkSymlinkEscape(candidate, tc))
+	}
+	if parsed.uncertaintyReason != "" {
+		takeWaivable(&policy.Verdict{Decision: policy.Ask, RuleID: "P4.path-parse-uncertain", Reason: parsed.uncertaintyReason})
 	}
 	takeWaivable(checkGitProtectedPaths(tc))
 	takeWaivable(checkSelfConfig(tc))
@@ -67,7 +70,17 @@ type pathCandidate struct {
 }
 
 func privatePathCandidates(tc ToolCall) []pathCandidate {
+	return parsePrivatePaths(tc).candidates
+}
+
+type privatePathParseResult struct {
+	candidates        []pathCandidate
+	uncertaintyReason string
+}
+
+func parsePrivatePaths(tc ToolCall) privatePathParseResult {
 	var candidates []pathCandidate
+	uncertaintyReason := ""
 	if isFileTool(tc.Tool) {
 		for _, path := range tc.Paths {
 			candidates = append(candidates, pathCandidate{path: path, cwd: tc.CWD, repoRoot: tc.RepoRoot})
@@ -77,15 +90,21 @@ func privatePathCandidates(tc ToolCall) []pathCandidate {
 		simples, err := Normalize(tc.Command, tc.CWD)
 		if err == nil {
 			for _, s := range simples {
-				operands := parseOperandRoles(s.Argv)
-				for _, operand := range operands {
+				parsed := parseOperandRolesResult(s.Argv)
+				if uncertaintyReason == "" && parsed.uncertain {
+					uncertaintyReason = parsed.reason
+				}
+				for _, operand := range parsed.operands {
 					if operand.role != operandNonPath {
+						if parsed.uncertain && operand.role == operandUncertain {
+							continue
+						}
 						path := operand.value
 						candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
 					}
 				}
 				if isOpaqueExecutor(head(s.Argv)) {
-					for _, operand := range operands {
+					for _, operand := range parsed.operands {
 						if operand.role == operandNonPath {
 							continue
 						}
@@ -104,7 +123,7 @@ func privatePathCandidates(tc ToolCall) []pathCandidate {
 			}
 		}
 	}
-	return candidates
+	return privatePathParseResult{candidates: candidates, uncertaintyReason: uncertaintyReason}
 }
 
 func classifiedSecretPath(candidate pathCandidate, pol *policy.Policy) (string, bool) {

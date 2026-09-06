@@ -16,6 +16,12 @@ type parsedOperand struct {
 	writeTarget bool
 }
 
+type operandParseResult struct {
+	operands  []parsedOperand
+	uncertain bool
+	reason    string
+}
+
 var pathOperandCommands = map[string]bool{
 	"cat": true, "head": true, "tail": true, "grep": true, "egrep": true, "fgrep": true,
 	"sed": true, "awk": true, "less": true, "more": true, "bat": true, "xxd": true,
@@ -28,17 +34,21 @@ var pathOperandCommands = map[string]bool{
 }
 
 func parseOperandRoles(argv []string) []parsedOperand {
+	return parseOperandRolesResult(argv).operands
+}
+
+func parseOperandRolesResult(argv []string) operandParseResult {
 	if len(argv) == 0 {
-		return nil
+		return operandParseResult{}
 	}
 	command := head(argv)
 	if command == "grep" || command == "egrep" || command == "fgrep" {
 		operands, _ := parsePatternCommandOperands(argv, grepOperandOptions)
-		return operands
+		return operandParseResult{operands: operands}
 	}
 	if command == "sed" {
 		operands, _ := parsePatternCommandOperands(argv, sedOperandOptions)
-		return operands
+		return operandParseResult{operands: operands}
 	}
 	if command == "jq" {
 		return parseJQOperands(argv)
@@ -47,15 +57,15 @@ func parseOperandRoles(argv []string) []parsedOperand {
 		return parseYQOperands(argv)
 	}
 	if command == "awk" {
-		return parseAWKOperands(argv)
+		return operandParseResult{operands: parseAWKOperands(argv)}
 	}
 	if command == "tar" {
-		return parseTarOperands(argv)
+		return operandParseResult{operands: parseTarOperands(argv)}
 	}
 	if command == "dd" {
-		return parseDDOperands(argv)
+		return operandParseResult{operands: parseDDOperands(argv)}
 	}
-	return parseGenericOperands(argv, pathOperandCommands[command])
+	return operandParseResult{operands: parseGenericOperands(argv, pathOperandCommands[command])}
 }
 
 func parseDDOperands(argv []string) []parsedOperand {
@@ -291,11 +301,12 @@ func isAWKAssignment(value string) bool {
 // Its first positional is selected as expression or file using os.Stat, so the
 // role cannot be known before execution and must remain uncertain:
 // https://github.com/mikefarah/yq/blob/v4.47.2/cmd/utils.go
-func parseYQOperands(argv []string) []parsedOperand {
+func parseYQOperands(argv []string) operandParseResult {
 	var out []parsedOperand
 	var positional []int
 	options := true
 	expressionSet := false
+	uncertaintyReason := ""
 	for i := 1; i < len(argv); i++ {
 		arg := argv[i]
 		if i == 1 && (arg == "e" || arg == "eval" || arg == "ea" || arg == "eval-all") {
@@ -328,6 +339,7 @@ func parseYQOperands(argv []string) []parsedOperand {
 				"version", "inplace", "unwrapScalar", "nul-output", "prettyPrint", "exit-status", "colors",
 				"no-colors", "header-preprocess", "yaml-fix-merge-anchor-to-spec":
 			default:
+				uncertaintyReason = "yq operand roles are ambiguous because an option is unknown"
 				i = appendUnknownOptionValue(argv, i, attachedValue, attached, &out)
 			}
 			continue
@@ -341,6 +353,7 @@ func parseYQOperands(argv []string) []parsedOperand {
 					kind = optionNonPath
 				case 'v', 'j', 'n', 'N', 'V', 'i', 'r', '0', 'P', 'e', 'C', 'M':
 				default:
+					uncertaintyReason = "yq operand roles are ambiguous because an option is unknown"
 					value := short[j+1:]
 					i = appendUnknownOptionValue(argv, i, value, value != "", &out)
 					j = len(short)
@@ -367,10 +380,10 @@ func parseYQOperands(argv []string) []parsedOperand {
 	if !expressionSet && len(positional) > 0 {
 		out[positional[0]].role = operandUncertain
 	}
-	return out
+	return operandParseResult{operands: out, uncertain: uncertaintyReason != "", reason: uncertaintyReason}
 }
 
-func parseJQOperands(argv []string) []parsedOperand {
+func parseJQOperands(argv []string) operandParseResult {
 	var out []parsedOperand
 	var positional []int
 	options := true
@@ -378,8 +391,19 @@ func parseJQOperands(argv []string) []parsedOperand {
 	nullInput := false
 	literalTailAt := -1
 	runTests := false
+	uncertaintyReason := ""
 	for i := 1; i < len(argv); i++ {
 		arg := argv[i]
+		if runTests {
+			if arg == "--skip" || arg == "--take" {
+				if i+1 < len(argv) {
+					i++
+				}
+				continue
+			}
+			out = append(out, parsedOperand{value: arg, role: operandPath})
+			continue
+		}
 		if options && arg == "--" {
 			options = false
 			continue
@@ -389,6 +413,10 @@ func parseJQOperands(argv []string) []parsedOperand {
 			switch name {
 			case "from-file":
 				filterFromFile = true
+				if !attached && optionInterposesValue(argv, i) {
+					uncertaintyReason = "jq operand roles are ambiguous because a filter-file value is interposed by an option"
+					continue
+				}
 				i = appendOptionValues(argv, i, attachedValue, attached, []operandRole{operandPath}, &out)
 			case "arg", "argjson":
 				i = appendOptionValues(argv, i, attachedValue, attached, []operandRole{operandNonPath, operandNonPath}, &out)
@@ -403,11 +431,17 @@ func parseJQOperands(argv []string) []parsedOperand {
 					literalTailAt = len(positional)
 				}
 			case "run-tests":
-				runTests = true
+				if attached {
+					uncertaintyReason = "jq operand roles are ambiguous because an option is unknown"
+					i = appendUnknownOptionValue(argv, i, attachedValue, true, &out)
+				} else {
+					runTests = true
+				}
 			case "raw-input", "slurp", "compact-output", "raw-output", "raw-output0", "join-output",
 				"ascii-output", "sort-keys", "color-output", "monochrome-output", "tab", "unbuffered",
 				"stream", "stream-errors", "seq", "exit-status", "version", "build-configuration", "help":
 			default:
+				uncertaintyReason = "jq operand roles are ambiguous because an option is unknown"
 				i = appendUnknownOptionValue(argv, i, attachedValue, attached, &out)
 			}
 			continue
@@ -421,6 +455,11 @@ func parseJQOperands(argv []string) []parsedOperand {
 						filterFromFile = true
 					}
 					value := short[j+1:]
+					if short[j] == 'f' && value == "" && optionInterposesValue(argv, i) {
+						uncertaintyReason = "jq operand roles are ambiguous because a filter-file value is interposed by an option"
+						j = len(short)
+						continue
+					}
 					if value == "" && i+1 < len(argv) {
 						i++
 						value = argv[i]
@@ -433,6 +472,7 @@ func parseJQOperands(argv []string) []parsedOperand {
 					nullInput = true
 				case 'R', 's', 'c', 'r', 'j', 'a', 'S', 'C', 'M', 'e', 'V', 'h':
 				default:
+					uncertaintyReason = "jq operand roles are ambiguous because an option is unknown"
 					value := short[j+1:]
 					i = appendUnknownOptionValue(argv, i, value, value != "", &out)
 					j = len(short)
@@ -442,9 +482,6 @@ func parseJQOperands(argv []string) []parsedOperand {
 		}
 		positional = append(positional, len(out))
 		out = append(out, parsedOperand{value: arg, role: operandPath})
-	}
-	if runTests {
-		return out
 	}
 	dataStart := 0
 	if !filterFromFile && len(positional) > 0 {
@@ -456,7 +493,11 @@ func parseJQOperands(argv []string) []parsedOperand {
 			out[index].role = operandNonPath
 		}
 	}
-	return out
+	return operandParseResult{operands: out, uncertain: uncertaintyReason != "", reason: uncertaintyReason}
+}
+
+func optionInterposesValue(argv []string, index int) bool {
+	return index+1 < len(argv) && strings.HasPrefix(argv[index+1], "-") && argv[index+1] != "-"
 }
 
 func appendOptionValues(argv []string, index int, attachedValue string, attached bool, roles []operandRole, out *[]parsedOperand) int {

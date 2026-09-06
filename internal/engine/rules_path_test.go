@@ -523,12 +523,11 @@ func TestJQReadOperandSemantics(t *testing.T) {
 		`jq --rawfile k /home/u/.ssh/id_rsa '.' /repo/x.json`,
 		`jq --slurpfile k /home/u/.ssh/id_rsa '.' /repo/x.json`,
 		`jq --run-tests /home/u/.ssh/id_rsa`,
-		`jq --future id_rsa '.' /repo/x.json`,
 		`jq -- '.' --id_rsa`,
 	}
 	for _, command := range deny {
 		cwd := "/repo"
-		if strings.Contains(command, "--future") || strings.Contains(command, "--id_rsa") {
+		if strings.Contains(command, "--id_rsa") {
 			cwd = "/home/u/.ssh"
 		}
 		tc := ToolCall{Tool: "Bash", Command: command, CWD: cwd, RepoRoot: "/repo"}
@@ -574,6 +573,125 @@ func TestEvaluateJQFilterFileComposesWithInputModes(t *testing.T) {
 			tc := ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}
 			if v := Evaluate(tc, pathPol()); v.Decision != test.want {
 				t.Fatalf("Evaluate(%q) = %+v, want %s", test.command, v, test.want)
+			}
+		})
+	}
+}
+
+func TestEvaluateJQRunTestsTreatsTailAsTestArguments(t *testing.T) {
+	tc := ToolCall{
+		Tool:     "Bash",
+		Command:  `jq --run-tests --indent /tmp/jq-tests/.ssh/id_rsa`,
+		CWD:      "/repo",
+		RepoRoot: "/repo",
+	}
+	if v := Evaluate(tc, pathPol()); v.Decision != policy.Deny || v.RuleID != "P4.secret-path" {
+		t.Fatalf("Evaluate(%q) = %+v, want deny/P4.secret-path", tc.Command, v)
+	}
+}
+
+func TestEvaluateJQRunTestsRetainsRunnerOptions(t *testing.T) {
+	for _, option := range []string{"--skip", "--take"} {
+		t.Run(option, func(t *testing.T) {
+			command := `jq --run-tests ` + option + ` /home/u/.ssh/id_rsa /repo/tests`
+			tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+			if v := Evaluate(tc, pathPol()); v.Decision != policy.Allow || v.RuleID != "" {
+				t.Fatalf("Evaluate(%q) = %+v, want allow", command, v)
+			}
+		})
+	}
+}
+
+func TestEvaluateJQOptionInterposedFilterFileAsks(t *testing.T) {
+	const (
+		ruleID = "P4.path-parse-uncertain"
+		reason = "jq operand roles are ambiguous because a filter-file value is interposed by an option"
+	)
+	for _, command := range []string{
+		`printf . | jq -f --args /dev/stdin /home/u/.ssh/id_rsa`,
+		`printf . | jq -f --jsonargs /dev/stdin /home/u/.ssh/id_rsa`,
+		`printf . | jq -f -n /dev/stdin /home/u/.ssh/id_rsa`,
+	} {
+		t.Run(command, func(t *testing.T) {
+			tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+			if v := Evaluate(tc, pathPol()); v.Decision != policy.Ask || v.RuleID != ruleID || v.Reason != reason {
+				t.Fatalf("Evaluate(%q) = %+v, want ask/%s with reason %q", command, v, ruleID, reason)
+			}
+		})
+	}
+}
+
+func TestEvaluateJQKnownFilterFileFormsRemainPrecise(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		command  string
+		decision policy.Decision
+		ruleID   string
+	}{
+		{"args after filter file", `printf . | jq -f /dev/stdin --args /home/u/.ssh/id_rsa`, policy.Allow, ""},
+		{"jsonargs after filter file", `printf . | jq -f /dev/stdin --jsonargs /home/u/.ssh/id_rsa`, policy.Allow, ""},
+		{"null input after filter file", `printf . | jq -f /dev/stdin -n /home/u/.ssh/id_rsa`, policy.Allow, ""},
+		{"ordinary filter file input", `jq -f /repo/filter.jq /home/u/.ssh/id_rsa`, policy.Deny, "P4.secret-path"},
+		{"direct run tests", `jq --run-tests /home/u/.ssh/id_rsa`, policy.Deny, "P4.secret-path"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tc := ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}
+			if v := Evaluate(tc, pathPol()); v.Decision != test.decision || v.RuleID != test.ruleID {
+				t.Fatalf("Evaluate(%q) = %+v, want %s/%s", test.command, v, test.decision, test.ruleID)
+			}
+		})
+	}
+}
+
+func TestEvaluateJQParseUncertaintyUsesStrongestUnwaivedVerdict(t *testing.T) {
+	const ruleID = "P4.path-parse-uncertain"
+	tc := ToolCall{
+		Tool:     "Bash",
+		Command:  `printf . | jq --rawfile key /home/u/.ssh/id_rsa -f --args /dev/stdin /repo/value`,
+		CWD:      "/repo",
+		RepoRoot: "/repo",
+	}
+	if v := Evaluate(tc, pathPol()); v.Decision != policy.Deny || v.RuleID != "P4.secret-path" {
+		t.Fatalf("definite secret path plus parse uncertainty = %+v, want deny/P4.secret-path", v)
+	}
+
+	p := pathPol()
+	p.Waived[ruleID] = true
+	tc.Command = `printf . | jq -f --args /dev/stdin /home/u/.ssh/id_rsa`
+	if v := Evaluate(tc, p); v.Decision != policy.Allow || v.RuleID != "" {
+		t.Fatalf("waived jq parse uncertainty = %+v, want allow", v)
+	}
+}
+
+func TestEvaluateJQYQUnknownOptionsAsk(t *testing.T) {
+	const ruleID = "P4.path-parse-uncertain"
+	for _, test := range []struct {
+		name    string
+		command string
+		reason  string
+	}{
+		{"jq", `jq --future id_rsa '.' /repo/x.json`, "jq operand roles are ambiguous because an option is unknown"},
+		{"yq", `yq --future id_rsa --expression '.' /repo/x.yml`, "yq operand roles are ambiguous because an option is unknown"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tc := ToolCall{Tool: "Bash", Command: test.command, CWD: "/home/u/.ssh", RepoRoot: "/repo"}
+			if v := Evaluate(tc, pathPol()); v.Decision != policy.Ask || v.RuleID != ruleID || v.Reason != test.reason {
+				t.Fatalf("Evaluate(%q) = %+v, want ask/%s with reason %q", test.command, v, ruleID, test.reason)
+			}
+		})
+	}
+}
+
+func TestEvaluateOrdinaryJQYQInvocationsDoNotAsk(t *testing.T) {
+	for _, command := range []string{
+		`jq '.' /repo/x.json`,
+		`yq '.' /repo/x.yml`,
+		`yq --expression '.' /repo/x.yml`,
+	} {
+		t.Run(command, func(t *testing.T) {
+			tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+			if v := Evaluate(tc, pathPol()); v.Decision != policy.Allow || v.RuleID != "" {
+				t.Fatalf("Evaluate(%q) = %+v, want allow", command, v)
 			}
 		})
 	}
