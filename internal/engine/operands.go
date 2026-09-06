@@ -376,7 +376,7 @@ func parseJQOperands(argv []string) []parsedOperand {
 	options := true
 	filterFromFile := false
 	nullInput := false
-	literalTail := false
+	literalTailAt := -1
 	runTests := false
 	for i := 1; i < len(argv); i++ {
 		arg := argv[i]
@@ -399,7 +399,9 @@ func parseJQOperands(argv []string) []parsedOperand {
 			case "null-input":
 				nullInput = true
 			case "args", "jsonargs":
-				literalTail = true
+				if literalTailAt < 0 {
+					literalTailAt = len(positional)
+				}
 			case "run-tests":
 				runTests = true
 			case "raw-input", "slurp", "compact-output", "raw-output", "raw-output0", "join-output",
@@ -447,8 +449,8 @@ func parseJQOperands(argv []string) []parsedOperand {
 	if len(positional) > 0 {
 		out[positional[0]].role = operandNonPath
 	}
-	if nullInput || literalTail {
-		for _, index := range positional[1:] {
+	for position, index := range positional[1:] {
+		if nullInput || literalTailAt >= 0 && position+1 >= literalTailAt {
 			out[index].role = operandNonPath
 		}
 	}

@@ -538,6 +538,26 @@ func TestJQReadOperandSemantics(t *testing.T) {
 	}
 }
 
+func TestEvaluateJQLiteralTailOptionsApplyOnlyToFollowingArguments(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		command string
+		want    policy.Decision
+	}{
+		{"late args preserves earlier input", `jq . /home/u/.ssh/id_rsa --args foo`, policy.Deny},
+		{"late jsonargs preserves earlier input", `jq . /home/u/.ssh/id_rsa --jsonargs '1'`, policy.Deny},
+		{"leading args makes following argument literal", `jq --args . /home/u/.ssh/id_rsa`, policy.Allow},
+		{"leading jsonargs makes following argument literal", `jq --jsonargs . /home/u/.ssh/id_rsa`, policy.Allow},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tc := ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}
+			if v := Evaluate(tc, pathPol()); v.Decision != test.want {
+				t.Fatalf("Evaluate(%q) = %+v, want %s", test.command, v, test.want)
+			}
+		})
+	}
+}
+
 func TestYQParsedOperandRoles(t *testing.T) {
 	for _, test := range []struct {
 		name string
