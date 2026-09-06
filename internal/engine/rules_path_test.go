@@ -558,6 +558,27 @@ func TestEvaluateJQLiteralTailOptionsApplyOnlyToFollowingArguments(t *testing.T)
 	}
 }
 
+func TestEvaluateJQFilterFileComposesWithInputModes(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		command string
+		want    policy.Decision
+	}{
+		{"args makes filter-file positional literal", `printf . | jq -f /dev/stdin --args /home/u/.ssh/id_rsa`, policy.Allow},
+		{"jsonargs makes filter-file positional literal", `printf . | jq -f /dev/stdin --jsonargs /home/u/.ssh/id_rsa`, policy.Allow},
+		{"null input suppresses filter-file input", `printf . | jq -f /dev/stdin -n /home/u/.ssh/id_rsa`, policy.Allow},
+		{"ordinary filter file scans input", `jq -f /repo/filter.jq /home/u/.ssh/id_rsa`, policy.Deny},
+		{"run tests scans test file", `jq --run-tests /home/u/.ssh/id_rsa`, policy.Deny},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tc := ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}
+			if v := Evaluate(tc, pathPol()); v.Decision != test.want {
+				t.Fatalf("Evaluate(%q) = %+v, want %s", test.command, v, test.want)
+			}
+		})
+	}
+}
+
 func TestYQParsedOperandRoles(t *testing.T) {
 	for _, test := range []struct {
 		name string

@@ -443,14 +443,16 @@ func parseJQOperands(argv []string) []parsedOperand {
 		positional = append(positional, len(out))
 		out = append(out, parsedOperand{value: arg, role: operandPath})
 	}
-	if runTests || filterFromFile {
+	if runTests {
 		return out
 	}
-	if len(positional) > 0 {
+	dataStart := 0
+	if !filterFromFile && len(positional) > 0 {
 		out[positional[0]].role = operandNonPath
+		dataStart = 1
 	}
-	for position, index := range positional[1:] {
-		if nullInput || literalTailAt >= 0 && position+1 >= literalTailAt {
+	for position, index := range positional[dataStart:] {
+		if nullInput || literalTailAt >= 0 && position+dataStart >= literalTailAt {
 			out[index].role = operandNonPath
 		}
 	}
