@@ -272,12 +272,12 @@ func TestParsedOperandRolesRecoverPathValuesIntact(t *testing.T) {
 		{"flag shaped after terminator", []string{"cat", "--", "--id_rsa"}, parsedOperand{value: "--id_rsa", role: operandPath}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			for _, got := range parseOperandRoles(test.argv) {
+			for _, got := range parseOperandRoles(test.argv).operands {
 				if got == test.want {
 					return
 				}
 			}
-			t.Fatalf("parseOperandRoles(%q) = %+v, want to contain %+v", test.argv, parseOperandRoles(test.argv), test.want)
+			t.Fatalf("parseOperandRoles(%q) = %+v, want to contain %+v", test.argv, parseOperandRoles(test.argv).operands, test.want)
 		})
 	}
 }
@@ -300,7 +300,7 @@ func TestGenericUnknownOptionsMakeOnlyTheirValuesUncertain(t *testing.T) {
 			[]parsedOperand{{value: "--id_rsa", role: operandNonPath}},
 		},
 	} {
-		if got := parseOperandRoles(test.argv); !reflect.DeepEqual(got, test.want) {
+		if got := parseOperandRoles(test.argv).operands; !reflect.DeepEqual(got, test.want) {
 			t.Errorf("parseOperandRoles(%q) = %+v, want %+v", test.argv, got, test.want)
 		}
 	}
@@ -365,7 +365,7 @@ func TestGrepAndSedParsedOperandRoles(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := parseOperandRoles(test.argv); !reflect.DeepEqual(got, test.want) {
+			if got := parseOperandRoles(test.argv).operands; !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("parseOperandRoles(%q) = %+v, want %+v", test.argv, got, test.want)
 			}
 		})
@@ -493,7 +493,7 @@ func TestJQParsedOperandRoles(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := parseOperandRoles(test.argv); !reflect.DeepEqual(got, test.want) {
+			if got := parseOperandRoles(test.argv).operands; !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("parseOperandRoles(%q) = %+v, want %+v", test.argv, got, test.want)
 			}
 		})
@@ -725,7 +725,7 @@ func TestYQParsedOperandRoles(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := parseOperandRoles(test.argv); !reflect.DeepEqual(got, test.want) {
+			if got := parseOperandRoles(test.argv).operands; !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("parseOperandRoles(%q) = %+v, want %+v", test.argv, got, test.want)
 			}
 		})
@@ -786,7 +786,7 @@ func TestAWKParsedOperandRoles(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := parseOperandRoles(test.argv); !reflect.DeepEqual(got, test.want) {
+			if got := parseOperandRoles(test.argv).operands; !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("parseOperandRoles(%q) = %+v, want %+v", test.argv, got, test.want)
 			}
 		})
@@ -832,7 +832,7 @@ func TestTarParsedOperandRolesKeepPerOperandCertainty(t *testing.T) {
 		{value: "../patterns", role: operandPath},
 		{value: "/repo/src", role: operandPath},
 	}
-	if got := parseOperandRoles(argv); !reflect.DeepEqual(got, want) {
+	if got := parseOperandRoles(argv).operands; !reflect.DeepEqual(got, want) {
 		t.Fatalf("parseOperandRoles(%q) = %+v, want %+v", argv, got, want)
 	}
 }
@@ -871,7 +871,7 @@ func TestDDInputOperandIsAnExactPath(t *testing.T) {
 		{value: "direct", role: operandNonPath},
 	}
 	argv := []string{"dd", "if=/home/u/.ssh/id_rsa", "of=/tmp/output", "iflag=direct"}
-	if got := parseOperandRoles(argv); !reflect.DeepEqual(got, want) {
+	if got := parseOperandRoles(argv).operands; !reflect.DeepEqual(got, want) {
 		t.Fatalf("parseOperandRoles(%q) = %+v, want %+v", argv, got, want)
 	}
 }

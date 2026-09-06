@@ -90,13 +90,13 @@ func parsePrivatePaths(tc ToolCall) privatePathParseResult {
 		simples, err := Normalize(tc.Command, tc.CWD)
 		if err == nil {
 			for _, s := range simples {
-				parsed := parseOperandRolesResult(s.Argv)
-				if uncertaintyReason == "" && parsed.uncertain {
-					uncertaintyReason = parsed.reason
+				parsed := parseOperandRoles(s.Argv)
+				if uncertaintyReason == "" && parsed.uncertaintyReason != "" {
+					uncertaintyReason = parsed.uncertaintyReason
 				}
 				for _, operand := range parsed.operands {
 					if operand.role != operandNonPath {
-						if parsed.uncertain && operand.role == operandUncertain {
+						if parsed.uncertaintyReason != "" && operand.role == operandUncertain {
 							continue
 						}
 						path := operand.value

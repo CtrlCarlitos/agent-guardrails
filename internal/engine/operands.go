@@ -17,9 +17,8 @@ type parsedOperand struct {
 }
 
 type operandParseResult struct {
-	operands  []parsedOperand
-	uncertain bool
-	reason    string
+	operands          []parsedOperand
+	uncertaintyReason string
 }
 
 var pathOperandCommands = map[string]bool{
@@ -33,11 +32,7 @@ var pathOperandCommands = map[string]bool{
 	"dd": true, "jq": true, "yq": true,
 }
 
-func parseOperandRoles(argv []string) []parsedOperand {
-	return parseOperandRolesResult(argv).operands
-}
-
-func parseOperandRolesResult(argv []string) operandParseResult {
+func parseOperandRoles(argv []string) operandParseResult {
 	if len(argv) == 0 {
 		return operandParseResult{}
 	}
@@ -380,7 +375,7 @@ func parseYQOperands(argv []string) operandParseResult {
 	if !expressionSet && len(positional) > 0 {
 		out[positional[0]].role = operandUncertain
 	}
-	return operandParseResult{operands: out, uncertain: uncertaintyReason != "", reason: uncertaintyReason}
+	return operandParseResult{operands: out, uncertaintyReason: uncertaintyReason}
 }
 
 func parseJQOperands(argv []string) operandParseResult {
@@ -493,7 +488,7 @@ func parseJQOperands(argv []string) operandParseResult {
 			out[index].role = operandNonPath
 		}
 	}
-	return operandParseResult{operands: out, uncertain: uncertaintyReason != "", reason: uncertaintyReason}
+	return operandParseResult{operands: out, uncertaintyReason: uncertaintyReason}
 }
 
 func optionInterposesValue(argv []string, index int) bool {
