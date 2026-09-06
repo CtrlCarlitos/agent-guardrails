@@ -526,11 +526,22 @@ func doubleQuotedGuaranteesField(quoted *syntax.DblQuoted) bool {
 	}
 	for _, part := range quoted.Parts {
 		parameter, isParameter := part.(*syntax.ParamExp)
-		if !isParameter || parameter.Param.Value != "@" || parameter.Length {
+		if !isParameter || !quotedParameterMayProduceZeroFields(parameter) {
 			return true
 		}
 	}
 	return false
+}
+
+func quotedParameterMayProduceZeroFields(parameter *syntax.ParamExp) bool {
+	if parameter.Length {
+		return false
+	}
+	if parameter.Param.Value == "@" {
+		return true
+	}
+	index, ok := parameter.Index.(*syntax.Word)
+	return ok && index.Lit() == "@"
 }
 
 func markStatementExpansionIngress(positions map[*syntax.Stmt][]pipelinePosition, stmt *syntax.Stmt, position pipelinePosition, shadowedConstants map[string]bool) stdinFlow {
