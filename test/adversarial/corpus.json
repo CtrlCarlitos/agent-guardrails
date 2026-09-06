@@ -1390,7 +1390,7 @@
     "cwd": "/repo",
     "repo_root": "/repo",
     "want": "allow",
-    "materialize_repo": true
+    "rewrite_logical_repo_paths": true
   },
   {
     "name": "git clean dry run adjacent control",
@@ -1420,6 +1420,102 @@
     "name": "parallel recursive root delete",
     "tool": "Bash",
     "command": "parallel rm -rf ::: /",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "git split repo option force refspec",
+    "tool": "Bash",
+    "command": "git push --repo origin +main",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "git attached repo option force refspec",
+    "tool": "Bash",
+    "command": "git push --repo=origin +main",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "git repo option feature refspec control",
+    "tool": "Bash",
+    "command": "git push --repo=origin dev:feature",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "docker split entrypoint recursive root delete",
+    "tool": "Bash",
+    "command": "docker run --entrypoint rm alpine -rf /",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "docker attached entrypoint recursive root delete",
+    "tool": "Bash",
+    "command": "docker run --entrypoint=/bin/rm alpine -rf /",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "docker benign entrypoint control",
+    "tool": "Bash",
+    "command": "docker run --entrypoint printf alpine ok",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "docker empty entrypoint fails closed",
+    "tool": "Bash",
+    "command": "docker run --entrypoint= alpine",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask"
+  },
+  {
+    "name": "ssh split enabled local recursive root delete",
+    "tool": "Bash",
+    "command": "ssh -o PermitLocalCommand=yes -o 'LocalCommand=rm -rf /' localhost",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "ssh attached enabled local recursive root delete",
+    "tool": "Bash",
+    "command": "ssh -oPermitLocalCommand=yes -oLocalCommand='rm -rf /' localhost",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "ssh disabled local command control",
+    "tool": "Bash",
+    "command": "ssh -o PermitLocalCommand=no -o 'LocalCommand=rm -rf /' localhost",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "ssh enabled benign local command control",
+    "tool": "Bash",
+    "command": "ssh -o PermitLocalCommand=yes -o 'LocalCommand=printf ok' localhost",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "ssh malformed permit local command fails closed",
+    "tool": "Bash",
+    "command": "ssh -o PermitLocalCommand=maybe -o 'LocalCommand=printf ok' localhost",
     "cwd": "/repo",
     "repo_root": "/repo",
     "want": "deny"

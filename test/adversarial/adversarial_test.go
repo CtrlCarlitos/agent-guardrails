@@ -26,14 +26,14 @@ import (
 )
 
 type entry struct {
-	Name            string   `json:"name"`
-	Tool            string   `json:"tool"`
-	Command         string   `json:"command,omitempty"`
-	Paths           []string `json:"paths,omitempty"`
-	CWD             string   `json:"cwd"`
-	RepoRoot        string   `json:"repo_root"`
-	Want            string   `json:"want"`
-	MaterializeRepo bool     `json:"materialize_repo,omitempty"`
+	Name                    string   `json:"name"`
+	Tool                    string   `json:"tool"`
+	Command                 string   `json:"command,omitempty"`
+	Paths                   []string `json:"paths,omitempty"`
+	CWD                     string   `json:"cwd"`
+	RepoRoot                string   `json:"repo_root"`
+	Want                    string   `json:"want"`
+	RewriteLogicalRepoPaths bool     `json:"rewrite_logical_repo_paths,omitempty"`
 }
 
 var (
@@ -114,7 +114,7 @@ func TestAdversarialCorpus(t *testing.T) {
 		e := e
 		t.Run(e.Name, func(t *testing.T) {
 			cwd, physicalRoot := materializeRepo(t, e)
-			callEntry, err := materializeLogicalRepo(e, physicalRoot)
+			callEntry, err := rewriteLogicalRepoPaths(e, physicalRoot)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -412,8 +412,8 @@ func materializeRepo(t *testing.T, e entry) (string, string) {
 	return cwd, repo
 }
 
-func materializeLogicalRepo(e entry, physicalRoot string) (entry, error) {
-	if !e.MaterializeRepo {
+func rewriteLogicalRepoPaths(e entry, physicalRoot string) (entry, error) {
+	if !e.RewriteLogicalRepoPaths {
 		return e, nil
 	}
 	logicalRoot := filepath.ToSlash(filepath.Clean(e.RepoRoot))
@@ -472,12 +472,12 @@ func materializeLogicalRepo(e entry, physicalRoot string) (entry, error) {
 	return e, nil
 }
 
-func TestMaterializeLogicalRepoIsExplicitAndTokenAware(t *testing.T) {
+func TestRewriteLogicalRepoPathsIsExplicitAndTokenAware(t *testing.T) {
 	physicalRoot := "/tmp/physical-repo"
 	command := `> /repo/build.log; printf '%s\n' https://example.com/repo /repository /tmp/repo`
 
 	disabled := entry{Command: command, Paths: []string{"/repo/a"}, RepoRoot: "/repo"}
-	got, err := materializeLogicalRepo(disabled, physicalRoot)
+	got, err := rewriteLogicalRepoPaths(disabled, physicalRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,9 +486,9 @@ func TestMaterializeLogicalRepoIsExplicitAndTokenAware(t *testing.T) {
 	}
 
 	enabled := disabled
-	enabled.MaterializeRepo = true
+	enabled.RewriteLogicalRepoPaths = true
 	enabled.Paths = []string{"/repo/a", "/repository/b", "https://example.com/repo"}
-	got, err = materializeLogicalRepo(enabled, physicalRoot)
+	got, err = rewriteLogicalRepoPaths(enabled, physicalRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -501,7 +501,7 @@ func TestMaterializeLogicalRepoIsExplicitAndTokenAware(t *testing.T) {
 	}
 
 	enabled.Command = `echo "unterminated`
-	if _, err := materializeLogicalRepo(enabled, physicalRoot); err == nil {
+	if _, err := rewriteLogicalRepoPaths(enabled, physicalRoot); err == nil {
 		t.Fatal("malformed opted-in command returned nil error")
 	}
 }
