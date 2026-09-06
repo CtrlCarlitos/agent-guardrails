@@ -449,6 +449,9 @@ func createFixtureSymlink(fixtureRoot, repo string, symlink fixtureSymlink) erro
 	if err != nil {
 		return err
 	}
+	if path == repo {
+		return fmt.Errorf("fixture symlink path %q must not equal the repository root", symlink.Path)
+	}
 	if rel, err := filepath.Rel(repo, path); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("fixture symlink path %q must be inside the repository", symlink.Path)
 	}
@@ -639,6 +642,38 @@ func TestCreateFixtureSymlinkRejectsEscapingRelativeTarget(t *testing.T) {
 		t.Fatal(err)
 	} else if resolved != escape {
 		t.Fatalf("test target resolves to %q, want outside path %q", resolved, escape)
+	}
+}
+
+func TestCreateFixtureSymlinkRejectsRepositoryPathWithoutHanging(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "empty", path: ""},
+		{name: "dot", path: "."},
+		{name: "cleaned", path: "sub/.."},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fixtureRoot := t.TempDir()
+			repo := filepath.Join(fixtureRoot, "repo")
+			if err := os.MkdirAll(repo, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			result := make(chan error, 1)
+			go func() {
+				result <- createFixtureSymlink(fixtureRoot, repo, fixtureSymlink{Path: tc.path, Target: "target"})
+			}()
+			select {
+			case err := <-result:
+				if err == nil {
+					t.Fatal("created fixture symlink at repository path")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("fixture symlink validation did not return")
+			}
+		})
 	}
 }
 
