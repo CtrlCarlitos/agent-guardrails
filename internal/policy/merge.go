@@ -15,6 +15,7 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 			SafeRoots:       append([]string{}, base.Slots.SafeRoots...),
 			SecretDirs:      append([]string{}, base.Slots.SecretDirs...),
 			SecretGlobs:     append([]string{}, base.Slots.SecretGlobs...),
+			SecretAskGlobs:  append([]string{}, base.Slots.SecretAskGlobs...),
 			SecretAllow:     append([]string{}, base.Slots.SecretAllow...),
 			EgressAllowlist: append([]string{}, base.Slots.EgressAllowlist...),
 			AuditLog:        base.Slots.AuditLog,
@@ -33,6 +34,7 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 	// These additions can only make the Base policy stricter.
 	m.Slots.SecretDirs = append(m.Slots.SecretDirs, ov.SecretDirs...)
 	m.Slots.SecretGlobs = append(m.Slots.SecretGlobs, ov.SecretGlobs...)
+	m.Slots.SecretAskGlobs = append(m.Slots.SecretAskGlobs, ov.SecretAskGlobs...)
 	for _, r := range ov.Rules {
 		if r.Decision != Ask && r.Decision != Deny {
 			return nil, nil, fmt.Errorf("overlay rule %q uses decision %q; overlays may only add ask/deny (use slots or waive to loosen)", r.ID, r.Decision)

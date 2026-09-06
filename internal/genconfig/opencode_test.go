@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
 type opencodePermissionRule struct {
@@ -332,11 +334,58 @@ func TestOpencodeConfigReadEditPermissions(t *testing.T) {
 	if read["**/.env.example"] != "allow" {
 		t.Errorf(`read["**/.env.example"] = %q, want allow`, read["**/.env.example"])
 	}
-	if edit[".claude/**"] != "deny" {
-		t.Errorf(`edit[".claude/**"] = %q, want deny`, edit[".claude/**"])
+	if edit[".claude/settings.json"] != "deny" {
+		t.Errorf(`edit[".claude/settings.json"] = %q, want deny`, edit[".claude/settings.json"])
 	}
 	if edit[".github/workflows/**"] != "ask" {
 		t.Errorf(`edit[".github/workflows/**"] = %q, want ask`, edit[".github/workflows/**"])
+	}
+}
+
+func TestOpencodeAskTierAndScopedClaudeUseStrongestNativeVerdict(t *testing.T) {
+	pol := &policy.Policy{Slots: policy.Slots{
+		SecretDirs:     []string{"**/.ssh/**"},
+		SecretAskGlobs: []string{"**/*.pem"},
+	}}
+	raw, err := json.Marshal(OpencodeConfig(pol, "/x/guardrail.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, category := range []string{"read", "edit"} {
+		rules := parseOpencodePermissionRules(t, raw, category)
+		assertOpencodeRulesOrdered(t, rules)
+		for _, test := range []struct {
+			path string
+			want string
+		}{
+			{"repo/docs/cert.pem", "ask"},
+			{"home/u/.ssh/client.pem", "deny"},
+		} {
+			if got := opencodeFindLast(rules, test.path); got != test.want {
+				t.Errorf("%s findLast permission for %q = %q, want %q", category, test.path, got, test.want)
+			}
+		}
+	}
+
+	edit := parseOpencodePermissionRules(t, raw, "edit")
+	for _, test := range []struct {
+		path string
+		want string
+	}{
+		{".claude/skills/client.pem", "deny"},
+		{".claude/projects/x/memory/client.pem", "ask"},
+		{".claude/projects/x/memory/note.md", ""},
+		{".claude/settings.json", "deny"},
+		{".claude/settings.local.json", "deny"},
+		{".claude/hooks/pre.sh", "deny"},
+		{".claude/plugins/p.js", "deny"},
+		{".claude/agents/a.md", "deny"},
+		{".claude/commands/c.md", "deny"},
+		{".claude/CLAUDE.md", "deny"},
+	} {
+		if got := opencodeFindLast(edit, test.path); got != test.want {
+			t.Errorf("edit findLast permission for %q = %q, want %q", test.path, got, test.want)
+		}
 	}
 }
 
@@ -496,6 +545,7 @@ func TestMergeIntoOpencodePermissionPrecedence(t *testing.T) {
 				"/**": "allow",
 				"/home/**": "allow",
 				"~/**": "allow",
+				"**/*.pem": "allow",
 				"**/*.example": "ask",
 				"**/workflows/**": "deny"
 			}
@@ -516,6 +566,8 @@ func TestMergeIntoOpencodePermissionPrecedence(t *testing.T) {
 	}{
 		{path: "/home/carlitos/.config/guardrail/operator.toml", want: "deny"},
 		{path: "~/.ssh/id_rsa", want: "deny"},
+		{path: "repo/docs/cert.pem", want: "ask"},
+		{path: ".claude/skills/client.pem", want: "deny"},
 		{path: "nested/.env.example", want: "ask"},
 		{path: ".github/workflows/release.yml", want: "deny"},
 	} {

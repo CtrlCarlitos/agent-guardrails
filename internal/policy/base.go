@@ -14,6 +14,7 @@ type fileShape struct {
 		SafeRoots       []string `toml:"safe_roots"`
 		SecretDirs      []string `toml:"secret_dirs"`
 		SecretGlobs     []string `toml:"secret_globs"`
+		SecretAskGlobs  []string `toml:"secret_ask_globs"`
 		SecretAllow     []string `toml:"secret_allow"`
 		EgressAllowlist []string `toml:"egress_allowlist"`
 		AuditLog        string   `toml:"audit_log"`
@@ -33,6 +34,7 @@ func (f fileShape) toPolicy() *Policy {
 			SafeRoots:       f.Slots.SafeRoots,
 			SecretDirs:      f.Slots.SecretDirs,
 			SecretGlobs:     f.Slots.SecretGlobs,
+			SecretAskGlobs:  f.Slots.SecretAskGlobs,
 			SecretAllow:     f.Slots.SecretAllow,
 			EgressAllowlist: f.Slots.EgressAllowlist,
 			AuditLog:        f.Slots.AuditLog,

@@ -51,6 +51,7 @@ type Slots struct {
 	SafeRoots       []string
 	SecretDirs      []string
 	SecretGlobs     []string
+	SecretAskGlobs  []string
 	SecretAllow     []string
 	EgressAllowlist []string
 	AuditLog        string

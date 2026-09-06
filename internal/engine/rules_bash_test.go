@@ -552,6 +552,17 @@ func TestCheckBashGitDocker(t *testing.T) {
 	}
 }
 
+func TestGitCleanDryRun(t *testing.T) {
+	for _, command := range []string{`git clean -n`, `git clean -nxd`, `git clean --dry-run -d`} {
+		wantAllow(t, command, evalBash(t, command))
+	}
+	for _, command := range []string{`git clean -fdx`, `git clean -fenode_modules`, `git clean -en -fdx`} {
+		if v := evalBash(t, command); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%s -> %+v, want deny", command, v)
+		}
+	}
+}
+
 func TestDockerFlagsDoNotDefeatMatching(t *testing.T) {
 	deny := map[string]string{
 		`docker compose -f d.yml down`:                   "P1.docker-down",

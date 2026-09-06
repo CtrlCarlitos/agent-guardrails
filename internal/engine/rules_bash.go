@@ -305,12 +305,44 @@ func checkGit(s Simple) *policy.Verdict {
 				Reason: "git push --force overwrites remote history"}
 		}
 	case "clean":
+		if gitCleanDryRun(s.Argv) {
+			return nil
+		}
 		if hasAnyFlag(s.Argv, "fxd", "--force") {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.git-clean",
 				Reason: "git clean -f/-x/-d deletes untracked files irrecoverably"}
 		}
 	}
 	return nil
+}
+
+func gitCleanDryRun(argv []string) bool {
+	for i := gitSubcommandIndex(argv) + 1; i > 0 && i < len(argv); i++ {
+		arg := argv[i]
+		switch {
+		case arg == "--":
+			return false
+		case arg == "--dry-run":
+			return true
+		case arg == "--exclude":
+			i++
+			continue
+		case strings.HasPrefix(arg, "--") || !strings.HasPrefix(arg, "-"):
+			continue
+		}
+		for j := 1; j < len(arg); j++ {
+			switch arg[j] {
+			case 'n':
+				return true
+			case 'e':
+				if j+1 == len(arg) {
+					i++
+				}
+				j = len(arg)
+			}
+		}
+	}
+	return false
 }
 
 // gitValueFlags are git global options that consume a following token.

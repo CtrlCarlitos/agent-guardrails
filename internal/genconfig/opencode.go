@@ -44,6 +44,14 @@ func OpencodeConfig(pol *policy.Policy, pluginPath string) Fragment {
 			edit[p] = "deny"
 		}
 	}
+	for _, g := range secretAskGlobs(pol) {
+		if p, ok := stripWrapper("Read(", g); ok {
+			read[p] = "ask"
+		}
+		if p, ok := stripWrapper("Edit(", g); ok {
+			edit[p] = "ask"
+		}
+	}
 	for _, a := range pol.Slots.SecretAllow {
 		read[a] = "allow"
 		edit[a] = "allow"

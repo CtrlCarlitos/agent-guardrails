@@ -73,6 +73,18 @@ func secretDenyGlobs(pol *policy.Policy) []string {
 	return append(reads, edits...)
 }
 
+func secretAskGlobs(pol *policy.Policy) []string {
+	var reads, edits []string
+	for _, g := range pol.Slots.SecretAskGlobs {
+		if collidesWithAllow(g, pol.Slots.SecretAllow) {
+			continue
+		}
+		reads = append(reads, "Read("+g+")")
+		edits = append(edits, "Edit("+g+")")
+	}
+	return append(reads, edits...)
+}
+
 func collidesWithAllow(glob string, allow []string) bool {
 	for _, a := range allow {
 		if ok, _ := doublestar.Match(glob, a); ok {
@@ -87,8 +99,8 @@ func collidesWithAllow(glob string, allow []string) bool {
 // the declarative-floor package to the Engine's internals). Keep these three lists in sync
 // by hand; a drift only weakens the floor, the Engine (internal/engine) stays authoritative.
 // Note the intentional prefix difference on directory entries: the Engine lists use `**/`
-// prefixes (`**/.claude/**`, `**/.github/workflows/**`) because its matcher sees arbitrary
-// absolute paths, while these floor lists keep the plan-literal forms (`.claude/**`,
+// prefixes (`**/.claude/settings.json`, `**/.github/workflows/**`) because its matcher sees arbitrary
+// absolute paths, while these floor lists keep the plan-literal forms (`.claude/settings.json`,
 // `.github/workflows/**`) because native permission matchers treat them project-relative.
 // Claude additionally needs `//`-anchored forms for operator config outside the worktree.
 var operatorConfigGlobsFloor = []string{
@@ -96,7 +108,10 @@ var operatorConfigGlobsFloor = []string{
 }
 
 var selfConfigGlobsFloor = append([]string{
-	".claude/**", "CLAUDE.md", "AGENTS.md", ".mcp.json", ".envrc",
+	".claude/settings.json", ".claude/settings.local.json",
+	".claude/hooks/**", ".claude/plugins/**", ".claude/agents/**",
+	".claude/commands/**", ".claude/skills/**", ".claude/CLAUDE.md",
+	"CLAUDE.md", "AGENTS.md", ".mcp.json", ".envrc",
 	"**/.bashrc", "**/.zshrc", "**/.profile", "**/.bash_profile",
 	"guardrail.toml", "**/guardrail.toml",
 	".guardrail/**",
@@ -147,7 +162,8 @@ func ciInfraLockAskGlobs() []string {
 func ClaudeConfig(pol *policy.Policy, binary string) Fragment {
 	deny := append(bashDenyGlobs(), secretDenyGlobs(pol)...)
 	deny = append(deny, claudeSelfConfigDenyGlobs()...)
-	ask := append(bashAskGlobs(), ciInfraLockAskGlobs()...)
+	ask := append(bashAskGlobs(), secretAskGlobs(pol)...)
+	ask = append(ask, ciInfraLockAskGlobs()...)
 	return Fragment{
 		"hooks": claudeHooks(binary),
 		"permissions": map[string]any{

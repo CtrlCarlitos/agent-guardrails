@@ -129,10 +129,16 @@ func TestNoBasenameFallbackForSecretGlobs(t *testing.T) {
 	// With "**/" prefixes the base globs still match at depth without the
 	// fallback; a bare glob would now match only a path that IS that name.
 	pol := pathPol()
-	for _, p := range []string{"secrets/server.pem", "/repo/keys/id_rsa", "id_rsa", "/repo/svc/service-account.json"} {
+	for _, p := range []string{"/repo/keys/id_rsa", "id_rsa"} {
 		tc := ToolCall{Tool: "Read", Paths: []string{p}, CWD: "/repo", RepoRoot: "/repo"}
 		if v := checkPaths(tc, pol); v == nil || v.Decision != policy.Deny {
 			t.Errorf("Read %q -> %+v, want deny", p, v)
+		}
+	}
+	for _, p := range []string{"secrets/server.pem", "/repo/svc/service-account.json"} {
+		tc := ToolCall{Tool: "Read", Paths: []string{p}, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkPaths(tc, pol); v == nil || v.Decision != policy.Ask {
+			t.Errorf("Read %q -> %+v, want ask", p, v)
 		}
 	}
 }

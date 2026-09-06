@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 func TestBashDenyGlobs(t *testing.T) {
@@ -38,10 +39,33 @@ func TestBashAskGlobs(t *testing.T) {
 
 func secretPol() *policy.Policy {
 	return &policy.Policy{Slots: policy.Slots{
-		SecretDirs:  []string{"**/.ssh/**"},
-		SecretGlobs: []string{"**/.env", ".env.*", "id_rsa*", "*.pem"},
-		SecretAllow: []string{"**/.env.example", ".env.example"},
+		SecretDirs:     []string{"**/.ssh/**"},
+		SecretGlobs:    []string{"**/.env", ".env.*", "id_rsa*"},
+		SecretAskGlobs: []string{"**/*.pem"},
+		SecretAllow:    []string{"**/.env.example", ".env.example"},
 	}}
+}
+
+// Claude resolves matching permissions by tier, regardless of list order:
+// deny first, then ask, then allow.
+func claudeNativeDecision(perms map[string]any, operation string) string {
+	operationTool, operationPath, ok := strings.Cut(strings.TrimSuffix(operation, ")"), "(")
+	if !ok {
+		return ""
+	}
+	for _, decision := range []string{"deny", "ask", "allow"} {
+		entries, _ := perms[decision].([]string)
+		for _, entry := range entries {
+			entryTool, entryGlob, ok := strings.Cut(strings.TrimSuffix(entry, ")"), "(")
+			if ok && entryTool == operationTool {
+				matched, _ := doublestar.Match(entryGlob, operationPath)
+				if matched {
+					return decision
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func TestSecretDirsReachTheDeclarativeFloor(t *testing.T) {
@@ -61,8 +85,8 @@ func TestSecretDirsReachTheDeclarativeFloor(t *testing.T) {
 func TestSecretDenyGlobs(t *testing.T) {
 	got := secretDenyGlobs(secretPol())
 	want := []string{
-		"Read(**/.env)", "Read(**/.ssh/**)", "Read(id_rsa*)", "Read(*.pem)",
-		"Edit(**/.env)", "Edit(**/.ssh/**)", "Edit(id_rsa*)", "Edit(*.pem)",
+		"Read(**/.env)", "Read(**/.ssh/**)", "Read(id_rsa*)",
+		"Edit(**/.env)", "Edit(**/.ssh/**)", "Edit(id_rsa*)",
 	}
 	for _, w := range want {
 		if !slices.Contains(got, w) {
@@ -73,6 +97,36 @@ func TestSecretDenyGlobs(t *testing.T) {
 	for _, bad := range []string{"Read(.env.*)", "Edit(.env.*)"} {
 		if slices.Contains(got, bad) {
 			t.Errorf("%q should have been dropped (collides with secret_allow)", bad)
+		}
+	}
+}
+
+func TestAskTierAndScopedClaudeReachTheFloor(t *testing.T) {
+	pol := &policy.Policy{Slots: policy.Slots{
+		SecretDirs:     []string{"**/.ssh/**"},
+		SecretAskGlobs: []string{"**/*.pem"},
+	}}
+	cfg := ClaudeConfig(pol, "guardrail")
+	perms := cfg["permissions"].(map[string]any)
+	for _, test := range []struct {
+		operation string
+		want      string
+	}{
+		{"Read(repo/docs/cert.pem)", "ask"},
+		{"Read(home/u/.ssh/client.pem)", "deny"},
+		{"Edit(.claude/skills/client.pem)", "deny"},
+		{"Edit(.claude/projects/x/memory/client.pem)", "ask"},
+		{"Edit(.claude/projects/x/memory/note.md)", ""},
+		{"Edit(.claude/settings.json)", "deny"},
+		{"Edit(.claude/settings.local.json)", "deny"},
+		{"Edit(.claude/hooks/pre.sh)", "deny"},
+		{"Edit(.claude/plugins/p.js)", "deny"},
+		{"Edit(.claude/agents/a.md)", "deny"},
+		{"Edit(.claude/commands/c.md)", "deny"},
+		{"Edit(.claude/CLAUDE.md)", "deny"},
+	} {
+		if got := claudeNativeDecision(perms, test.operation); got != test.want {
+			t.Errorf("Claude permission for %q = %q, want %q", test.operation, got, test.want)
 		}
 	}
 }
@@ -113,16 +167,15 @@ func TestBashAskGlobsP2P6(t *testing.T) {
 
 func TestSelfConfigAndGitProtectedDenyGlobs(t *testing.T) {
 	frag := ClaudeConfig(secretPol(), "guardrail")
-	deny := frag["permissions"].(map[string]any)["deny"].([]string)
-	for _, m := range []string{"Edit(.claude/**)", "Edit(CLAUDE.md)", "Edit(**/.git/config)", "Edit(**/.git/hooks/**)"} {
-		if !slices.Contains(deny, m) {
-			t.Errorf("deny missing %q: %v", m, deny)
+	perms := frag["permissions"].(map[string]any)
+	for _, operation := range []string{"Edit(.claude/settings.json)", "Edit(CLAUDE.md)", "Edit(repo/.git/config)", "Edit(repo/.git/hooks/pre-commit)"} {
+		if got := claudeNativeDecision(perms, operation); got != "deny" {
+			t.Errorf("Claude permission for %q = %q, want deny", operation, got)
 		}
 	}
-	ask := frag["permissions"].(map[string]any)["ask"].([]string)
-	for _, m := range []string{"Edit(.github/workflows/**)", "Edit(go.sum)"} {
-		if !slices.Contains(ask, m) {
-			t.Errorf("ask missing %q: %v", m, ask)
+	for _, operation := range []string{"Edit(.github/workflows/ci.yml)", "Edit(go.sum)"} {
+		if got := claudeNativeDecision(perms, operation); got != "ask" {
+			t.Errorf("Claude permission for %q = %q, want ask", operation, got)
 		}
 	}
 }

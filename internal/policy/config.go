@@ -19,6 +19,7 @@ type Overlay struct {
 	SafeRoots        []string
 	SecretDirs       []string
 	SecretGlobs      []string
+	SecretAskGlobs   []string
 	SecretAllow      []string
 	EgressAllowlist  []string
 	Rules            []Rule
@@ -81,6 +82,7 @@ func LoadOverlay(pth string) (*Overlay, error) {
 			SafeRoots       []string `toml:"safe_roots"`
 			SecretDirs      []string `toml:"secret_dirs"`
 			SecretGlobs     []string `toml:"secret_globs"`
+			SecretAskGlobs  []string `toml:"secret_ask_globs"`
 			SecretAllow     []string `toml:"secret_allow"`
 			EgressAllowlist []string `toml:"egress_allowlist"`
 		} `toml:"slots"`
@@ -102,6 +104,7 @@ func LoadOverlay(pth string) (*Overlay, error) {
 		SafeRoots:        f.Slots.SafeRoots,
 		SecretDirs:       f.Slots.SecretDirs,
 		SecretGlobs:      f.Slots.SecretGlobs,
+		SecretAskGlobs:   f.Slots.SecretAskGlobs,
 		SecretAllow:      f.Slots.SecretAllow,
 		EgressAllowlist:  f.Slots.EgressAllowlist,
 		Waive:            f.Waive,

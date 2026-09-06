@@ -20,10 +20,14 @@ func pathPol() *policy.Policy {
 			SecretGlobs: []string{
 				"**/.env", "**/.env.*",
 				"**/.kube/config", "**/.netrc",
-				"**/id_rsa*", "**/id_ed25519*", "**/*.pem", "**/*.key",
-				"**/.claude.json", "**/service-account*.json",
+				"**/id_rsa*", "**/id_ed25519*", "**/id_ecdsa*", "**/id_dsa*",
+				"**/*_rsa", "**/*_ed25519", "**/*_ecdsa", "**/*.private.key",
+				"**/*-private-key.*", "**/private*.key", "**/.claude.json",
 			},
-			SecretAllow: []string{"**/.env.example"},
+			SecretAskGlobs: []string{
+				"**/*.pem", "**/*.p12", "**/*.pfx", "**/*.keystore", "**/service-account*.json",
+			},
+			SecretAllow: []string{"**/.env.example", "**/*.pub"},
 		},
 		Waived: map[string]bool{},
 	}
@@ -44,6 +48,151 @@ func TestSecretDirsAreUnwaivableByFilenameAllow(t *testing.T) {
 	}
 	tc := ToolCall{Tool: "Read", Paths: []string{"/repo/.env.example"}, CWD: "/repo", RepoRoot: "/repo"}
 	wantAllow(t, "/repo/.env.example", checkPaths(tc, pol))
+
+	pol.Waived["P4.secret-path"] = true
+	tc.Paths = []string{"/home/u/.ssh/id_rsa"}
+	if v := checkPaths(tc, pol); v == nil || v.Decision != policy.Deny {
+		t.Errorf("secret dir with P4.secret-path waiver -> %+v, want unconditional deny", v)
+	}
+}
+
+func TestSecretDirsStayUnwaivableThroughSecretNamedSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	secretDir := filepath.Join(t.TempDir(), ".ssh")
+	if err := os.Mkdir(secretDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(secretDir, "id_rsa")
+	if err := os.WriteFile(secret, []byte("k"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), ".env")
+	if err := os.Symlink(secret, alias); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	pol := pathPol()
+	pol.Waived["P4.secret-path"] = true
+	tc := ToolCall{Tool: "Read", Paths: []string{alias}, CWD: "/repo", RepoRoot: "/repo"}
+	if v := checkPaths(tc, pol); v == nil || v.Decision != policy.Deny {
+		t.Errorf("waived secret-named alias resolving into secret dir -> %+v, want unconditional deny", v)
+	}
+}
+
+func TestSecretTiers(t *testing.T) {
+	pol := pathPol()
+	read := func(p string) *policy.Verdict {
+		return checkPaths(ToolCall{Tool: "Read", Paths: []string{p}, CWD: "/repo", RepoRoot: "/repo"}, pol)
+	}
+	for _, p := range []string{"/repo/i18n/translations.key", "/repo/testdata/id_rsa.pub", "/repo/keys/server.pub"} {
+		wantAllow(t, p, read(p))
+	}
+	for _, p := range []string{"/repo/docs/cert.pem", "/repo/testdata/service-account-fake.json", "/repo/testdata/tls/localhost.pem"} {
+		if v := read(p); v == nil || v.Decision != policy.Ask || v.RuleID != "P4.secret-path-ambiguous" {
+			t.Errorf("%q -> %+v, want ask/P4.secret-path-ambiguous", p, v)
+		}
+	}
+	for _, p := range []string{
+		"/repo/certs/private.key", "/repo/deploy_rsa", "/home/u/.ssh/id_rsa", "/home/u/.ssh/server.pem",
+		"/repo/keys/id_rsa_work", "/repo/keys/id_ed25519.old",
+		"/home/u/certs/client.pem", "/opt/svc/service-account.json", "~/client.pem",
+	} {
+		if v := read(p); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", p, v)
+		}
+	}
+
+	pol.Slots.SecretAllow = append(pol.Slots.SecretAllow, "**/fixtures/*.pem")
+	wantAllow(t, "allowed ambiguous fixture", read("/repo/fixtures/client.pem"))
+}
+
+func TestStrongestVerdictWinsAcrossCandidates(t *testing.T) {
+	pol := pathPol()
+	for _, command := range []string{
+		`cat /repo/docs/cert.pem /home/u/.ssh/id_rsa`,
+		`cat /home/u/.ssh/id_rsa /repo/docs/cert.pem`,
+		`cat /repo/README.md /repo/docs/cert.pem /home/u/.ssh/id_rsa`,
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkPaths(tc, pol); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny (strongest across candidates)", command, v)
+		}
+	}
+	tc := ToolCall{Tool: "Bash", Command: `cat /repo/README.md /repo/docs/cert.pem`, CWD: "/repo", RepoRoot: "/repo"}
+	if v := checkPaths(tc, pol); v == nil || v.Decision != policy.Ask {
+		t.Errorf("ask-only -> %+v, want ask", v)
+	}
+}
+
+func TestStrongestVerdictAcrossPathRules(t *testing.T) {
+	pol := pathPol()
+	root := t.TempDir()
+	secret := filepath.Join(root, "outside", "id_rsa")
+	if err := os.MkdirAll(filepath.Dir(secret), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secret, []byte("k"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, "docs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(repo, "link")
+	if err := os.Symlink(secret, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	pem := filepath.Join(repo, "docs", "cert.pem")
+	for _, command := range []string{"cat " + pem + " " + link, "cat " + link + " " + pem} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+		if v := checkPaths(tc, pol); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny (symlink escape outranks ambiguous ask)", command, v)
+		}
+	}
+
+	tc := ToolCall{Tool: "Bash", Command: "cat " + pem + " > " + filepath.Join(repo, "CLAUDE.md"), CWD: repo, RepoRoot: repo}
+	if v := Evaluate(tc, pol); v.Decision != policy.Deny {
+		t.Errorf("ambiguous read + self-config write -> %+v, want deny", v)
+	}
+
+	waivedAsk := *pol
+	waivedAsk.Waived = map[string]bool{"P4.secret-path-ambiguous": true}
+	tc = ToolCall{Tool: "Bash", Command: "cat " + pem + " " + link, CWD: repo, RepoRoot: repo}
+	if v := Evaluate(tc, &waivedAsk); v.Decision != policy.Deny {
+		t.Errorf("waived ask + unwaived deny -> %+v, want deny", v)
+	}
+	tc = ToolCall{Tool: "Bash", Command: "cat " + pem, CWD: repo, RepoRoot: repo}
+	if v := Evaluate(tc, &waivedAsk); v.Decision != policy.Allow {
+		t.Errorf("waived ask alone -> %+v, want allow", v)
+	}
+
+	waivedDeny := *pol
+	waivedDeny.Waived = map[string]bool{"P4.secret-path": true}
+	for _, command := range []string{
+		"cat " + filepath.Join(repo, ".env") + " " + pem,
+		"cat " + pem + " " + filepath.Join(repo, ".env"),
+	} {
+		tc = ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+		if v := Evaluate(tc, &waivedDeny); v.Decision != policy.Ask || v.RuleID != "P4.secret-path-ambiguous" {
+			t.Errorf("waived deny + unwaived ask %q -> %+v, want ask", command, v)
+		}
+	}
+}
+
+func TestAgentMemoryIsNotAgentConfig(t *testing.T) {
+	mem := ToolCall{Tool: "Write", Paths: []string{"/home/u/.claude/projects/x/memory/note.md"}, CWD: "/repo", RepoRoot: "/repo"}
+	wantAllow(t, "agent memory", checkSelfConfig(mem))
+	for _, p := range []string{
+		"/home/u/.claude/settings.json", "/home/u/.claude/settings.local.json", "/home/u/.claude/hooks/pre.sh",
+		"/home/u/.claude/plugins/p.js", "/home/u/.claude/agents/a.md", "/home/u/.claude/commands/c.md",
+		"/home/u/.claude/skills/s/SKILL.md", "/home/u/.claude/CLAUDE.md", "/repo/.claude/settings.local.json",
+	} {
+		tc := ToolCall{Tool: "Write", Paths: []string{p}, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkSelfConfig(tc); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", p, v)
+		}
+	}
 }
 
 func TestCheckPathsFileTool(t *testing.T) {
@@ -52,7 +201,6 @@ func TestCheckPathsFileTool(t *testing.T) {
 		"/home/u/project/.env",
 		"/home/u/project/.env.production",
 		"/home/u/.aws/credentials",
-		"secrets/server.pem",
 		"/home/u/.claude.json",
 	}
 	for _, p := range deny {
@@ -62,7 +210,7 @@ func TestCheckPathsFileTool(t *testing.T) {
 			t.Errorf("Read %q -> %+v, want deny", p, v)
 		}
 	}
-	ok := []string{"/home/u/project/.env.example", "src/main.go", "README.md"}
+	ok := []string{"/home/u/project/.env.example", "src/main.go", "README.md", "i18n/translations.key"}
 	for _, p := range ok {
 		tc := ToolCall{Tool: "Read", Paths: []string{p}}
 		if v := checkPaths(tc, pathPol()); v != nil {

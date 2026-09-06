@@ -23,6 +23,7 @@ func TestMergePreservesBaseAndAppendsTightenings(t *testing.T) {
 		Slots: Slots{
 			SafeRoots:       []string{"/base/safe"},
 			SecretGlobs:     []string{"**/.env"},
+			SecretAskGlobs:  []string{"**/*.pem"},
 			SecretAllow:     []string{"/base/public"},
 			EgressAllowlist: []string{"base.example.com"},
 			AuditLog:        "/base/audit.jsonl",
@@ -33,6 +34,7 @@ func TestMergePreservesBaseAndAppendsTightenings(t *testing.T) {
 	ov := &Overlay{
 		SafeRoots:       []string{"tmp"},
 		SecretGlobs:     []string{"*.p12"},
+		SecretAskGlobs:  []string{"**/*.crt"},
 		EgressAllowlist: []string{"api.example.com"},
 		Rules:           []Rule{{ID: "overlay-ask", Decision: Ask}, {ID: "overlay-deny", Decision: Deny}},
 	}
@@ -54,6 +56,9 @@ func TestMergePreservesBaseAndAppendsTightenings(t *testing.T) {
 	if !slices.Equal(m.Slots.SecretGlobs, []string{"**/.env", "*.p12"}) {
 		t.Errorf("SecretGlobs = %v", m.Slots.SecretGlobs)
 	}
+	if !slices.Equal(m.Slots.SecretAskGlobs, []string{"**/*.pem", "**/*.crt"}) {
+		t.Errorf("SecretAskGlobs = %v", m.Slots.SecretAskGlobs)
+	}
 	if !slices.Equal(m.Slots.SecretAllow, []string{"/base/public"}) {
 		t.Errorf("SecretAllow = %v", m.Slots.SecretAllow)
 	}
@@ -72,11 +77,12 @@ func TestMergePreservesBaseAndAppendsTightenings(t *testing.T) {
 
 	m.Slots.SafeRoots[0] = "changed"
 	m.Slots.SecretGlobs[0] = "changed"
+	m.Slots.SecretAskGlobs[0] = "changed"
 	m.Slots.SecretAllow[0] = "changed"
 	m.Slots.EgressAllowlist[0] = "changed"
 	m.Rules[0].ID = "changed"
 	m.Waived["base-waiver"] = false
-	if base.Slots.SafeRoots[0] != "/base/safe" || base.Slots.SecretGlobs[0] != "**/.env" ||
+	if base.Slots.SafeRoots[0] != "/base/safe" || base.Slots.SecretGlobs[0] != "**/.env" || base.Slots.SecretAskGlobs[0] != "**/*.pem" ||
 		base.Slots.SecretAllow[0] != "/base/public" || base.Slots.EgressAllowlist[0] != "base.example.com" ||
 		base.Rules[0].ID != "base-rule" || !base.Waived["base-waiver"] {
 		t.Fatal("Merge mutated Base policy storage")

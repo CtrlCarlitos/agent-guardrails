@@ -39,29 +39,26 @@ func isWriteToolCall(tool string) bool {
 }
 
 func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
+	var worst *policy.Verdict
+	take := func(v *policy.Verdict, unwaivable bool) {
+		if v == nil || !unwaivable && pol.Waived[v.RuleID] {
+			return
+		}
+		if worst == nil || v.Decision.Severity() > worst.Decision.Severity() {
+			worst = v
+		}
+	}
 	candidates := privatePathCandidates(tc)
 	for _, candidate := range candidates {
-		if secret, ok := classifiedSecretPath(candidate, pol); ok && !pol.Waived["P4.secret-path"] {
-			return &policy.Verdict{Decision: policy.Deny, RuleID: "P4.secret-path",
-				Reason: "access to a credential/secret path: " + secret}
-		}
-		if v := checkSymlinkEscape(candidate, tc); v != nil {
-			return v
-		}
+		v, unwaivable := classifySecretPath(candidate, pol)
+		take(v, unwaivable)
+		take(checkSymlinkEscape(candidate, tc), false)
 	}
-	if v := checkGitProtectedPaths(tc); v != nil {
-		return v
-	}
-	if v := checkSelfConfig(tc); v != nil {
-		return v
-	}
-	if v := checkCIInfraLockfile(tc); v != nil {
-		return v
-	}
-	if v := checkOutOfRepoWrite(tc); v != nil {
-		return v
-	}
-	return nil
+	take(checkGitProtectedPaths(tc), false)
+	take(checkSelfConfig(tc), false)
+	take(checkCIInfraLockfile(tc), false)
+	take(checkOutOfRepoWrite(tc), false)
+	return worst
 }
 
 type pathCandidate struct {
@@ -99,18 +96,50 @@ func privatePathCandidates(tc ToolCall) []pathCandidate {
 }
 
 func classifiedSecretPath(candidate pathCandidate, pol *policy.Policy) (string, bool) {
+	v, _ := classifySecretPath(candidate, pol)
+	if v == nil {
+		return "", false
+	}
+	return strings.TrimPrefix(v.Reason, "access to a credential/secret path: "), true
+}
+
+func classifySecretPath(candidate pathCandidate, pol *policy.Policy) (*policy.Verdict, bool) {
+	var worst *policy.Verdict
 	for _, form := range pathCandidateForms(candidate) {
 		if matchesAnyGlob(form, pol.Slots.SecretDirs) {
-			return form, true
+			return secretPathVerdict(policy.Deny, "P4.secret-path", form), true
 		}
 		if matchesAnyGlob(form, pol.Slots.SecretAllow) {
 			continue
 		}
 		if matchesAnyGlob(form, pol.Slots.SecretGlobs) {
-			return form, true
+			v := secretPathVerdict(policy.Deny, "P4.secret-path", form)
+			if worst == nil || v.Decision.Severity() > worst.Decision.Severity() {
+				worst = v
+			}
+			continue
+		}
+		if matchesAnyGlob(form, pol.Slots.SecretAskGlobs) {
+			decision := policy.Deny
+			ruleID := "P4.secret-path"
+			if candidate.repoRoot != "" && !strings.HasPrefix(candidate.path, "~") {
+				if _, inside := repoRelative(form, candidate.cwd, candidate.repoRoot); inside {
+					decision = policy.Ask
+					ruleID = "P4.secret-path-ambiguous"
+				}
+			}
+			v := secretPathVerdict(decision, ruleID, form)
+			if worst == nil || v.Decision.Severity() > worst.Decision.Severity() {
+				worst = v
+			}
 		}
 	}
-	return "", false
+	return worst, false
+}
+
+func secretPathVerdict(decision policy.Decision, ruleID, secret string) *policy.Verdict {
+	return &policy.Verdict{Decision: decision, RuleID: ruleID,
+		Reason: "access to a credential/secret path: " + secret}
 }
 
 func pathCandidateForms(candidate pathCandidate) []string {
@@ -469,7 +498,11 @@ func checkGitProtectedPaths(tc ToolCall) *policy.Verdict {
 // documentation, not the plane's instruction file). `.envrc` is deliberately
 // "anywhere": direnv executes the .envrc of every directory entered.
 var selfConfigGlobs = []string{
-	"**/.claude/**", "**/.envrc",
+	"**/.claude",
+	"**/.claude/settings.json", "**/.claude/settings.local.json",
+	"**/.claude/hooks/**", "**/.claude/plugins/**", "**/.claude/agents/**",
+	"**/.claude/commands/**", "**/.claude/skills/**", "**/.claude/CLAUDE.md",
+	"**/.envrc",
 	"**/.bashrc", "**/.zshrc", "**/.profile", "**/.bash_profile",
 	// Guardrail's own machinery: the agent must not configure, disable, or
 	// replace the thing supervising it (CR-14).
