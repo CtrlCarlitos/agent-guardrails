@@ -2,8 +2,10 @@ package engine
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
+	"mvdan.cc/sh/v3/pattern"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -109,7 +111,14 @@ func splitSimplesWithContext(src string, ctx *normalizeContext) ([]Simple, error
 func pipelinePositions(f *syntax.File, ctx *normalizeContext) map[*syntax.Stmt][]pipelinePosition {
 	pipeStatements := make(map[*syntax.Stmt]bool)
 	childPipes := make(map[*syntax.Stmt]bool)
+	shadowedConstants := make(map[string]bool)
 	syntax.Walk(f, func(node syntax.Node) bool {
+		if declaration, ok := node.(*syntax.FuncDecl); ok {
+			name := declaration.Name.Value
+			if name == "true" || name == "false" {
+				shadowedConstants[name] = true
+			}
+		}
 		stmt, ok := node.(*syntax.Stmt)
 		if !ok {
 			return true
@@ -141,7 +150,7 @@ func pipelinePositions(f *syntax.File, ctx *normalizeContext) map[*syntax.Stmt][
 				pipelineID = ctx.nextPipelineID
 			}
 			position := pipelinePosition{id: pipelineID, stage: stage}
-			carriesInput = markPipelineIngress(positions, stageRoot, position).forwards
+			carriesInput = markPipelineIngress(positions, stageRoot, position, shadowedConstants).forwards
 		}
 	}
 	return positions
@@ -152,11 +161,12 @@ type stdinFlow struct {
 	forwards   bool
 }
 
-func markPipelineIngress(positions map[*syntax.Stmt][]pipelinePosition, stmt *syntax.Stmt, position pipelinePosition) stdinFlow {
+func markPipelineIngress(positions map[*syntax.Stmt][]pipelinePosition, stmt *syntax.Stmt, position pipelinePosition, shadowedConstants map[string]bool) stdinFlow {
 	if stmt == nil {
 		return stdinFlow{}
 	}
 	positions[stmt] = append(positions[stmt], position)
+	markStatementExpansionIngress(positions, stmt, position, shadowedConstants)
 	if stdinReplaced(stmt) {
 		return stdinFlow{}
 	}
@@ -171,7 +181,7 @@ func markPipelineIngress(positions map[*syntax.Stmt][]pipelinePosition, stmt *sy
 				if !carriesInput {
 					break
 				}
-				stageFlow := markPipelineIngress(positions, stageRoot, position)
+				stageFlow := markPipelineIngress(positions, stageRoot, position, shadowedConstants)
 				if stage == 0 {
 					flow.allConsume = stageFlow.allConsume
 				}
@@ -180,24 +190,27 @@ func markPipelineIngress(positions map[*syntax.Stmt][]pipelinePosition, stmt *sy
 			flow.forwards = carriesInput
 			break
 		}
-		flow = markPipelineList(positions, []*syntax.Stmt{command.X, command.Y}, position)
+		flow = markPipelineList(positions, []*syntax.Stmt{command.X, command.Y}, position, shadowedConstants)
 	case *syntax.Block:
-		flow = markPipelineList(positions, command.Stmts, position)
+		flow = markPipelineList(positions, command.Stmts, position, shadowedConstants)
 	case *syntax.Subshell:
-		flow = markPipelineList(positions, command.Stmts, position)
+		flow = markPipelineList(positions, command.Stmts, position, shadowedConstants)
 	case *syntax.IfClause:
-		flow = markIfClauseIngress(positions, command, position)
+		flow = markIfClauseIngress(positions, command, position, shadowedConstants)
 	case *syntax.WhileClause:
-		flow = markWhileClauseIngress(positions, command, position)
+		flow = markWhileClauseIngress(positions, command, position, shadowedConstants)
 	case *syntax.ForClause:
-		if forClauseMayIterate(command) {
-			flow = markPipelineList(positions, command.Do, position)
-			flow.allConsume = false // every for loop has a zero-iteration path
+		switch forClauseIterations(command) {
+		case iterationGuaranteed:
+			flow = markPipelineList(positions, command.Do, position, shadowedConstants)
+		case iterationPossible:
+			flow = markPipelineList(positions, command.Do, position, shadowedConstants)
+			flow.allConsume = false
 		}
 	case *syntax.CaseClause:
-		flow = markCaseClauseIngress(positions, command, position)
+		flow = markCaseClauseIngress(positions, command, position, shadowedConstants)
 	case *syntax.TimeClause:
-		flow = markPipelineIngress(positions, command.Stmt, position)
+		flow = markPipelineIngress(positions, command.Stmt, position, shadowedConstants)
 	default:
 		// Unknown compound forms may consume or forward stdin. Preserve both
 		// possibilities so later checks fail closed.
@@ -209,13 +222,13 @@ func markPipelineIngress(positions map[*syntax.Stmt][]pipelinePosition, stmt *sy
 	return flow
 }
 
-func markPipelineList(positions map[*syntax.Stmt][]pipelinePosition, stmts []*syntax.Stmt, position pipelinePosition) stdinFlow {
+func markPipelineList(positions map[*syntax.Stmt][]pipelinePosition, stmts []*syntax.Stmt, position pipelinePosition, shadowedConstants map[string]bool) stdinFlow {
 	var flow stdinFlow
 	for _, stmt := range stmts {
 		if flow.allConsume {
 			break
 		}
-		statementFlow := markPipelineIngress(positions, stmt, position)
+		statementFlow := markPipelineIngress(positions, stmt, position, shadowedConstants)
 		flow.forwards = flow.forwards || statementFlow.forwards
 		flow.allConsume = statementFlow.allConsume
 	}
@@ -242,25 +255,25 @@ const (
 	conditionFalse
 )
 
-func markIfClauseIngress(positions map[*syntax.Stmt][]pipelinePosition, clause *syntax.IfClause, position pipelinePosition) stdinFlow {
+func markIfClauseIngress(positions map[*syntax.Stmt][]pipelinePosition, clause *syntax.IfClause, position pipelinePosition, shadowedConstants map[string]bool) stdinFlow {
 	if len(clause.Cond) == 0 {
-		return markPipelineList(positions, clause.Then, position) // plain else
+		return markPipelineList(positions, clause.Then, position, shadowedConstants) // plain else
 	}
-	conditionFlow := markPipelineList(positions, clause.Cond, position)
+	conditionFlow := markPipelineList(positions, clause.Cond, position, shadowedConstants)
 	if conditionFlow.allConsume {
 		return conditionFlow
 	}
 	thenFlow := func() stdinFlow {
-		return markPipelineList(positions, clause.Then, position)
+		return markPipelineList(positions, clause.Then, position, shadowedConstants)
 	}
 	elseFlow := func() stdinFlow {
 		if clause.Else == nil {
 			return stdinFlow{} // condition false with no else
 		}
-		return markIfClauseIngress(positions, clause.Else, position)
+		return markIfClauseIngress(positions, clause.Else, position, shadowedConstants)
 	}
 	var branches stdinFlow
-	switch literalCondition(clause.Cond) {
+	switch literalCondition(clause.Cond, shadowedConstants) {
 	case conditionTrue:
 		branches = thenFlow()
 	case conditionFalse:
@@ -272,41 +285,55 @@ func markIfClauseIngress(positions map[*syntax.Stmt][]pipelinePosition, clause *
 	return branches
 }
 
-func literalCondition(stmts []*syntax.Stmt) conditionTruth {
-	if len(stmts) != 1 || stdinReplaced(stmts[0]) {
+func literalCondition(stmts []*syntax.Stmt, shadowedConstants map[string]bool) conditionTruth {
+	if len(stmts) != 1 {
 		return conditionUnknown
 	}
-	call, ok := stmts[0].Cmd.(*syntax.CallExpr)
-	if !ok || len(call.Args) == 0 {
+	stmt := stmts[0]
+	call, ok := stmt.Cmd.(*syntax.CallExpr)
+	if !ok || len(call.Args) != 1 || len(call.Assigns) != 0 || len(stmt.Redirs) != 0 ||
+		stmt.Negated || stmt.Background || stmt.Coprocess {
 		return conditionUnknown
 	}
 	name := call.Args[0].Lit()
-	if slash := strings.LastIndexAny(name, `/\`); slash >= 0 {
-		name = name[slash+1:]
-	}
-	truth := conditionUnknown
 	switch name {
-	case ":", "true":
-		truth = conditionTrue
-	case "false":
-		truth = conditionFalse
-	}
-	if stmts[0].Negated {
-		switch truth {
-		case conditionTrue:
-			return conditionFalse
-		case conditionFalse:
+	case ":":
+		return conditionTrue
+	case "true":
+		if !shadowedConstants[name] {
 			return conditionTrue
 		}
+	case "false":
+		if !shadowedConstants[name] {
+			return conditionFalse
+		}
 	}
-	return truth
+	return conditionUnknown
 }
 
-func markCaseClauseIngress(positions map[*syntax.Stmt][]pipelinePosition, clause *syntax.CaseClause, position pipelinePosition) stdinFlow {
-	flows := make([]stdinFlow, 0, len(clause.Items)+1)
+func markCaseClauseIngress(positions map[*syntax.Stmt][]pipelinePosition, clause *syntax.CaseClause, position pipelinePosition, shadowedConstants map[string]bool) stdinFlow {
+	markWordExpansionIngress(positions, clause.Word, position, shadowedConstants)
+	selector, static := staticWord(clause.Word, false)
+	matches := make([]bool, len(clause.Items))
+	if static {
+		for index, item := range clause.Items {
+			matches[index], static = staticCaseItemMatches(selector, item)
+			if !static {
+				break
+			}
+		}
+	}
+	if static {
+		return markStaticCaseIngress(positions, clause.Items, matches, position, shadowedConstants)
+	}
+	return markUnknownCaseIngress(positions, clause.Items, position, shadowedConstants)
+}
+
+func markUnknownCaseIngress(positions map[*syntax.Stmt][]pipelinePosition, items []*syntax.CaseItem, position pipelinePosition, shadowedConstants map[string]bool) stdinFlow {
+	flows := make([]stdinFlow, 0, len(items)+1)
 	exhaustive := false
-	for _, item := range clause.Items {
-		itemFlow := markPipelineList(positions, item.Stmts, position)
+	for _, item := range items {
+		itemFlow := markPipelineList(positions, item.Stmts, position, shadowedConstants)
 		if item.Op != syntax.Break {
 			itemFlow.allConsume = false // fallthrough control flow is not exhaustive here
 		}
@@ -330,27 +357,159 @@ func markCaseClauseIngress(positions map[*syntax.Stmt][]pipelinePosition, clause
 	return mergeAlternativeStdinFlows(flows...)
 }
 
-func markWhileClauseIngress(positions map[*syntax.Stmt][]pipelinePosition, clause *syntax.WhileClause, position pipelinePosition) stdinFlow {
-	conditionFlow := markPipelineList(positions, clause.Cond, position)
+func markStaticCaseIngress(positions map[*syntax.Stmt][]pipelinePosition, items []*syntax.CaseItem, matches []bool, position pipelinePosition, shadowedConstants map[string]bool) stdinFlow {
+	var flow stdinFlow
+	testing := true
+	for index, item := range items {
+		if testing && !matches[index] {
+			continue
+		}
+		itemFlow := markPipelineList(positions, item.Stmts, position, shadowedConstants)
+		flow.allConsume = itemFlow.allConsume
+		flow.forwards = flow.forwards || itemFlow.forwards
+		if flow.allConsume {
+			return flow
+		}
+		switch item.Op {
+		case syntax.Break:
+			return flow
+		case syntax.Fallthrough:
+			testing = false
+		default: // ;;& and mksh's ;| resume pattern testing
+			testing = true
+		}
+	}
+	return flow
+}
+
+func staticCaseItemMatches(selector string, item *syntax.CaseItem) (bool, bool) {
+	for _, word := range item.Patterns {
+		casePattern, static := staticWord(word, true)
+		if !static {
+			return false, false
+		}
+		expression, err := pattern.Regexp(casePattern, pattern.EntireString)
+		if err != nil {
+			return false, false
+		}
+		matched, err := regexp.MatchString(expression, selector)
+		if err != nil {
+			return false, false
+		}
+		if matched {
+			return true, true
+		}
+	}
+	return false, true
+}
+
+func staticWord(word *syntax.Word, casePattern bool) (string, bool) {
+	if word == nil {
+		return "", false
+	}
+	var value strings.Builder
+	for _, part := range word.Parts {
+		switch part := part.(type) {
+		case *syntax.Lit:
+			value.WriteString(part.Value)
+		case *syntax.SglQuoted:
+			if casePattern {
+				value.WriteString(pattern.QuoteMeta(part.Value, 0))
+			} else {
+				value.WriteString(part.Value)
+			}
+		case *syntax.DblQuoted:
+			quoted, static := staticWord(&syntax.Word{Parts: part.Parts}, false)
+			if !static {
+				return "", false
+			}
+			if casePattern {
+				value.WriteString(pattern.QuoteMeta(quoted, 0))
+			} else {
+				value.WriteString(quoted)
+			}
+		default:
+			return "", false
+		}
+	}
+	return value.String(), true
+}
+
+func markWhileClauseIngress(positions map[*syntax.Stmt][]pipelinePosition, clause *syntax.WhileClause, position pipelinePosition, shadowedConstants map[string]bool) stdinFlow {
+	conditionFlow := markPipelineList(positions, clause.Cond, position, shadowedConstants)
 	if conditionFlow.allConsume {
 		return conditionFlow
 	}
-	truth := literalCondition(clause.Cond)
+	truth := literalCondition(clause.Cond, shadowedConstants)
 	bodyReachable := truth != conditionFalse
+	bodyGuaranteed := truth == conditionTrue
 	if clause.Until {
 		bodyReachable = truth != conditionTrue
+		bodyGuaranteed = truth == conditionFalse
 	}
 	if bodyReachable {
-		bodyFlow := markPipelineList(positions, clause.Do, position)
+		bodyFlow := markPipelineList(positions, clause.Do, position, shadowedConstants)
 		conditionFlow.forwards = conditionFlow.forwards || bodyFlow.forwards
+		if bodyGuaranteed {
+			conditionFlow.allConsume = bodyFlow.allConsume
+			return conditionFlow
+		}
 	}
-	conditionFlow.allConsume = false // the body always has a zero-iteration path
+	conditionFlow.allConsume = false
 	return conditionFlow
 }
 
-func forClauseMayIterate(clause *syntax.ForClause) bool {
+type loopIterations uint8
+
+const (
+	iterationNone loopIterations = iota
+	iterationPossible
+	iterationGuaranteed
+)
+
+func forClauseIterations(clause *syntax.ForClause) loopIterations {
 	words, ok := clause.Loop.(*syntax.WordIter)
-	return !ok || !words.InPos.IsValid() || len(words.Items) > 0
+	if !ok || !words.InPos.IsValid() {
+		return iterationPossible
+	}
+	if len(words.Items) == 0 {
+		return iterationNone
+	}
+	return iterationGuaranteed
+}
+
+func markStatementExpansionIngress(positions map[*syntax.Stmt][]pipelinePosition, stmt *syntax.Stmt, position pipelinePosition, shadowedConstants map[string]bool) {
+	if call, ok := stmt.Cmd.(*syntax.CallExpr); ok {
+		for _, assignment := range call.Assigns {
+			markNodeExpansionIngress(positions, assignment, position, shadowedConstants)
+		}
+		for _, word := range call.Args {
+			markWordExpansionIngress(positions, word, position, shadowedConstants)
+		}
+	}
+	for _, redirect := range stmt.Redirs {
+		markNodeExpansionIngress(positions, redirect, position, shadowedConstants)
+	}
+}
+
+func markWordExpansionIngress(positions map[*syntax.Stmt][]pipelinePosition, word *syntax.Word, position pipelinePosition, shadowedConstants map[string]bool) {
+	if word != nil {
+		markNodeExpansionIngress(positions, word, position, shadowedConstants)
+	}
+}
+
+func markNodeExpansionIngress(positions map[*syntax.Stmt][]pipelinePosition, node syntax.Node, position pipelinePosition, shadowedConstants map[string]bool) {
+	syntax.Walk(node, func(node syntax.Node) bool {
+		switch expansion := node.(type) {
+		case *syntax.CmdSubst:
+			markPipelineList(positions, expansion.Stmts, position, shadowedConstants)
+			return false
+		case *syntax.ProcSubst:
+			markPipelineList(positions, expansion.Stmts, position, shadowedConstants)
+			return false
+		}
+		return true
+	})
 }
 
 func simpleStdinFlow(command *syntax.CallExpr) stdinFlow {
