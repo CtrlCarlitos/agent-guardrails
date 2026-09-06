@@ -10,7 +10,7 @@
 
 **Tech Stack:** Go 1.23+, existing deps only.
 
-**Spec:** `../reviews/2026-09-04-adversarial-review.md`. Findings addressed: **CR-9/RC4, H-2, H-7, M-2, M-3, M-4, M-5, M-6**. Deferred to Phase 5: **H-6, H-10, M-7**.
+**Spec:** `../reviews/2026-09-04-adversarial-review.md`. Findings addressed: **CR-9/RC4, H-2, H-7, M-2, M-3, M-4, M-5, M-6**, plus **NF-1** (new, found live 2026-09-06 — see Task 3). Deferred to Phase 5: **H-6, H-10, M-7**.
 
 ## Global Constraints
 
@@ -222,13 +222,16 @@ git commit -m "fix(policy): secret directories outrank filename allows (H-2)"
 
 ---
 
-### Task 3: Narrow the over-broad base globs; allow public keys and dry runs
+### Task 3: Narrow the over-broad globs; allow public keys and dry runs
 
 **Files:** `internal/policy/base.toml`, `internal/engine/rules_bash.go:307`, tests
 
 **The actual defect (M-2, M-3).** `*.key` is not a secret pattern — `.key` is used for translation catalogues, licence keys and Django `SECRET_KEY` *templates*. Prefixing it to `**/*.key` changes nothing (verified: it still matches `i18n/translations.key`). The glob itself must go, replaced by name-scoped forms. With Task 2 in place this is safe: real key material under `~/.ssh`, `~/.aws`, `~/.gnupg` is caught by `secret_dirs` regardless of extension.
 
+**Also fixes NF-1 (new, found live 2026-09-06).** `selfConfigAnywhere` contains `**/.claude/**`, which denies writes to the *entire* `~/.claude/` tree — including `~/.claude/projects/*/memory/**`, which is agent memory, not agent configuration. Verified against the deployed `v0.12.0-dev` binary: a `Write` to `~/.claude/projects/x/memory/note.md` exits 2, the same as a `Write` to `~/.claude/settings.json`. Phase 1 fixed the read case (that `Read` now exits 0); the write case was never in scope. Replace `**/.claude/**` with the actual config surfaces: `**/.claude/settings.json`, `**/.claude/settings.local.json`, `**/.claude/hooks/**`, `**/.claude/plugins/**`, `**/.claude/agents/**`, `**/.claude/commands/**`, `**/.claude/skills/**`, `**/.claude/CLAUDE.md`. This is the same over-broad-glob defect as `*.key`, on a different list.
+
 **Interfaces:**
+- `selfConfigAnywhere`: replace `**/.claude/**` with the eight scoped globs above (NF-1).
 - `base.toml` `secret_globs`: drop bare `*.key`; add `**/*_rsa`, `**/*_ed25519`, `**/*_ecdsa`, `**/*.private.key`, `**/*-private-key.*`, `**/private*.key`. Prefix the remaining bare entries (`id_rsa*` → `**/id_rsa*`, `id_ed25519*` → `**/id_ed25519*`, `*.pem` → `**/*.pem`, `service-account*.json` → `**/service-account*.json`) — cosmetic given `**/` matches zero segments, but it removes the impression that bare entries mean "root only" now that Task 1 has given that phrase a meaning.
 - `secret_allow` gains `**/*.pub` — a public key is public by definition, and Task 2 stops it reaching into `secret_dirs`.
 - The `case "clean":` arm returns `nil` when `-n`/`--dry-run` is present, before the existing `hasAnyFlag(s.Argv, "fxd", "--force")` check.
@@ -258,6 +261,18 @@ func TestOverBroadGlobsNarrowed(t *testing.T) {
 			t.Errorf("%q -> %+v, want deny", p, v)
 		}
 	}
+	// NF-1: agent memory is not agent configuration.
+	mem := ToolCall{Tool: "Write", Paths: []string{"/home/u/.claude/projects/x/memory/note.md"},
+		CWD: "/repo", RepoRoot: "/repo"}
+	if v := checkSelfConfig(mem); v != nil {
+		t.Errorf("write to agent memory -> %+v, want nil", v)
+	}
+	for _, p := range []string{"/home/u/.claude/settings.json", "/home/u/.claude/hooks/pre.sh"} {
+		cfg := ToolCall{Tool: "Write", Paths: []string{p}, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkSelfConfig(cfg); v == nil || v.Decision != policy.Deny {
+			t.Errorf("write to %q -> %+v, want deny", p, v)
+		}
+	}
 	for _, c := range []string{`git clean -n`, `git clean -nxd`, `git clean --dry-run -d`} {
 		if v := evalBash(t, c); v != nil && v.Decision == policy.Deny {
 			t.Errorf("%q -> %+v, want not-deny (dry run removes nothing)", c, v)
@@ -284,7 +299,7 @@ func TestOverBroadGlobsNarrowed(t *testing.T) {
 
 ```bash
 gofmt -w internal/ && git add internal/
-git commit -m "fix(policy): narrow *.key, allow *.pub, permit git clean dry runs (M-2, M-3, M-6)"
+git commit -m "fix(policy): narrow *.key and **/.claude/**, allow *.pub, permit git clean dry runs (M-2, M-3, M-6, NF-1)"
 ```
 
 ---
