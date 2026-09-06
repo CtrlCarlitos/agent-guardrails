@@ -164,11 +164,38 @@ func TestGitPushRefspecParsingSkipsRemoteAndOptionValues(t *testing.T) {
 		`git push --push-option main origin feature-x`,
 		`git push origin -o main feature-x`,
 		`git push --repo main feature-x`,
-		`git push --repo origin main`,
-		`git push --repo=origin main`,
 	} {
 		if v := evalBash(t, c); v != nil {
 			t.Errorf("%q -> %+v, want nil", c, v)
+		}
+	}
+}
+
+func TestGitPushRepoOptionMakesFollowingOperandARefspec(t *testing.T) {
+	cases := map[string]struct {
+		decision policy.Decision
+		ruleID   string
+	}{
+		`git push --repo origin +main`:          {policy.Deny, "P2.git-push-force"},
+		`git push --repo=origin +main`:          {policy.Deny, "P2.git-push-force"},
+		`git push --repo origin :main`:          {policy.Ask, "P2.git-push-delete"},
+		`git push --repo=origin dev:main`:       {policy.Ask, "P2.git-push-protected"},
+		`git push --repo origin --tags`:         {policy.Ask, "P2.git-push-protected"},
+		`git push --tags --repo=origin feature`: {policy.Ask, "P2.git-push-protected"},
+	}
+	for command, want := range cases {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != want.decision || v.RuleID != want.ruleID {
+			t.Errorf("%q -> %+v, want %s/%s", command, v, want.decision, want.ruleID)
+		}
+	}
+
+	for _, command := range []string{
+		`git push --repo origin feature`,
+		`git push --repo=origin dev:feature`,
+	} {
+		if v := evalBash(t, command); v != nil {
+			t.Errorf("%q -> %+v, want nil", command, v)
 		}
 	}
 }

@@ -297,6 +297,9 @@ func parseGitPushArgs(argv []string) gitPushArgs {
 				i++
 				continue
 			}
+			if option.name == "repo" && !negated {
+				repositorySeen = true
+			}
 			switch option.name {
 			case "force":
 				args.force = !negated
