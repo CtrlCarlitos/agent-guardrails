@@ -218,13 +218,19 @@ func TestAuthorizedSecretAllowStillBlocksSymlinkEscape(t *testing.T) {
 	bin := buildAdversarialBinary(t)
 
 	repo := t.TempDir()
-	exec.Command("git", "-C", repo, "init", "-q").Run()
-	os.WriteFile(filepath.Join(repo, "guardrail.toml"),
-		[]byte("[slots]\nsecret_allow = [\"**\"]\n"), 0o644)
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("initialize repository: %v: %s", err, out)
+	}
+	overlayPath := filepath.Join(repo, "guardrail.toml")
+	if err := os.WriteFile(overlayPath, []byte("[slots]\nsecret_allow = [\"**\"]\n"), 0o644); err != nil {
+		t.Fatalf("write overlay: %v", err)
+	}
 
 	secretDir := t.TempDir()
 	secret := filepath.Join(secretDir, "id_rsa")
-	os.WriteFile(secret, []byte("PRIVATE KEY"), 0o600)
+	if err := os.WriteFile(secret, []byte("PRIVATE KEY"), 0o600); err != nil {
+		t.Fatalf("write secret: %v", err)
+	}
 	link := filepath.Join(repo, "innocent.txt")
 	if err := os.Symlink(secret, link); err != nil {
 		t.Fatal(err)
@@ -232,23 +238,59 @@ func TestAuthorizedSecretAllowStillBlocksSymlinkEscape(t *testing.T) {
 
 	// Operator config that DOES authorize secret_allow for this repo.
 	cfgHome := t.TempDir()
-	os.MkdirAll(filepath.Join(cfgHome, "guardrail"), 0o700)
-	os.WriteFile(filepath.Join(cfgHome, "guardrail", "waivers.toml"),
-		[]byte("[\""+repo+"\"]\nsecret_allow = true\n"), 0o600)
+	operatorDir := filepath.Join(cfgHome, "guardrail")
+	if err := os.MkdirAll(operatorDir, 0o700); err != nil {
+		t.Fatalf("create Operator config directory: %v", err)
+	}
+	operatorConfig := fmt.Sprintf("[%q]\nsecret_allow = true\n", repo)
+	if err := os.WriteFile(filepath.Join(operatorDir, "waivers.toml"), []byte(operatorConfig), 0o600); err != nil {
+		t.Fatalf("write Operator config: %v", err)
+	}
 
-	payload, _ := json.Marshal(map[string]any{
+	payload, err := json.Marshal(map[string]any{
 		"session_id": "adv", "cwd": repo, "hook_event_name": "PreToolUse",
 		"tool_name": "Read", "tool_input": map[string]any{"file_path": link},
 	})
+	if err != nil {
+		t.Fatalf("marshal hook payload: %v", err)
+	}
+	stateHome := t.TempDir()
+	auditPath := filepath.Join(stateHome, "guardrail", "audit.jsonl")
 	cmd := exec.Command(bin, "hook", "claude")
 	cmd.Stdin = bytes.NewReader(payload)
 	cmd.Env = append(os.Environ(),
-		"XDG_STATE_HOME="+t.TempDir(),
+		"HOME="+t.TempDir(),
+		"XDG_STATE_HOME="+stateHome,
 		"XDG_CONFIG_HOME="+cfgHome,
-		"GUARDRAIL_CONFIG="+filepath.Join(repo, "guardrail.toml"))
-	_ = cmd.Run()
-	if cmd.ProcessState.ExitCode() != 2 {
-		t.Fatalf("exit %d, want 2 - an authorized secret_allow must not disable symlink-escape checking",
-			cmd.ProcessState.ExitCode())
+		"GUARDRAIL_CONFIG="+overlayPath)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	runErr := cmd.Run()
+	code := 0
+	if runErr != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(runErr, &exitErr) {
+			t.Fatalf("run hook: %v", runErr)
+		}
+		code = exitErr.ExitCode()
+	}
+	got, err := classifyClaudeResult(code, stdout.String(), stderr.String(), auditPath,
+		auditExpectation{SessionID: "adv", Tool: "Read", Event: "pre"})
+	if err != nil {
+		t.Fatalf("invalid Claude hook result: %v (exit=%d stdout=%q stderr=%q)",
+			err, code, stdout.String(), stderr.String())
+	}
+	if got != "deny" {
+		t.Fatalf("got %s, want deny (exit=%d stdout=%q stderr=%q)",
+			got, code, stdout.String(), stderr.String())
+	}
+	record, err := readSingleAuditRecord(auditPath)
+	if err != nil {
+		t.Fatalf("read verified audit record: %v", err)
+	}
+	if record.RuleID != "P4.symlink-escape" {
+		t.Fatalf("audit rule_id = %q, want P4.symlink-escape to prove secret_allow authorization",
+			record.RuleID)
 	}
 }

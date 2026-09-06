@@ -555,6 +555,12 @@ func TestSSHRemoteCommandReachesBashRules(t *testing.T) {
 		`ssh -p 2222 localhost rm -rf /`,
 		`ssh -- localhost rm -rf /`,
 		`ssh localhost "printf ok; rm -rf /"`,
+		`ssh -o "RemoteCommand=rm -rf /" localhost`,
+		`ssh -o "RemoteCommand rm -rf /" localhost`,
+		`ssh -oRemoteCommand='rm -rf /' localhost`,
+		`ssh -o "rEmOtEcOmMaNd=rm -rf /" localhost`,
+		`ssh -o "RemoteCommand=printf ok; rm -rf /" localhost`,
+		`ssh -o "RemoteCommand=printf ok" -o "RemoteCommand=rm -rf /" localhost`,
 	}
 	for _, command := range commands {
 		v := evalNet(t, command, netPol())
@@ -568,7 +574,8 @@ func TestSSHRemoteCommandParsingControls(t *testing.T) {
 	for _, command := range []string{
 		`ssh localhost`,
 		`ssh -p 2222 localhost`,
-		`ssh -o "RemoteCommand=rm -rf /" localhost`,
+		`ssh -o "RemoteCommand=printf ok" localhost`,
+		`ssh -oRemoteCommand='printf ok' localhost`,
 		`ssh localhost printf ok`,
 		`ssh -- localhost printf ok`,
 	} {
@@ -580,11 +587,20 @@ func TestSSHRemoteCommandParsingControls(t *testing.T) {
 	for _, command := range []string{
 		`ssh evil.example.com printf ok`,
 		`ssh -Z localhost printf ok`,
+		`ssh -o RemoteCommand= localhost`,
+		`ssh -o RemoteCommand localhost`,
+		`ssh -o RemoteCommand=printf -o RemoteCommand= localhost`,
 	} {
 		v := evalNet(t, command, netPol())
 		if v == nil || v.Decision != policy.Deny || v.RuleID != "P6.egress" {
 			t.Errorf("%q -> %+v, want deny/P6.egress", command, v)
 		}
+	}
+
+	malformedSource := `ssh -o 'RemoteCommand=echo "unterminated' localhost`
+	v := evalNet(t, malformedSource, netPol())
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+		t.Errorf("%q -> %+v, want ask/P3.unresolved", malformedSource, v)
 	}
 }
 

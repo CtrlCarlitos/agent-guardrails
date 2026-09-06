@@ -221,6 +221,7 @@ type parsedNetworkArgs struct {
 	operands        []string
 	connectionHosts []string
 	hostOverrides   []string
+	remoteCommands  []string
 }
 
 func parseNetworkArgs(argv []string, tool string, spec networkOptionSpec) (parsedNetworkArgs, error) {
@@ -291,18 +292,19 @@ func parseNetworkArgs(argv []string, tool string, spec networkOptionSpec) (parse
 	return parsed, nil
 }
 
-func sshRemoteCommand(argv []string) (string, bool, error) {
+func sshCommandSources(argv []string) ([]string, error) {
 	if head(argv) != "ssh" {
-		return "", false, nil
+		return nil, nil
 	}
 	parsed, err := parseNetworkArgs(argv, "ssh", sshOptions)
 	if err != nil {
-		return "", false, err
+		return nil, err
 	}
-	if len(parsed.operands) <= 1 {
-		return "", false, nil
+	sources := append([]string(nil), parsed.remoteCommands...)
+	if len(parsed.operands) > 1 {
+		sources = append(sources, strings.Join(parsed.operands[1:], " "))
 	}
-	return strings.Join(parsed.operands[1:], " "), true, nil
+	return sources, nil
 }
 
 func addNetworkOptionTarget(parsed *parsedNetworkArgs, tool, option, value string) error {
@@ -432,7 +434,7 @@ var inertSSHSettings = networkOptionNames(
 	"kbdinteractivedevices", "localcommand", "loglevel", "logverbose", "macs",
 	"nohostauthenticationforlocalhost", "numberofpasswordprompts", "passwordauthentication",
 	"permitlocalcommand", "pkcs11provider", "port", "preferredauthentications", "proxyusefdpass",
-	"pubkeyacceptedalgorithms", "pubkeyauthentication", "rekeylimit", "remotecommand", "requesttty",
+	"pubkeyacceptedalgorithms", "pubkeyauthentication", "rekeylimit", "requesttty",
 	"requiredrsasize", "sendenv", "serveralivecountmax", "serveraliveinterval", "sessiontype",
 	"setenv", "stdinnull", "streamlocalbindmask", "streamlocalbindunlink", "stricthostkeychecking",
 	"syslogfacility", "tcpkeepalive", "tunnel", "tunneldevice", "updatehostkeys", "user",
@@ -460,6 +462,12 @@ func addSSHSettingTarget(parsed *parsedNetworkArgs, value string) error {
 		return nil
 	case "proxyjump":
 		return addProxyJumpTargets(parsed, setting)
+	case "remotecommand":
+		if setting == "" {
+			return fmt.Errorf("SSH setting remotecommand requires a command")
+		}
+		parsed.remoteCommands = append(parsed.remoteCommands, setting)
+		return nil
 	case "proxycommand", "canonicaldomains", "canonicalizehostname", "include",
 		"localforward", "remoteforward", "dynamicforward", "permitremoteopen":
 		return fmt.Errorf("SSH setting %s has an opaque connection target", key)

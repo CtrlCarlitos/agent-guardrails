@@ -1877,11 +1877,11 @@ loop:
 		}
 		result = append(result, inner...)
 	}
-	remoteSource, remote, err := sshRemoteCommand(argv)
+	remoteSources, err := sshCommandSources(argv)
 	if err != nil {
 		return nil, err
 	}
-	if remote {
+	for _, remoteSource := range remoteSources {
 		inner, err := normalizeShellDashC(remoteSource, s.shellState, s.pipelines, ctx)
 		if err != nil {
 			return nil, err
