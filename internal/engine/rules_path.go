@@ -40,24 +40,28 @@ func isWriteToolCall(tool string) bool {
 
 func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	var worst *policy.Verdict
-	take := func(v *policy.Verdict, unwaivable bool) {
-		if v == nil || !unwaivable && pol.Waived[v.RuleID] {
+	take := func(v *policy.Verdict) {
+		if v == nil {
 			return
 		}
 		if worst == nil || v.Decision.Severity() > worst.Decision.Severity() {
 			worst = v
 		}
 	}
+	takeWaivable := func(v *policy.Verdict) {
+		if v != nil && !pol.Waived[v.RuleID] {
+			take(v)
+		}
+	}
 	candidates := privatePathCandidates(tc)
 	for _, candidate := range candidates {
-		v, unwaivable := classifySecretPath(candidate, pol)
-		take(v, unwaivable)
-		take(checkSymlinkEscape(candidate, tc), false)
+		take(classifySecretPath(candidate, pol, true))
+		takeWaivable(checkSymlinkEscape(candidate, tc))
 	}
-	take(checkGitProtectedPaths(tc), false)
-	take(checkSelfConfig(tc), false)
-	take(checkCIInfraLockfile(tc), false)
-	take(checkOutOfRepoWrite(tc), false)
+	takeWaivable(checkGitProtectedPaths(tc))
+	takeWaivable(checkSelfConfig(tc))
+	takeWaivable(checkCIInfraLockfile(tc))
+	takeWaivable(checkOutOfRepoWrite(tc))
 	return worst
 }
 
@@ -96,27 +100,32 @@ func privatePathCandidates(tc ToolCall) []pathCandidate {
 }
 
 func classifiedSecretPath(candidate pathCandidate, pol *policy.Policy) (string, bool) {
-	v, _ := classifySecretPath(candidate, pol)
+	v := classifySecretPath(candidate, pol, false)
 	if v == nil {
 		return "", false
 	}
 	return strings.TrimPrefix(v.Reason, "access to a credential/secret path: "), true
 }
 
-func classifySecretPath(candidate pathCandidate, pol *policy.Policy) (*policy.Verdict, bool) {
+func classifySecretPath(candidate pathCandidate, pol *policy.Policy, honorWaivers bool) *policy.Verdict {
 	var worst *policy.Verdict
+	take := func(v *policy.Verdict) {
+		if v == nil || honorWaivers && pol.Waived[v.RuleID] {
+			return
+		}
+		if worst == nil || v.Decision.Severity() > worst.Decision.Severity() {
+			worst = v
+		}
+	}
 	for _, form := range pathCandidateForms(candidate) {
 		if matchesAnyGlob(form, pol.Slots.SecretDirs) {
-			return secretPathVerdict(policy.Deny, "P4.secret-path", form), true
+			return secretPathVerdict(policy.Deny, "P4.secret-path", form)
 		}
 		if matchesAnyGlob(form, pol.Slots.SecretAllow) {
 			continue
 		}
 		if matchesAnyGlob(form, pol.Slots.SecretGlobs) {
-			v := secretPathVerdict(policy.Deny, "P4.secret-path", form)
-			if worst == nil || v.Decision.Severity() > worst.Decision.Severity() {
-				worst = v
-			}
+			take(secretPathVerdict(policy.Deny, "P4.secret-path", form))
 			continue
 		}
 		if matchesAnyGlob(form, pol.Slots.SecretAskGlobs) {
@@ -128,13 +137,10 @@ func classifySecretPath(candidate pathCandidate, pol *policy.Policy) (*policy.Ve
 					ruleID = "P4.secret-path-ambiguous"
 				}
 			}
-			v := secretPathVerdict(decision, ruleID, form)
-			if worst == nil || v.Decision.Severity() > worst.Decision.Severity() {
-				worst = v
-			}
+			take(secretPathVerdict(decision, ruleID, form))
 		}
 	}
-	return worst, false
+	return worst
 }
 
 func secretPathVerdict(decision policy.Decision, ruleID, secret string) *policy.Verdict {

@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -42,5 +44,71 @@ func TestEvaluateWaived(t *testing.T) {
 	v := Evaluate(ToolCall{Tool: "Bash", Command: "rm -rf /etc", CWD: "/repo", RepoRoot: "/repo"}, p)
 	if v.Decision != policy.Allow {
 		t.Fatalf("waived rule still fired: %+v", v)
+	}
+}
+
+func TestEvaluateSecretGlobWaiverStillAllows(t *testing.T) {
+	p := fullPol()
+	p.Waived["P4.secret-path"] = true
+	tc := ToolCall{Tool: "Read", Paths: []string{"/repo/.env"}, CWD: "/repo", RepoRoot: "/repo"}
+	if v := Evaluate(tc, p); v.Decision != policy.Allow {
+		t.Fatalf("waived secret glob -> %+v, want allow", v)
+	}
+}
+
+func TestEvaluateSecretDirIgnoresP4Waiver(t *testing.T) {
+	p := fullPol()
+	p.Waived["P4.secret-path"] = true
+	tc := ToolCall{Tool: "Read", Paths: []string{"/home/u/.ssh/id_rsa"}, CWD: "/repo", RepoRoot: "/repo"}
+	if v := Evaluate(tc, p); v.Decision != policy.Deny || v.RuleID != "P4.secret-path" {
+		t.Fatalf("direct secret-dir path with P4 waiver -> %+v, want deny/P4.secret-path", v)
+	}
+}
+
+func TestEvaluateResolvedSecretDirIgnoresP4Waiver(t *testing.T) {
+	secretDir := filepath.Join(t.TempDir(), ".ssh")
+	if err := os.Mkdir(secretDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(secretDir, "id_rsa")
+	if err := os.WriteFile(secret, []byte("k"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "innocent")
+	if err := os.Symlink(secret, alias); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	p := fullPol()
+	p.Waived["P4.secret-path"] = true
+	tc := ToolCall{Tool: "Read", Paths: []string{alias}, CWD: "/repo", RepoRoot: "/repo"}
+	if v := Evaluate(tc, p); v.Decision != policy.Deny || v.RuleID != "P4.secret-path" {
+		t.Fatalf("resolved secret-dir path with P4 waiver -> %+v, want deny/P4.secret-path", v)
+	}
+}
+
+func TestEvaluateWaivedLexicalDenyKeepsResolvedAsk(t *testing.T) {
+	repo := t.TempDir()
+	cert := filepath.Join(repo, "cert.pem")
+	if err := os.WriteFile(cert, []byte("cert"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(repo, ".env")
+	if err := os.Symlink(cert, alias); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	p := fullPol()
+	p.Waived["P4.secret-path"] = true
+	tc := ToolCall{Tool: "Read", Paths: []string{alias}, CWD: repo, RepoRoot: repo}
+	if v := Evaluate(tc, p); v.Decision != policy.Ask || v.RuleID != "P4.secret-path-ambiguous" {
+		t.Fatalf("waived lexical deny plus unwaived resolved ask -> %+v, want ask/P4.secret-path-ambiguous", v)
+	}
+}
+
+func TestEvaluateWaivedOverlayRuleStillAllows(t *testing.T) {
+	p := fullPol()
+	p.Waived["proj.tf"] = true
+	tc := ToolCall{Tool: "Bash", Command: "terraform apply -auto-approve", CWD: "/repo", RepoRoot: "/repo"}
+	if v := Evaluate(tc, p); v.Decision != policy.Allow {
+		t.Fatalf("waived Overlay rule -> %+v, want allow", v)
 	}
 }

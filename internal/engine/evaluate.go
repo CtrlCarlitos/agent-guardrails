@@ -22,7 +22,7 @@ func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 	}
 	var worst *policy.Verdict
 	for _, h := range hits {
-		if h == nil || pol.Waived[h.RuleID] {
+		if h == nil {
 			continue
 		}
 		if worst == nil || h.Decision.Severity() > worst.Decision.Severity() {
@@ -37,6 +37,9 @@ func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 
 func matchOverlayRules(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	for _, r := range pol.Rules {
+		if pol.Waived[r.ID] {
+			continue
+		}
 		if r.Tool != "" && !strings.EqualFold(r.Tool, tc.Tool) {
 			continue
 		}
