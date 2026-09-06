@@ -218,10 +218,12 @@ var sftpOptions = networkOptionSpec{
 }
 
 type parsedNetworkArgs struct {
-	operands        []string
-	connectionHosts []string
-	hostOverrides   []string
-	remoteCommands  []string
+	operands           []string
+	connectionHosts    []string
+	hostOverrides      []string
+	remoteCommands     []string
+	localCommands      []string
+	permitLocalCommand bool
 }
 
 func parseNetworkArgs(argv []string, tool string, spec networkOptionSpec) (parsedNetworkArgs, error) {
@@ -301,6 +303,9 @@ func sshCommandSources(argv []string) ([]string, error) {
 		return nil, err
 	}
 	sources := append([]string(nil), parsed.remoteCommands...)
+	if parsed.permitLocalCommand {
+		sources = append(sources, parsed.localCommands...)
+	}
 	if len(parsed.operands) > 1 {
 		sources = append(sources, strings.Join(parsed.operands[1:], " "))
 	}
@@ -431,9 +436,9 @@ var inertSSHSettings = networkOptionNames(
 	"forwardx11trusted", "gatewayports", "globalknownhostsfile", "gssapiauthentication",
 	"gssapidelegatecredentials", "hashknownhosts", "hostkeyalgorithms", "hostkeyalias",
 	"identitiesonly", "identityagent", "identityfile", "ipqos", "kbdinteractiveauthentication",
-	"kbdinteractivedevices", "localcommand", "loglevel", "logverbose", "macs",
+	"kbdinteractivedevices", "loglevel", "logverbose", "macs",
 	"nohostauthenticationforlocalhost", "numberofpasswordprompts", "passwordauthentication",
-	"permitlocalcommand", "pkcs11provider", "port", "preferredauthentications", "proxyusefdpass",
+	"pkcs11provider", "port", "preferredauthentications", "proxyusefdpass",
 	"pubkeyacceptedalgorithms", "pubkeyauthentication", "rekeylimit", "requesttty",
 	"requiredrsasize", "sendenv", "serveralivecountmax", "serveraliveinterval", "sessiontype",
 	"setenv", "stdinnull", "streamlocalbindmask", "streamlocalbindunlink", "stricthostkeychecking",
@@ -468,6 +473,24 @@ func addSSHSettingTarget(parsed *parsedNetworkArgs, value string) error {
 		}
 		parsed.remoteCommands = append(parsed.remoteCommands, setting)
 		return nil
+	case "localcommand":
+		if setting == "" {
+			return fmt.Errorf("SSH setting localcommand requires a command")
+		}
+		if !strings.EqualFold(setting, "none") {
+			parsed.localCommands = append(parsed.localCommands, setting)
+		}
+		return nil
+	case "permitlocalcommand":
+		switch {
+		case strings.EqualFold(setting, "yes"):
+			parsed.permitLocalCommand = true
+			return nil
+		case strings.EqualFold(setting, "no"):
+			return nil
+		default:
+			return fmt.Errorf("SSH setting permitlocalcommand requires yes or no")
+		}
 	case "proxycommand", "canonicaldomains", "canonicalizehostname", "include",
 		"localforward", "remoteforward", "dynamicforward", "permitremoteopen":
 		return fmt.Errorf("SSH setting %s has an opaque connection target", key)

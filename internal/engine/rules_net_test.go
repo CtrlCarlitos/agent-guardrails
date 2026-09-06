@@ -604,6 +604,67 @@ func TestSSHRemoteCommandParsingControls(t *testing.T) {
 	}
 }
 
+func TestSSHEnabledLocalCommandReachesBashRules(t *testing.T) {
+	commands := []string{
+		`ssh -o PermitLocalCommand=yes -o 'LocalCommand=rm -rf /' localhost`,
+		`ssh -o 'LocalCommand=rm -rf /' -o PermitLocalCommand=yes localhost`,
+		`ssh -oPermitLocalCommand=yes -oLocalCommand='rm -rf /' localhost`,
+		`ssh -o 'pErMiTlOcAlCoMmAnD=YeS' -o 'lOcAlCoMmAnD=rm -rf /' localhost`,
+		`ssh -o 'PermitLocalCommand yes' -o 'LocalCommand rm -rf /' localhost`,
+		`ssh -o PermitLocalCommand=no -o PermitLocalCommand=yes -o 'LocalCommand=printf ok' -o 'LocalCommand=rm -rf /' localhost`,
+		`ssh -o PermitLocalCommand=yes -o PermitLocalCommand=no -o 'LocalCommand=rm -rf /' localhost`,
+	}
+	for _, command := range commands {
+		v := evalNet(t, command, netPol())
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Errorf("%q -> %+v, want deny/P1.rm-rf", command, v)
+		}
+	}
+}
+
+func TestSSHLocalCommandExecutionControls(t *testing.T) {
+	for _, command := range []string{
+		`ssh -o 'LocalCommand=rm -rf /' localhost`,
+		`ssh -o PermitLocalCommand=no -o 'LocalCommand=rm -rf /' localhost`,
+		`ssh -o PermitLocalCommand=yes localhost`,
+		`ssh -o PermitLocalCommand=yes -o 'LocalCommand=printf ok' localhost`,
+		`ssh -o PermitLocalCommand=yes -o LocalCommand=none localhost`,
+	} {
+		if v := evalNet(t, command, netPol()); v != nil {
+			t.Errorf("%q -> %+v, want nil", command, v)
+		}
+	}
+
+	for _, command := range []string{
+		`ssh -o PermitLocalCommand=maybe -o 'LocalCommand=rm -rf /' localhost`,
+		`ssh -o PermitLocalCommand=yes -o LocalCommand= localhost`,
+		`ssh -o PermitLocalCommand=yes -o LocalCommand localhost`,
+	} {
+		v := evalNet(t, command, netPol())
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P6.egress" {
+			t.Errorf("%q -> %+v, want deny/P6.egress", command, v)
+		}
+	}
+
+	malformedSource := `ssh -o PermitLocalCommand=yes -o 'LocalCommand=echo "unterminated' localhost`
+	v := evalNet(t, malformedSource, netPol())
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+		t.Errorf("%q -> %+v, want ask/P3.unresolved", malformedSource, v)
+	}
+}
+
+func TestSSHLocalCommandPreservesRemoteAndHostChecks(t *testing.T) {
+	remote := `ssh -o PermitLocalCommand=no -o 'LocalCommand=printf ok' -o 'RemoteCommand=rm -rf /' localhost`
+	if v := evalNet(t, remote, netPol()); v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+		t.Errorf("%q -> %+v, want deny/P1.rm-rf", remote, v)
+	}
+
+	egress := `ssh -o PermitLocalCommand=yes -o 'LocalCommand=printf ok' evil.example.com`
+	if v := evalNet(t, egress, netPol()); v == nil || v.Decision != policy.Deny || v.RuleID != "P6.egress" {
+		t.Errorf("%q -> %+v, want deny/P6.egress", egress, v)
+	}
+}
+
 func TestCurlConnectionOverridesAreEgressTargets(t *testing.T) {
 	pol := netPol("allowed.example.com")
 	commands := []string{
