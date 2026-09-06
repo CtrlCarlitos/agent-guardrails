@@ -76,11 +76,17 @@ func checkDestinationWrites(s Simple, tc ToolCall, pol *policy.Policy) *policy.V
 	default:
 		return nil
 	}
+	if spec, ok := mutatingDestinationCommands[command]; ok && parseDestinationArgs(s.Argv, spec).ambiguous {
+		return ask("P3.unresolved", command+" option parsing could not establish destination scope")
+	}
 	if command == "mv" {
 		for _, source := range moveSourceTargets(s.Argv) {
 			resolved := resolvePath(source, tc.CWD)
-			if withinSafe(resolved, tc.RepoRoot, pol.Slots.SafeRoots) || withinOSTemp(source, tc.CWD) {
+			if withinAuthorizedPath(source, tc.CWD, tc.RepoRoot, pol.Slots.SafeRoots, true) {
 				continue
+			}
+			if _, _, lexicallyAuthorized := authorizedPathCandidates(source, tc.CWD, tc.RepoRoot, pol.Slots.SafeRoots, true); lexicallyAuthorized {
+				return ask("P1.out-of-repo-write", "moves a source that resolves outside the repo and configured safe roots: "+source)
 			}
 			if _, err := os.Lstat(resolved); !os.IsNotExist(err) {
 				return ask("P1.out-of-repo-write", "moves a source outside the repo and configured safe roots: "+source)
@@ -91,34 +97,59 @@ func checkDestinationWrites(s Simple, tc ToolCall, pol *policy.Policy) *policy.V
 		if command == "rsync" && rsyncRemoteTarget(target) {
 			return ask("P1.out-of-repo-write", "writes to a remote destination outside configured safe roots: "+target)
 		}
-		if withinOSTemp(target, tc.CWD) {
-			continue
-		}
-		if !withinSafe(resolvePath(target, tc.CWD), tc.RepoRoot, pol.Slots.SafeRoots) {
+		if !withinAuthorizedPath(target, tc.CWD, tc.RepoRoot, pol.Slots.SafeRoots, true) {
 			return ask("P1.out-of-repo-write", "writes to a path outside the repo and configured safe roots: "+target)
 		}
 	}
 	return nil
 }
 
-func withinOSTemp(target, cwd string) bool {
-	temp, err := filepath.Abs(os.TempDir())
+func withinAuthorizedPath(target, cwd, repoRoot string, safeRoots []string, allowTemp bool) bool {
+	target, roots, lexicallyAuthorized := authorizedPathCandidates(target, cwd, repoRoot, safeRoots, allowTemp)
+	if !lexicallyAuthorized {
+		return false
+	}
+	target, ok := resolveExistingPath(target, "")
+	if !ok {
+		return false
+	}
+	for _, root := range roots {
+		root, ok = resolveExistingPath(root, "")
+		if ok && withinSafe(target, root, nil) {
+			return true
+		}
+	}
+	return false
+}
+
+func authorizedPathCandidates(target, cwd, repoRoot string, safeRoots []string, allowTemp bool) (string, []string, bool) {
+	if target == "~" || strings.HasPrefix(target, "~/") {
+		return "", nil, false
+	}
+	target, err := filepath.Abs(resolvePath(target, cwd))
 	if err != nil {
-		return false
+		return "", nil, false
 	}
-	resolved, err := filepath.Abs(resolvePath(target, cwd))
-	if err != nil || !withinSafe(resolved, temp, nil) {
-		return false
+	configuredRoots := append([]string{repoRoot}, safeRoots...)
+	if allowTemp {
+		configuredRoots = append(configuredRoots, os.TempDir())
 	}
-	tempResolved, ok := resolveExistingPath(temp, "")
-	if !ok {
-		return false
+	var roots []string
+	lexicallyAuthorized := false
+	for _, root := range configuredRoots {
+		if root == "" {
+			continue
+		}
+		root, err = filepath.Abs(resolvePath(root, cwd))
+		if err != nil {
+			continue
+		}
+		roots = append(roots, root)
+		if withinSafe(target, root, nil) {
+			lexicallyAuthorized = true
+		}
 	}
-	resolved, ok = resolveExistingPath(resolved, "")
-	if !ok {
-		return false
-	}
-	return withinSafe(resolved, tempResolved, nil)
+	return target, roots, lexicallyAuthorized
 }
 
 func rsyncRemoteTarget(target string) bool {
@@ -153,13 +184,17 @@ func rsyncDeletionMode(argv []string) (bool, error) {
 		}
 		if strings.HasPrefix(arg, "--") {
 			name, _, attached := strings.Cut(strings.TrimPrefix(arg, "--"), "=")
-			if deletionOptions[name] {
+			resolved, kind, ok := resolveDestinationLongOption(name, spec)
+			if !ok {
+				return false, unknownOpt("rsync", arg)
+			}
+			if deletionOptions[resolved] {
 				if attached {
 					return false, unknownOpt("rsync", arg)
 				}
 				return true, nil
 			}
-			if listedOption(spec.longValues, name) {
+			if kind == destinationValue || kind == destinationWritePath {
 				if !attached {
 					if i+1 >= len(argv) {
 						return false, needsValue("rsync", arg)
@@ -168,7 +203,7 @@ func rsyncDeletionMode(argv []string) (bool, error) {
 				}
 				continue
 			}
-			if !listedOption(spec.longFlags, name) || attached {
+			if kind == destinationFlag && attached {
 				return false, unknownOpt("rsync", arg)
 			}
 			continue

@@ -65,7 +65,7 @@ func checkGitSafety(s Simple) *policy.Verdict {
 				Reason: "discards stashed work with no reflog for the stash contents"}
 		}
 	case "update-ref":
-		if gitOptionPresent(s.Argv, "d", "--delete", map[string]bool{"-m": true}) {
+		if gitOptionPresent(s.Argv, "d", "", gitUpdateRefLongOptions, "m") {
 			return ask("P2.git-ref-delete", "git update-ref -d deletes a ref")
 		}
 	case "worktree":
@@ -73,14 +73,11 @@ func checkGitSafety(s Simple) *policy.Verdict {
 			return ask("P2.git-worktree-remove", "git worktree remove discards a working tree")
 		}
 	case "switch":
-		if gitOptionPresent(s.Argv, "", "--discard-changes", map[string]bool{
-			"-c": true, "-C": true, "--create": true, "--force-create": true,
-			"--conflict": true, "--orphan": true,
-		}) {
+		if gitOptionPresent(s.Argv, "", "discard-changes", gitSwitchLongOptions, "cC") {
 			return ask("P2.git-discard", "git switch --discard-changes throws away uncommitted work")
 		}
 	case "rm":
-		if gitOptionPresent(s.Argv, "rf", "--force", map[string]bool{"--pathspec-from-file": true}) {
+		if gitOptionPresent(s.Argv, "rf", "force", gitRmLongOptions, "") {
 			return ask("P2.git-rm", "git rm -r/-f removes tracked files")
 		}
 	case "push":
@@ -137,7 +134,29 @@ func checkGitSafety(s Simple) *policy.Verdict {
 	return nil
 }
 
-func gitOptionPresent(argv []string, shortFlags, longFlag string, valueOptions map[string]bool) bool {
+var gitUpdateRefLongOptions = []gitPushLongOption{
+	{name: "no-deref"}, {name: "stdin"}, {name: "create-reflog"}, {name: "batch-updates"},
+}
+
+var gitSwitchLongOptions = []gitPushLongOption{
+	{name: "create", valueMode: gitPushRequiredValue},
+	{name: "force-create", valueMode: gitPushRequiredValue},
+	{name: "detach"}, {name: "guess"}, {name: "no-guess"}, {name: "discard-changes"},
+	{name: "force"}, {name: "merge"},
+	{name: "conflict", valueMode: gitPushRequiredValue},
+	{name: "quiet"}, {name: "progress"}, {name: "no-progress"},
+	{name: "recurse-submodules", valueMode: gitPushOptionalValue}, {name: "no-recurse-submodules"},
+	{name: "orphan", valueMode: gitPushRequiredValue}, {name: "ignore-other-worktrees"},
+	{name: "track", valueMode: gitPushOptionalValue}, {name: "no-track"},
+}
+
+var gitRmLongOptions = []gitPushLongOption{
+	{name: "force"}, {name: "dry-run"}, {name: "cached"}, {name: "ignore-unmatch"},
+	{name: "quiet"}, {name: "sparse"},
+	{name: "pathspec-from-file", valueMode: gitPushRequiredValue}, {name: "pathspec-file-nul"},
+}
+
+func gitOptionPresent(argv []string, shortFlags, longFlag string, longOptions []gitPushLongOption, shortValues string) bool {
 	i := gitSubcommandIndex(argv)
 	if i < 0 {
 		return false
@@ -148,22 +167,25 @@ func gitOptionPresent(argv []string, shortFlags, longFlag string, valueOptions m
 			return false
 		}
 		if strings.HasPrefix(arg, "--") {
-			name, _, attached := strings.Cut(arg, "=")
-			if name == longFlag {
-				return !attached
+			name, _, attached := strings.Cut(strings.TrimPrefix(arg, "--"), "=")
+			option, ok := resolveGitLongOption(name, longOptions)
+			if !ok || attached && option.valueMode == gitPushNoValue {
+				continue
 			}
-			if valueOptions[name] && !attached {
+			if option.name == longFlag {
+				return true
+			}
+			if option.valueMode == gitPushRequiredValue && !attached {
 				i++
 			}
 			continue
 		}
 		if strings.HasPrefix(arg, "-") && len(arg) > 1 {
 			for j := 1; j < len(arg); j++ {
-				name := "-" + arg[j:j+1]
 				if strings.ContainsRune(shortFlags, rune(arg[j])) {
 					return true
 				}
-				if valueOptions[name] {
+				if strings.ContainsRune(shortValues, rune(arg[j])) {
 					if j+1 == len(arg) {
 						i++
 					}
@@ -173,6 +195,26 @@ func gitOptionPresent(argv []string, shortFlags, longFlag string, valueOptions m
 		}
 	}
 	return false
+}
+
+func resolveGitLongOption(name string, options []gitPushLongOption) (gitPushLongOption, bool) {
+	for _, option := range options {
+		if option.name == name {
+			return option, true
+		}
+	}
+	var match gitPushLongOption
+	found := false
+	for _, option := range options {
+		if !strings.HasPrefix(option.name, name) {
+			continue
+		}
+		if found {
+			return gitPushLongOption{}, false
+		}
+		match, found = option, true
+	}
+	return match, found
 }
 
 type gitPushValueMode uint8

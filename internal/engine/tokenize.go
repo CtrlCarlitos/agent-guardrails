@@ -135,15 +135,50 @@ func pipelinePositions(f *syntax.File, ctx *normalizeContext) map[*syntax.Stmt][
 		ctx.nextPipelineID++
 		for stage, stageRoot := range flattenPipeline(stmt) {
 			position := pipelinePosition{id: ctx.nextPipelineID, stage: stage}
-			syntax.Walk(stageRoot, func(node syntax.Node) bool {
-				if descendant, ok := node.(*syntax.Stmt); ok {
-					positions[descendant] = append(positions[descendant], position)
-				}
-				return true
-			})
+			markPipelineIngress(positions, stageRoot, position)
 		}
 	}
 	return positions
+}
+
+func markPipelineIngress(positions map[*syntax.Stmt][]pipelinePosition, stmt *syntax.Stmt, position pipelinePosition) {
+	if stmt == nil {
+		return
+	}
+	positions[stmt] = append(positions[stmt], position)
+	first := func(stmts []*syntax.Stmt) {
+		if len(stmts) > 0 {
+			markPipelineIngress(positions, stmts[0], position)
+		}
+	}
+	switch command := stmt.Cmd.(type) {
+	case *syntax.BinaryCmd:
+		if command.Op == syntax.Pipe || command.Op == syntax.PipeAll {
+			for _, stage := range flattenPipeline(stmt) {
+				if stage != stmt {
+					markPipelineIngress(positions, stage, position)
+				}
+			}
+			return
+		}
+		markPipelineIngress(positions, command.X, position)
+	case *syntax.Block:
+		first(command.Stmts)
+	case *syntax.Subshell:
+		first(command.Stmts)
+	case *syntax.IfClause:
+		first(command.Cond)
+	case *syntax.WhileClause:
+		first(command.Cond)
+	case *syntax.ForClause:
+		first(command.Do)
+	case *syntax.CaseClause:
+		for _, item := range command.Items {
+			first(item.Stmts)
+		}
+	case *syntax.TimeClause:
+		markPipelineIngress(positions, command.Stmt, position)
+	}
 }
 
 func flattenPipeline(stmt *syntax.Stmt) []*syntax.Stmt {

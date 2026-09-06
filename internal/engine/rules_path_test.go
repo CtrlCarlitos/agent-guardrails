@@ -833,6 +833,35 @@ func TestMutatingCommandTargetDirectoriesAreSeen(t *testing.T) {
 	}
 }
 
+func TestMutatingCommandUniqueLongOptionAbbreviations(t *testing.T) {
+	deny := []string{
+		`cp --target-d=/home/u/.claude /tmp/settings.json`,
+		`mv --target-d=/home/u/.claude /tmp/settings.json`,
+		`install --target-d=/home/u/.local/bin /tmp/guardrail`,
+		`ln --target-d=/repo/.git/hooks /tmp/pre-commit`,
+	}
+	for _, command := range deny {
+		tc := ToolCall{Tool: "Bash", Command: command, RepoRoot: "/repo", CWD: "/repo"}
+		if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", command, v)
+		}
+	}
+
+	allow := []string{
+		`cp --suf /repo/.claude /tmp/source /tmp/target`,
+		`mv --suf /repo/.claude /tmp/source /tmp/target`,
+		`ln --suf /repo/.claude /tmp/source /tmp/target`,
+		`install --mod /repo/.claude /tmp/source /tmp/target`,
+		`rsync --exclude-f /repo/.claude /tmp/source /tmp/target`,
+	}
+	for _, command := range allow {
+		tc := ToolCall{Tool: "Bash", Command: command, RepoRoot: "/repo", CWD: "/repo"}
+		if v := checkSelfConfig(tc); v != nil {
+			t.Errorf("%q -> %+v, want nil", command, v)
+		}
+	}
+}
+
 func TestMutatingCommandSourcesAreNotWriteTargets(t *testing.T) {
 	allow := []string{
 		`cp /tmp/a /repo/CLAUDE.md /tmp`,

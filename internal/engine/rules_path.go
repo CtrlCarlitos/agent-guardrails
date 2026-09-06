@@ -110,43 +110,53 @@ func resolveExistingPath(candidate, cwd string) (string, bool) {
 }
 
 type destinationCommandSpec struct {
-	targetDirectory bool
-	shortFlags      string
-	shortValues     string
-	shortWritePaths string
-	longFlags       string
-	longValues      string
-	longWritePaths  string
+	targetDirectory    bool
+	allOperands        bool
+	allOperandsShort   string
+	allOperandsLong    string
+	shortFlags         string
+	shortValues        string
+	shortWritePaths    string
+	longFlags          string
+	longValues         string
+	longOptionalValues string
+	longWritePaths     string
 }
 
 var mutatingDestinationCommands = map[string]destinationCommandSpec{
 	"cp": {
-		targetDirectory: true,
-		shortFlags:      "abdfHilLnPpRrsTuvxZ",
-		shortValues:     "S",
-		longFlags:       "archive attributes-only backup copy-contents debug force interactive link dereference no-clobber no-dereference parents preserve recursive reflink remove-destination strip-trailing-slashes symbolic-link no-target-directory update verbose one-file-system context help version",
-		longValues:      "no-preserve sparse suffix",
+		targetDirectory:    true,
+		shortFlags:         "abdfHilLnPpRrsTuvxZ",
+		shortValues:        "S",
+		longFlags:          "archive attributes-only backup copy-contents debug force interactive link dereference keep-directory-symlink no-clobber no-dereference parents preserve recursive reflink remove-destination strip-trailing-slashes symbolic-link no-target-directory update verbose one-file-system context help version",
+		longValues:         "no-preserve sparse suffix",
+		longOptionalValues: "backup preserve reflink update context",
 	},
 	"mv": {
-		targetDirectory: true,
-		shortFlags:      "bfinTuvZ",
-		shortValues:     "S",
-		longFlags:       "backup debug force interactive no-clobber no-copy strip-trailing-slashes no-target-directory update verbose context help version",
-		longValues:      "suffix",
+		targetDirectory:    true,
+		shortFlags:         "bfinTuvZ",
+		shortValues:        "S",
+		longFlags:          "backup debug exchange force interactive no-clobber no-copy strip-trailing-slashes no-target-directory update verbose context help version",
+		longValues:         "suffix",
+		longOptionalValues: "backup update context",
 	},
 	"install": {
-		targetDirectory: true,
-		shortFlags:      "bcCdDpsTvZ",
-		shortValues:     "gmoS",
-		longFlags:       "backup compare directory debug preserve-timestamps strip no-target-directory verbose preserve-context context help version",
-		longValues:      "group mode owner strip-program suffix",
+		targetDirectory:    true,
+		allOperandsShort:   "d",
+		allOperandsLong:    "directory",
+		shortFlags:         "bcCdDpsTvZ",
+		shortValues:        "gmoS",
+		longFlags:          "backup compare directory debug preserve-timestamps strip no-target-directory verbose preserve-context context help version",
+		longValues:         "group mode owner strip-program suffix",
+		longOptionalValues: "backup context",
 	},
 	"ln": {
-		targetDirectory: true,
-		shortFlags:      "bdFfiLnPrsTv",
-		shortValues:     "S",
-		longFlags:       "backup directory force interactive logical no-dereference physical relative symbolic no-target-directory verbose help version",
-		longValues:      "suffix",
+		targetDirectory:    true,
+		shortFlags:         "bdFfiLnPrsTv",
+		shortValues:        "S",
+		longFlags:          "backup directory force interactive logical no-dereference physical relative symbolic no-target-directory verbose help version",
+		longValues:         "suffix",
+		longOptionalValues: "backup",
 	},
 	// rsync's -t means --times, not --target-directory.
 	"rsync": {
@@ -157,15 +167,17 @@ var mutatingDestinationCommands = map[string]destinationCommandSpec{
 		longValues:      "info debug stderr backup-dir suffix chmod checksum-choice cc block-size rsh rsync-path max-delete max-size min-size max-alloc partial-dir usermap groupmap chown timeout contimeout modify-window temp-dir compare-dest copy-dest link-dest compress-choice zc compress-level zl skip-compress filter exclude exclude-from include include-from files-from copy-as address port sockopts outbuf remote-option out-format log-file log-file-format password-file early-input bwlimit stop-after stop-at write-batch only-write-batch read-batch protocol iconv checksum-seed",
 		longWritePaths:  "backup-dir partial-dir temp-dir log-file write-batch only-write-batch",
 	},
+	"tee": {
+		allOperands:        true,
+		shortFlags:         "aip",
+		longFlags:          "append ignore-interrupts help version",
+		longOptionalValues: "output-error",
+	},
 }
 
 var mutatingAllArgs = map[string]bool{
 	"rm": true, "truncate": true, "chmod": true, "chown": true,
-	"mkdir": true, "tee": true, "touch": true, "shred": true,
-}
-
-func listedOption(options, option string) bool {
-	return strings.Contains(" "+options+" ", " "+option+" ")
+	"mkdir": true, "touch": true, "shred": true,
 }
 
 type destinationArgs struct {
@@ -174,6 +186,51 @@ type destinationArgs struct {
 	targetDirectory    string
 	targetDirectorySet bool
 	ambiguous          bool
+	allOperands        bool
+}
+
+type destinationOptionKind uint8
+
+const (
+	destinationFlag destinationOptionKind = iota
+	destinationValue
+	destinationOptionalValue
+	destinationWritePath
+	destinationTargetDirectory
+)
+
+func resolveDestinationLongOption(name string, spec destinationCommandSpec) (string, destinationOptionKind, bool) {
+	options := make(map[string]destinationOptionKind)
+	for _, option := range strings.Fields(spec.longFlags) {
+		options[option] = destinationFlag
+	}
+	for _, option := range strings.Fields(spec.longValues) {
+		options[option] = destinationValue
+	}
+	for _, option := range strings.Fields(spec.longOptionalValues) {
+		options[option] = destinationOptionalValue
+	}
+	for _, option := range strings.Fields(spec.longWritePaths) {
+		options[option] = destinationWritePath
+	}
+	if spec.targetDirectory {
+		options["target-directory"] = destinationTargetDirectory
+	}
+	if kind, ok := options[name]; ok {
+		return name, kind, true
+	}
+	matched := ""
+	var kind destinationOptionKind
+	for option, candidateKind := range options {
+		if !strings.HasPrefix(option, name) {
+			continue
+		}
+		if matched != "" {
+			return "", 0, false
+		}
+		matched, kind = option, candidateKind
+	}
+	return matched, kind, matched != ""
 }
 
 func parseDestinationArgs(argv []string, spec destinationCommandSpec) destinationArgs {
@@ -187,7 +244,15 @@ func parseDestinationArgs(argv []string, spec destinationCommandSpec) destinatio
 		}
 		if options && strings.HasPrefix(a, "--") {
 			name, value, attached := strings.Cut(strings.TrimPrefix(a, "--"), "=")
-			if spec.targetDirectory && name == "target-directory" {
+			resolved, kind, ok := resolveDestinationLongOption(name, spec)
+			if !ok {
+				parsed.ambiguous = true
+				continue
+			}
+			if resolved == spec.allOperandsLong {
+				parsed.allOperands = true
+			}
+			if kind == destinationTargetDirectory {
 				parsed.targetDirectorySet = true
 				if attached {
 					parsed.targetDirectory = value
@@ -200,15 +265,17 @@ func parseDestinationArgs(argv []string, spec destinationCommandSpec) destinatio
 				continue
 			}
 			if attached {
-				if listedOption(spec.longWritePaths, name) {
+				if kind == destinationWritePath {
 					parsed.optionWritePaths = append(parsed.optionWritePaths, value)
+				} else if kind == destinationFlag {
+					parsed.ambiguous = true
 				}
 				continue
 			}
-			if listedOption(spec.longValues, name) {
+			if kind == destinationValue || kind == destinationWritePath {
 				if i+1 < len(argv) {
 					i++
-					if listedOption(spec.longWritePaths, name) {
+					if kind == destinationWritePath {
 						parsed.optionWritePaths = append(parsed.optionWritePaths, argv[i])
 					}
 				} else {
@@ -216,15 +283,15 @@ func parseDestinationArgs(argv []string, spec destinationCommandSpec) destinatio
 				}
 				continue
 			}
-			if !listedOption(spec.longFlags, name) && !strings.HasPrefix(name, "no-") {
-				parsed.ambiguous = true
-			}
 			continue
 		}
 		if options && strings.HasPrefix(a, "-") && len(a) > 1 {
 			short := strings.TrimPrefix(a, "-")
 			for j := 0; j < len(short); j++ {
 				option := short[j]
+				if strings.ContainsRune(spec.allOperandsShort, rune(option)) {
+					parsed.allOperands = true
+				}
 				if spec.targetDirectory && option == 't' {
 					parsed.targetDirectorySet = true
 					if j+1 < len(short) {
@@ -278,6 +345,9 @@ func destinationTargets(argv []string, spec destinationCommandSpec) []string {
 			out = append(out, parsed.operands...)
 		}
 		return out
+	}
+	if spec.allOperands || parsed.allOperands {
+		return append(out, parsed.operands...)
 	}
 	if len(parsed.operands) == 0 {
 		return out

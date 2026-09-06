@@ -86,6 +86,31 @@ func TestGitAdditionalDestructiveVerbOptionValuesDoNotAsk(t *testing.T) {
 	}
 }
 
+func TestGitAdditionalDestructiveVerbsHonorUniqueLongOptionAbbreviations(t *testing.T) {
+	cases := map[string]string{
+		`git switch --discard-c feature`: "P2.git-discard",
+		`git rm --forc generated.go`:     "P2.git-rm",
+	}
+	for command, ruleID := range cases {
+		v := evalGitSafety(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != ruleID {
+			t.Errorf("%q -> %+v, want ask/%s", command, v, ruleID)
+		}
+	}
+}
+
+func TestGitAdditionalVerbAmbiguousPrefixesAndOptionValuesDoNotAsk(t *testing.T) {
+	for _, command := range []string{
+		`git switch --d feature`,
+		`git switch --conf --discard-changes topic`,
+		`git rm --pathspec-from-f --force`,
+	} {
+		if v := evalGitSafety(t, command); v != nil {
+			t.Errorf("%q -> %+v, want nil", command, v)
+		}
+	}
+}
+
 func TestGitPushProtected(t *testing.T) {
 	for _, c := range []string{"git push origin main", "git push origin master", "git push --tags"} {
 		v := evalGitSafety(t, c)

@@ -100,7 +100,7 @@ func checkEgress(s Simple, pol *policy.Policy) *policy.Verdict {
 	if !netTools[command] {
 		return nil
 	}
-	host, networkTarget, err := extractHost(s.Argv, command)
+	hosts, networkTarget, err := extractHosts(s.Argv, command)
 	if err != nil {
 		return &policy.Verdict{Decision: policy.Deny, RuleID: "P6.egress",
 			Reason: "network target could not be resolved safely: " + err.Error()}
@@ -108,11 +108,14 @@ func checkEgress(s Simple, pol *policy.Policy) *policy.Verdict {
 	if !networkTarget {
 		return nil
 	}
-	if isLocalHost(host) || hostAllowed(host, pol.Slots.EgressAllowlist) {
-		return nil
+	for _, host := range hosts {
+		if isLocalHost(host) || hostAllowed(host, pol.Slots.EgressAllowlist) {
+			continue
+		}
+		return &policy.Verdict{Decision: policy.Deny, RuleID: "P6.egress",
+			Reason: "network access to a non-allowlisted host: " + host}
 	}
-	return &policy.Verdict{Decision: policy.Deny, RuleID: "P6.egress",
-		Reason: "network access to a non-allowlisted host: " + host}
+	return nil
 }
 
 type networkOptionSpec struct {
@@ -214,8 +217,14 @@ var sftpOptions = networkOptionSpec{
 	stopAtFirstOperand: true,
 }
 
-func networkOperands(argv []string, tool string, spec networkOptionSpec) ([]string, error) {
-	var operands []string
+type parsedNetworkArgs struct {
+	operands        []string
+	connectionHosts []string
+	hostOverrides   []string
+}
+
+func parseNetworkArgs(argv []string, tool string, spec networkOptionSpec) (parsedNetworkArgs, error) {
+	var parsed parsedNetworkArgs
 	options := true
 	for i := 1; i < len(argv); i++ {
 		arg := argv[i]
@@ -224,32 +233,32 @@ func networkOperands(argv []string, tool string, spec networkOptionSpec) ([]stri
 			continue
 		}
 		if !options || arg == "-" || !strings.HasPrefix(arg, "-") {
-			operands = append(operands, arg)
+			parsed.operands = append(parsed.operands, arg)
 			if spec.stopAtFirstOperand {
 				options = false
 			}
 			continue
 		}
 		if strings.HasPrefix(arg, "--") {
-			name, _, attached := strings.Cut(arg, "=")
+			name, value, attached := strings.Cut(arg, "=")
+			if !attached && (spec.longValues[name] || spec.longTargetValues[name]) {
+				if i+1 >= len(argv) {
+					return parsed, needsValue(tool, arg)
+				}
+				i++
+				value = argv[i]
+			}
 			switch {
 			case spec.longFlags[name] && !attached:
 			case spec.longValues[name] || spec.longTargetValues[name]:
-				value := ""
-				if !attached {
-					if i+1 >= len(argv) {
-						return nil, needsValue(tool, arg)
-					}
-					i++
-					value = argv[i]
-				} else {
-					_, value, _ = strings.Cut(arg, "=")
+				if err := addNetworkOptionTarget(&parsed, tool, name, value); err != nil {
+					return parsed, err
 				}
 				if spec.longTargetValues[name] {
-					operands = append(operands, value)
+					parsed.operands = append(parsed.operands, value)
 				}
 			default:
-				return nil, unknownOpt(tool, arg)
+				return parsed, unknownOpt(tool, arg)
 			}
 			continue
 		}
@@ -260,91 +269,289 @@ func networkOperands(argv []string, tool string, spec networkOptionSpec) ([]stri
 			case strings.ContainsRune(spec.shortFlags, rune(option)):
 				continue
 			case strings.ContainsRune(spec.shortValues, rune(option)):
-				if j+1 == len(short) {
+				value := ""
+				if j+1 < len(short) {
+					value = short[j+1:]
+				} else {
 					if i+1 >= len(argv) {
-						return nil, needsValue(tool, "-"+string(option))
+						return parsed, needsValue(tool, "-"+string(option))
 					}
 					i++
+					value = argv[i]
+				}
+				if err := addNetworkOptionTarget(&parsed, tool, "-"+string(option), value); err != nil {
+					return parsed, err
 				}
 				j = len(short)
 			default:
-				return nil, unknownOpt(tool, "-"+string(option))
+				return parsed, unknownOpt(tool, "-"+string(option))
 			}
 		}
 	}
-	return operands, nil
+	return parsed, nil
 }
 
-func extractHost(argv []string, tool string) (string, bool, error) {
+func addNetworkOptionTarget(parsed *parsedNetworkArgs, tool, option, value string) error {
+	if tool == "curl" {
+		switch option {
+		case "--config", "-K":
+			return fmt.Errorf("%s loads opaque network configuration", option)
+		case "--proxy", "--preproxy", "--socks4", "--socks4a", "--socks5", "--socks5-hostname", "-x":
+			host, err := hostFromURLCandidate(value)
+			if err != nil {
+				return err
+			}
+			parsed.connectionHosts = append(parsed.connectionHosts, host)
+		case "--connect-to":
+			fields, ok := colonFields(value, 4)
+			if !ok {
+				return fmt.Errorf("malformed --connect-to target %q", value)
+			}
+			if fields[2] != "" {
+				host, err := hostFromURLCandidate(fields[2])
+				if err != nil {
+					return err
+				}
+				parsed.connectionHosts = append(parsed.connectionHosts, host)
+			}
+		case "--resolve":
+			fields, ok := colonFields(value, 3)
+			if !ok || fields[2] == "" {
+				return fmt.Errorf("malformed --resolve target %q", value)
+			}
+			for _, address := range strings.Split(fields[2], ",") {
+				host, err := hostFromURLCandidate(address)
+				if err != nil {
+					return err
+				}
+				parsed.connectionHosts = append(parsed.connectionHosts, host)
+			}
+		case "--dns-servers":
+			for _, server := range strings.Split(value, ",") {
+				host, err := hostFromURLCandidate(server)
+				if err != nil {
+					return err
+				}
+				parsed.connectionHosts = append(parsed.connectionHosts, host)
+			}
+		}
+		return nil
+	}
+	if tool == "wget" {
+		if option == "--config" || option == "--execute" || option == "-e" {
+			return fmt.Errorf("%s loads opaque network configuration", option)
+		}
+		return nil
+	}
+	if tool != "ssh" && tool != "sftp" {
+		return nil
+	}
+	switch option {
+	case "-F":
+		return fmt.Errorf("-F loads opaque SSH configuration")
+	case "-S":
+		if tool == "sftp" {
+			return fmt.Errorf("sftp -S executes an opaque transport program")
+		}
+	case "-J":
+		return addProxyJumpTargets(parsed, value)
+	case "-o":
+		return addSSHSettingTarget(parsed, value)
+	case "-W":
+		host, err := hostFromURLCandidate(value)
+		if err != nil {
+			return err
+		}
+		parsed.connectionHosts = append(parsed.connectionHosts, host)
+	case "-L", "-R":
+		host, err := sshForwardHost(value)
+		if err != nil {
+			return err
+		}
+		if host != "" {
+			parsed.connectionHosts = append(parsed.connectionHosts, host)
+		}
+	case "-D":
+		return fmt.Errorf("ssh -D creates a dynamic connection target")
+	}
+	return nil
+}
+
+func sshForwardHost(value string) (string, error) {
+	if fields, ok := colonFields(value, 4); ok {
+		return hostFromURLCandidate(fields[2])
+	}
+	if fields, ok := colonFields(value, 3); ok {
+		return hostFromURLCandidate(fields[1])
+	}
+	if strings.Contains(value, "/") {
+		return "", nil
+	}
+	return "", fmt.Errorf("SSH forwarding target %q could not be resolved safely", value)
+}
+
+func addProxyJumpTargets(parsed *parsedNetworkArgs, value string) error {
+	if strings.EqualFold(value, "none") {
+		return nil
+	}
+	for _, target := range strings.Split(value, ",") {
+		host, err := hostFromURLCandidate(target)
+		if err != nil {
+			return err
+		}
+		parsed.connectionHosts = append(parsed.connectionHosts, host)
+	}
+	return nil
+}
+
+var inertSSHSettings = networkOptionNames(
+	"addressfamily", "batchmode", "bindaddress", "bindinterface", "certificatefile",
+	"checkhostip", "ciphers", "compression", "connectionattempts", "connecttimeout",
+	"controlmaster", "controlpath", "controlpersist", "enableescapecommandline", "escapechar",
+	"exitonforwardfailure", "fingerprinthash", "forwardagent", "forwardx11", "forwardx11timeout",
+	"forwardx11trusted", "gatewayports", "globalknownhostsfile", "gssapiauthentication",
+	"gssapidelegatecredentials", "hashknownhosts", "hostkeyalgorithms", "hostkeyalias",
+	"identitiesonly", "identityagent", "identityfile", "ipqos", "kbdinteractiveauthentication",
+	"kbdinteractivedevices", "localcommand", "loglevel", "logverbose", "macs",
+	"nohostauthenticationforlocalhost", "numberofpasswordprompts", "passwordauthentication",
+	"permitlocalcommand", "pkcs11provider", "port", "preferredauthentications", "proxyusefdpass",
+	"pubkeyacceptedalgorithms", "pubkeyauthentication", "rekeylimit", "remotecommand", "requesttty",
+	"requiredrsasize", "sendenv", "serveralivecountmax", "serveraliveinterval", "sessiontype",
+	"setenv", "stdinnull", "streamlocalbindmask", "streamlocalbindunlink", "stricthostkeychecking",
+	"syslogfacility", "tcpkeepalive", "tunnel", "tunneldevice", "updatehostkeys", "user",
+	"userknownhostsfile", "verifyhostkeydns", "visualhostkey", "xauthlocation",
+)
+
+func addSSHSettingTarget(parsed *parsedNetworkArgs, value string) error {
+	key, setting, found := strings.Cut(value, "=")
+	if !found {
+		fields := strings.Fields(value)
+		if len(fields) < 2 {
+			return fmt.Errorf("malformed SSH setting %q", value)
+		}
+		key, setting = fields[0], strings.Join(fields[1:], " ")
+	}
+	key = strings.ToLower(strings.TrimSpace(key))
+	setting = strings.TrimSpace(setting)
+	switch key {
+	case "hostname":
+		host, err := hostFromURLCandidate(setting)
+		if err != nil {
+			return err
+		}
+		parsed.hostOverrides = append(parsed.hostOverrides, host)
+		return nil
+	case "proxyjump":
+		return addProxyJumpTargets(parsed, setting)
+	case "proxycommand", "canonicaldomains", "canonicalizehostname", "include",
+		"localforward", "remoteforward", "dynamicforward", "permitremoteopen":
+		return fmt.Errorf("SSH setting %s has an opaque connection target", key)
+	default:
+		if inertSSHSettings[key] {
+			return nil
+		}
+		return fmt.Errorf("unknown SSH setting %s could alter the connection target", key)
+	}
+}
+
+func colonFields(value string, count int) ([]string, bool) {
+	var fields []string
+	start, brackets := 0, 0
+	for i, r := range value {
+		switch r {
+		case '[':
+			brackets++
+		case ']':
+			if brackets > 0 {
+				brackets--
+			}
+		case ':':
+			if brackets == 0 && len(fields) < count-1 {
+				fields = append(fields, strings.Trim(value[start:i], "[]"))
+				start = i + 1
+			}
+		}
+	}
+	fields = append(fields, strings.Trim(value[start:], "[]"))
+	return fields, len(fields) == count
+}
+
+func extractHosts(argv []string, tool string) ([]string, bool, error) {
 	switch tool {
 	case "curl", "wget":
 		spec := curlOptions
 		if tool == "wget" {
 			spec = wgetOptions
 		}
-		args, err := networkOperands(argv, tool, spec)
+		args, err := parseNetworkArgs(argv, tool, spec)
 		if err != nil {
-			return "", true, err
+			return nil, true, err
 		}
-		var host string
-		for _, a := range args {
+		hosts := append([]string(nil), args.connectionHosts...)
+		for _, a := range args.operands {
 			candidate, err := hostFromURLCandidate(a)
 			if err != nil {
-				return "", true, err
+				return nil, true, err
 			}
-			if host != "" && host != candidate {
-				return "", true, fmt.Errorf("multiple different hosts are ambiguous")
-			}
-			host = candidate
+			hosts = append(hosts, candidate)
 		}
-		if host == "" {
-			return "", true, fmt.Errorf("missing host")
+		if len(hosts) == 0 {
+			return nil, true, fmt.Errorf("missing host")
 		}
-		return host, true, nil
+		return hosts, true, nil
 	case "scp", "rsync":
 		args := nonFlagArgs(argv)
 		for _, a := range args {
 			if i := strings.Index(a, "@"); i >= 0 {
 				rest := a[i+1:]
 				if j := strings.Index(rest, ":"); j >= 0 {
-					return rest[:j], true, nil
+					return []string{rest[:j]}, true, nil
 				}
 				continue
 			}
 			if j := strings.Index(a, "::"); j > 0 && len(a[:j]) > 1 && !strings.Contains(a[:j], "/") {
-				return a[:j], true, nil
+				return []string{a[:j]}, true, nil
 			}
 			if j := strings.Index(a, ":"); j > 0 && len(a[:j]) > 1 && !strings.Contains(a[:j], "/") {
-				return a[:j], true, nil
+				return []string{a[:j]}, true, nil
 			}
 		}
-		return "", false, nil
+		return nil, false, nil
 	case "ssh", "sftp":
 		spec := sshOptions
 		if tool == "sftp" {
 			spec = sftpOptions
 		}
-		args, err := networkOperands(argv, tool, spec)
+		args, err := parseNetworkArgs(argv, tool, spec)
 		if err != nil {
-			return "", true, err
+			return nil, true, err
 		}
-		if len(args) == 0 {
-			return "", true, fmt.Errorf("missing host")
+		if len(args.operands) == 0 {
+			return nil, true, fmt.Errorf("missing host")
 		}
-		host, err := hostFromURLCandidate(args[0])
-		return host, true, err
+		hosts := append([]string(nil), args.connectionHosts...)
+		if len(args.hostOverrides) == 0 {
+			host, err := hostFromURLCandidate(args.operands[0])
+			if err != nil {
+				return nil, true, err
+			}
+			hosts = append(hosts, host)
+		} else {
+			hosts = append(hosts, args.hostOverrides...)
+		}
+		return hosts, true, nil
 	case "nc", "ncat", "telnet":
 		args := nonFlagArgs(argv)
 		if len(args) > 0 {
-			return stripPort(args[0]), true, nil
+			return []string{stripPort(args[0])}, true, nil
 		}
 	case "ftp":
 		args := nonFlagArgs(argv)
 		if len(args) > 0 {
-			return stripPort(args[0]), true, nil
+			return []string{stripPort(args[0])}, true, nil
 		}
 	}
-	return "", true, fmt.Errorf("missing or unrecognized host")
+	return nil, true, fmt.Errorf("missing or unrecognized host")
 }
 
 func hostFromURLCandidate(candidate string) (string, error) {

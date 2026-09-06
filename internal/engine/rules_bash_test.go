@@ -481,6 +481,47 @@ func TestDestinationWriteOptionValuesAreNotTargets(t *testing.T) {
 	}
 }
 
+func TestDestinationUniqueTargetDirectoryAbbreviationsAsk(t *testing.T) {
+	commands := []string{
+		`cp --target-d=/etc /repo/source`,
+		`mv --target-d=/etc /repo/source`,
+		`ln --target-d=/etc /repo/source`,
+		`install --target-d=/usr/local/bin /repo/source`,
+	}
+	for _, command := range commands {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.out-of-repo-write" {
+			t.Errorf("%q -> %+v, want ask/P1.out-of-repo-write", command, v)
+		}
+	}
+}
+
+func TestInstallDirectoryTreatsEveryOperandAsDestination(t *testing.T) {
+	for _, command := range []string{
+		`install -d /etc/first /repo/second`,
+		`install --directory /etc/first /repo/second`,
+		`install --direc /etc/first /repo/second`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.out-of-repo-write" {
+			t.Errorf("%q -> %+v, want ask/P1.out-of-repo-write", command, v)
+		}
+	}
+}
+
+func TestDestinationUnknownOrAmbiguousAttachedOptionsFailClosed(t *testing.T) {
+	for _, command := range []string{
+		`cp --future=/etc /repo/source /repo/target`,
+		`cp --no=/etc /repo/source /repo/target`,
+		`cp --verbose=mode /repo/source /repo/target`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want ask/P3.unresolved", command, v)
+		}
+	}
+}
+
 func TestDestinationWritesWithinConfiguredSafeRootRemainAllowed(t *testing.T) {
 	for _, command := range []string{
 		`cp /repo/source /repo/target`,
@@ -546,6 +587,60 @@ func TestOSTempDestinationSymlinkOutsideTempStillAsks(t *testing.T) {
 	v := evalBash(t, command)
 	if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.out-of-repo-write" {
 		t.Fatalf("%q -> %+v, want ask/P1.out-of-repo-write", command, v)
+	}
+}
+
+func TestRepoDestinationSymlinkOutsideRepoAsks(t *testing.T) {
+	repo := t.TempDir()
+	escape := filepath.Join(repo, "escape")
+	if err := os.Symlink("/etc", escape); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	command := fmt.Sprintf(`cp %q %q`, filepath.Join(repo, "source"), filepath.Join(escape, "passwd"))
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+	v := checkBash(tc, bashPol())
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.out-of-repo-write" {
+		t.Fatalf("%q -> %+v, want ask/P1.out-of-repo-write", command, v)
+	}
+}
+
+func TestConfiguredSafeRootDestinationSymlinkOutsideSafeRootsAsks(t *testing.T) {
+	repo := t.TempDir()
+	safe := filepath.Join(t.TempDir(), "safe")
+	if err := os.Mkdir(safe, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	escape := filepath.Join(safe, "escape")
+	if err := os.Symlink("/etc", escape); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	pol := bashPol()
+	pol.Slots.SafeRoots = []string{safe}
+	command := fmt.Sprintf(`install %q %q`, filepath.Join(repo, "source"), filepath.Join(escape, "passwd"))
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+	v := checkBash(tc, pol)
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.out-of-repo-write" {
+		t.Fatalf("%q -> %+v, want ask/P1.out-of-repo-write", command, v)
+	}
+}
+
+func TestMoveSourceSymlinkOutsideSafeRootsAsks(t *testing.T) {
+	repo := t.TempDir()
+	escape := filepath.Join(repo, "escape")
+	if err := os.Symlink("/etc", escape); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	commands := []string{
+		fmt.Sprintf(`mv %q %q`, filepath.Join(escape, "hosts"), filepath.Join(repo, "hosts")),
+		fmt.Sprintf(`mv %q %q`, filepath.Join(escape, "agent-guardrails-missing"), filepath.Join(repo, "missing")),
+		fmt.Sprintf(`mv %q %q`, escape, filepath.Join(repo, "escape-moved")),
+	}
+	for _, command := range commands {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+		v := checkBash(tc, bashPol())
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.out-of-repo-write" {
+			t.Errorf("%q -> %+v, want ask/P1.out-of-repo-write", command, v)
+		}
 	}
 }
 
