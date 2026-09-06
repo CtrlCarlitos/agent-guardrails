@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Revision 4 (2026-09-06) — a change of form.** Revisions 1–3 each specified literal implementation code, and each was stopped before execution with four or five disproved premises (fourteen in total; see the revision history at the foot). Every one of those errors was in implementation code the author asserted without running. **This revision specifies behaviour only**: the defect, the required behaviour, the tests that define it, the corpus locks, the files in scope, and the constraints. The executor owns the implementation — they are the side with executable ground truth. Tests here are the contract; if a test is wrong, stop and say so, as before.
+> **Revision 5 (2026-09-06).** Revisions 1–3 specified literal implementation code and were each stopped with four or five disproved premises. Revision 4 dropped implementation code and specified behaviour through tests; it was stopped because two tests were wrong and seven required behaviours were missing — most seriously, that moving globs between slots would silently remove them from the generated Claude/opencode **declarative floors**. Revision 5 corrects all of that. **This revision specifies behaviour only**: the defect, the required behaviour, the tests that define it, the corpus locks, the files in scope, and the constraints. The executor owns the implementation. Tests here are the contract; if a test is wrong, stop and say so, as before.
 
 **Goal:** Make the path matcher say what it means. One glob list currently expresses three intents — "anywhere", "at the repo root", "unless allowed" — through a single basename fallback, producing false positives and a bypass at once.
 
@@ -12,7 +12,9 @@
 
 **Policy schema change:** Task 2 adds `secret_dirs`, Task 3 adds `secret_ask_globs`. Each is a new `[slots]` list and touches **`internal/policy/base.go`, `policy.go`, `config.go`, `merge.go` and their tests** — the same places `SecretGlobs` is wired today. Both are additive and tightening-only: no Operator grant needed, old Overlays keep working.
 
-**Tests verified on HEAD (`fd101e3`).** Every engine test below was extracted verbatim into `internal/engine/` in a scratch worktree, with `argPathValues` stubbed to `nonFlagArgs`. Result: **all compile; all fail on HEAD, each for the defect its task describes.** Failures confirmed: root-only globs deny at depth (`P5.self-config`, `P5.ci-infra-lockfile`) and `/etc/CLAUDE.md` denies; `~/.ssh/.env.example` allows (H-2); `translations.key` and `id_rsa.pub` deny, `cert.pem` denies rather than asks (M-2/M-3); agent memory write denies (NF-1); `git clean -nxd` denies (M-6); `.SSH/ID_RSA` allows (H-7); every flag-attached form is dropped (T5); `cp`/`mv`/`base64`/`tar`/`openssl`/`dd`/`somenewtool` and both `python3 -c` forms allow (CR-9); `grep '*.pem'`, `grep -r id_rsa`, `grep -e '*.pem'` all deny (existing false positives). Cases that already pass on HEAD are regression locks and are marked as such in the tests.
+**Tests verified on HEAD code (`c46ef67`), Revision 5 plan.** Every engine test below (17 functions: `wantAllow` + 16 tests) was extracted from this document into `internal/engine/` in a scratch worktree of HEAD, with `argPathValues` stubbed to `nonFlagArgs`; the three `internal/policy`/`internal/genconfig` tests were excluded because they reference slots that do not exist yet. Result: **all compile; 15 fail on HEAD for the defect their task describes; `TestRootOnlyGlobsFollowSymlinks` passes and is a regression lock.** Failures confirmed: root-only globs deny at depth and `/etc/CLAUDE.md` denies (M-4/M-5); `~/.ssh/.env.example` and `~/.aws/.env.example` allow (H-2); `translations.key` and `id_rsa.pub` deny, `cert.pem` denies rather than asks (M-2/M-3); agent memory write denies (NF-1); `git clean -nxd` denies (M-6); `.SSH/ID_RSA` allows (H-7); every flag-attached form is dropped (T5); `cp`/`mv`/`base64`/`tar`/`openssl`/`dd`/`somenewtool` and both `python3 -c` forms allow (CR-9); `grep '*.pem'`, `grep -r id_rsa`, `grep -e '*.pem'`, `grep /repo/log -e '*.pem'` and `awk -F: '/id_rsa/'` all deny (existing false positives — the awk case is the Revision 4 wrong-test, reproduced); `jq -f <secret>` and `dd if=<symlink→secret>` allow. Within `TestStrongestVerdictAcrossRules`, only "waived ask alone → allow" fails on HEAD; the other assertions pass trivially today and become meaningful when the ask tier lands. Assertions that pass on HEAD are regression locks and are labelled as such.
+
+*Method note, so the executor does not repeat the author's mistake: a `git worktree` checks out **HEAD**, so extracting tests from the worktree's copy of this plan verifies the last **committed** revision, not the file being edited. Read the plan from the working tree.*
 
 ## Global Constraints
 
@@ -109,7 +111,7 @@ func TestRootOnlyGlobsFollowSymlinks(t *testing.T) {
 ```
 
 - [ ] **Step 2:** Run → the `deep` cases and `/etc/CLAUDE.md` fail (deny); `/REPO/…` and the symlink fail after the fallback is removed.
-- [ ] **Step 3:** Implement. Split lists: root-only = `CLAUDE.md AGENTS.md .mcp.json .envrc guardrail.toml opencode.json .gitlab-ci.yml Jenkinsfile .pre-commit-config.yaml azure-pipelines.yml Dockerfile docker-compose*.yml *.tf Makefile justfile Taskfile.yml setup.py conftest.py noxfile.py` + lockfiles; everything `**/`-prefixed stays anywhere.
+- [ ] **Step 3:** Implement. Split lists: root-only = `CLAUDE.md AGENTS.md .mcp.json guardrail.toml opencode.json .gitlab-ci.yml Jenkinsfile .pre-commit-config.yaml azure-pipelines.yml Dockerfile docker-compose*.yml *.tf Makefile justfile Taskfile.yml setup.py conftest.py noxfile.py` + lockfiles; everything `**/`-prefixed stays anywhere. **`.envrc` becomes `**/.envrc` (anywhere), not root-only** — direnv executes the `.envrc` of every directory you enter, so a nested one is exactly as dangerous as the root one. Add a test: `Write /repo/sub/.envrc` → deny.
 - [ ] **Step 4:** Full suite. Any newly-failing case is a signal, not noise.
 - [ ] **Step 5:** `git commit -m "fix(engine): root-only globs match the repo-relative form only, lexical and resolved (M-4, M-5)"`
 
@@ -125,6 +127,25 @@ func TestRootOnlyGlobsFollowSymlinks(t *testing.T) {
 - New slot `secret_dirs` (`Slots.SecretDirs`), wired through all five policy files exactly as `SecretGlobs` is. Move out of `secret_globs`: `**/.ssh/**`, `/root/.ssh/**`, `**/.aws/**`, `**/.config/gcloud/**`, `**/.docker/config.json`; add `**/.gnupg/**`.
 - A `secret_dirs` match denies **unconditionally** — no `secret_allow` entry, of any form, can waive it.
 - Overlay merge: additive, tightening-only.
+- **The declarative floors must not lose these entries.** `genconfig/claude.go:60` (`secretDenyGlobs`) builds Claude's native `Read(...)`/`Edit(...)` deny list from `Slots.SecretGlobs` **only**. Moving `**/.ssh/**` out of `secret_globs` without touching the generator silently removes it from `settings.json` — the engine gets stronger while the floor gets weaker. `secretDenyGlobs` must also emit every `SecretDirs` entry, and unlike `secret_globs` entries these are **never** skipped by `collidesWithAllow`. Apply the same to the opencode generator (`genconfig/opencode.go`) wherever it consumes secret slots. Regenerate goldens and **read the diff**: the only acceptable change is that no `.ssh`/`.aws`/`.gnupg`/gcloud/docker-config entry disappears.
+
+Add to `internal/genconfig`:
+
+```go
+func TestSecretDirsReachTheDeclarativeFloor(t *testing.T) {
+	pol := &policy.Policy{Slots: policy.Slots{
+		SecretDirs:  []string{"**/.ssh/**"},
+		SecretGlobs: []string{"**/.env"},
+		SecretAllow: []string{"**/.ssh/**"}, // an allow can never remove a secret dir from the floor
+	}}
+	got := secretDenyGlobs(pol)
+	for _, want := range []string{"Read(**/.ssh/**)", "Edit(**/.ssh/**)", "Read(**/.env)"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("floor = %v, want to contain %q", got, want)
+		}
+	}
+}
+```
 
 - [ ] **Step 1: Tests**
 
@@ -177,11 +198,31 @@ func TestSecretDirsMergeIsAdditiveOnly(t *testing.T) {
 
 **Required behaviour.**
 - New slot `secret_ask_globs` (`Slots.SecretAskGlobs`), five policy files. Holds `**/*.pem **/*.p12 **/*.pfx **/*.keystore **/service-account*.json`, moved out of `secret_globs`. Waivable by `secret_allow`; `secret_dirs` still wins.
-- `secret_globs`: drop `*.key`; add `**/*_rsa **/*_ed25519 **/*_ecdsa **/*.private.key **/*-private-key.* **/private*.key`. `secret_allow` gains `**/*.pub`.
+- `secret_globs`: drop `*.key`; **retain the suffix-preserving forms as explicit anywhere globs** — `**/id_rsa* **/id_ed25519* **/id_ecdsa* **/id_dsa*` — because the basename fallback that made bare `id_rsa*` match at depth is gone, and `**/*_rsa` does not cover `id_rsa_work` or `id_rsa.old`; add `**/*_rsa **/*_ed25519 **/*_ecdsa **/*.private.key **/*-private-key.* **/private*.key`. `secret_allow` gains `**/*.pub`.
+- **The `ask` tier is in-repo only.** An ask-tier pattern matching a path *outside* `RepoRoot` (e.g. `/home/u/certs/client.pem`) **denies**, exactly as today. The stated intent is to stop hard-blocking *in-repo* fixtures; a global downgrade would weaken protection for every certificate on the machine, which the no-weakening rule forbids.
 - Rule IDs: `P4.secret-path` (deny), `P4.secret-path-ambiguous` (ask). Both waivable by ID.
 - `checkPaths` aggregates across all candidates: deny > ask > nil.
 - `**/.claude/**` is replaced with `**/.claude/settings.json **/.claude/settings.local.json **/.claude/hooks/** **/.claude/plugins/** **/.claude/agents/** **/.claude/commands/** **/.claude/skills/** **/.claude/CLAUDE.md`.
 - `git clean` with `-n`/`--dry-run` returns nil before the force-flag check.
+- **Declarative floors follow the tiers and the scoped `.claude` list.** Claude's generator emits an `"ask"` permission list alongside `"deny"` (`claude.go`, the `"ask": ask` entry): every `SecretAskGlobs` entry becomes `Read(<glob>)`/`Edit(<glob>)` under **ask**, not deny. The hand-duplicated `selfConfigGlobsFloor` (`claude.go:94`, currently `.claude/**`) is narrowed to the same eight scoped entries as the engine, in the floor's project-relative form (`.claude/settings.json`, `.claude/hooks/**`, …) — the comment above it says the two lists are kept in sync by hand, so this task is where that happens. Opencode's generator gets the equivalent treatment. Regenerate goldens; the diff must show `*.pem`/`service-account*.json` moving from deny to ask and `.claude/**` replaced by the scoped entries, and nothing else.
+
+Add to `internal/genconfig`:
+
+```go
+func TestAskTierAndScopedClaudeReachTheFloor(t *testing.T) {
+	pol := &policy.Policy{Slots: policy.Slots{SecretAskGlobs: []string{"**/*.pem"}}}
+	cfg := ClaudeConfig("guardrail", pol) // match the real constructor signature
+	perms := cfg["permissions"].(map[string]any)
+	ask, deny := perms["ask"].([]string), perms["deny"].([]string)
+	if !slices.Contains(ask, "Read(**/*.pem)") || slices.Contains(deny, "Read(**/*.pem)") {
+		t.Errorf("ask-tier glob must be under ask, not deny: ask=%v deny=%v", ask, deny)
+	}
+	if slices.Contains(deny, "Edit(.claude/**)") || !slices.Contains(deny, "Edit(.claude/settings.json)") {
+		t.Errorf("self-config floor must be scoped: deny=%v", deny)
+	}
+}
+```
+(Adjust the traversal to `ClaudeConfig`'s real return shape; the golden test in `test/` shows it.)
 
 - [ ] **Step 1: Tests**
 
@@ -199,7 +240,11 @@ func TestSecretTiers(t *testing.T) {
 			t.Errorf("%q -> %+v, want ask/P4.secret-path-ambiguous", p, v)
 		}
 	}
-	for _, p := range []string{"/repo/certs/private.key", "/repo/deploy_rsa", "/home/u/.ssh/id_rsa", "/home/u/.ssh/server.pem"} {
+	for _, p := range []string{
+		"/repo/certs/private.key", "/repo/deploy_rsa", "/home/u/.ssh/id_rsa", "/home/u/.ssh/server.pem",
+		"/repo/keys/id_rsa_work", "/repo/keys/id_ed25519.old", // suffix-preserving forms survive the fallback removal
+		"/home/u/certs/client.pem", "/opt/svc/service-account.json", // ask tier is in-repo only; outside the repo these still deny
+	} {
 		if v := read(p); v == nil || v.Decision != policy.Deny {
 			t.Errorf("%q -> %+v, want deny", p, v)
 		}
@@ -224,6 +269,55 @@ func TestStrongestVerdictWinsAcrossCandidates(t *testing.T) {
 	tc := ToolCall{Tool: "Bash", Command: `cat /repo/README.md /repo/docs/cert.pem`, CWD: "/repo", RepoRoot: "/repo"}
 	if v := checkPaths(tc, pol); v == nil || v.Decision != policy.Ask {
 		t.Errorf("ask-only -> %+v, want ask", v)
+	}
+}
+
+func TestStrongestVerdictAcrossRules(t *testing.T) {
+	// Aggregation is not only within secret candidates: an ambiguous ask must
+	// never mask a deny from a sibling rule, in either operand order, and a
+	// waiver of the ask rule must not waive the deny.
+	pol := pathPol()
+	root := t.TempDir()
+	secret := filepath.Join(root, "outside", "id_rsa")
+	if err := os.MkdirAll(filepath.Dir(secret), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secret, []byte("k"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, "docs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(repo, "link")
+	if err := os.Symlink(secret, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	pem := filepath.Join(repo, "docs", "cert.pem")
+	for _, c := range []string{
+		"cat " + pem + " " + link, // ask (pem) then symlink-escape deny
+		"cat " + link + " " + pem, // deny then ask
+	} {
+		tc := ToolCall{Tool: "Bash", Command: c, CWD: repo, RepoRoot: repo}
+		if v := checkPaths(tc, pol); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny (symlink escape outranks ambiguous ask)", c, v)
+		}
+	}
+	// Self-config deny beside an ambiguous read, through the whole engine.
+	tc := ToolCall{Tool: "Bash", Command: "cat " + pem + " > " + filepath.Join(repo, "CLAUDE.md"), CWD: repo, RepoRoot: repo}
+	if v := Evaluate(tc, pol); v.Decision != policy.Deny {
+		t.Errorf("ambiguous read + self-config write -> %+v, want deny", v)
+	}
+	// Waiving the ask rule does not waive the deny.
+	waived := *pol
+	waived.Waived = map[string]bool{"P4.secret-path-ambiguous": true}
+	tc = ToolCall{Tool: "Bash", Command: "cat " + pem + " " + link, CWD: repo, RepoRoot: repo}
+	if v := Evaluate(tc, &waived); v.Decision != policy.Deny {
+		t.Errorf("waived ask + deny -> %+v, want deny", v)
+	}
+	tc = ToolCall{Tool: "Bash", Command: "cat " + pem, CWD: repo, RepoRoot: repo}
+	if v := Evaluate(tc, &waived); v.Decision != policy.Allow {
+		t.Errorf("waived ask alone -> %+v, want allow", v)
 	}
 }
 
@@ -300,7 +394,7 @@ func TestArgPathValues(t *testing.T) {
 		{[]string{"grep", "-f~/.ssh/id_rsa", "x"}, "~/.ssh/id_rsa"},
 		{[]string{"grep", `-fC:\Users\u\.ssh\id_rsa`, "x"}, `C:\Users\u\.ssh\id_rsa`},
 		{[]string{"grep", "--file=../secrets/id_rsa"}, "../secrets/id_rsa"},
-		{[]string{"openssl", "rsa", "-in/home/u/.ssh/id_rsa"}, "/home/u/.ssh/id_rsa"},
+		{[]string{"sed", "-f/home/u/.ssh/id_rsa", "x"}, "/home/u/.ssh/id_rsa"}, // openssl's -in does not accept an attached value; sed -f does
 		{[]string{"cat", "/home/u/.ssh/id_rsa"}, "/home/u/.ssh/id_rsa"},
 	} {
 		if got := argPathValues(c.argv); !slices.Contains(got, c.want) {
@@ -336,6 +430,7 @@ func TestArgPathValues(t *testing.T) {
 - The reader list becomes a **hint**, renamed `pathOperandCommands`, extended with `wc diff cmp file nl tac rev cut sort uniq tee base32 base64 md5sum sha1sum sha256sum cp mv install rsync scp tar zip gzip openssl gpg dd jq yq`. For a listed command every operand from `argPathValues` is a candidate, bare filenames included. For any other command an operand must be path-shaped (contains a separator or starts with `~`).
 - **Program/pattern/filter operands are excluded.** For `grep`/`egrep`/`fgrep`: the token consumed by `-e`/`--regexp` is the pattern and is excluded; the token consumed by `-f`/`--file` **is a path** and is included; when neither flag is present the first non-flag operand is the pattern and is excluded. For `sed`: the token consumed by `-e` is the script (excluded), by `-f` a path (included); otherwise the first operand is the script. For `awk`: `-f` consumes a path; otherwise the first operand is the program. For `jq`/`yq`: the first operand is the filter. (▶ On HEAD, `grep -e '*.pem' file` denies because `*.pem` is seen as an operand — the `-e` value must be excluded explicitly, not just "first operand".)
 - For `isOpaqueExecutor` commands, every `visiblePathCandidates` token that is path-shaped is a candidate. **Boundary, stated:** inside opaque source we match the literal presence of a secret path and do not distinguish access from mention; a `secret_dirs` path denies, an ambiguous one asks, source with no path is untouched.
+- **`awk` is the exception to opaque scanning.** `isOpaqueExecutor` lists awk, but an awk *program* is a pattern language whose `/regex/` delimiters look like paths — `awk '/id_rsa/ {print}'` would extract `/id_rsa/` and deny. The awk program operand (first non-flag operand unless `-f` is given) is excluded from both operand scanning and opaque-source scanning; `awk -f <file>` treats `<file>` as a path. This is a deliberate, tested carve-out from the mention-equals-access boundary.
 - Redirects and `writeTargets` unchanged.
 
 - [ ] **Step 1: Tests**
@@ -397,6 +492,56 @@ func TestPatternAndFilterOperandsAreNotPaths(t *testing.T) {
 	}
 }
 
+func TestOperandRolesUnderOptionOrderAndTerminators(t *testing.T) {
+	pol := pathPol()
+	allow := []string{
+		`grep /repo/build.log -e '*.pem'`,           // late -e: pattern still excluded
+		`sed /repo/a.txt -e 's/.env/.cfg/'`,         // late -e: script still excluded
+		`jq --arg k '.env' '.[$k]' /repo/x.json`,    // --arg value and filter are not paths
+		`tar --exclude='*.pem' -cf /tmp/a.tar /repo/src`, // exclusion pattern is not a path
+		`awk -F: '/id_rsa/' /repo/passwd.txt`,       // program excluded even with a preceding flag
+	}
+	for _, c := range allow {
+		tc := ToolCall{Tool: "Bash", Command: c, CWD: "/repo", RepoRoot: "/repo"}
+		wantAllow(t, c, checkPaths(tc, pol))
+	}
+	deny := []string{
+		`jq -f /home/u/.ssh/id_rsa /repo/x.json`,  // -f is a path, unlike --arg
+		`awk -f /home/u/.ssh/id_rsa /repo/log`,    // -f is a path; program operand rule does not apply
+		`cat -- /home/u/.ssh/id_rsa`,              // -- terminates options; operand is still a path
+		`grep -- id_rsa /home/u/.ssh/id_rsa`,      // pattern after --, then a real secret path
+	}
+	for _, c := range deny {
+		tc := ToolCall{Tool: "Bash", Command: c, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkPaths(tc, pol); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", c, v)
+		}
+	}
+}
+
+func TestDDInputFollowsSymlinks(t *testing.T) {
+	root := t.TempDir()
+	secret := filepath.Join(root, "outside", "id_rsa")
+	if err := os.MkdirAll(filepath.Dir(secret), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secret, []byte("k"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(repo, "innocent.bin")
+	if err := os.Symlink(secret, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	tc := ToolCall{Tool: "Bash", Command: "dd if=" + link + " of=/tmp/x", CWD: repo, RepoRoot: repo}
+	if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny {
+		t.Errorf("dd if=<symlink to secret> -> %+v, want deny", v)
+	}
+}
+
 func TestOpaqueSourceBoundary(t *testing.T) {
 	pol := pathPol()
 	tc := ToolCall{Tool: "Bash", Command: `python3 -c "print('/repo/docs/cert.pem')"`, CWD: "/repo", RepoRoot: "/repo"}
@@ -416,7 +561,7 @@ func TestOpaqueSourceBoundary(t *testing.T) {
 
 ### Task 7: Corpus, docs, tag
 
-- [ ] **Step 1: Corpus.** Every `deny` above as `deny`; every `wantAllow` case as `allow`; the M-3 examples as `ask`; the aggregation case `cat /repo/docs/cert.pem /home/u/.ssh/id_rsa` as `deny`; `cat id_rsa` and `cp id_rsa /tmp/x` with cwd `~/.ssh` as `deny`; `grep '*.pem' /repo/build.log` as `allow` (a fix to an existing false positive — note it as such).
+- [ ] **Step 1: Corpus.** Corpus `want` values are **whole-Engine verdicts**, not focused-check results. Every `deny` above as `deny`. Every `wantAllow` case as `allow` **except** where a sibling rule fires under full evaluation: `Write /etc/CLAUDE.md` and `Write ~/.claude/projects/x/memory/note.md` are out-of-repo writes and receive `P5.out-of-repo` → record them as `ask`, with a note that self-config no longer fires. The M-3 examples as `ask`; the aggregation case `cat /repo/docs/cert.pem /home/u/.ssh/id_rsa` as `deny`; `cat id_rsa` and `cp id_rsa /tmp/x` with cwd `~/.ssh` as `deny`; `grep '*.pem' /repo/build.log` as `allow` (a fix to an existing false positive — note it as such).
 - [ ] **Step 2: Docs.** `guardrail.toml.example` gains commented `secret_dirs` and `secret_ask_globs`. `CONTEXT.md`'s **Guardrail Policy** entry names the three secret tiers (directory → deny unwaivable; file → deny waivable; ambiguous → ask).
 - [ ] **Step 3:** `make check && /usr/local/go/bin/go test ./... -count=1` → green, zero corpus entries relaxed.
 - [ ] **Step 4:** Annotate the review `**[FIXED — Phase 4]**` on CR-9/RC4, H-2, H-7, M-2, M-3, M-4, M-5, M-6, NF-1. Update the response-report ledger. **H-6, H-10, M-7 remain open** — Phase 5.
@@ -443,6 +588,12 @@ git push origin main && git tag v0.13.0-dev && git push origin v0.13.0-dev
 ---
 
 ## Revision History
+
+### Revision 4 → 5 (two wrong tests, seven omissions; all confirmed)
+
+**Wrong tests.** (1) `awk '/id_rsa/ {print}' f` cannot be `allow` under the mention-equals-access boundary — awk is an opaque executor and `/id_rsa/` extracts as a path. Resolved by carving awk's program operand out of opaque scanning, explicitly. (2) `openssl rsa -in/path` is not valid OpenSSL (`Unknown cipher: in/path`); the attached-value helper test now uses `sed -f/path`.
+
+**Omissions.** (3) **Declarative floors:** `genconfig/claude.go:62` builds the native deny list from `Slots.SecretGlobs` only, so moving `.ssh` into `secret_dirs` would drop it from `settings.json`. Tasks 2 and 3 now require the generators, goldens and unit tests to follow the tiers. (4) A global ask tier downgrades `/home/u/certs/client.pem` — the tier is now **in-repo only**; outside the repo it denies. (5) `.envrc` root-only weakened nested direnv files — now `**/.envrc`. (6) `**/*_rsa` does not cover `id_rsa_work`; the suffix-preserving `**/id_rsa*` family is retained explicitly. (7) Aggregation tests now cover ask-vs-symlink-escape, ask-vs-self-config through `Evaluate`, waiver interaction, and both orders. (8) Operand-role tests now cover late `-e`, `jq -f` vs `--arg`, `tar --exclude`, `--`, `dd if=` through a symlink. (9) Corpus wants are whole-Engine verdicts: `/etc/CLAUDE.md` and out-of-repo memory writes are `P5.out-of-repo` **ask**, not allow.
 
 ### Revision 3 → 4 (four findings + one scope omission, all confirmed)
 
