@@ -2,22 +2,25 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Revision 2 (2026-09-06).** Revision 1 was reviewed before execution and five load-bearing premises were disproved. Nothing was committed against it. The corrections are recorded in `## Revision History` at the foot of this document; the fixes below are the corrected ones. Phase 4 now covers **path matching only**; plane coverage and session integrity moved to `2026-09-06-remediation-phase5.md`.
+> **Revision 3 (2026-09-06).** Revisions 1 and 2 were each reviewed before execution, and each had five load-bearing premises disproved. Nothing has been committed against either. Every correction is recorded in the revision history at the foot of this document; the fixes below are the corrected ones. Phase 4 covers **path matching only**; plane coverage and session integrity are in `2026-09-06-remediation-phase5.md`.
 
 **Goal:** Make the path matcher say what it means. Today one glob list is asked to express three different intents — "anywhere", "at the repo root", "unless allowed" — and a single basename fallback stands in for all three. That produces false positives and a bypass at the same time.
 
-**Architecture:** Three separate corrections, not one. (1) Repo-root-only globs get matched against a repo-relative form and nothing else. (2) Secret **directories** become unwaivable by filename-pattern allows, which is what H-2 actually needs. (3) Argument scanning becomes path-shaped rather than exhaustive, which is what CR-9 actually needs. The over-broad base globs (`*.key`) are narrowed rather than prefixed.
+**Architecture:** Four separate corrections, not one. (1) Repo-root-only globs get matched against the repo-relative form of both the lexical and the resolved path, and nothing else. (2) Secret **directories** become unwaivable by filename-pattern allows, which is what H-2 actually needs. (3) Genuinely ambiguous patterns (`*.pem`, `service-account*.json`) move to an `ask` tier instead of denying, which is what M-3 actually needs. (4) Argument scanning gains flag-attached values and opaque-executor source, with the reader-command list demoted from gate to hint so bare filenames keep working.
 
 **Tech Stack:** Go 1.23+, existing deps only.
 
 **Spec:** `../reviews/2026-09-04-adversarial-review.md`. Findings addressed: **CR-9/RC4, H-2, H-7, M-2, M-3, M-4, M-5, M-6**, plus **NF-1** (new, found live 2026-09-06 — see Task 3). Deferred to Phase 5: **H-6, H-10, M-7**.
+
+**Policy schema change:** Task 2 adds `secret_dirs` and Task 3 adds `secret_ask_globs` to `[slots]`. Both are additive and tightening-only, so no Operator grant is needed to set them, and an Overlay written against the old schema keeps working. Update `guardrail.toml.example` and `CONTEXT.md` in Task 7.
 
 ## Global Constraints
 
 - **Verify glob behaviour empirically, never by reading.** Revision 1 asserted that prefixing `*.key` → `**/*.key` would stop it matching `i18n/translations.key`. It does not: `doublestar.Match("**/*.key", "i18n/translations.key")` is `true`, because `**/` matches zero or more leading segments. The same error hid H-2. Before you rely on a glob narrowing anything, write a two-line test and run it.
 - **This phase changes matching in both directions.** Every task adds `want: "allow"` corpus entries as well as `want: "deny"` ones. A fix that closes a bypass while making `conftest.py` prompt on every test file has not improved safety — M-2/M-4/M-6 are in scope precisely because false positives are why guardrails get switched off.
 - **Zero corpus entries may be relaxed.** If an existing test starts failing, decide whether the *new* behaviour is correct per the review before touching the expectation. Never edit an expectation to make a suite green.
-- **If a premise here is wrong, stop and say so** rather than working around it. That is how Revision 1 was caught.
+- **If a premise here is wrong, stop and say so** rather than working around it. That is how Revisions 1 and 2 were caught, both times before a line of code was written.
+- **Never let a fix weaken something that works today.** Revision 2's Task 6 would have turned `cat id_rsa` from `~/.ssh` (exit 2 on the deployed binary) into exit 0. Before changing a gate, probe the deployed binary for what it already catches and add that as a regression test first.
 - Every code step is literal. `gofmt -w` before every commit. Conventional Commits, one commit per task.
 
 **Verified current state** (read from the tree, and where noted executed, immediately before this revision):
@@ -41,9 +44,9 @@
 
 **Interfaces:**
 - `matchesAnyGlob(p string, globs []string) bool` — basename fallback removed, full cleaned path only.
-- New `func repoRelative(p, cwd, repoRoot string) (string, bool)`: resolves `p` against `cwd` when relative, cleans and slash-normalizes, returns the path relative to `repoRoot` when inside it, else `("", false)`.
+- New `func repoRelative(p, cwd, repoRoot string) (string, bool)`: resolves `p` against `cwd` when relative, then uses `filepath.Rel` — **not** prefix arithmetic, which breaks for `repoRoot == "/"` because `root+"/"` becomes `"//"` — and rejects any result that escapes the repo with `..`.
 - Each of the three lists splits in two: `selfConfigAnywhere` / `selfConfigRootOnly`, `ciInfraAnywhere` / `ciInfraRootOnly`, and `gitProtectedGlobs` (already all-`**/`, stays as one).
-- New `func matchesScoped(c pathCandidate, anywhere, rootOnly []string) bool`: tests raw and resolved forms against `anywhere`; tests **only** the repo-relative form against `rootOnly`.
+- New `func matchesScoped(c pathCandidate, anywhere, rootOnly []string) bool`: tests raw and resolved forms against `anywhere`; tests the repo-relative form of **both the lexical and the resolved path** against `rootOnly`.
 - `pathCandidate` gains `repoRoot string`, set wherever candidates are built (`writeCandidates`, `privatePathCandidates`).
 
 - [ ] **Step 1: Write the failing test**
@@ -83,6 +86,42 @@ func TestRootOnlyGlobsMatchOnlyAtRepoRoot(t *testing.T) {
 		t.Errorf("~/.bashrc -> %+v, want deny", v)
 	}
 }
+
+func TestRepoRelativeHandlesRootAndEscapes(t *testing.T) {
+	for _, c := range []struct {
+		p, cwd, root, want string
+		ok                 bool
+	}{
+		{"/CLAUDE.md", "/", "/", "CLAUDE.md", true}, // repoRoot "/" — the "//" bug
+		{"/repo/docs/CLAUDE.md", "/repo", "/repo", "docs/CLAUDE.md", true},
+		{"CLAUDE.md", "/repo/docs", "/repo", "docs/CLAUDE.md", true},
+		{"/etc/passwd", "/repo", "/repo", "", false}, // must not become "../etc/passwd"
+		{"/repo", "/repo", "/repo", "", false},       // the root itself
+	} {
+		got, ok := repoRelative(c.p, c.cwd, c.root)
+		if ok != c.ok || got != c.want {
+			t.Errorf("repoRelative(%q,%q,%q) = (%q,%v), want (%q,%v)",
+				c.p, c.cwd, c.root, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+func TestRootOnlyGlobsFollowSymlinks(t *testing.T) {
+	// A symlink named notes.md pointing at CLAUDE.md must still be caught: its
+	// lexical repo-relative form is "notes.md", so only the resolved form sees it.
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "CLAUDE.md"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "CLAUDE.md"), filepath.Join(root, "notes.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	tc := ToolCall{Tool: "Write", Paths: []string{filepath.Join(root, "notes.md")},
+		CWD: root, RepoRoot: root}
+	if v := checkSelfConfig(tc); v == nil || v.Decision != policy.Deny {
+		t.Errorf("symlink to CLAUDE.md -> %+v, want deny", v)
+	}
+}
 ```
 
 - [ ] **Step 2: Run to verify it fails** — expect the six `deep` cases to DENY.
@@ -108,19 +147,26 @@ func repoRelative(p, cwd, repoRoot string) (string, bool) {
 	if repoRoot == "" {
 		return "", false
 	}
-	q := filepath.ToSlash(p)
-	if !path.IsAbs(q) && !filepath.IsAbs(p) {
+	q := p
+	if !filepath.IsAbs(q) {
 		if cwd == "" {
 			return "", false
 		}
-		q = path.Join(filepath.ToSlash(cwd), q)
+		q = filepath.Join(cwd, q)
 	}
-	root := path.Clean(filepath.ToSlash(repoRoot))
-	q = path.Clean(q)
-	if q == root || !strings.HasPrefix(q, root+"/") {
+	// filepath.Rel, not prefix arithmetic: for repoRoot "/" the string root+"/"
+	// is "//", so every absolute path is wrongly classified as outside the repo.
+	rel, err := filepath.Rel(filepath.Clean(repoRoot), filepath.Clean(q))
+	if err != nil {
 		return "", false
 	}
-	return strings.TrimPrefix(q, root+"/"), true
+	rel = filepath.ToSlash(rel)
+	// Rel returns "../etc/passwd" for a path outside the repo; that is not a
+	// repo-relative form and must not be matched against root-only globs.
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
+		return "", false
+	}
+	return rel, true
 }
 
 func matchesScoped(c pathCandidate, anywhere, rootOnly []string) bool {
@@ -128,11 +174,21 @@ func matchesScoped(c pathCandidate, anywhere, rootOnly []string) bool {
 	if matchesAnyGlob(raw, anywhere) {
 		return true
 	}
-	if resolved, ok := resolvePathCandidate(c); ok && matchesAnyGlob(resolved, anywhere) {
+	resolved, haveResolved := resolvePathCandidate(c)
+	if haveResolved && matchesAnyGlob(resolved, anywhere) {
 		return true
 	}
+	// Root-only globs are tested against the repo-relative form of BOTH the
+	// lexical path and its resolved form. Testing only the lexical form lets a
+	// symlink whose target is /repo/CLAUDE.md through: its own name is not
+	// CLAUDE.md, and the basename fallback that used to catch it is gone.
 	if rel, ok := repoRelative(c.path, c.cwd, c.repoRoot); ok && matchesAnyGlob(rel, rootOnly) {
 		return true
+	}
+	if haveResolved {
+		if rel, ok := repoRelative(resolved, c.cwd, c.repoRoot); ok && matchesAnyGlob(rel, rootOnly) {
+			return true
+		}
 	}
 	return false
 }
@@ -226,13 +282,29 @@ git commit -m "fix(policy): secret directories outrank filename allows (H-2)"
 
 **Files:** `internal/policy/base.toml`, `internal/engine/rules_bash.go:307`, tests
 
-**The actual defect (M-2, M-3).** `*.key` is not a secret pattern — `.key` is used for translation catalogues, licence keys and Django `SECRET_KEY` *templates*. Prefixing it to `**/*.key` changes nothing (verified: it still matches `i18n/translations.key`). The glob itself must go, replaced by name-scoped forms. With Task 2 in place this is safe: real key material under `~/.ssh`, `~/.aws`, `~/.gnupg` is caught by `secret_dirs` regardless of extension.
+**The actual defect (M-2).** `*.key` is not a secret pattern — `.key` is used for translation catalogues, licence keys and Django `SECRET_KEY` *templates*. Prefixing it to `**/*.key` changes nothing (verified: it still matches `i18n/translations.key`). The glob itself must go, replaced by name-scoped forms. With Task 2 in place this is safe: real key material under `~/.ssh`, `~/.aws`, `~/.gnupg` is caught by `secret_dirs` regardless of extension.
+
+**The actual defect (M-3) — and why Revision 2 did not fix it.** Revision 2 added `**/*.pub` and declared M-3 closed while keeping the two patterns that *cause* M-3. Verified by running them:
+
+```
+**/*.pem                 vs repo/docs/cert.pem                      -> true
+**/service-account*.json vs repo/testdata/service-account-fake.json -> true
+```
+
+Those are M-3's own examples. But deleting the patterns is wrong too — a real `deploy.pem` committed to a repo is exactly what P4 exists to catch. The honest reading is that **these patterns are ambiguous**: the same glob matches real key material and ordinary fixtures, and nothing in the path separates them. The engine has three verdicts and this is what the middle one is for. Ambiguous evidence yields `ask`; definitive evidence yields `deny`.
+
+**Interfaces (M-3):**
+- `policy.Slots` gains `SecretAskGlobs []string` (TOML key `secret_ask_globs`), holding the patterns moved out of `secret_globs`: `**/*.pem`, `**/*.p12`, `**/*.pfx`, `**/*.keystore`, `**/service-account*.json`.
+- `classifiedSecretPath` returns a tier rather than a bool: `func classifiedSecretPath(c pathCandidate, pol *policy.Policy) (string, policy.Decision, bool)` — `secret_dirs` → `Deny` (unwaivable, Task 2), `secret_globs` → `Deny` (waivable by `secret_allow`), `secret_ask_globs` → `Ask` (waivable by `secret_allow`). Its caller in `checkPaths` uses the returned decision, with rule ID `P4.secret-path` for deny and `P4.secret-path-ambiguous` for ask.
+- Overlay merge treats `secret_ask_globs` like `secret_globs` — additive, tightening-only.
+
+A repo cert therefore prompts once instead of hard-blocking, and `~/.ssh/server.pem` still denies via `secret_dirs`.
 
 **Also fixes NF-1 (new, found live 2026-09-06).** `selfConfigAnywhere` contains `**/.claude/**`, which denies writes to the *entire* `~/.claude/` tree — including `~/.claude/projects/*/memory/**`, which is agent memory, not agent configuration. Verified against the deployed `v0.12.0-dev` binary: a `Write` to `~/.claude/projects/x/memory/note.md` exits 2, the same as a `Write` to `~/.claude/settings.json`. Phase 1 fixed the read case (that `Read` now exits 0); the write case was never in scope. Replace `**/.claude/**` with the actual config surfaces: `**/.claude/settings.json`, `**/.claude/settings.local.json`, `**/.claude/hooks/**`, `**/.claude/plugins/**`, `**/.claude/agents/**`, `**/.claude/commands/**`, `**/.claude/skills/**`, `**/.claude/CLAUDE.md`. This is the same over-broad-glob defect as `*.key`, on a different list.
 
 **Interfaces:**
 - `selfConfigAnywhere`: replace `**/.claude/**` with the eight scoped globs above (NF-1).
-- `base.toml` `secret_globs`: drop bare `*.key`; add `**/*_rsa`, `**/*_ed25519`, `**/*_ecdsa`, `**/*.private.key`, `**/*-private-key.*`, `**/private*.key`. Prefix the remaining bare entries (`id_rsa*` → `**/id_rsa*`, `id_ed25519*` → `**/id_ed25519*`, `*.pem` → `**/*.pem`, `service-account*.json` → `**/service-account*.json`) — cosmetic given `**/` matches zero segments, but it removes the impression that bare entries mean "root only" now that Task 1 has given that phrase a meaning.
+- `base.toml` `secret_globs`: drop bare `*.key`; **move `*.pem` and `service-account*.json` into `secret_ask_globs`**; add `**/*_rsa`, `**/*_ed25519`, `**/*_ecdsa`, `**/*.private.key`, `**/*-private-key.*`, `**/private*.key`. Prefix the remaining bare entries (`id_rsa*` → `**/id_rsa*`, `id_ed25519*` → `**/id_ed25519*`) — cosmetic given `**/` matches zero segments, but it removes the impression that bare entries mean "root only" now that Task 1 has given that phrase a meaning.
 - `secret_allow` gains `**/*.pub` — a public key is public by definition, and Task 2 stops it reaching into `secret_dirs`.
 - The `case "clean":` arm returns `nil` when `-n`/`--dry-run` is present, before the existing `hasAnyFlag(s.Argv, "fxd", "--force")` check.
 
@@ -253,12 +325,24 @@ func TestOverBroadGlobsNarrowed(t *testing.T) {
 	}
 	deny := []string{
 		"/repo/certs/private.key", "/repo/certs/server.private.key",
-		"/repo/deploy_rsa", "/repo/certs/server.pem", "/home/u/.ssh/id_rsa",
+		"/repo/deploy_rsa", "/home/u/.ssh/id_rsa", "/home/u/.ssh/server.pem",
 	}
 	for _, p := range deny {
 		tc := ToolCall{Tool: "Read", Paths: []string{p}, CWD: "/repo", RepoRoot: "/repo"}
 		if v := checkPaths(tc, pol); v == nil || v.Decision != policy.Deny {
 			t.Errorf("%q -> %+v, want deny", p, v)
+		}
+	}
+	// M-3: ambiguous in-repo material asks rather than blocking. These are the
+	// review's own examples; Revision 2 kept them denying while claiming M-3 fixed.
+	for _, p := range []string{
+		"/repo/docs/cert.pem", "/repo/testdata/service-account-fake.json",
+		"/repo/testdata/tls/localhost.pem",
+	} {
+		tc := ToolCall{Tool: "Read", Paths: []string{p}, CWD: "/repo", RepoRoot: "/repo"}
+		v := checkPaths(tc, pol)
+		if v == nil || v.Decision != policy.Ask {
+			t.Errorf("%q -> %+v, want ask (ambiguous, not definitive)", p, v)
 		}
 	}
 	// NF-1: agent memory is not agent configuration.
@@ -434,9 +518,20 @@ git commit -m "feat(engine): recover flag-attached path values for secret scanni
 
 **The actual defect.** `privatePathCandidates` consults a closed 14-command `pathReaders` map, so `cp`, `base64`, `tar`, `openssl`, `md5sum`, `dd` and everything unlisted read secrets freely. Revision 1 proposed scanning *every* argument — which introduces the false positives SOL identified (`grep '*.pem' log.txt`, `printf`, `jq` filters) and still misses `python3 -c "open('/home/u/.ssh/id_rsa')"`, because the whole script string never equals a path.
 
-**The fix has two halves.** Scan every **path-shaped** argument (not every argument), and for opaque executors scan the *inside* of the argument with the existing `visiblePathCandidates` extractor — the same machinery `containsOperatorConfigPath` already uses for this exact problem.
+**`pathReaders` must NOT be deleted.** Revision 2 said to delete it and gate everything on `looksLikePath`. Probed against the deployed binary, that is a **regression**:
 
-**Interfaces:** `pathReaders` is deleted. `privatePathCandidates` contributes, per simple: every `argPathValues` entry passing `looksLikePath`; plus, when `isOpaqueExecutor(head(s.Argv))`, every `visiblePathCandidates` token of every argument that passes `looksLikePath`. Redirects and write targets stay as they are.
+```
+cat id_rsa       (cwd ~/.ssh)  exit=2   ← denies today
+cp  id_rsa /tmp  (cwd ~/.ssh)  exit=0   ← the CR-9 gap
+```
+
+`looksLikePath("id_rsa")` is false — no separator — so deleting the reader list drops the candidate and turns the first line into exit 0. The list is demoted from **gate** to **hint** instead: for a known reader every operand is a path candidate, bare filename included (the known `cwd` resolves it); for any other command an operand must look like a path. That preserves today's behaviour exactly and adds the new coverage on top.
+
+**Interfaces:**
+- `pathReaders` is **kept, extended and renamed** `pathOperandCommands` to reflect its new role. Add `wc`, `diff`, `cmp`, `file`, `nl`, `tac`, `rev`, `cut`, `sort`, `uniq`, `tee`, `base32`, `base64`, `md5sum`, `sha1sum`, `sha256sum`, `cp`, `mv`, `install`, `rsync`, `scp`, `tar`, `zip`, `gzip`, `openssl`, `gpg`, `dd`, `jq`, `yq`.
+- `privatePathCandidates` contributes, per simple: **every** `argPathValues` entry when `pathOperandCommands[head(s.Argv)]`, otherwise only those passing `looksLikePath`; plus, when `isOpaqueExecutor(head(s.Argv))`, every `visiblePathCandidates` token passing `looksLikePath`. Redirects and write targets stay as they are.
+
+**The opaque-source boundary, stated and tested.** `visiblePathCandidates` extracts `/home/u/.ssh/id_rsa` from both `open('/home/u/.ssh/id_rsa')` and `print('/home/u/.ssh/id_rsa')`. Telling access from mention would mean parsing Python, Node, Perl and Ruby, which this engine will not do. The intended boundary is therefore explicit: **inside opaque source we match the literal presence of a secret path and do not attempt to distinguish access from mention.** Task 3's verdict tier makes that proportionate — a `secret_dirs` path in source denies, an ambiguous one asks. An agent writing a script that merely prints `~/.ssh/id_rsa` being asked about it is an acceptable, arguably correct, outcome. Step 1 tests both halves so this is a decision on record rather than an accident.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -456,6 +551,46 @@ func TestSecretReadsViaAnyCommand(t *testing.T) {
 		if v := checkPaths(tc, pol); v == nil || v.Decision != policy.Deny {
 			t.Errorf("%q -> %+v, want deny", c, v)
 		}
+	}
+}
+
+func TestBareFilenameReadsAreNotRegressed(t *testing.T) {
+	// Verified against the deployed v0.12.0-dev binary: these deny TODAY.
+	// looksLikePath("id_rsa") is false, so the reader-command hint is the only
+	// thing keeping them working once pathReaders stops being the gate.
+	pol := pathPol()
+	for _, c := range []string{`cat id_rsa`, `head -n1 id_rsa`, `base64 id_rsa`, `cp id_rsa /tmp/x`} {
+		tc := ToolCall{Tool: "Bash", Command: c, CWD: "/home/u/.ssh", RepoRoot: "/repo"}
+		if v := checkPaths(tc, pol); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q (cwd ~/.ssh) -> %+v, want deny", c, v)
+		}
+	}
+}
+
+func TestOpaqueSourceBoundaryIsExplicit(t *testing.T) {
+	pol := pathPol()
+	// Inside opaque source we match the literal presence of a secret path and
+	// do NOT distinguish access from mention. Both of these deny, deliberately.
+	for _, c := range []string{
+		`python3 -c "print(open('/home/u/.ssh/id_rsa').read())"`,
+		`python3 -c "print('/home/u/.ssh/id_rsa')"`,
+	} {
+		tc := ToolCall{Tool: "Bash", Command: c, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkPaths(tc, pol); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny (secret_dirs path in opaque source)", c, v)
+		}
+	}
+	// An ambiguous path in source asks rather than denying (Task 3's tier).
+	tc := ToolCall{Tool: "Bash", Command: `python3 -c "print('/repo/docs/cert.pem')"`,
+		CWD: "/repo", RepoRoot: "/repo"}
+	if v := checkPaths(tc, pol); v == nil || v.Decision != policy.Ask {
+		t.Errorf("ambiguous path in source -> %+v, want ask", v)
+	}
+	// Source mentioning no path at all is untouched.
+	tc = ToolCall{Tool: "Bash", Command: `python3 -c "print('hello world')"`,
+		CWD: "/repo", RepoRoot: "/repo"}
+	if v := checkPaths(tc, pol); v != nil && v.Decision != policy.Allow {
+		t.Errorf("ordinary source -> %+v, want allow", v)
 	}
 }
 
@@ -481,12 +616,14 @@ func TestOrdinaryArgumentsAreNotPaths(t *testing.T) {
 - [ ] **Step 3: Implement** — in `privatePathCandidates`, replace the `pathReaders[head(s.Argv)]` block:
 
 ```go
-			// A closed list of "reader" commands failed open on cp, base64,
-			// tar, openssl and everything unlisted (review CR-9). Scan every
-			// path-shaped argument instead; looksLikePath keeps grep patterns
-			// and printf formats out of the matcher.
+			// The reader list is a hint, not a gate (review CR-9). For a known
+			// reader every operand is a candidate — including a bare "id_rsa",
+			// which the known cwd resolves and which looksLikePath would drop.
+			// For anything else the operand must look like a path, which keeps
+			// grep patterns and printf formats out of the matcher.
+			knownReader := pathOperandCommands[head(s.Argv)]
 			for _, arg := range argPathValues(s.Argv) {
-				if looksLikePath(arg) {
+				if knownReader || looksLikePath(arg) {
 					candidates = append(candidates, pathCandidate{
 						path: arg, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
 				}
@@ -505,7 +642,7 @@ func TestOrdinaryArgumentsAreNotPaths(t *testing.T) {
 			}
 ```
 
-then delete `pathReaders`.
+`pathOperandCommands` is the renamed, extended `pathReaders` — it stays.
 
 - [ ] **Step 4: Run the full suite verbosely.** This is the highest false-positive risk in the plan. Read every new failure before changing anything.
 
@@ -520,10 +657,11 @@ git commit -m "fix(engine): scan path-shaped args and opaque-executor source for
 
 ### Task 7: Corpus, docs, tag
 
-- [ ] **Step 1: Extend the corpus** with every reproduction above as `deny`, and every false positive as `allow`: `Read /repo/i18n/translations.key`, `Read /repo/testdata/id_rsa.pub`, `Write /repo/tests/unit/conftest.py`, `Write /repo/vendor/x/Makefile`, `Write /repo/docs/templates/CLAUDE.md`, `git clean -nxd`, `grep '*.pem' /repo/build.log`, `printf '%s.key\n' name`, `jq '.env' /repo/pkg.json`, `go build ./...`, `cp src/a.go src/b.go`.
-- [ ] **Step 2:** `make check && /usr/local/go/bin/go test ./... -count=1` → green, zero corpus entries relaxed.
-- [ ] **Step 3:** Annotate the review with `**[FIXED — Phase 4]**` on CR-9/RC4, H-2, H-7, M-2, M-3, M-4, M-5, M-6. Update the response-report ledger. **H-6, H-10 and M-7 remain open and must be recorded as such** — they are Phase 5.
-- [ ] **Step 4:**
+- [ ] **Step 1: Extend the corpus** with every reproduction above as `deny`, and every false positive as `allow`: `Read /repo/i18n/translations.key`, `Read /repo/testdata/id_rsa.pub`, `Write /repo/tests/unit/conftest.py`, `Write /repo/vendor/x/Makefile`, `Write /repo/docs/templates/CLAUDE.md`, `git clean -nxd`, `grep '*.pem' /repo/build.log`, `printf '%s.key\n' name`, `jq '.env' /repo/pkg.json`, `go build ./...`, `cp src/a.go src/b.go`. Add the new `ask` tier as `ask`: `Read /repo/docs/cert.pem`, `Read /repo/testdata/service-account-fake.json`. Add the regression locks as `deny`: `cat id_rsa` and `cp id_rsa /tmp/x` with cwd `~/.ssh`.
+- [ ] **Step 2:** Update `guardrail.toml.example` with commented `secret_dirs` and `secret_ask_globs` entries, and `CONTEXT.md`'s **Guardrail Policy** entry to name the three secret tiers.
+- [ ] **Step 3:** `make check && /usr/local/go/bin/go test ./... -count=1` → green, zero corpus entries relaxed.
+- [ ] **Step 4:** Annotate the review with `**[FIXED — Phase 4]**` on CR-9/RC4, H-2, H-7, M-2, M-3, M-4, M-5, M-6, NF-1. Update the response-report ledger. **H-6, H-10 and M-7 remain open and must be recorded as such** — they are Phase 5.
+- [ ] **Step 5:**
 ```bash
 git add -A && git commit -m "docs: Phase 4 landed — path matching corrected; H-6/H-10/M-7 remain"
 git push origin main && git tag v0.13.0-dev && git push origin v0.13.0-dev
@@ -535,26 +673,43 @@ git push origin main && git tag v0.13.0-dev && git push origin v0.13.0-dev
 
 ## Self-Review
 
-**1. Finding coverage.** M-2/M-4/M-5 → Tasks 1 and 3 (two distinct causes: root-only scoping, and an over-broad glob); H-2 → Task 2 (precedence); M-3/M-6 → Task 3; H-7 → Task 4; CR-9 → Tasks 5 and 6 (flag-attached values, then path-shaped scanning plus opaque source). H-6, H-10, M-7 are explicitly out of scope and carried to Phase 5.
+**1. Finding coverage.** M-4/M-5 → Task 1 (root-only scoping, lexical *and* resolved); H-2 → Task 2 (precedence); M-2 → Task 3 (narrowing `*.key`); M-3 → Task 3 (the `ask` tier — the patterns are ambiguous, not wrong); NF-1 → Task 3; M-6 → Task 3; H-7 → Task 4; CR-9 → Tasks 5 and 6 (flag-attached values, then the reader hint plus opaque source). H-6, H-10, M-7 are explicitly out of scope and carried to Phase 5.
 
 **2. Placeholder scan.** None.
 
-**3. Type consistency.** `pathCandidate` gains `repoRoot` (Task 1), set by Task 6's new candidates. `policy.Slots` gains `SecretDirs` (Task 2). New helpers: `repoRelative`, `matchesScoped` (Task 1), `argPathValues`, `looksLikePath` (Task 5). `pathReaders` deleted (Task 6). `nonFlagArgs` retained for its other callers. `matchesAnyGlob` keeps its signature; semantics change in Tasks 1 and 4.
+**3. Type consistency.** `pathCandidate` gains `repoRoot` (Task 1), set by Task 6's new candidates. `policy.Slots` gains `SecretDirs` (Task 2) and `SecretAskGlobs` (Task 3). `classifiedSecretPath` changes signature in Task 3 to return `(string, policy.Decision, bool)`; its only caller is `checkPaths`. New helpers: `repoRelative`, `matchesScoped` (Task 1), `argPathValues`, `looksLikePath` (Task 5). `pathReaders` is **renamed** `pathOperandCommands` and kept, not deleted (Task 6). `nonFlagArgs` retained for its other callers. `matchesAnyGlob` keeps its signature; semantics change in Tasks 1 and 4.
 
-**4. Ordering.** Task 1 before Task 6 — Task 6 feeds many more candidates into the matcher Task 1 rewrites. Task 2 before Task 3 — Task 3's `**/*.pub` allow is only safe once secret directories are unwaivable. Task 5 before Task 6 (`argPathValues` is its input). Task 4 is independent.
+**4. Ordering.** Task 1 before Task 6 — Task 6 feeds many more candidates into the matcher Task 1 rewrites. Task 2 before Task 3 — Task 3's `**/*.pub` allow and its `ask` tier are only safe once secret directories are unwaivable. Task 5 before Task 6 (`argPathValues` is its input). Task 3 before Task 6 — Task 6's opaque-source test asserts the `ask` tier exists. Task 4 is independent.
 
-**5. Residual risk, stated rather than implied.** `looksLikePath` requires a separator, so a bare `cat id_rsa` executed with an *unknown* cwd contributes no candidate — `cwdUnknown` already suppresses resolution there, so this is not a regression, but it is not closed either. `writeTargets` still enumerates a fixed list of mutating commands, so a novel mutating binary is caught only when its target hits a secret or self-config glob. Both are narrower than the original finding and are recorded here deliberately.
+**5. Residual risk, stated rather than implied.**
+- A bare filename operand of an **unlisted** command (`somenewtool id_rsa` from `~/.ssh`) contributes no candidate, because `looksLikePath` needs a separator and the command is not in `pathOperandCommands`. Known readers and any path-shaped operand are covered; this residue is not.
+- `writeTargets` still enumerates a fixed list of mutating commands, so a novel mutating binary is caught only when its target hits a secret or self-config glob.
+- The opaque-source scan cannot distinguish access from mention; that boundary is deliberate, documented in Task 6, and tested.
+- Moving `*.pem` and `service-account*.json` to the `ask` tier is a **deliberate reduction in strictness** for in-repo certificates. Real key material in `secret_dirs` still denies. If Carlitos would rather these keep denying, the tier is one list move to reverse — flag it rather than deciding unilaterally.
 
 ---
 
 ## Revision History
 
-**Revision 2 (2026-09-06)** — Revision 1 was reviewed before any execution; five load-bearing premises were disproved and no code was written against it. Recorded so the same errors are not reintroduced:
+Both prior revisions were reviewed before execution and stopped. No code was ever written against either. Recorded so the same errors are not reintroduced.
+
+### Revision 2 to 3 — five findings, all confirmed by executable probe
+
+1. **`matchesScoped` tested only the lexical path against root-only globs.** A symlink resolving to `/repo/CLAUDE.md` has repo-relative form `notes.md` and slips through once the basename fallback is gone. Both the lexical *and* the resolved form must be tested. Fixed in Task 1.
+2. **`repoRelative` broke for `repoRoot == "/"`.** `root+"/"` is `"//"`, so `HasPrefix("/CLAUDE.md", "//")` is `false` and every path in a repo rooted at `/` is classified as outside it. Verified. Replaced with `filepath.Rel` plus explicit `..` rejection. Fixed in Task 1.
+3. **Task 3 claimed M-3 fixed while keeping the patterns that cause it.** Verified: `**/*.pem` matches `repo/docs/cert.pem`, and `**/service-account*.json` matches `repo/testdata/service-account-fake.json` — the review's own examples. Adding `**/*.pub` addressed only `id_rsa.pub`. Fixed by moving the ambiguous patterns to an `ask` tier rather than deleting them.
+4. **Deleting `pathReaders` would have regressed a working protection.** Probed against the deployed `v0.12.0-dev`: `cat id_rsa` from cwd `~/.ssh` exits 2 today, and `looksLikePath("id_rsa")` is `false`, so gating on it alone turns that into exit 0. The list is demoted from gate to hint instead of deleted. Fixed in Task 6.
+5. **The opaque-source scan had an undefined false-positive boundary.** `visiblePathCandidates` cannot tell `open('/home/u/.ssh/id_rsa')` from `print('/home/u/.ssh/id_rsa')`. The boundary is now stated explicitly, made proportionate by Task 3's verdict tier, and tested in both directions. Fixed in Task 6.
+
+### Revision 1 to 2 — five findings
 
 1. **Removing the basename fallback does not fix H-2.** `doublestar.Match("**/.env.example", "home/u/.ssh/.env.example")` is `true` — the allow glob matches the full path directly. H-2 is a *precedence* defect, now Task 2.
-2. **Prefixing `*.key` → `**/*.key` does not fix M-2.** `**/` matches zero or more leading segments, so it still matches `i18n/translations.key`. The glob had to be narrowed, now Task 3.
+2. **Prefixing `*.key` to `**/*.key` does not fix M-2.** `**/` matches zero or more leading segments, so it still matches `i18n/translations.key`. The glob had to be narrowed, now Task 3.
 3. **Adding a repo-relative form alongside the raw match does not fix M-4/M-5.** A relative `CLAUDE.md` written from a subdirectory still matches the bare glob directly. Root-only globs had to *stop* being matched against the raw form, now Task 1.
-4. **Scanning every argument does not close CR-9 and adds false positives.** `nonFlagArgs` drops `-f/home/u/.ssh/id_rsa` entirely, and whole-argument matching never sees a path inside `python3 -c`. Now Tasks 5 and 6, gated by `looksLikePath`.
-5. **Task 8 could not have truthfully closed the review.** H-6, H-10 and M-7 were each only partly addressed; they are now Phase 5, and Phase 4 explicitly does not claim them.
+4. **Scanning every argument does not close CR-9 and adds false positives.** `nonFlagArgs` drops `-f/home/u/.ssh/id_rsa` entirely, and whole-argument matching never sees a path inside `python3 -c`. Now Tasks 5 and 6.
+5. **Task 8 could not truthfully have closed the review.** H-6, H-10 and M-7 were each only partly addressed; they are now Phase 5.
 
-The general lesson, now a Global Constraint: **verify glob behaviour by running it, not by reading it.**
+### The two lessons, now Global Constraints
+
+- **Verify glob and path behaviour by executing it, never by reading it.** `**/` matching zero segments hid two Revision 1 errors; `root+"/"` becoming `"//"` hid a Revision 2 error.
+- **Probe the deployed binary for what already works before changing a gate.** Revision 2's Task 6 was a regression no amount of reading would have revealed — only running `cat id_rsa` against the installed `v0.12.0-dev` showed it.
