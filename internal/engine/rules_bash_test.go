@@ -674,6 +674,37 @@ func TestDockerRunValuedOptionsReachInnerRules(t *testing.T) {
 	}
 }
 
+func TestDockerRunEntrypointReachesInnerRules(t *testing.T) {
+	for _, command := range []string{
+		`docker run --entrypoint rm alpine -rf /`,
+		`docker run --entrypoint=/bin/rm alpine -rf /`,
+		`podman run --entrypoint rm alpine -rf /`,
+		`nerdctl run --entrypoint=rm alpine -rf /`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Errorf("%q -> %+v, want deny/P1.rm-rf", command, v)
+		}
+	}
+
+	if v := evalBash(t, `docker run --entrypoint printf alpine ok`); v != nil {
+		t.Errorf("benign entrypoint -> %+v, want nil", v)
+	}
+}
+
+func TestDockerRunInvalidEntrypointFailsClosed(t *testing.T) {
+	for _, command := range []string{
+		`docker run --entrypoint= alpine`,
+		`docker run --entrypoint rm`,
+		`docker run --entrypoint "$COMMAND" alpine -rf /`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision == policy.Allow || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want non-allow/P3.unresolved", command, v)
+		}
+	}
+}
+
 func TestCheckBashAskTier(t *testing.T) {
 	ask := map[string]string{
 		`chmod -R 755 /repo`:           "P1.chmod",

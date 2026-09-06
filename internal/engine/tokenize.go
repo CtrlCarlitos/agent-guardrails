@@ -1789,6 +1789,17 @@ func replacementWithOuterMetadata(outer Simple, replacement []Simple) []Simple {
 	return result
 }
 
+func commandDerivedFrom(outer Simple, argv []string) Simple {
+	return Simple{
+		Argv:       argv,
+		Cwd:        outer.Cwd,
+		Unresolved: outer.Unresolved,
+		pipelines:  outer.pipelines,
+		cwdUnknown: outer.cwdUnknown,
+		shellState: outer.shellState,
+	}
+}
+
 func stripAndUnwrap(s Simple, ctx *normalizeContext) ([]Simple, error) {
 	if len(s.Argv) == 0 {
 		if len(s.Redirects) == 0 && len(s.ReadRedirects) == 0 {
@@ -1858,13 +1869,16 @@ loop:
 		s.Unresolved = s.Unresolved || chrooted
 		return []Simple{s}, nil
 	}
-	result := []Simple{{Argv: argv, Redirects: s.Redirects, ReadRedirects: s.ReadRedirects, Cwd: s.Cwd, Unresolved: s.Unresolved, pipelines: s.pipelines, cwdUnknown: s.cwdUnknown, shellState: s.shellState}}
+	command := commandDerivedFrom(s, argv)
+	command.Redirects = s.Redirects
+	command.ReadRedirects = s.ReadRedirects
+	result := []Simple{command}
 	inner, err := runnerInner(argv)
 	if err != nil {
 		return nil, err
 	}
 	if inner != nil {
-		result = append(result, Simple{Argv: inner, Cwd: s.Cwd, Unresolved: s.Unresolved, pipelines: s.pipelines, cwdUnknown: s.cwdUnknown, shellState: s.shellState})
+		result = append(result, commandDerivedFrom(s, inner))
 	}
 	source, dashC, err := shellDashC(argv)
 	if err != nil {
@@ -2485,12 +2499,24 @@ func runnerInner(argv []string) ([]string, error) {
 			if argv[subcommand] == "exec" {
 				spec = dockerExecOptionSpec
 			}
-			i, err := skipDockerOptions(head(argv)+" "+argv[subcommand], argv, subcommand+1, spec)
+			values := make(map[string]string)
+			i, err := parseDockerOptions(head(argv)+" "+argv[subcommand], argv, subcommand+1, spec, values)
 			if err != nil {
 				return nil, err
 			}
-			if i+1 < len(argv) {
-				return argv[i+1:], nil // skip the image/container token
+			entrypoint, configured := values["--entrypoint"]
+			if configured && entrypoint == "" {
+				return nil, fmt.Errorf("%s run: empty --entrypoint; failing closed", head(argv))
+			}
+			if i >= len(argv) {
+				return nil, fmt.Errorf("%s %s: missing image or container; failing closed", head(argv), argv[subcommand])
+			}
+			inner := argv[i+1:] // skip the image/container token
+			if configured {
+				return append([]string{entrypoint}, inner...), nil
+			}
+			if len(inner) > 0 {
+				return inner, nil
 			}
 		}
 	case "devbox", "mise", "nix":

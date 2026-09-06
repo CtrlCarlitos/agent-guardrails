@@ -499,6 +499,10 @@ var dockerSubcommandGroups = map[string]bool{
 }
 
 func skipDockerOptions(scope string, argv []string, start int, spec dockerOptionSpec) (int, error) {
+	return parseDockerOptions(scope, argv, start, spec, nil)
+}
+
+func parseDockerOptions(scope string, argv []string, start int, spec dockerOptionSpec, values map[string]string) (int, error) {
 	for start < len(argv) {
 		arg := argv[start]
 		if arg == "--" {
@@ -517,10 +521,16 @@ func skipDockerOptions(scope string, argv []string, start int, spec dockerOption
 			switch {
 			case spec.values[base]:
 				if attached {
+					if values != nil {
+						values[base] = value
+					}
 					start++
 				} else {
 					if start+1 >= len(argv) {
 						return start, needsValue(scope, arg)
+					}
+					if values != nil {
+						values[base] = argv[start+1]
 					}
 					start += 2
 				}
@@ -543,10 +553,16 @@ func skipDockerOptions(scope string, argv []string, start int, spec dockerOption
 			switch {
 			case spec.values[option]:
 				if i+1 < len(arg) {
+					if values != nil {
+						values[option] = arg[i+1:]
+					}
 					start++
 				} else {
 					if start+1 >= len(argv) {
 						return start, needsValue(scope, option)
+					}
+					if values != nil {
+						values[option] = argv[start+1]
 					}
 					start += 2
 				}

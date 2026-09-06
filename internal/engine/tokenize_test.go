@@ -941,6 +941,44 @@ func TestNormalizeDockerFamilyRunExecValuedOptions(t *testing.T) {
 	}
 }
 
+func TestNormalizeDockerRunPrependsConfiguredEntrypoint(t *testing.T) {
+	cases := map[string][]string{
+		`docker run --entrypoint rm alpine -rf /`:      {"rm", "-rf", "/"},
+		`docker run --entrypoint=/bin/rm alpine -rf /`: {"/bin/rm", "-rf", "/"},
+		`podman run --entrypoint rm alpine -rf /`:      {"rm", "-rf", "/"},
+		`nerdctl run --entrypoint=rm alpine -rf /`:     {"rm", "-rf", "/"},
+	}
+	for source, want := range cases {
+		got, err := Normalize(source, "")
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", source, err)
+			continue
+		}
+		found := false
+		for _, simple := range got {
+			if reflect.DeepEqual(simple.Argv, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Normalize(%q) = %v, want inner %q", source, argvs(got), want)
+		}
+	}
+}
+
+func TestRunnerInnerRejectsInvalidDockerEntrypoint(t *testing.T) {
+	for _, argv := range [][]string{
+		{"docker", "run", "--entrypoint="},
+		{"docker", "run", "--entrypoint=", "alpine"},
+		{"docker", "run", "--entrypoint", "rm"},
+	} {
+		if _, err := runnerInner(argv); err == nil {
+			t.Errorf("runnerInner(%q) error = nil, want invalid-entrypoint error", argv)
+		}
+	}
+}
+
 func TestRunnerInnerKeepsFlagsAfterImage(t *testing.T) {
 	got, err := runnerInner([]string{"docker", "run", "alpine", "--name", "x", "rm", "-rf", "/"})
 	if err != nil {
