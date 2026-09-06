@@ -42,7 +42,7 @@ func splitSimplesWithContext(src string, ctx *normalizeContext) ([]Simple, error
 	if err != nil {
 		return nil, err
 	}
-	pipelines := pipelinePositions(f, ctx)
+	pipelines := pipelinePositions(f, ctx, shadowedStaticCommandNames(f))
 	return extractSimples(src, f, pipelines, nil), nil
 }
 
@@ -130,10 +130,9 @@ func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pip
 	return out
 }
 
-func pipelinePositions(f *syntax.File, ctx *normalizeContext) map[*syntax.Stmt][]pipelinePosition {
+func pipelinePositions(f *syntax.File, ctx *normalizeContext, shadowedConstants map[string]bool) map[*syntax.Stmt][]pipelinePosition {
 	pipeStatements := make(map[*syntax.Stmt]bool)
 	childPipes := make(map[*syntax.Stmt]bool)
-	shadowedConstants := shadowedStaticCommandNames(f)
 	syntax.Walk(f, func(node syntax.Node) bool {
 		stmt, ok := node.(*syntax.Stmt)
 		if !ok {
@@ -882,6 +881,10 @@ func (w *cwdWalker) stmt(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 		return successOutcome(state)
 	}
 	w.states[stmt] = state
+	var preCommandFunctions map[string]shellFunctionSet
+	if len(stmt.Redirs) > 0 {
+		preCommandFunctions = cloneFunctions(w.functions)
+	}
 	if w.redirectExpansions(stmt.Redirs, state) {
 		state.fsUncertain = true
 	}
@@ -900,6 +903,7 @@ func (w *cwdWalker) stmt(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 	}
 	out := w.command(stmt, state)
 	if redirectFailure {
+		w.joinFunctionEnvironment(preCommandFunctions)
 		out = mergeOutcomes(out, cwdOutcome{failure: state, canFailure: true})
 	}
 	if stmt.Negated {
@@ -962,7 +966,9 @@ func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 				paths = append(paths, cwdOutcome{failure: left.failure, canFailure: true})
 			}
 			if left.canSuccess {
-				paths = append(paths, w.stmt(command.Y, left.success))
+				paths = append(paths, w.withFunctionEnvironmentAlternative(left.canFailure, func() cwdOutcome {
+					return w.stmt(command.Y, left.success)
+				}))
 			}
 			return mergeOutcomes(paths...)
 		case syntax.OrStmt:
@@ -972,7 +978,9 @@ func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 				paths = append(paths, cwdOutcome{success: left.success, canSuccess: true})
 			}
 			if left.canFailure {
-				paths = append(paths, w.stmt(command.Y, left.failure))
+				paths = append(paths, w.withFunctionEnvironmentAlternative(left.canSuccess, func() cwdOutcome {
+					return w.stmt(command.Y, left.failure)
+				}))
 			}
 			return mergeOutcomes(paths...)
 		}
@@ -1204,6 +1212,20 @@ func (w *cwdWalker) publishFunctions(functions map[string]shellFunctionSet, unce
 			w.shadowed[name] = true
 		}
 	}
+}
+
+func (w *cwdWalker) joinFunctionEnvironment(alternative map[string]shellFunctionSet) {
+	w.publishFunctions(mergeFunctionAlternatives(alternative, w.functions), false)
+}
+
+func (w *cwdWalker) withFunctionEnvironmentAlternative(includePrior bool, walk func() cwdOutcome) cwdOutcome {
+	if !includePrior {
+		return walk()
+	}
+	prior := cloneFunctions(w.functions)
+	out := walk()
+	w.joinFunctionEnvironment(prior)
+	return out
 }
 
 func (w *cwdWalker) redirectExpansions(redirs []*syntax.Redirect, state cwdState) bool {
@@ -1685,13 +1707,13 @@ func normalizeWithState(command string, state cwdState, ctx *normalizeContext, f
 	if err != nil {
 		return normalizeResult{}, err
 	}
-	pipelines := pipelinePositions(f, ctx)
 	shadowed := shadowedStaticCommandNames(f)
 	for name := range functions {
 		if name == "true" || name == "false" {
 			shadowed[name] = true
 		}
 	}
+	pipelines := pipelinePositions(f, ctx, shadowed)
 	for _, position := range inherited {
 		markPipelineList(pipelines, f.Stmts, position, shadowed)
 	}

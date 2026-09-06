@@ -1886,6 +1886,77 @@ func TestNormalizeRedirectFailurePrecedesFunctionAndEvalExecution(t *testing.T) 
 	}
 }
 
+func TestNormalizeStatusGatedDefinitionsJoinFunctionEnvironments(t *testing.T) {
+	for _, command := range []string{
+		`f() { rm -rf /; }; condition && f() { printf replacement; }; f`,
+		`f() { rm -rf /; }; condition || f() { printf replacement; }; f`,
+		`f() { rm -rf /; }; condition && true && f() { printf replacement; }; f`,
+		`f() { rm -rf /; }; condition || false || f() { printf replacement; }; f`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasArgv(got, []string{"rm", "-rf", "/"}) || !hasArgv(got, []string{"printf", "replacement"}) {
+			t.Errorf("Normalize(%q) did not retain prior and gated definitions: %+v", command, got)
+		}
+	}
+
+	for _, command := range []string{
+		`condition && f() { rm -rf /; }; f`,
+		`condition || f() { rm -rf /; }; f`,
+		`condition && true && f() { rm -rf /; }; f`,
+		`condition || false || f() { rm -rf /; }; f`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasArgv(got, []string{"rm", "-rf", "/"}) || !hasUnresolvedArgv(got, []string{"f"}) {
+			t.Errorf("Normalize(%q) lost the undefined gated alternative: %+v", command, got)
+		}
+	}
+}
+
+func TestNormalizeRedirectFailureJoinsFunctionEnvironments(t *testing.T) {
+	repo := t.TempDir()
+	redirect := filepath.Join(repo, "missing", "out")
+	for _, command := range []string{
+		fmt.Sprintf(`f() { rm -rf /; }; eval 'f() { printf replacement; }' > %q || :; f`, redirect),
+		fmt.Sprintf(`f() { rm -rf /; }; replace() { f() { printf replacement; }; }; replace > %q || :; f`, redirect),
+	} {
+		got, err := Normalize(command, repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasArgv(got, []string{"rm", "-rf", "/"}) || !hasArgv(got, []string{"printf", "replacement"}) {
+			t.Errorf("Normalize(%q) did not join pre-redirect and post-command definitions: %+v", command, got)
+		}
+	}
+
+	for _, command := range []string{
+		fmt.Sprintf(`eval 'f() { rm -rf /; }' > %q || :; f`, redirect),
+		fmt.Sprintf(`factory() { f() { rm -rf /; }; }; factory > %q || :; f`, redirect),
+	} {
+		got, err := Normalize(command, repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasArgv(got, []string{"rm", "-rf", "/"}) || !hasUnresolvedArgv(got, []string{"f"}) {
+			t.Errorf("Normalize(%q) lost the redirect-failure undefined alternative: %+v", command, got)
+		}
+	}
+}
+
+func hasUnresolvedArgv(simples []Simple, want []string) bool {
+	for _, simple := range simples {
+		if simple.Unresolved && reflect.DeepEqual(simple.Argv, want) {
+			return true
+		}
+	}
+	return false
+}
+
 func hasArgv(simples []Simple, want []string) bool {
 	for _, simple := range simples {
 		if reflect.DeepEqual(simple.Argv, want) {
