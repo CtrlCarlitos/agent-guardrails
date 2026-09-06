@@ -2510,5 +2510,16 @@
     "fixture_symlinks": [{"path": "innocent.bin", "target": "../outside/id_rsa"}],
     "want": "deny",
     "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "repository root resolved symlink claude instructions write",
+    "tool": "Write",
+    "paths": ["/repo/notes.md"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "fixture_files": ["CLAUDE.md"],
+    "fixture_symlinks": [{"path": "notes.md", "target": "CLAUDE.md"}],
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
   }
 ]

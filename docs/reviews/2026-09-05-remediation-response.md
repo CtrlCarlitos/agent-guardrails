@@ -128,10 +128,10 @@ The original report's Phase 2 set remains fully reconciled. Phase 4 now adds
 current source, focused Engine tests, Declarative floor tests, and end-to-end
 corpus evidence for CR-9, H-2, H-7, M-2 through M-6, NF-1, and NF-2. The corpus
 preserves all 196 prior entries in their original order with identical fields and
-values, then appends 110 whole-Engine cases. The resulting adversarial corpus is
-**306 cases: 77 allow, 23 ask, and 206 deny**. Its harness validates the plane
+values, then appends 111 whole-Engine cases. The resulting adversarial corpus is
+**307 cases: 77 allow, 23 ask, and 207 deny**. Its harness validates the plane
 response and matching audit record rather than classifying exit status alone
-([`adversarial_test.go:107-210`](../../test/adversarial/adversarial_test.go#L107-L210)).
+([`adversarial_test.go:108-211`](../../test/adversarial/adversarial_test.go#L108-L211)).
 
 The first meaningful H-5 live gate passed. The exact authorized
 `secret_allow = ["**"]` scenario now proves that an in-repository symlink to an
@@ -232,10 +232,10 @@ whole-phase review produced the following corrections before `v0.11.0-dev`:
   published six platform binaries and checksums.
 - The Phase 4 closeout gate passed `make check && /usr/local/go/bin/go test
   ./... -count=1` at the documentation boundary.
-- The adversarial corpus is exactly **306 cases: 77 allow, 23 ask, 206 deny**.
+- The adversarial corpus is exactly **307 cases: 77 allow, 23 ask, 207 deny**.
   The harness validates the plane response and matching audit record rather than
   classifying an exit status alone
-  ([`adversarial_test.go:107-210`](../../test/adversarial/adversarial_test.go#L107-L210)).
+  ([`adversarial_test.go:108-211`](../../test/adversarial/adversarial_test.go#L108-L211)).
 - Fresh publication checks confirmed that local and remote `v0.11.0-dev` both
   resolve to **`a2965681e4ea552f8b29b329fd8b6a2ee513a395`** and that its GitHub
   Release contains six platform binaries plus `SHA256SUMS`. Phase 2 and this

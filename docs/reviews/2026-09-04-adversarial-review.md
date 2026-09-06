@@ -17,7 +17,7 @@ adversarial suite now validates the plane response and its matching audit record
 before classifying a Verdict; exit status alone is not accepted as proof.
 
 Phases 1 through 4 are complete in source. Their fixed behavior is locked in the
-306-case adversarial corpus. Only H-6, H-10, and M-7 remain outstanding for
+307-case adversarial corpus. Only H-6, H-10, and M-7 remain outstanding for
 Phase 5; the separately implemented M-9 chezmoi deployment work is fixed.
 Phase 3 hardening operates at the static tool-call boundary, not as an
 operating-system sandbox. It protects resolved or visible targets, while

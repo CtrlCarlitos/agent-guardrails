@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -486,6 +487,16 @@ func createFixtureSymlink(fixtureRoot, repo string, symlink fixtureSymlink) erro
 	return os.Symlink(filepath.FromSlash(symlink.Target), path)
 }
 
+const windowsPrivilegeNotHeld syscall.Errno = 1314
+
+func symlinkCapabilityUnavailable(err error) bool {
+	var linkErr *os.LinkError
+	return errors.As(err, &linkErr) &&
+		(errors.Is(err, os.ErrPermission) ||
+			errors.Is(err, errors.ErrUnsupported) ||
+			(runtime.GOOS == "windows" && errors.Is(err, windowsPrivilegeNotHeld)))
+}
+
 func materializeRepo(t *testing.T, e entry) (string, string) {
 	t.Helper()
 	logicalRoot := filepath.Clean(filepath.FromSlash(e.RepoRoot))
@@ -523,8 +534,7 @@ func materializeRepo(t *testing.T, e entry) (string, string) {
 	}
 	for _, symlink := range e.FixtureSymlinks {
 		if err := createFixtureSymlink(fixtureRoot, repo, symlink); err != nil {
-			var linkErr *os.LinkError
-			if errors.As(err, &linkErr) {
+			if symlinkCapabilityUnavailable(err) {
 				t.Skipf("symlinks unavailable: %v", err)
 			}
 			t.Fatal(err)
@@ -535,7 +545,10 @@ func materializeRepo(t *testing.T, e entry) (string, string) {
 	}
 	alias := filepath.Join(fixtureRoot, filepath.Base(filepath.FromSlash(e.RepoAlias)))
 	if err := os.Symlink(repo, alias); err != nil {
-		t.Skipf("case-variant repository alias unavailable: %v", err)
+		if symlinkCapabilityUnavailable(err) {
+			t.Skipf("case-variant repository alias unavailable: %v", err)
+		}
+		t.Fatalf("create case-variant repository alias: %v", err)
 	}
 	return cwd, alias
 }
@@ -672,6 +685,31 @@ func TestCreateFixtureSymlinkRejectsRepositoryPathWithoutHanging(t *testing.T) {
 				}
 			case <-time.After(time.Second):
 				t.Fatal("fixture symlink validation did not return")
+			}
+		})
+	}
+}
+
+func TestSymlinkCapabilityUnavailable(t *testing.T) {
+	linkError := func(err error) error {
+		return &os.LinkError{Op: "symlink", Old: "target", New: "link", Err: err}
+	}
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "permission", err: linkError(os.ErrPermission), want: true},
+		{name: "unsupported", err: linkError(errors.ErrUnsupported), want: true},
+		{name: "Windows privilege not held", err: linkError(syscall.Errno(1314)), want: runtime.GOOS == "windows"},
+		{name: "collision", err: linkError(os.ErrExist), want: false},
+		{name: "unrelated link error", err: linkError(errors.New("boom")), want: false},
+		{name: "non-link permission", err: os.ErrPermission, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := symlinkCapabilityUnavailable(tc.err); got != tc.want {
+				t.Fatalf("symlinkCapabilityUnavailable(%v) = %t, want %t", tc.err, got, tc.want)
 			}
 		})
 	}
