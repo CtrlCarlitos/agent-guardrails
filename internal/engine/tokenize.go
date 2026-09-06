@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"mvdan.cc/sh/v3/pattern"
@@ -165,8 +166,10 @@ func markPipelineIngress(positions map[*syntax.Stmt][]pipelinePosition, stmt *sy
 	if stmt == nil {
 		return stdinFlow{}
 	}
+	if expansionFlow := markStatementExpansionIngress(positions, stmt, position, shadowedConstants); expansionFlow.allConsume {
+		return expansionFlow
+	}
 	positions[stmt] = append(positions[stmt], position)
-	markStatementExpansionIngress(positions, stmt, position, shadowedConstants)
 	if stdinReplaced(stmt) {
 		return stdinFlow{}
 	}
@@ -312,7 +315,9 @@ func literalCondition(stmts []*syntax.Stmt, shadowedConstants map[string]bool) c
 }
 
 func markCaseClauseIngress(positions map[*syntax.Stmt][]pipelinePosition, clause *syntax.CaseClause, position pipelinePosition, shadowedConstants map[string]bool) stdinFlow {
-	markWordExpansionIngress(positions, clause.Word, position, shadowedConstants)
+	if expansionFlow := markWordExpansionIngress(positions, clause.Word, position, shadowedConstants); expansionFlow.allConsume {
+		return expansionFlow
+	}
 	selector, static := staticWord(clause.Word, false)
 	matches := make([]bool, len(clause.Items))
 	if static {
@@ -404,29 +409,39 @@ func staticCaseItemMatches(selector string, item *syntax.CaseItem) (bool, bool) 
 }
 
 func staticWord(word *syntax.Word, casePattern bool) (string, bool) {
+	return staticWordParts(word, casePattern, false)
+}
+
+func staticWordParts(word *syntax.Word, casePattern, quoted bool) (string, bool) {
 	if word == nil {
 		return "", false
 	}
 	var value strings.Builder
-	for _, part := range word.Parts {
+	for index, part := range word.Parts {
 		switch part := part.(type) {
 		case *syntax.Lit:
+			if !casePattern && !quoted && index == 0 && strings.HasPrefix(part.Value, "~") {
+				return "", false
+			}
 			value.WriteString(part.Value)
 		case *syntax.SglQuoted:
+			if part.Dollar {
+				return "", false
+			}
 			if casePattern {
 				value.WriteString(pattern.QuoteMeta(part.Value, 0))
 			} else {
 				value.WriteString(part.Value)
 			}
 		case *syntax.DblQuoted:
-			quoted, static := staticWord(&syntax.Word{Parts: part.Parts}, false)
+			quotedValue, static := staticWordParts(&syntax.Word{Parts: part.Parts}, false, true)
 			if !static {
 				return "", false
 			}
 			if casePattern {
-				value.WriteString(pattern.QuoteMeta(quoted, 0))
+				value.WriteString(pattern.QuoteMeta(quotedValue, 0))
 			} else {
-				value.WriteString(quoted)
+				value.WriteString(quotedValue)
 			}
 		default:
 			return "", false
@@ -475,41 +490,102 @@ func forClauseIterations(clause *syntax.ForClause) loopIterations {
 	if len(words.Items) == 0 {
 		return iterationNone
 	}
-	return iterationGuaranteed
+	for _, word := range words.Items {
+		if wordGuaranteesField(word) {
+			return iterationGuaranteed
+		}
+	}
+	return iterationPossible
 }
 
-func markStatementExpansionIngress(positions map[*syntax.Stmt][]pipelinePosition, stmt *syntax.Stmt, position pipelinePosition, shadowedConstants map[string]bool) {
+func wordGuaranteesField(word *syntax.Word) bool {
+	guaranteed := false
+	for _, part := range word.Parts {
+		switch part := part.(type) {
+		case *syntax.Lit:
+			if strings.ContainsAny(part.Value, "*?[") {
+				return false
+			}
+			guaranteed = guaranteed || part.Value != ""
+		case *syntax.SglQuoted:
+			guaranteed = true
+		case *syntax.DblQuoted:
+			if doubleQuotedGuaranteesField(part) {
+				guaranteed = true
+			}
+		default:
+			return false
+		}
+	}
+	return guaranteed
+}
+
+func doubleQuotedGuaranteesField(quoted *syntax.DblQuoted) bool {
+	if len(quoted.Parts) == 0 {
+		return true
+	}
+	for _, part := range quoted.Parts {
+		parameter, isParameter := part.(*syntax.ParamExp)
+		if !isParameter || parameter.Param.Value != "@" || parameter.Length {
+			return true
+		}
+	}
+	return false
+}
+
+func markStatementExpansionIngress(positions map[*syntax.Stmt][]pipelinePosition, stmt *syntax.Stmt, position pipelinePosition, shadowedConstants map[string]bool) stdinFlow {
+	var nodes []syntax.Node
 	if call, ok := stmt.Cmd.(*syntax.CallExpr); ok {
 		for _, assignment := range call.Assigns {
-			markNodeExpansionIngress(positions, assignment, position, shadowedConstants)
+			nodes = append(nodes, assignment)
 		}
 		for _, word := range call.Args {
-			markWordExpansionIngress(positions, word, position, shadowedConstants)
+			nodes = append(nodes, word)
 		}
 	}
 	for _, redirect := range stmt.Redirs {
-		markNodeExpansionIngress(positions, redirect, position, shadowedConstants)
+		nodes = append(nodes, redirect)
 	}
+	return markNodeExpansionIngress(positions, nodes, position, shadowedConstants)
 }
 
-func markWordExpansionIngress(positions map[*syntax.Stmt][]pipelinePosition, word *syntax.Word, position pipelinePosition, shadowedConstants map[string]bool) {
-	if word != nil {
-		markNodeExpansionIngress(positions, word, position, shadowedConstants)
+func markWordExpansionIngress(positions map[*syntax.Stmt][]pipelinePosition, word *syntax.Word, position pipelinePosition, shadowedConstants map[string]bool) stdinFlow {
+	if word == nil {
+		return stdinFlow{}
 	}
+	return markNodeExpansionIngress(positions, []syntax.Node{word}, position, shadowedConstants)
 }
 
-func markNodeExpansionIngress(positions map[*syntax.Stmt][]pipelinePosition, node syntax.Node, position pipelinePosition, shadowedConstants map[string]bool) {
-	syntax.Walk(node, func(node syntax.Node) bool {
+func markNodeExpansionIngress(positions map[*syntax.Stmt][]pipelinePosition, nodes []syntax.Node, position pipelinePosition, shadowedConstants map[string]bool) stdinFlow {
+	var expansions []syntax.Node
+	for _, root := range nodes {
+		syntax.Walk(root, func(node syntax.Node) bool {
+			switch node.(type) {
+			case *syntax.CmdSubst, *syntax.ProcSubst:
+				expansions = append(expansions, node)
+				return false
+			}
+			return true
+		})
+	}
+	sort.SliceStable(expansions, func(i, j int) bool {
+		return expansions[i].Pos().Offset() < expansions[j].Pos().Offset()
+	})
+	var flow stdinFlow
+	for _, node := range expansions {
+		if flow.allConsume {
+			break
+		}
 		switch expansion := node.(type) {
 		case *syntax.CmdSubst:
-			markPipelineList(positions, expansion.Stmts, position, shadowedConstants)
-			return false
+			flow.allConsume = markPipelineList(positions, expansion.Stmts, position, shadowedConstants).allConsume
 		case *syntax.ProcSubst:
-			markPipelineList(positions, expansion.Stmts, position, shadowedConstants)
-			return false
+			if expansion.Op == syntax.CmdIn {
+				markPipelineList(positions, expansion.Stmts, position, shadowedConstants)
+			}
 		}
-		return true
-	})
+	}
+	return flow
 }
 
 func simpleStdinFlow(command *syntax.CallExpr) stdinFlow {
