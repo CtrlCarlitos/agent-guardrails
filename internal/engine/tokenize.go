@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -14,6 +15,7 @@ type Simple struct {
 	Argv          []string
 	Redirects     []string
 	ReadRedirects []string
+	Cwd           string
 	Unresolved    bool
 	pipelines     []pipelinePosition
 }
@@ -37,6 +39,10 @@ func splitSimplesWithContext(src string, ctx *normalizeContext) ([]Simple, error
 		return nil, err
 	}
 	pipelines := pipelinePositions(f, ctx)
+	return extractSimples(src, f, pipelines, nil), nil
+}
+
+func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pipelinePosition, states map[*syntax.Stmt]cwdState) []Simple {
 	var out []Simple
 	syntax.Walk(f, func(node syntax.Node) bool {
 		stmt, ok := node.(*syntax.Stmt)
@@ -58,6 +64,10 @@ func splitSimplesWithContext(src string, ctx *normalizeContext) ([]Simple, error
 			return true
 		}
 		s := Simple{pipelines: pipelines[stmt]}
+		if state, ok := states[stmt]; ok {
+			s.Cwd = state.cwd
+			s.Unresolved = state.unknown
+		}
 		for _, w := range args {
 			raw := src[w.Pos().Offset():w.End().Offset()]
 			if lit, ok := literalText(raw); ok {
@@ -106,7 +116,7 @@ func splitSimplesWithContext(src string, ctx *normalizeContext) ([]Simple, error
 		out = append(out, s)
 		return true
 	})
-	return out, nil
+	return out
 }
 
 func pipelinePositions(f *syntax.File, ctx *normalizeContext) map[*syntax.Stmt][]pipelinePosition {
@@ -682,17 +692,282 @@ func flattenPipeline(stmt *syntax.Stmt) []*syntax.Stmt {
 	return append(flattenPipeline(binary.X), flattenPipeline(binary.Y)...)
 }
 
-// Normalize returns every command that will actually execute, with no-op
-// wrappers stripped and argument-executing runners unwrapped.
-func Normalize(command string) ([]Simple, error) {
-	return normalizeWithContext(command, &normalizeContext{})
+type cwdState struct {
+	cwd     string
+	unknown bool
 }
 
-func normalizeWithContext(command string, ctx *normalizeContext) ([]Simple, error) {
-	base, err := splitSimplesWithContext(command, ctx)
+type cwdWalker struct {
+	src    string
+	states map[*syntax.Stmt]cwdState
+}
+
+func (w *cwdWalker) list(stmts []*syntax.Stmt, state cwdState) cwdState {
+	for _, stmt := range stmts {
+		state = w.stmt(stmt, state)
+	}
+	return state
+}
+
+func (w *cwdWalker) stmt(stmt *syntax.Stmt, state cwdState) cwdState {
+	w.states[stmt] = state
+	w.redirectExpansions(stmt.Redirs, state)
+
+	isolated := stmt.Background || stmt.Coprocess
+	exit := w.command(stmt, state)
+	if isolated {
+		return state
+	}
+	return exit
+}
+
+func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdState {
+	switch command := stmt.Cmd.(type) {
+	case nil:
+		return state
+	case *syntax.CallExpr:
+		w.expansions(command, state)
+		return applyCd(state, simpleForCall(w.src, stmt, command))
+	case *syntax.BinaryCmd:
+		switch command.Op {
+		case syntax.Pipe, syntax.PipeAll:
+			w.stmt(command.X, state)
+			w.stmt(command.Y, state)
+			return state
+		case syntax.AndStmt:
+			left := w.stmt(command.X, state)
+			right := w.stmt(command.Y, w.cwdOnSuccess(command.X, state))
+			return mergeCwd(left, right)
+		case syntax.OrStmt:
+			left := w.stmt(command.X, state)
+			right := w.stmt(command.Y, w.cwdOnFailure(command.X, state))
+			return mergeCwd(left, right)
+		}
+	case *syntax.Block:
+		return w.list(command.Stmts, state)
+	case *syntax.Subshell:
+		w.list(command.Stmts, state)
+		return state
+	case *syntax.IfClause:
+		return w.ifClause(command, state)
+	case *syntax.WhileClause:
+		condition := w.list(command.Cond, state)
+		body := w.list(command.Do, condition)
+		return mergeCwd(condition, body)
+	case *syntax.ForClause:
+		w.expansions(command.Loop, state)
+		body := w.list(command.Do, state)
+		return mergeCwd(state, body)
+	case *syntax.CaseClause:
+		w.expansions(command.Word, state)
+		exits := []cwdState{state}
+		for _, item := range command.Items {
+			for _, pattern := range item.Patterns {
+				w.expansions(pattern, state)
+			}
+			exits = append(exits, w.list(item.Stmts, state))
+		}
+		return mergeCwd(exits...)
+	case *syntax.TimeClause:
+		return w.stmt(command.Stmt, state)
+	case *syntax.FuncDecl:
+		w.stmt(command.Body, cwdState{unknown: true})
+		return state
+	default:
+		w.expansions(command, state)
+		return state
+	}
+	return cwdState{unknown: true}
+}
+
+func (w *cwdWalker) ifClause(clause *syntax.IfClause, state cwdState) cwdState {
+	condition := w.list(clause.Cond, state)
+	thenExit := w.list(clause.Then, condition)
+	elseExit := condition
+	if clause.Else != nil {
+		elseExit = w.ifClause(clause.Else, condition)
+	}
+	return mergeCwd(thenExit, elseExit)
+}
+
+func (w *cwdWalker) expansions(node syntax.Node, state cwdState) {
+	if node == nil {
+		return
+	}
+	syntax.Walk(node, func(node syntax.Node) bool {
+		switch expansion := node.(type) {
+		case *syntax.CmdSubst:
+			w.list(expansion.Stmts, state)
+			return false
+		case *syntax.ProcSubst:
+			w.list(expansion.Stmts, state)
+			return false
+		}
+		return true
+	})
+}
+
+func (w *cwdWalker) redirectExpansions(redirs []*syntax.Redirect, state cwdState) {
+	for _, redirect := range redirs {
+		if redirect.Word != nil {
+			w.expansions(redirect.Word, state)
+		}
+	}
+}
+
+func simpleForCall(src string, stmt *syntax.Stmt, call *syntax.CallExpr) Simple {
+	s := Simple{}
+	for _, word := range call.Args {
+		raw := src[word.Pos().Offset():word.End().Offset()]
+		if literal, ok := literalText(raw); ok {
+			s.Argv = append(s.Argv, literal)
+		} else {
+			s.Argv = append(s.Argv, raw)
+			s.Unresolved = true
+		}
+	}
+	for _, redirect := range stmt.Redirs {
+		if redirect.Word == nil {
+			continue
+		}
+		raw := src[redirect.Word.Pos().Offset():redirect.Word.End().Offset()]
+		if _, ok := literalText(raw); !ok {
+			s.Unresolved = true
+		}
+	}
+	return s
+}
+
+func applyCd(state cwdState, s Simple) cwdState {
+	argv := s.Argv
+	for len(argv) > 0 && (argv[0] == "command" || argv[0] == "builtin") {
+		argv = argv[1:]
+	}
+	if len(argv) == 0 {
+		return state
+	}
+	switch argv[0] {
+	case "pushd", "popd":
+		return cwdState{unknown: true}
+	case "cd":
+	default:
+		return state
+	}
+	if s.Unresolved {
+		return cwdState{unknown: true}
+	}
+
+	var operands []string
+	options := true
+	for _, arg := range argv[1:] {
+		if options && arg == "--" {
+			options = false
+			continue
+		}
+		if options && strings.HasPrefix(arg, "-") {
+			if arg == "-" || strings.Trim(strings.TrimPrefix(arg, "-"), "LPe@") != "" {
+				return cwdState{unknown: true}
+			}
+			continue
+		}
+		options = false
+		operands = append(operands, arg)
+	}
+	if len(operands) != 1 || operands[0] == "" {
+		return cwdState{unknown: true}
+	}
+	if filepath.IsAbs(operands[0]) {
+		return cwdState{cwd: filepath.Clean(operands[0])}
+	}
+	if state.unknown || state.cwd == "" {
+		return cwdState{unknown: true}
+	}
+	return cwdState{cwd: filepath.Clean(filepath.Join(state.cwd, operands[0]))}
+}
+
+func (w *cwdWalker) cwdOnSuccess(stmt *syntax.Stmt, state cwdState) cwdState {
+	if stmt.Background || stmt.Coprocess {
+		return state
+	}
+	switch command := stmt.Cmd.(type) {
+	case *syntax.CallExpr:
+		return applyCd(state, simpleForCall(w.src, stmt, command))
+	case *syntax.BinaryCmd:
+		switch command.Op {
+		case syntax.AndStmt:
+			return w.cwdOnSuccess(command.Y, w.cwdOnSuccess(command.X, state))
+		case syntax.OrStmt:
+			left := w.cwdOnSuccess(command.X, state)
+			right := w.cwdOnSuccess(command.Y, w.cwdOnFailure(command.X, state))
+			return mergeCwd(left, right)
+		case syntax.Pipe, syntax.PipeAll:
+			return state
+		}
+	case *syntax.Subshell, *syntax.FuncDecl:
+		return state
+	case *syntax.TimeClause:
+		return w.cwdOnSuccess(command.Stmt, state)
+	}
+	return cwdState{unknown: true}
+}
+
+func (w *cwdWalker) cwdOnFailure(stmt *syntax.Stmt, state cwdState) cwdState {
+	if stmt.Background || stmt.Coprocess {
+		return state
+	}
+	switch command := stmt.Cmd.(type) {
+	case *syntax.CallExpr:
+		return applyCd(state, simpleForCall(w.src, stmt, command))
+	case *syntax.BinaryCmd:
+		switch command.Op {
+		case syntax.AndStmt:
+			left := w.cwdOnFailure(command.X, state)
+			right := w.cwdOnFailure(command.Y, w.cwdOnSuccess(command.X, state))
+			return mergeCwd(left, right)
+		case syntax.OrStmt:
+			return w.cwdOnFailure(command.Y, w.cwdOnFailure(command.X, state))
+		case syntax.Pipe, syntax.PipeAll:
+			return state
+		}
+	case *syntax.Subshell, *syntax.FuncDecl:
+		return state
+	case *syntax.TimeClause:
+		return w.cwdOnFailure(command.Stmt, state)
+	}
+	return cwdState{unknown: true}
+}
+
+func mergeCwd(states ...cwdState) cwdState {
+	if len(states) == 0 {
+		return cwdState{unknown: true}
+	}
+	first := states[0]
+	if first.unknown {
+		return cwdState{unknown: true}
+	}
+	for _, state := range states[1:] {
+		if state.unknown || state.cwd != first.cwd {
+			return cwdState{unknown: true}
+		}
+	}
+	return first
+}
+
+// Normalize returns every command that will actually execute, with no-op
+// wrappers stripped and argument-executing runners unwrapped.
+func Normalize(command, cwd string) ([]Simple, error) {
+	return normalizeWithContext(command, cwd, &normalizeContext{})
+}
+
+func normalizeWithContext(command, cwd string, ctx *normalizeContext) ([]Simple, error) {
+	f, err := syntax.NewParser().Parse(strings.NewReader(command), "")
 	if err != nil {
 		return nil, err
 	}
+	pipelines := pipelinePositions(f, ctx)
+	walker := cwdWalker{src: command, states: make(map[*syntax.Stmt]cwdState)}
+	walker.list(f.Stmts, cwdState{cwd: cwd})
+	base := extractSimples(command, f, pipelines, walker.states)
 	var out []Simple
 	for _, s := range base {
 		expanded, err := stripAndUnwrap(s, ctx)
@@ -776,20 +1051,20 @@ loop:
 		s.Unresolved = s.Unresolved || chrooted
 		return []Simple{s}, nil
 	}
-	result := []Simple{{Argv: argv, Redirects: s.Redirects, ReadRedirects: s.ReadRedirects, Unresolved: s.Unresolved, pipelines: s.pipelines}}
+	result := []Simple{{Argv: argv, Redirects: s.Redirects, ReadRedirects: s.ReadRedirects, Cwd: s.Cwd, Unresolved: s.Unresolved, pipelines: s.pipelines}}
 	inner, err := runnerInner(argv)
 	if err != nil {
 		return nil, err
 	}
 	if inner != nil {
-		result = append(result, Simple{Argv: inner, Unresolved: s.Unresolved, pipelines: s.pipelines})
+		result = append(result, Simple{Argv: inner, Cwd: s.Cwd, Unresolved: s.Unresolved, pipelines: s.pipelines})
 	}
 	source, dashC, err := shellDashC(argv)
 	if err != nil {
 		return nil, err
 	}
 	if dashC {
-		inner, err := normalizeShellDashC(source, ctx)
+		inner, err := normalizeShellDashC(source, s.Cwd, ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -807,15 +1082,15 @@ loop:
 }
 
 // normalizeShellDashC re-tokenizes the literal text passed to a shell's -c flag.
-func normalizeShellDashC(word string, ctx *normalizeContext) ([]Simple, error) {
-	return normalizeWithContext(word, ctx)
+func normalizeShellDashC(word, cwd string, ctx *normalizeContext) ([]Simple, error) {
+	return normalizeWithContext(word, cwd, ctx)
 }
 
 func normalizeWatch(outer Simple, argv []string, unresolved bool, ctx *normalizeContext) ([]Simple, error) {
 	if len(argv) == 0 {
 		return nil, fmt.Errorf("watch: missing command argument; failing closed")
 	}
-	inner, err := normalizeWithContext(strings.Join(argv, " "), ctx)
+	inner, err := normalizeWithContext(strings.Join(argv, " "), outer.Cwd, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -832,13 +1107,14 @@ func normalizeWatch(outer Simple, argv []string, unresolved bool, ctx *normalize
 		metadata := Simple{
 			Redirects:     outer.Redirects,
 			ReadRedirects: outer.ReadRedirects,
+			Cwd:           outer.Cwd,
 			Unresolved:    unresolved,
 			pipelines:     outer.pipelines,
 		}
 		return append([]Simple{metadata}, inner...), nil
 	}
 	if unresolved && len(inner) == 0 {
-		return []Simple{{Unresolved: true, pipelines: outer.pipelines}}, nil
+		return []Simple{{Cwd: outer.Cwd, Unresolved: true, pipelines: outer.pipelines}}, nil
 	}
 	return inner, nil
 }

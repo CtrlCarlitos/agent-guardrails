@@ -100,6 +100,133 @@ func TestFailingStatementDoesNotMaskAnotherDeny(t *testing.T) {
 	}
 }
 
+func TestCdIsTrackedAcrossCurrentShellStatements(t *testing.T) {
+	commands := []string{
+		`cd /etc && rm -rf .`,
+		`cd /etc; rm -rf *`,
+		`cd / && rm -rf .`,
+		`cd /; cd etc; rm -rf .`,
+		`cd -- /etc; rm -rf .`,
+		`{ cd /etc; rm -rf .; }`,
+		`bash -c "cd /; rm -rf ."`,
+		`cd /etc; watch 'rm -rf .'`,
+	}
+	for _, command := range commands {
+		v := evalBash(t, command)
+		if v == nil || v.Decision == policy.Allow {
+			t.Errorf("%q -> %+v, want non-allow", command, v)
+		}
+	}
+}
+
+func TestCdWithinRepoStillAllows(t *testing.T) {
+	commands := []string{
+		`cd src && rm -rf build`,
+		`cd src && cd nested && rm -rf build`,
+		`cd src; cd nested; rm -rf build`,
+		`cd -- src; rm -rf build`,
+		`{ cd src; rm -rf build; }`,
+		`cd src; bash -c 'cd ..; rm -rf build'`,
+	}
+	for _, command := range commands {
+		if v := evalBash(t, command); v != nil {
+			t.Errorf("%q -> %+v, want allow", command, v)
+		}
+	}
+}
+
+func TestCdInIsolatedScopeDoesNotMutateParent(t *testing.T) {
+	commands := []string{
+		`(cd /etc); rm -rf build`,
+		`cd /etc | cat; rm -rf build`,
+		`cd /etc | rm -rf build`,
+		`value=$(cd /etc); rm -rf build`,
+		`cat <(cd /etc); rm -rf build`,
+		`bash -c 'cd /etc'; rm -rf build`,
+	}
+	for _, command := range commands {
+		if v := evalBash(t, command); v != nil && v.Decision == policy.Deny {
+			t.Errorf("%q -> %+v, want non-deny", command, v)
+		}
+	}
+}
+
+func TestUnresolvableCdFailsClosed(t *testing.T) {
+	commands := []string{
+		`cd $TARGET && rm -rf .`,
+		`cd; rm -rf .`,
+		`cd -; rm -rf .`,
+		`cd one two; rm -rf .`,
+		`cd -Z /etc; rm -rf .`,
+		`pushd /etc; rm -rf .`,
+		`popd; rm -rf .`,
+		`if condition; then cd /etc; fi; rm -rf .`,
+		`while condition; do cd /etc; done; rm -rf .`,
+	}
+	for _, command := range commands {
+		v := evalBash(t, command)
+		if v == nil || v.Decision == policy.Allow {
+			t.Errorf("%q -> %+v, want non-allow", command, v)
+		}
+	}
+}
+
+func TestUnknownCdDoesNotSoftenSiblingDeny(t *testing.T) {
+	v := evalBash(t, `cd -; rm -rf .; git push --force`)
+	if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.git-push-force" {
+		t.Fatalf("-> %+v, want deny/P1.git-push-force", v)
+	}
+}
+
+func TestCdAffectsDestinationAndRedirectPathChecks(t *testing.T) {
+	commands := []string{
+		`cd /etc; cp /repo/source target`,
+		`cd /etc; mv missing target`,
+		`cd /etc; printf x > target`,
+	}
+	for _, command := range commands {
+		v := evalBash(t, command)
+		if v == nil || v.Decision == policy.Allow {
+			t.Errorf("%q -> %+v, want non-allow", command, v)
+		}
+	}
+}
+
+func TestCdAffectsMoveSourcePhysicalResolution(t *testing.T) {
+	repo := t.TempDir()
+	command := fmt.Sprintf(`cd /etc; mv hosts %q`, filepath.Join(repo, "hosts"))
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+	v := checkBash(tc, bashPol())
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.out-of-repo-write" {
+		t.Fatalf("%q -> %+v, want ask/P1.out-of-repo-write", command, v)
+	}
+}
+
+func TestCdAffectsDestinationPhysicalResolution(t *testing.T) {
+	repo := t.TempDir()
+	subdir := filepath.Join(repo, "subdir")
+	if err := os.Mkdir(subdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc", filepath.Join(subdir, "escape")); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	command := `cd subdir; cp source escape/passwd`
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+	v := checkBash(tc, bashPol())
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.out-of-repo-write" {
+		t.Fatalf("%q -> %+v, want ask/P1.out-of-repo-write", command, v)
+	}
+}
+
+func TestRelativeCdFromUnknownInitialCwdFailsClosed(t *testing.T) {
+	tc := ToolCall{Tool: "Bash", Command: `cd relative; rm -rf .`, RepoRoot: "/repo"}
+	v := checkBash(tc, bashPol())
+	if v == nil || v.Decision == policy.Allow {
+		t.Fatalf("-> %+v, want non-allow", v)
+	}
+}
+
 func TestUnknowableStatementAloneStillAsks(t *testing.T) {
 	v := evalBash(t, `env -Z x`)
 	if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {

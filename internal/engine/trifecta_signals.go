@@ -30,7 +30,7 @@ func IsNetworkAttempt(tc ToolCall) bool {
 	if !tc.IsBash() {
 		return false
 	}
-	simples, err := Normalize(tc.Command)
+	simples, err := Normalize(tc.Command, tc.CWD)
 	if err != nil {
 		return false
 	}

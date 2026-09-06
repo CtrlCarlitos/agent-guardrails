@@ -21,7 +21,7 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	if !tc.IsBash() {
 		return nil
 	}
-	simples, err := Normalize(tc.Command)
+	simples, err := Normalize(tc.Command, tc.CWD)
 	if err != nil {
 		return &policy.Verdict{Decision: policy.Ask, RuleID: "tokenize-failed",
 			Reason: "could not parse shell command; failing closed to ask"}
@@ -62,6 +62,7 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 }
 
 func checkDestinationWrites(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
+	cwd := simpleCwd(s, tc)
 	command := head(s.Argv)
 	switch command {
 	case "mv", "cp", "ln", "tee", "install":
@@ -81,11 +82,11 @@ func checkDestinationWrites(s Simple, tc ToolCall, pol *policy.Policy) *policy.V
 	}
 	if command == "mv" {
 		for _, source := range moveSourceTargets(s.Argv) {
-			resolved := resolvePath(source, tc.CWD)
-			if withinAuthorizedPath(source, tc.CWD, tc.RepoRoot, pol.Slots.SafeRoots, true) {
+			resolved := resolvePath(source, cwd)
+			if withinAuthorizedPath(source, cwd, tc.RepoRoot, pol.Slots.SafeRoots, true) {
 				continue
 			}
-			if _, _, lexicallyAuthorized := authorizedPathCandidates(source, tc.CWD, tc.RepoRoot, pol.Slots.SafeRoots, true); lexicallyAuthorized {
+			if _, _, lexicallyAuthorized := authorizedPathCandidates(source, cwd, tc.RepoRoot, pol.Slots.SafeRoots, true); lexicallyAuthorized {
 				return ask("P1.out-of-repo-write", "moves a source that resolves outside the repo and configured safe roots: "+source)
 			}
 			if _, err := os.Lstat(resolved); !os.IsNotExist(err) {
@@ -97,7 +98,7 @@ func checkDestinationWrites(s Simple, tc ToolCall, pol *policy.Policy) *policy.V
 		if command == "rsync" && rsyncRemoteTarget(target) {
 			return ask("P1.out-of-repo-write", "writes to a remote destination outside configured safe roots: "+target)
 		}
-		if !withinAuthorizedPath(target, tc.CWD, tc.RepoRoot, pol.Slots.SafeRoots, true) {
+		if !withinAuthorizedPath(target, cwd, tc.RepoRoot, pol.Slots.SafeRoots, true) {
 			return ask("P1.out-of-repo-write", "writes to a path outside the repo and configured safe roots: "+target)
 		}
 	}
@@ -271,7 +272,7 @@ func checkRmRf(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		return nil
 	}
 	for _, raw := range nonFlagArgs(s.Argv) {
-		if !withinSafe(resolvePath(raw, tc.CWD), tc.RepoRoot, pol.Slots.SafeRoots) {
+		if !withinSafe(resolvePath(raw, simpleCwd(s, tc)), tc.RepoRoot, pol.Slots.SafeRoots) {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.rm-rf",
 				Reason: "recursive/forced rm of a path outside the repo and configured safe roots: " + raw}
 		}
@@ -732,7 +733,7 @@ func checkAskTier(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		return ask("P1.kill", "killall/pkill can terminate unrelated work")
 	}
 	for _, r := range s.Redirects {
-		if !withinSafe(resolvePath(r, tc.CWD), tc.RepoRoot, pol.Slots.SafeRoots) {
+		if !withinSafe(resolvePath(r, simpleCwd(s, tc)), tc.RepoRoot, pol.Slots.SafeRoots) {
 			return ask("P1.redirect", "output redirection onto a path outside the repo/safe roots: "+r)
 		}
 	}
@@ -754,6 +755,13 @@ func resolvePath(p, cwd string) string {
 		return cwd + p
 	}
 	return cwd + string(filepath.Separator) + p
+}
+
+func simpleCwd(s Simple, tc ToolCall) string {
+	if s.Cwd != "" {
+		return s.Cwd
+	}
+	return tc.CWD
 }
 
 func withinSafe(target, repoRoot string, safeRoots []string) bool {

@@ -76,7 +76,7 @@ func privatePathCandidates(tc ToolCall) []string {
 		candidates = append(candidates, tc.Paths...)
 	}
 	if tc.IsBash() {
-		simples, err := Normalize(tc.Command)
+		simples, err := Normalize(tc.Command, tc.CWD)
 		if err == nil {
 			for _, s := range simples {
 				if pathReaders[head(s.Argv)] {
@@ -410,7 +410,7 @@ func writeCandidates(tc ToolCall) []string {
 		out = append(out, tc.Paths...)
 	}
 	if tc.IsBash() {
-		if simples, err := Normalize(tc.Command); err == nil {
+		if simples, err := Normalize(tc.Command, tc.CWD); err == nil {
 			for _, s := range simples {
 				out = append(out, s.Redirects...)
 				out = append(out, writeTargets(s)...)
@@ -463,7 +463,7 @@ func checkSelfConfig(tc ToolCall) *policy.Verdict {
 		}
 	}
 	if tc.IsBash() {
-		if simples, err := Normalize(tc.Command); err == nil {
+		if simples, err := Normalize(tc.Command, tc.CWD); err == nil {
 			for _, s := range simples {
 				if !isOpaqueExecutor(head(s.Argv)) {
 					continue

@@ -137,7 +137,7 @@ func TestNormalizeRedirectOnlyStatements(t *testing.T) {
 		`exec 3>> /etc/passwd`: {"/etc/passwd"},
 	}
 	for src, wantRedirects := range cases {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -159,7 +159,7 @@ func TestNormalizeCommandLookupRetainsRedirects(t *testing.T) {
 		{`command > /repo/CLAUDE.md`, nil},
 		{`command -v git < /repo/.env > /repo/CLAUDE.md`, []string{"/repo/.env"}},
 	} {
-		got, err := Normalize(c.src)
+		got, err := Normalize(c.src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", c.src, err)
 			continue
@@ -198,7 +198,7 @@ func TestNormalizeClassifiesWriteRedirectsDirectionally(t *testing.T) {
 		{`cat <<< /etc/passwd`, 1, nil, nil},
 	}
 	for _, c := range cases {
-		got, err := Normalize(c.src)
+		got, err := Normalize(c.src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", c.src, err)
 			continue
@@ -217,7 +217,7 @@ func TestNormalizeClassifiesWriteRedirectsDirectionally(t *testing.T) {
 }
 
 func TestNormalizePreservesRedirectOrderWithinEachDirection(t *testing.T) {
-	got, err := Normalize(`cat > first < input >> second <> both`)
+	got, err := Normalize(`cat > first < input >> second <> both`, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +235,7 @@ func TestNormalizePreservesRedirectOrderWithinEachDirection(t *testing.T) {
 }
 
 func TestNormalizePreservesRedirectDirectionsThroughWrapper(t *testing.T) {
-	got, err := Normalize(`env cat < input > output`)
+	got, err := Normalize(`env cat < input > output`, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestNormalizeCompoundStatementRedirects(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
-		got, err := Normalize(c.src)
+		got, err := Normalize(c.src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", c.src, err)
 			continue
@@ -312,7 +312,7 @@ func TestNormalizeStripsWrappers(t *testing.T) {
 		{`env FOO=1 BAR=2 curl example.com`, [][]string{{"curl", "example.com"}}},
 	}
 	for _, c := range cases {
-		got, err := Normalize(c.src)
+		got, err := Normalize(c.src, "")
 		if err != nil {
 			t.Fatalf("Normalize(%q): %v", c.src, err)
 		}
@@ -323,7 +323,7 @@ func TestNormalizeStripsWrappers(t *testing.T) {
 }
 
 func TestNormalizePreservesUnresolved(t *testing.T) {
-	got, err := Normalize(`env FOO=1 rm -rf $HOME`)
+	got, err := Normalize(`env FOO=1 rm -rf $HOME`, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +347,7 @@ func TestNormalizeConsumesWrapperFlags(t *testing.T) {
 		{`command git status`, [][]string{{"git", "status"}}},
 	}
 	for _, c := range cases {
-		got, err := Normalize(c.src)
+		got, err := Normalize(c.src, "")
 		if err != nil {
 			t.Fatalf("Normalize(%q): %v", c.src, err)
 		}
@@ -373,7 +373,7 @@ func TestNormalizeConsumesAddedWrapperOptions(t *testing.T) {
 		`watch --differences=permanent rm -rf /`,
 	}
 	for _, src := range cases {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -393,7 +393,7 @@ func TestNormalizeAddedWrappersHonorOptionTerminator(t *testing.T) {
 		`watch -- rm -rf /`,
 	}
 	for _, src := range cases {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -404,7 +404,7 @@ func TestNormalizeAddedWrappersHonorOptionTerminator(t *testing.T) {
 		}
 	}
 
-	got, err := Normalize(`chroot -- /new-root rm -rf /`)
+	got, err := Normalize(`chroot -- /new-root rm -rf /`, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -436,7 +436,7 @@ func TestNormalizeAddedWrapperErrorsFailClosed(t *testing.T) {
 		`watch --no-title=value rm -rf /`,
 	}
 	for _, src := range cases {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -454,7 +454,7 @@ func TestNormalizeAddedWrappersPreserveRedirectDirections(t *testing.T) {
 		`ionice -c2`,
 	} {
 		src := prefix + ` cat < input > output`
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -504,7 +504,7 @@ func TestNormalizeWatchTreatsCommandAsShellSource(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
-		got, err := Normalize(c.src)
+		got, err := Normalize(c.src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", c.src, err)
 			continue
@@ -520,7 +520,7 @@ func TestNormalizeChrootDerivationsAreUnresolved(t *testing.T) {
 		`chroot --userspec=root --groups wheel /new-root rm -rf /repo`,
 		`chroot --userspec root --groups=wheel /new-root rm -rf /repo`,
 	} {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -531,7 +531,7 @@ func TestNormalizeChrootDerivationsAreUnresolved(t *testing.T) {
 		}
 	}
 
-	got, err := Normalize(`chroot /new-root cat < input > output`)
+	got, err := Normalize(`chroot /new-root cat < input > output`, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -545,7 +545,7 @@ func TestNormalizeChrootDerivationsAreUnresolved(t *testing.T) {
 		t.Errorf("Normalize chroot redirects = %+v, want %+v", got, want)
 	}
 
-	got, err = Normalize(`chroot /new-root command -v git < input > output`)
+	got, err = Normalize(`chroot /new-root command -v git < input > output`, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -575,7 +575,7 @@ func TestNormalizeMarksUnknownWrapperFlagsUnresolved(t *testing.T) {
 		{`env -Z x < input > output`, []string{"env", "-Z", "x"}, []string{"output"}, []string{"input"}},
 	}
 	for _, c := range cases {
-		got, err := Normalize(c.src)
+		got, err := Normalize(c.src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", c.src, err)
 			continue
@@ -588,7 +588,7 @@ func TestNormalizeMarksUnknownWrapperFlagsUnresolved(t *testing.T) {
 }
 
 func TestNormalizeUnwrapsShellC(t *testing.T) {
-	got, err := Normalize(`sh -c "rm -rf /"`)
+	got, err := Normalize(`sh -c "rm -rf /"`, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -606,7 +606,7 @@ func TestNormalizeUnwrapsShellC(t *testing.T) {
 func TestNormalizeUnwrapsAddedShellC(t *testing.T) {
 	for _, shell := range []string{"fish", "csh", "tcsh", "mksh", "ash"} {
 		src := shell + ` -c "rm -rf /"`
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -631,7 +631,7 @@ func TestNormalizeUnwrapsClusteredShellC(t *testing.T) {
 		`csh -fc "rm -rf /"`,
 		`tcsh -fc "rm -rf /"`,
 	} {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -656,7 +656,7 @@ func TestNormalizeShellCDoesNotScanPositionalOrLongOptions(t *testing.T) {
 		`bash --rcfile -c "rm -rf /"`,
 		`fish --init-command -c "rm -rf /"`,
 	} {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -683,7 +683,7 @@ func TestNormalizeShellCParsesPreCommandOptionsByArity(t *testing.T) {
 		`fish --no-config -c "rm -rf /"`,
 		`fish --init-command 'printf init' -c "rm -rf /"`,
 	} {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -707,7 +707,7 @@ func TestNormalizeUnknownShellOptionFailsClosed(t *testing.T) {
 		`bash -Z -c "rm -rf /"`,
 		`fish --future-option -c "rm -rf /"`,
 	} {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -719,7 +719,7 @@ func TestNormalizeUnknownShellOptionFailsClosed(t *testing.T) {
 }
 
 func TestNormalizeEmptyShellScriptOperandStopsOptionParsing(t *testing.T) {
-	got, err := Normalize(`bash '' -c "rm -rf /"`)
+	got, err := Normalize(`bash '' -c "rm -rf /"`, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -739,7 +739,7 @@ func TestNormalizeMixedShellClustersAfterC(t *testing.T) {
 		`bash -cl "rm -rf /"`,
 		`bash -cxl "rm -rf /"`,
 	} {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -764,7 +764,7 @@ func TestNormalizeMalformedMixedShellClustersFailClosed(t *testing.T) {
 		`bash -cO`,
 		`bash -cO extglob`,
 	} {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -789,7 +789,7 @@ func TestNormalizeUsesShellSpecificOptionGrammar(t *testing.T) {
 		`bash --verbose -c "rm -rf /"`,
 		`bash --noprofile -l -c "rm -rf /"`,
 	} {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -810,7 +810,7 @@ func TestNormalizeUsesShellSpecificOptionGrammar(t *testing.T) {
 		`dash -h -c "rm -rf /"`,
 		`bash -l --noprofile -c "rm -rf /"`,
 	} {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -828,7 +828,7 @@ func TestNormalizeUsesShellSpecificOptionGrammar(t *testing.T) {
 		`bash --dump-strings -c "rm -rf /"`,
 		`bash --dump-po-strings -c "rm -rf /"`,
 	} {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -848,7 +848,7 @@ func TestNormalizeChrootRetainsZeroResultAsUnresolved(t *testing.T) {
 		`chroot /new-root command`,
 		`chroot /new-root exec`,
 	} {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -862,7 +862,7 @@ func TestNormalizeChrootRetainsZeroResultAsUnresolved(t *testing.T) {
 
 func TestNormalizeNonChrootZeroResultRemainsEmpty(t *testing.T) {
 	for _, src := range []string{`command -v git`, `command -V git`, `command`, `exec`} {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -872,7 +872,7 @@ func TestNormalizeNonChrootZeroResultRemainsEmpty(t *testing.T) {
 		}
 	}
 
-	got, err := Normalize(`chroot /new-root command git status`)
+	got, err := Normalize(`chroot /new-root command git status`, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -883,7 +883,7 @@ func TestNormalizeNonChrootZeroResultRemainsEmpty(t *testing.T) {
 }
 
 func TestNormalizeCommandVYieldsNoCommand(t *testing.T) {
-	got, err := Normalize(`command -v git`)
+	got, err := Normalize(`command -v git`, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -893,7 +893,7 @@ func TestNormalizeCommandVYieldsNoCommand(t *testing.T) {
 }
 
 func TestNormalizeUnwrapsRunners(t *testing.T) {
-	got, err := Normalize(`docker run --rm alpine rm -rf /data`)
+	got, err := Normalize(`docker run --rm alpine rm -rf /data`, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -920,7 +920,7 @@ func TestNormalizeDockerFamilyRunExecValuedOptions(t *testing.T) {
 		`docker run -- --name rm -rf /`,
 	}
 	for _, src := range cases {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -978,7 +978,7 @@ func TestNormalizeDockerRunUsesRunSpecificOptionArity(t *testing.T) {
 		`docker run -itv/:/host -lrole=test alpine rm -rf /`,
 	}
 	for _, src := range cases {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -1017,7 +1017,7 @@ func TestNormalizeDockerRunDetachKeysExactly(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		got, err := Normalize(tc.src)
+		got, err := Normalize(tc.src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", tc.src, err)
 			continue
@@ -1048,7 +1048,7 @@ func TestNormalizeDockerExecUsesExecSpecificOptionArity(t *testing.T) {
 		`nerdctl exec --privileged container rm -rf /`,
 	}
 	for _, src := range cases {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Errorf("Normalize(%q): %v", src, err)
 			continue
@@ -1091,7 +1091,7 @@ func TestNormalizeRecognizesAbsoluteWrappersShellsAndRunners(t *testing.T) {
 		`/bin/busybox rm -rf /`,
 	}
 	for _, src := range cases {
-		got, err := Normalize(src)
+		got, err := Normalize(src, "")
 		if err != nil {
 			t.Fatalf("Normalize(%q): %v", src, err)
 		}
@@ -1105,5 +1105,165 @@ func TestNormalizeRecognizesAbsoluteWrappersShellsAndRunners(t *testing.T) {
 		if !found {
 			t.Errorf("Normalize(%q) = %v, want inner {rm -rf /}", src, argvs(got))
 		}
+	}
+}
+
+func TestNormalizeTracksLiteralCdCwd(t *testing.T) {
+	got, err := Normalize(`cd src; cd nested; rm -rf build`, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Simple{
+		{Argv: []string{"cd", "src"}, Cwd: "/repo"},
+		{Argv: []string{"cd", "nested"}, Cwd: "/repo/src"},
+		{Argv: []string{"rm", "-rf", "build"}, Cwd: "/repo/src/nested"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Normalize cd chain = %+v, want %+v", got, want)
+	}
+
+	got, err = Normalize(`cd -- /etc; rm -rf .`, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = []Simple{
+		{Argv: []string{"cd", "--", "/etc"}, Cwd: "/repo"},
+		{Argv: []string{"rm", "-rf", "."}, Cwd: "/etc"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Normalize cd -- = %+v, want %+v", got, want)
+	}
+}
+
+func TestNormalizeTracksChainedConditionalCdSuccessPath(t *testing.T) {
+	got, err := Normalize(`cd src && cd nested && rm -rf build`, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got[len(got)-1]
+	if !reflect.DeepEqual(last.Argv, []string{"rm", "-rf", "build"}) || last.Cwd != "/repo/src/nested" || last.Unresolved {
+		t.Fatalf("last = %+v, want resolved rm in /repo/src/nested", last)
+	}
+}
+
+func TestNormalizeUnknownCdInvalidatesFollowingCwd(t *testing.T) {
+	commands := []string{
+		`cd; rm -rf .`,
+		`cd -; rm -rf .`,
+		`cd $TARGET; rm -rf .`,
+		`cd one two; rm -rf .`,
+		`cd -Z /etc; rm -rf .`,
+		`pushd /etc; rm -rf .`,
+		`popd; rm -rf .`,
+	}
+	for _, command := range commands {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", command, err)
+			continue
+		}
+		last := got[len(got)-1]
+		if last.Cwd != "" || !last.Unresolved {
+			t.Errorf("Normalize(%q) last = %+v, want unknown cwd and unresolved", command, last)
+		}
+	}
+}
+
+func TestNormalizeCdScopeBoundaries(t *testing.T) {
+	cases := []struct {
+		command string
+		wantCwd string
+	}{
+		{`(cd /etc); rm -rf build`, "/repo"},
+		{`cd /etc | cat; rm -rf build`, "/repo"},
+		{`value=$(cd /etc); rm -rf build`, "/repo"},
+		{`cat <(cd /etc); rm -rf build`, "/repo"},
+		{`bash -c 'cd /etc'; rm -rf build`, "/repo"},
+	}
+	for _, tc := range cases {
+		got, err := Normalize(tc.command, "/repo")
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", tc.command, err)
+			continue
+		}
+		last := got[len(got)-1]
+		if !reflect.DeepEqual(last.Argv, []string{"rm", "-rf", "build"}) || last.Cwd != tc.wantCwd {
+			t.Errorf("Normalize(%q) last = %+v, want rm cwd %q", tc.command, last, tc.wantCwd)
+		}
+	}
+
+	got, err := Normalize(`{ cd /etc; rm -rf .; }`, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got[len(got)-1]
+	if last.Cwd != "/etc" {
+		t.Fatalf("brace-group rm = %+v, want cwd /etc", last)
+	}
+}
+
+func TestNormalizeIsolatedScopesTrackTheirOwnCd(t *testing.T) {
+	commands := []string{
+		`(cd /etc; rm -rf .)`,
+		`printf x | { cd /etc; rm -rf .; }`,
+	}
+	for _, command := range commands {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", command, err)
+			continue
+		}
+		last := got[len(got)-1]
+		if !reflect.DeepEqual(last.Argv, []string{"rm", "-rf", "."}) || last.Cwd != "/etc" {
+			t.Errorf("Normalize(%q) last = %+v, want rm cwd /etc", command, last)
+		}
+	}
+}
+
+func TestNormalizeUncertainControlFlowInvalidatesJoin(t *testing.T) {
+	commands := []string{
+		`if condition; then cd /etc; fi; rm -rf .`,
+		`while condition; do cd /etc; done; rm -rf .`,
+		`for item in "$ITEMS"; do cd /etc; done; rm -rf .`,
+	}
+	for _, command := range commands {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", command, err)
+			continue
+		}
+		last := got[len(got)-1]
+		if last.Cwd != "" || !last.Unresolved {
+			t.Errorf("Normalize(%q) last = %+v, want unknown cwd and unresolved", command, last)
+		}
+	}
+}
+
+func TestNormalizeInnerShellAndWatchUseStatementCwd(t *testing.T) {
+	commands := []string{
+		`cd /etc; bash -c 'rm -rf .'`,
+		`cd /etc; watch 'rm -rf .'`,
+	}
+	for _, command := range commands {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", command, err)
+			continue
+		}
+		last := got[len(got)-1]
+		if !reflect.DeepEqual(last.Argv, []string{"rm", "-rf", "."}) || last.Cwd != "/etc" {
+			t.Errorf("Normalize(%q) last = %+v, want rm cwd /etc", command, last)
+		}
+	}
+}
+
+func TestNormalizeRelativeCdWithEmptyCwdIsUnknown(t *testing.T) {
+	got, err := Normalize(`cd relative; rm -rf .`, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got[len(got)-1]
+	if last.Cwd != "" || !last.Unresolved {
+		t.Fatalf("last = %+v, want unknown cwd and unresolved", last)
 	}
 }
