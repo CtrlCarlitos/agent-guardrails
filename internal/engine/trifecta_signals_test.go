@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -33,6 +35,17 @@ func TestIsPrivateDataAccess(t *testing.T) {
 		if IsPrivateDataAccess(ToolCall{Tool: "Bash", Command: command}, pol) {
 			t.Errorf("%q should not count here-data as a path", command)
 		}
+	}
+}
+
+func TestIsPrivateDataAccessUsesStatementCwd(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".aws"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	tc := ToolCall{Tool: "Bash", Command: `cd .aws; cat credentials`, CWD: repo, RepoRoot: repo}
+	if !IsPrivateDataAccess(tc, pathPol()) {
+		t.Fatal("relative read after cd should count as private-data access")
 	}
 }
 

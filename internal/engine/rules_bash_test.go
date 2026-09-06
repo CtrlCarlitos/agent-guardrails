@@ -120,6 +120,10 @@ func TestCdIsTrackedAcrossCurrentShellStatements(t *testing.T) {
 }
 
 func TestCdWithinRepoStillAllows(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "src", "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	commands := []string{
 		`cd src && rm -rf build`,
 		`cd src && cd nested && rm -rf build`,
@@ -129,7 +133,8 @@ func TestCdWithinRepoStillAllows(t *testing.T) {
 		`cd src; bash -c 'cd ..; rm -rf build'`,
 	}
 	for _, command := range commands {
-		if v := evalBash(t, command); v != nil {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+		if v := checkBash(tc, bashPol()); v != nil {
 			t.Errorf("%q -> %+v, want allow", command, v)
 		}
 	}
@@ -224,6 +229,118 @@ func TestRelativeCdFromUnknownInitialCwdFailsClosed(t *testing.T) {
 	v := checkBash(tc, bashPol())
 	if v == nil || v.Decision == policy.Allow {
 		t.Fatalf("-> %+v, want non-allow", v)
+	}
+}
+
+func TestFailedCdRetainsPriorCwd(t *testing.T) {
+	repo := t.TempDir()
+	missing := filepath.Join(repo, "missing")
+	notDir := filepath.Join(repo, "file")
+	if err := os.WriteFile(notDir, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{missing, notDir} {
+		command := fmt.Sprintf(`cd /etc; cd %q; rm -rf .`, target)
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+		v := checkBash(tc, bashPol())
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Errorf("%q -> %+v, want deny/P1.rm-rf", command, v)
+		}
+	}
+}
+
+func TestCdPathAndPhysicalModeReachEffectiveDirectory(t *testing.T) {
+	repo := t.TempDir()
+	repoSSL := filepath.Join(repo, "ssl")
+	if err := os.Mkdir(repoSSL, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	link := filepath.Join(repo, "link")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	commands := []string{
+		`CDPATH=/etc cd ssl; rm -rf .`,
+		`CDPATH=/etc; cd ssl; rm -rf .`,
+		`cd -P link; rm -rf .`,
+	}
+	for _, command := range commands {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+		v := checkBash(tc, bashPol())
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Errorf("%q -> %+v, want deny/P1.rm-rf", command, v)
+		}
+	}
+
+	t.Setenv("CDPATH", "/etc")
+	tc := ToolCall{Tool: "Bash", Command: `cd ssl; rm -rf .`, CWD: repo, RepoRoot: repo}
+	if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+		t.Fatalf("ambient CDPATH -> %+v, want deny/P1.rm-rf", v)
+	}
+	if v := checkBash(ToolCall{Tool: "Bash", Command: `cd ./ssl; rm -rf .`, CWD: repo, RepoRoot: repo}, bashPol()); v != nil {
+		t.Fatalf("dot-relative cd should bypass CDPATH -> %+v, want allow", v)
+	}
+}
+
+func TestEvalRunsInCurrentShell(t *testing.T) {
+	for _, command := range []string{
+		`eval 'cd /etc'; rm -rf .`,
+		`eval 'rm -rf /'`,
+		`eval 'cd /etc' ';' 'rm -rf .'`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision == policy.Allow {
+			t.Errorf("%q -> %+v, want non-allow", command, v)
+		}
+	}
+	v := evalBash(t, `eval "$SOURCE"; rm -rf .`)
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+		t.Fatalf("dynamic eval -> %+v, want ask/P3.unresolved", v)
+	}
+}
+
+func TestCwdControlFlowOmitsImpossibleCommands(t *testing.T) {
+	allow := []string{
+		`false && rm -rf /`,
+		`true || rm -rf /`,
+		`if false; then rm -rf /; fi`,
+		`case x in y) rm -rf /;; x) printf ok;; esac`,
+		`while false; do rm -rf /; done`,
+		`until true; do rm -rf /; done`,
+		`for item in; do rm -rf /; done`,
+	}
+	for _, command := range allow {
+		if v := evalBash(t, command); v != nil {
+			t.Errorf("%q -> %+v, want allow", command, v)
+		}
+	}
+	if v := evalBash(t, `if condition; then rm -rf /; fi`); v == nil || v.Decision != policy.Deny {
+		t.Fatalf("unknown reachable branch -> %+v, want deny", v)
+	}
+}
+
+func TestShellFunctionsAreEvaluatedOnlyWhenInvoked(t *testing.T) {
+	if v := evalBash(t, `danger() { rm -rf /; }`); v != nil {
+		t.Fatalf("uncalled function -> %+v, want allow", v)
+	}
+	for _, command := range []string{
+		`danger() { rm -rf /; }; danger`,
+		`move() { cd /etc; }; move; rm -rf .`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", command, v)
+		}
+	}
+	for _, command := range []string{
+		`recur() { recur; }; recur; rm -rf .`,
+		`move() { cd /etc; }; "$FN"; rm -rf .`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want ask/P3.unresolved", command, v)
+		}
 	}
 }
 

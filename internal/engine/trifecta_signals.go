@@ -12,12 +12,16 @@ import (
 // Deliberately unconditional on waivers: see the doc comment in the plan
 // that introduced this function.
 func IsPrivateDataAccess(tc ToolCall, pol *policy.Policy) bool {
-	for _, c := range privatePathCandidates(tc) {
-		c = strings.TrimPrefix(strings.TrimPrefix(c, "~/"), "~")
-		if matchesAnyGlob(c, pol.Slots.SecretAllow) {
+	for _, candidate := range privatePathCandidates(tc) {
+		path := strings.TrimPrefix(strings.TrimPrefix(candidate.path, "~/"), "~")
+		if matchesAnyGlob(path, pol.Slots.SecretAllow) {
 			continue
 		}
-		if matchesAnyGlob(c, pol.Slots.SecretGlobs) {
+		if matchesAnyGlob(path, pol.Slots.SecretGlobs) {
+			return true
+		}
+		if resolved, ok := resolveExistingPath(path, candidate.cwd); ok &&
+			!matchesAnyGlob(resolved, pol.Slots.SecretAllow) && matchesAnyGlob(resolved, pol.Slots.SecretGlobs) {
 			return true
 		}
 	}

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -18,6 +19,8 @@ type Simple struct {
 	Cwd           string
 	Unresolved    bool
 	pipelines     []pipelinePosition
+	cwdUnknown    bool
+	origin        *syntax.Stmt
 }
 
 type pipelinePosition struct {
@@ -49,6 +52,10 @@ func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pip
 		if !ok {
 			return true
 		}
+		state, tracked := states[stmt]
+		if states != nil && !tracked {
+			return false
+		}
 		var args []*syntax.Word
 		if stmt.Cmd != nil {
 			ce, ok := stmt.Cmd.(*syntax.CallExpr)
@@ -64,9 +71,11 @@ func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pip
 			return true
 		}
 		s := Simple{pipelines: pipelines[stmt]}
-		if state, ok := states[stmt]; ok {
+		if tracked {
 			s.Cwd = state.cwd
 			s.Unresolved = state.unknown
+			s.cwdUnknown = state.unknown
+			s.origin = stmt
 		}
 		for _, w := range args {
 			raw := src[w.Pos().Offset():w.End().Offset()]
@@ -122,14 +131,8 @@ func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pip
 func pipelinePositions(f *syntax.File, ctx *normalizeContext) map[*syntax.Stmt][]pipelinePosition {
 	pipeStatements := make(map[*syntax.Stmt]bool)
 	childPipes := make(map[*syntax.Stmt]bool)
-	shadowedConstants := make(map[string]bool)
+	shadowedConstants := shadowedStaticCommandNames(f)
 	syntax.Walk(f, func(node syntax.Node) bool {
-		if declaration, ok := node.(*syntax.FuncDecl); ok {
-			name := declaration.Name.Value
-			if name == "true" || name == "false" {
-				shadowedConstants[name] = true
-			}
-		}
 		stmt, ok := node.(*syntax.Stmt)
 		if !ok {
 			return true
@@ -165,6 +168,20 @@ func pipelinePositions(f *syntax.File, ctx *normalizeContext) map[*syntax.Stmt][
 		}
 	}
 	return positions
+}
+
+func shadowedStaticCommandNames(f *syntax.File) map[string]bool {
+	shadowed := make(map[string]bool)
+	syntax.Walk(f, func(node syntax.Node) bool {
+		if declaration, ok := node.(*syntax.FuncDecl); ok {
+			name := declaration.Name.Value
+			if name == "true" || name == "false" {
+				shadowed[name] = true
+			}
+		}
+		return true
+	})
+	return shadowed
 }
 
 type stdinFlow struct {
@@ -374,24 +391,13 @@ func markUnknownCaseIngress(positions map[*syntax.Stmt][]pipelinePosition, items
 
 func markStaticCaseIngress(positions map[*syntax.Stmt][]pipelinePosition, items []*syntax.CaseItem, matches []bool, position pipelinePosition, shadowedConstants map[string]bool) stdinFlow {
 	var flow stdinFlow
-	testing := true
-	for index, item := range items {
-		if testing && !matches[index] {
-			continue
-		}
+	for _, index := range staticCaseExecution(items, matches) {
+		item := items[index]
 		itemFlow := markPipelineList(positions, item.Stmts, position, shadowedConstants)
 		flow.allConsume = itemFlow.allConsume
 		flow.forwards = flow.forwards || itemFlow.forwards
 		if flow.allConsume {
 			return flow
-		}
-		switch item.Op {
-		case syntax.Break:
-			return flow
-		case syntax.Fallthrough:
-			testing = false
-		default: // ;;& and mksh's ;| resume pattern testing
-			testing = true
 		}
 	}
 	return flow
@@ -693,101 +699,257 @@ func flattenPipeline(stmt *syntax.Stmt) []*syntax.Stmt {
 }
 
 type cwdState struct {
-	cwd     string
-	unknown bool
+	cwd           string
+	unknown       bool
+	fsUncertain   bool
+	cdpath        string
+	cdpathSet     bool
+	cdpathUnknown bool
+}
+
+type cwdOutcome struct {
+	success    cwdState
+	failure    cwdState
+	canSuccess bool
+	canFailure bool
+}
+
+func successOutcome(state cwdState) cwdOutcome {
+	return cwdOutcome{success: state, canSuccess: true}
+}
+
+func bothOutcome(state cwdState) cwdOutcome {
+	return cwdOutcome{success: state, failure: state, canSuccess: true, canFailure: true}
+}
+
+func (out cwdOutcome) merged() cwdState {
+	switch {
+	case out.canSuccess && out.canFailure:
+		return mergeCwd(out.success, out.failure)
+	case out.canSuccess:
+		return out.success
+	case out.canFailure:
+		return out.failure
+	default:
+		return cwdState{unknown: true}
+	}
+}
+
+func mergeOutcomes(outcomes ...cwdOutcome) cwdOutcome {
+	var merged cwdOutcome
+	for _, out := range outcomes {
+		if out.canSuccess {
+			if merged.canSuccess {
+				merged.success = mergeCwd(merged.success, out.success)
+			} else {
+				merged.success = out.success
+				merged.canSuccess = true
+			}
+		}
+		if out.canFailure {
+			if merged.canFailure {
+				merged.failure = mergeCwd(merged.failure, out.failure)
+			} else {
+				merged.failure = out.failure
+				merged.canFailure = true
+			}
+		}
+	}
+	return merged
+}
+
+type shellFunction struct {
+	source string
 }
 
 type cwdWalker struct {
-	src    string
-	states map[*syntax.Stmt]cwdState
+	src          string
+	ctx          *normalizeContext
+	states       map[*syntax.Stmt]cwdState
+	replacements map[*syntax.Stmt][]Simple
+	functions    map[string]shellFunction
+	active       map[string]bool
+	shadowed     map[string]bool
 }
 
-func (w *cwdWalker) list(stmts []*syntax.Stmt, state cwdState) cwdState {
+func (w *cwdWalker) list(stmts []*syntax.Stmt, state cwdState) cwdOutcome {
+	out := successOutcome(state)
 	for _, stmt := range stmts {
-		state = w.stmt(stmt, state)
+		out = w.stmt(stmt, out.merged())
 	}
-	return state
+	return out
 }
 
-func (w *cwdWalker) stmt(stmt *syntax.Stmt, state cwdState) cwdState {
+func (w *cwdWalker) stmt(stmt *syntax.Stmt, state cwdState) cwdOutcome {
+	if declaration, ok := stmt.Cmd.(*syntax.FuncDecl); ok && !stmt.Background && !stmt.Coprocess {
+		w.functions[declaration.Name.Value] = shellFunction{source: w.src[declaration.Body.Pos().Offset():declaration.Body.End().Offset()]}
+		return successOutcome(state)
+	}
 	w.states[stmt] = state
 	w.redirectExpansions(stmt.Redirs, state)
 
-	isolated := stmt.Background || stmt.Coprocess
-	exit := w.command(stmt, state)
-	if isolated {
-		return state
+	if stmt.Background || stmt.Coprocess {
+		child := w.isolated()
+		child.command(stmt, state)
+		return bothOutcome(state)
 	}
-	return exit
+	return w.command(stmt, state)
 }
 
-func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdState {
+func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 	switch command := stmt.Cmd.(type) {
 	case nil:
-		return state
+		return bothOutcome(state)
 	case *syntax.CallExpr:
 		w.expansions(command, state)
-		return applyCd(state, simpleForCall(w.src, stmt, command))
+		return w.call(stmt, command, state)
 	case *syntax.BinaryCmd:
 		switch command.Op {
 		case syntax.Pipe, syntax.PipeAll:
-			w.stmt(command.X, state)
-			w.stmt(command.Y, state)
-			return state
+			w.isolated().stmt(command.X, state)
+			w.isolated().stmt(command.Y, state)
+			return bothOutcome(state)
 		case syntax.AndStmt:
 			left := w.stmt(command.X, state)
-			right := w.stmt(command.Y, w.cwdOnSuccess(command.X, state))
-			return mergeCwd(left, right)
+			var paths []cwdOutcome
+			if left.canFailure {
+				paths = append(paths, cwdOutcome{failure: left.failure, canFailure: true})
+			}
+			if left.canSuccess {
+				paths = append(paths, w.stmt(command.Y, left.success))
+			}
+			return mergeOutcomes(paths...)
 		case syntax.OrStmt:
 			left := w.stmt(command.X, state)
-			right := w.stmt(command.Y, w.cwdOnFailure(command.X, state))
-			return mergeCwd(left, right)
+			var paths []cwdOutcome
+			if left.canSuccess {
+				paths = append(paths, cwdOutcome{success: left.success, canSuccess: true})
+			}
+			if left.canFailure {
+				paths = append(paths, w.stmt(command.Y, left.failure))
+			}
+			return mergeOutcomes(paths...)
 		}
 	case *syntax.Block:
 		return w.list(command.Stmts, state)
 	case *syntax.Subshell:
-		w.list(command.Stmts, state)
-		return state
+		child := w.isolated().list(command.Stmts, state)
+		return cwdOutcome{success: state, failure: state, canSuccess: child.canSuccess, canFailure: child.canFailure}
 	case *syntax.IfClause:
 		return w.ifClause(command, state)
 	case *syntax.WhileClause:
-		condition := w.list(command.Cond, state)
-		body := w.list(command.Do, condition)
-		return mergeCwd(condition, body)
+		return w.whileClause(command, state)
 	case *syntax.ForClause:
 		w.expansions(command.Loop, state)
-		body := w.list(command.Do, state)
-		return mergeCwd(state, body)
-	case *syntax.CaseClause:
-		w.expansions(command.Word, state)
-		exits := []cwdState{state}
-		for _, item := range command.Items {
-			for _, pattern := range item.Patterns {
-				w.expansions(pattern, state)
-			}
-			exits = append(exits, w.list(item.Stmts, state))
+		switch forClauseIterations(command) {
+		case iterationNone:
+			return successOutcome(state)
+		case iterationGuaranteed:
+			body := w.list(command.Do, state)
+			return bothOutcome(body.merged())
+		default:
+			body := w.list(command.Do, state)
+			return bothOutcome(mergeCwd(state, body.merged()))
 		}
-		return mergeCwd(exits...)
+	case *syntax.CaseClause:
+		return w.caseClause(command, state)
 	case *syntax.TimeClause:
 		return w.stmt(command.Stmt, state)
 	case *syntax.FuncDecl:
-		w.stmt(command.Body, cwdState{unknown: true})
-		return state
+		w.isolated().stmt(command.Body, state)
+		return bothOutcome(state)
 	default:
 		w.expansions(command, state)
-		return state
+		return bothOutcome(state)
 	}
-	return cwdState{unknown: true}
+	return bothOutcome(cwdState{unknown: true})
 }
 
-func (w *cwdWalker) ifClause(clause *syntax.IfClause, state cwdState) cwdState {
-	condition := w.list(clause.Cond, state)
-	thenExit := w.list(clause.Then, condition)
-	elseExit := condition
-	if clause.Else != nil {
-		elseExit = w.ifClause(clause.Else, condition)
+func (w *cwdWalker) ifClause(clause *syntax.IfClause, state cwdState) cwdOutcome {
+	if !clause.ThenPos.IsValid() {
+		return w.list(clause.Then, state)
 	}
-	return mergeCwd(thenExit, elseExit)
+	condition := w.list(clause.Cond, state)
+	truth := literalCondition(clause.Cond, w.shadowed)
+	var paths []cwdOutcome
+	if truth != conditionFalse && condition.canSuccess {
+		paths = append(paths, w.list(clause.Then, condition.success))
+	}
+	if truth != conditionTrue && condition.canFailure {
+		if clause.Else == nil {
+			paths = append(paths, successOutcome(condition.failure))
+		} else {
+			paths = append(paths, w.ifClause(clause.Else, condition.failure))
+		}
+	}
+	return mergeOutcomes(paths...)
+}
+
+func (w *cwdWalker) whileClause(clause *syntax.WhileClause, state cwdState) cwdOutcome {
+	condition := w.list(clause.Cond, state)
+	truth := literalCondition(clause.Cond, w.shadowed)
+	bodyReachable := truth != conditionFalse
+	bodyState, exitState := condition.success, condition.failure
+	if clause.Until {
+		bodyReachable = truth != conditionTrue
+		bodyState, exitState = condition.failure, condition.success
+	}
+	if !bodyReachable {
+		return successOutcome(exitState)
+	}
+	body := w.list(clause.Do, bodyState)
+	if truth == conditionUnknown {
+		return bothOutcome(mergeCwd(exitState, body.merged()))
+	}
+	return bothOutcome(body.merged())
+}
+
+func (w *cwdWalker) caseClause(clause *syntax.CaseClause, state cwdState) cwdOutcome {
+	w.expansions(clause.Word, state)
+	selector, static := staticWord(clause.Word, false)
+	if static {
+		matches := make([]bool, len(clause.Items))
+		for index, item := range clause.Items {
+			matches[index], static = staticCaseItemMatches(selector, item)
+			if !static {
+				break
+			}
+		}
+		if static {
+			for _, index := range staticCaseExecution(clause.Items, matches) {
+				state = w.list(clause.Items[index].Stmts, state).merged()
+			}
+			return bothOutcome(state)
+		}
+	}
+	exits := []cwdState{state}
+	for _, item := range clause.Items {
+		for _, pattern := range item.Patterns {
+			w.expansions(pattern, state)
+		}
+		exits = append(exits, w.list(item.Stmts, state).merged())
+	}
+	return bothOutcome(mergeCwd(exits...))
+}
+
+func staticCaseExecution(items []*syntax.CaseItem, matches []bool) []int {
+	var executed []int
+	testing := true
+	for index, item := range items {
+		if testing && !matches[index] {
+			continue
+		}
+		executed = append(executed, index)
+		switch item.Op {
+		case syntax.Break:
+			return executed
+		case syntax.Fallthrough:
+			testing = false
+		default:
+			testing = true
+		}
+	}
+	return executed
 }
 
 func (w *cwdWalker) expansions(node syntax.Node, state cwdState) {
@@ -797,14 +959,28 @@ func (w *cwdWalker) expansions(node syntax.Node, state cwdState) {
 	syntax.Walk(node, func(node syntax.Node) bool {
 		switch expansion := node.(type) {
 		case *syntax.CmdSubst:
-			w.list(expansion.Stmts, state)
+			w.isolated().list(expansion.Stmts, state)
 			return false
 		case *syntax.ProcSubst:
-			w.list(expansion.Stmts, state)
+			w.isolated().list(expansion.Stmts, state)
 			return false
 		}
 		return true
 	})
+}
+
+func (w *cwdWalker) isolated() *cwdWalker {
+	child := *w
+	child.functions = cloneFunctions(w.functions)
+	return &child
+}
+
+func cloneFunctions(functions map[string]shellFunction) map[string]shellFunction {
+	clone := make(map[string]shellFunction, len(functions))
+	for name, function := range functions {
+		clone[name] = function
+	}
+	return clone
 }
 
 func (w *cwdWalker) redirectExpansions(redirs []*syntax.Redirect, state cwdState) {
@@ -838,103 +1014,283 @@ func simpleForCall(src string, stmt *syntax.Stmt, call *syntax.CallExpr) Simple 
 	return s
 }
 
-func applyCd(state cwdState, s Simple) cwdState {
-	argv := s.Argv
+func (w *cwdWalker) call(stmt *syntax.Stmt, call *syntax.CallExpr, state cwdState) cwdOutcome {
+	if len(call.Args) == 0 {
+		return successOutcome(applyCallAssignments(state, call))
+	}
+	simple := simpleForCall(w.src, stmt, call)
+	argv := directCommandArgv(simple.Argv)
+	if len(argv) == 0 {
+		return bothOutcome(state)
+	}
+	local := applyCallAssignments(state, call)
+
+	if argv[0] == "eval" {
+		return w.eval(stmt, simple, argv, local)
+	}
+	if function, ok := w.functions[argv[0]]; ok {
+		return w.functionCall(stmt, simple, argv[0], function, local)
+	}
+	if simple.Unresolved && len(w.functions) > 0 {
+		return bothOutcome(cwdState{unknown: true})
+	}
+	switch argv[0] {
+	case "cd":
+		return restoreCDPath(cdOutcome(local, simple, argv), state)
+	case "pushd", "popd":
+		return bothOutcome(cwdState{unknown: true})
+	}
+
+	if len(simple.Redirects) > 0 || len(writeTargets(simple)) > 0 {
+		state.fsUncertain = true
+	}
+	switch literalCondition([]*syntax.Stmt{stmt}, w.shadowed) {
+	case conditionTrue:
+		return successOutcome(state)
+	case conditionFalse:
+		return cwdOutcome{failure: state, canFailure: true}
+	default:
+		return bothOutcome(state)
+	}
+}
+
+func restoreCDPath(out cwdOutcome, persistent cwdState) cwdOutcome {
+	restore := func(state cwdState) cwdState {
+		state.cdpath = persistent.cdpath
+		state.cdpathSet = persistent.cdpathSet
+		state.cdpathUnknown = persistent.cdpathUnknown
+		return state
+	}
+	if out.canSuccess {
+		out.success = restore(out.success)
+	}
+	if out.canFailure {
+		out.failure = restore(out.failure)
+	}
+	return out
+}
+
+func directCommandArgv(argv []string) []string {
 	for len(argv) > 0 && (argv[0] == "command" || argv[0] == "builtin") {
 		argv = argv[1:]
 	}
-	if len(argv) == 0 {
-		return state
-	}
-	switch argv[0] {
-	case "pushd", "popd":
-		return cwdState{unknown: true}
-	case "cd":
-	default:
-		return state
-	}
-	if s.Unresolved {
-		return cwdState{unknown: true}
-	}
+	return argv
+}
 
-	var operands []string
+func (w *cwdWalker) eval(stmt *syntax.Stmt, simple Simple, argv []string, state cwdState) cwdOutcome {
+	if state.unknown || simple.Unresolved {
+		w.replacements[stmt] = []Simple{{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: true}}
+		return bothOutcome(cwdState{unknown: true})
+	}
+	if len(argv) == 1 {
+		w.replacements[stmt] = nil
+		return successOutcome(state)
+	}
+	result, err := normalizeWithState(strings.Join(argv[1:], " "), state, w.ctx, w.functions, w.active)
+	if err != nil {
+		w.replacements[stmt] = []Simple{{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: true}}
+		return bothOutcome(cwdState{unknown: true})
+	}
+	w.replacements[stmt] = result.simples
+	return result.outcome
+}
+
+func (w *cwdWalker) functionCall(stmt *syntax.Stmt, simple Simple, name string, function shellFunction, state cwdState) cwdOutcome {
+	if w.active[name] {
+		w.replacements[stmt] = []Simple{{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: true}}
+		return bothOutcome(cwdState{unknown: true})
+	}
+	active := make(map[string]bool, len(w.active)+1)
+	for activeName := range w.active {
+		active[activeName] = true
+	}
+	active[name] = true
+	result, err := normalizeWithState(function.source, state, w.ctx, w.functions, active)
+	if err != nil {
+		w.replacements[stmt] = []Simple{{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: true}}
+		return bothOutcome(cwdState{unknown: true})
+	}
+	w.replacements[stmt] = result.simples
+	return result.outcome
+}
+
+func applyCallAssignments(state cwdState, call *syntax.CallExpr) cwdState {
+	for _, assignment := range call.Assigns {
+		if assignment.Name == nil || assignment.Name.Value != "CDPATH" {
+			continue
+		}
+		if assignment.Append || assignment.Index != nil || assignment.Array != nil {
+			state.cdpathUnknown = true
+			state.cdpathSet = false
+			continue
+		}
+		value, ok := staticWord(assignment.Value, false)
+		if !ok {
+			state.cdpathUnknown = true
+			state.cdpathSet = false
+			continue
+		}
+		state.cdpath = value
+		state.cdpathSet = true
+		state.cdpathUnknown = false
+	}
+	return state
+}
+
+type cdDirectoryStatus uint8
+
+const (
+	cdDirectoryUnknown cdDirectoryStatus = iota
+	cdDirectoryMissing
+	cdDirectoryAccessible
+)
+
+func cdOutcome(state cwdState, simple Simple, argv []string) cwdOutcome {
+	if state.unknown {
+		return bothOutcome(cwdState{unknown: true})
+	}
+	target, physical, ok := parseCdArgs(argv[1:])
+	if !ok || simple.Unresolved || state.cwd == "" {
+		return bothOutcome(cwdState{unknown: true})
+	}
+	resolved, status := resolveCdTarget(state, target, physical)
+	success := state
+	success.cwd = resolved
+	success.unknown = resolved == ""
+	if physical && state.fsUncertain {
+		success = cwdState{unknown: true}
+		status = cdDirectoryUnknown
+	}
+	if physical && status == cdDirectoryAccessible {
+		physicalPath, err := filepath.EvalSymlinks(resolved)
+		if err != nil {
+			status = cdDirectoryUnknown
+			success = cwdState{unknown: true}
+		} else {
+			success.cwd = filepath.Clean(physicalPath)
+		}
+	}
+	switch status {
+	case cdDirectoryAccessible:
+		if state.fsUncertain {
+			return cwdOutcome{success: success, failure: state, canSuccess: true, canFailure: true}
+		}
+		return successOutcome(success)
+	case cdDirectoryMissing:
+		if state.fsUncertain {
+			return cwdOutcome{success: success, failure: state, canSuccess: true, canFailure: true}
+		}
+		return cwdOutcome{failure: state, canFailure: true}
+	default:
+		return cwdOutcome{success: success, failure: state, canSuccess: true, canFailure: true}
+	}
+}
+
+func parseCdArgs(args []string) (target string, physical bool, ok bool) {
 	options := true
-	for _, arg := range argv[1:] {
+	mode := byte(0)
+	seenE := false
+	var operands []string
+	for _, arg := range args {
 		if options && arg == "--" {
 			options = false
 			continue
 		}
 		if options && strings.HasPrefix(arg, "-") {
-			if arg == "-" || strings.Trim(strings.TrimPrefix(arg, "-"), "LPe@") != "" {
-				return cwdState{unknown: true}
+			if arg == "-" {
+				return "", false, false
+			}
+			for _, option := range strings.TrimPrefix(arg, "-") {
+				switch option {
+				case 'L', 'P':
+					if mode != 0 && mode != byte(option) {
+						return "", false, false
+					}
+					mode = byte(option)
+				case 'e':
+					seenE = true
+				default:
+					return "", false, false
+				}
 			}
 			continue
 		}
 		options = false
 		operands = append(operands, arg)
 	}
-	if len(operands) != 1 || operands[0] == "" {
-		return cwdState{unknown: true}
+	if len(operands) != 1 || operands[0] == "" || seenE && mode != 'P' {
+		return "", false, false
 	}
-	if filepath.IsAbs(operands[0]) {
-		return cwdState{cwd: filepath.Clean(operands[0])}
-	}
-	if state.unknown || state.cwd == "" {
-		return cwdState{unknown: true}
-	}
-	return cwdState{cwd: filepath.Clean(filepath.Join(state.cwd, operands[0]))}
+	return operands[0], mode == 'P', true
 }
 
-func (w *cwdWalker) cwdOnSuccess(stmt *syntax.Stmt, state cwdState) cwdState {
-	if stmt.Background || stmt.Coprocess {
-		return state
+func resolveCdTarget(state cwdState, target string, physical bool) (string, cdDirectoryStatus) {
+	if filepath.IsAbs(target) || strings.HasPrefix(target, "."+string(filepath.Separator)) || target == "." || target == ".." || strings.HasPrefix(target, ".."+string(filepath.Separator)) {
+		candidate := cdCandidate(state.cwd, target, physical)
+		return candidate, cdDirectoryState(candidate)
 	}
-	switch command := stmt.Cmd.(type) {
-	case *syntax.CallExpr:
-		return applyCd(state, simpleForCall(w.src, stmt, command))
-	case *syntax.BinaryCmd:
-		switch command.Op {
-		case syntax.AndStmt:
-			return w.cwdOnSuccess(command.Y, w.cwdOnSuccess(command.X, state))
-		case syntax.OrStmt:
-			left := w.cwdOnSuccess(command.X, state)
-			right := w.cwdOnSuccess(command.Y, w.cwdOnFailure(command.X, state))
-			return mergeCwd(left, right)
-		case syntax.Pipe, syntax.PipeAll:
-			return state
+	if state.cdpathUnknown {
+		return "", cdDirectoryUnknown
+	}
+	if state.cdpathSet {
+		unknown := false
+		for _, entry := range filepath.SplitList(state.cdpath) {
+			if entry == "" {
+				entry = state.cwd
+			} else if !filepath.IsAbs(entry) {
+				entry = filepath.Join(state.cwd, entry)
+			}
+			candidate := cdCandidate(entry, target, physical)
+			switch status := cdDirectoryState(candidate); status {
+			case cdDirectoryAccessible:
+				return candidate, status
+			case cdDirectoryUnknown:
+				unknown = true
+			}
 		}
-	case *syntax.Subshell, *syntax.FuncDecl:
-		return state
-	case *syntax.TimeClause:
-		return w.cwdOnSuccess(command.Stmt, state)
+		if unknown {
+			return "", cdDirectoryUnknown
+		}
+		return cdCandidate(state.cwd, target, physical), cdDirectoryMissing
 	}
-	return cwdState{unknown: true}
+	candidate := cdCandidate(state.cwd, target, physical)
+	return candidate, cdDirectoryState(candidate)
 }
 
-func (w *cwdWalker) cwdOnFailure(stmt *syntax.Stmt, state cwdState) cwdState {
-	if stmt.Background || stmt.Coprocess {
-		return state
-	}
-	switch command := stmt.Cmd.(type) {
-	case *syntax.CallExpr:
-		return applyCd(state, simpleForCall(w.src, stmt, command))
-	case *syntax.BinaryCmd:
-		switch command.Op {
-		case syntax.AndStmt:
-			left := w.cwdOnFailure(command.X, state)
-			right := w.cwdOnFailure(command.Y, w.cwdOnSuccess(command.X, state))
-			return mergeCwd(left, right)
-		case syntax.OrStmt:
-			return w.cwdOnFailure(command.Y, w.cwdOnFailure(command.X, state))
-		case syntax.Pipe, syntax.PipeAll:
-			return state
+func cdCandidate(base, target string, physical bool) string {
+	candidate := target
+	if !filepath.IsAbs(candidate) {
+		if physical {
+			candidate = strings.TrimSuffix(base, string(filepath.Separator)) + string(filepath.Separator) + candidate
+		} else {
+			candidate = filepath.Join(base, candidate)
 		}
-	case *syntax.Subshell, *syntax.FuncDecl:
-		return state
-	case *syntax.TimeClause:
-		return w.cwdOnFailure(command.Stmt, state)
 	}
-	return cwdState{unknown: true}
+	if physical {
+		return candidate
+	}
+	return filepath.Clean(candidate)
+}
+
+func cdDirectoryState(candidate string) cdDirectoryStatus {
+	info, err := os.Stat(candidate)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return cdDirectoryMissing
+		}
+		return cdDirectoryUnknown
+	}
+	if !info.IsDir() {
+		return cdDirectoryMissing
+	}
+	directory, err := os.Open(candidate)
+	if err != nil {
+		return cdDirectoryUnknown
+	}
+	if err := directory.Close(); err != nil {
+		return cdDirectoryUnknown
+	}
+	return cdDirectoryAccessible
 }
 
 func mergeCwd(states ...cwdState) cwdState {
@@ -945,12 +1301,18 @@ func mergeCwd(states ...cwdState) cwdState {
 	if first.unknown {
 		return cwdState{unknown: true}
 	}
+	merged := first
 	for _, state := range states[1:] {
 		if state.unknown || state.cwd != first.cwd {
 			return cwdState{unknown: true}
 		}
+		merged.fsUncertain = merged.fsUncertain || state.fsUncertain
+		if state.cdpathUnknown || merged.cdpathUnknown || state.cdpathSet != merged.cdpathSet || state.cdpath != merged.cdpath {
+			merged.cdpathUnknown = true
+			merged.cdpathSet = false
+		}
 	}
-	return first
+	return merged
 }
 
 // Normalize returns every command that will actually execute, with no-op
@@ -960,28 +1322,89 @@ func Normalize(command, cwd string) ([]Simple, error) {
 }
 
 func normalizeWithContext(command, cwd string, ctx *normalizeContext) ([]Simple, error) {
+	state := cwdState{cwd: cwd}
+	if cdpath, ok := os.LookupEnv("CDPATH"); ok {
+		state.cdpath = cdpath
+		state.cdpathSet = true
+	}
+	result, err := normalizeWithState(command, state, ctx, nil, nil)
+	return result.simples, err
+}
+
+type normalizeResult struct {
+	simples []Simple
+	outcome cwdOutcome
+}
+
+func normalizeWithState(command string, state cwdState, ctx *normalizeContext, functions map[string]shellFunction, active map[string]bool) (normalizeResult, error) {
 	f, err := syntax.NewParser().Parse(strings.NewReader(command), "")
 	if err != nil {
-		return nil, err
+		return normalizeResult{}, err
 	}
 	pipelines := pipelinePositions(f, ctx)
-	walker := cwdWalker{src: command, states: make(map[*syntax.Stmt]cwdState)}
-	walker.list(f.Stmts, cwdState{cwd: cwd})
+	if functions == nil {
+		functions = make(map[string]shellFunction)
+	} else {
+		functions = cloneFunctions(functions)
+	}
+	if active == nil {
+		active = make(map[string]bool)
+	}
+	walker := cwdWalker{
+		src:          command,
+		ctx:          ctx,
+		states:       make(map[*syntax.Stmt]cwdState),
+		replacements: make(map[*syntax.Stmt][]Simple),
+		functions:    functions,
+		active:       active,
+		shadowed:     shadowedStaticCommandNames(f),
+	}
+	outcome := walker.list(f.Stmts, state)
 	base := extractSimples(command, f, pipelines, walker.states)
 	var out []Simple
 	for _, s := range base {
+		if replacement, ok := walker.replacements[s.origin]; ok {
+			out = append(out, replacementWithOuterMetadata(s, replacement)...)
+			continue
+		}
 		expanded, err := stripAndUnwrap(s, ctx)
 		if err != nil {
 			// This statement's wrappers could not be understood. Keep it
 			// unknowable so sibling statements are still evaluated.
 			degraded := s
 			degraded.Unresolved = true
+			degraded.origin = nil
 			out = append(out, degraded)
 			continue
 		}
+		for index := range expanded {
+			expanded[index].origin = nil
+		}
 		out = append(out, expanded...)
 	}
-	return out, nil
+	return normalizeResult{simples: out, outcome: outcome}, nil
+}
+
+func replacementWithOuterMetadata(outer Simple, replacement []Simple) []Simple {
+	result := make([]Simple, 0, len(replacement)+1)
+	if len(outer.Redirects) > 0 || len(outer.ReadRedirects) > 0 {
+		result = append(result, Simple{
+			Redirects:     outer.Redirects,
+			ReadRedirects: outer.ReadRedirects,
+			Cwd:           outer.Cwd,
+			Unresolved:    outer.Unresolved,
+			pipelines:     outer.pipelines,
+			cwdUnknown:    outer.cwdUnknown,
+		})
+	}
+	for _, inner := range replacement {
+		inner.Unresolved = inner.Unresolved || outer.Unresolved
+		inner.cwdUnknown = inner.cwdUnknown || outer.cwdUnknown
+		inner.pipelines = append(inner.pipelines, outer.pipelines...)
+		inner.origin = nil
+		result = append(result, inner)
+	}
+	return result
 }
 
 func stripAndUnwrap(s Simple, ctx *normalizeContext) ([]Simple, error) {
@@ -1051,20 +1474,20 @@ loop:
 		s.Unresolved = s.Unresolved || chrooted
 		return []Simple{s}, nil
 	}
-	result := []Simple{{Argv: argv, Redirects: s.Redirects, ReadRedirects: s.ReadRedirects, Cwd: s.Cwd, Unresolved: s.Unresolved, pipelines: s.pipelines}}
+	result := []Simple{{Argv: argv, Redirects: s.Redirects, ReadRedirects: s.ReadRedirects, Cwd: s.Cwd, Unresolved: s.Unresolved, pipelines: s.pipelines, cwdUnknown: s.cwdUnknown}}
 	inner, err := runnerInner(argv)
 	if err != nil {
 		return nil, err
 	}
 	if inner != nil {
-		result = append(result, Simple{Argv: inner, Cwd: s.Cwd, Unresolved: s.Unresolved, pipelines: s.pipelines})
+		result = append(result, Simple{Argv: inner, Cwd: s.Cwd, Unresolved: s.Unresolved, pipelines: s.pipelines, cwdUnknown: s.cwdUnknown})
 	}
 	source, dashC, err := shellDashC(argv)
 	if err != nil {
 		return nil, err
 	}
 	if dashC {
-		inner, err := normalizeShellDashC(source, s.Cwd, ctx)
+		inner, err := normalizeShellDashC(source, cwdState{cwd: s.Cwd, unknown: s.cwdUnknown}, ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -1082,18 +1505,20 @@ loop:
 }
 
 // normalizeShellDashC re-tokenizes the literal text passed to a shell's -c flag.
-func normalizeShellDashC(word, cwd string, ctx *normalizeContext) ([]Simple, error) {
-	return normalizeWithContext(word, cwd, ctx)
+func normalizeShellDashC(word string, state cwdState, ctx *normalizeContext) ([]Simple, error) {
+	result, err := normalizeWithState(word, state, ctx, nil, nil)
+	return result.simples, err
 }
 
 func normalizeWatch(outer Simple, argv []string, unresolved bool, ctx *normalizeContext) ([]Simple, error) {
 	if len(argv) == 0 {
 		return nil, fmt.Errorf("watch: missing command argument; failing closed")
 	}
-	inner, err := normalizeWithContext(strings.Join(argv, " "), outer.Cwd, ctx)
+	result, err := normalizeWithState(strings.Join(argv, " "), cwdState{cwd: outer.Cwd, unknown: outer.cwdUnknown}, ctx, nil, nil)
 	if err != nil {
 		return nil, err
 	}
+	inner := result.simples
 	unresolved = unresolved || outer.Unresolved
 	if unresolved {
 		for i := range inner {
@@ -1110,11 +1535,12 @@ func normalizeWatch(outer Simple, argv []string, unresolved bool, ctx *normalize
 			Cwd:           outer.Cwd,
 			Unresolved:    unresolved,
 			pipelines:     outer.pipelines,
+			cwdUnknown:    outer.cwdUnknown,
 		}
 		return append([]Simple{metadata}, inner...), nil
 	}
 	if unresolved && len(inner) == 0 {
-		return []Simple{{Cwd: outer.Cwd, Unresolved: true, pipelines: outer.pipelines}}, nil
+		return []Simple{{Cwd: outer.Cwd, Unresolved: true, pipelines: outer.pipelines, cwdUnknown: outer.cwdUnknown}}, nil
 	}
 	return inner, nil
 }

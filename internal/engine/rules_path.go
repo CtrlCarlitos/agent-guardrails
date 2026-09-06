@@ -40,18 +40,18 @@ func isWriteToolCall(tool string) bool {
 
 func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	candidates := privatePathCandidates(tc)
-	for _, c := range candidates {
-		c = strings.TrimPrefix(c, "~/")
-		c = strings.TrimPrefix(c, "~")
-		if v := checkSecretPath(c, pol); v != nil {
+	for _, candidate := range candidates {
+		path := strings.TrimPrefix(candidate.path, "~/")
+		path = strings.TrimPrefix(path, "~")
+		if v := checkSecretPath(path, pol); v != nil {
 			return v
 		}
-		if resolved, ok := resolveExistingPath(c, tc.CWD); ok {
+		if resolved, ok := resolveExistingPath(path, candidate.cwd); ok {
 			if v := checkSecretPath(resolved, pol); v != nil {
 				return v
 			}
 		}
-		if v := checkSymlinkEscape(c, tc); v != nil {
+		if v := checkSymlinkEscape(path, candidate.cwd, tc); v != nil {
 			return v
 		}
 	}
@@ -70,20 +70,32 @@ func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	return nil
 }
 
-func privatePathCandidates(tc ToolCall) []string {
-	var candidates []string
+type pathCandidate struct {
+	path string
+	cwd  string
+}
+
+func privatePathCandidates(tc ToolCall) []pathCandidate {
+	var candidates []pathCandidate
 	if isFileTool(tc.Tool) {
-		candidates = append(candidates, tc.Paths...)
+		for _, path := range tc.Paths {
+			candidates = append(candidates, pathCandidate{path: path, cwd: tc.CWD})
+		}
 	}
 	if tc.IsBash() {
 		simples, err := Normalize(tc.Command, tc.CWD)
 		if err == nil {
 			for _, s := range simples {
 				if pathReaders[head(s.Argv)] {
-					candidates = append(candidates, nonFlagArgs(s.Argv)...)
+					for _, path := range nonFlagArgs(s.Argv) {
+						candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd})
+					}
 				}
-				candidates = append(candidates, s.Redirects...)
-				candidates = append(candidates, s.ReadRedirects...)
+				paths := append(append([]string{}, s.Redirects...), s.ReadRedirects...)
+				paths = append(paths, writeTargets(s)...)
+				for _, path := range paths {
+					candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd})
+				}
 			}
 		}
 	}
@@ -404,16 +416,19 @@ func writeTargets(s Simple) []string {
 	return nil
 }
 
-func writeCandidates(tc ToolCall) []string {
-	var out []string
+func writeCandidates(tc ToolCall) []pathCandidate {
+	var out []pathCandidate
 	if isFileTool(tc.Tool) {
-		out = append(out, tc.Paths...)
+		for _, path := range tc.Paths {
+			out = append(out, pathCandidate{path: path, cwd: tc.CWD})
+		}
 	}
 	if tc.IsBash() {
 		if simples, err := Normalize(tc.Command, tc.CWD); err == nil {
 			for _, s := range simples {
-				out = append(out, s.Redirects...)
-				out = append(out, writeTargets(s)...)
+				for _, path := range append(append([]string{}, s.Redirects...), writeTargets(s)...) {
+					out = append(out, pathCandidate{path: path, cwd: s.Cwd})
+				}
 			}
 		}
 	}
@@ -424,10 +439,15 @@ func checkGitProtectedPaths(tc ToolCall) *policy.Verdict {
 	if isFileTool(tc.Tool) && !isWriteToolCall(tc.Tool) {
 		return nil
 	}
-	for _, c := range writeCandidates(tc) {
-		if matchesAnyGlob(strings.TrimPrefix(c, "./"), gitProtectedGlobs) {
+	for _, candidate := range writeCandidates(tc) {
+		path := candidate.path
+		protected := matchesAnyGlob(strings.TrimPrefix(path, "./"), gitProtectedGlobs)
+		if resolved, ok := resolveExistingPath(path, candidate.cwd); ok {
+			protected = protected || matchesAnyGlob(resolved, gitProtectedGlobs)
+		}
+		if protected {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P2.git-protected-path",
-				Reason: "write to a protected git-internal path: " + c}
+				Reason: "write to a protected git-internal path: " + path}
 		}
 	}
 	return nil
@@ -452,14 +472,15 @@ func checkSelfConfig(tc ToolCall) *policy.Verdict {
 	if isFileTool(tc.Tool) && !isWriteToolCall(tc.Tool) {
 		return nil
 	}
-	for _, c := range writeCandidates(tc) {
-		protected := matchesAnyGlob(strings.TrimPrefix(c, "./"), selfConfigGlobs)
-		if resolved, ok := resolveExistingPath(c, tc.CWD); ok {
+	for _, candidate := range writeCandidates(tc) {
+		path := candidate.path
+		protected := matchesAnyGlob(strings.TrimPrefix(path, "./"), selfConfigGlobs)
+		if resolved, ok := resolveExistingPath(path, candidate.cwd); ok {
 			protected = protected || matchesAnyGlob(resolved, selfConfigGlobs)
 		}
 		if protected {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
-				Reason: "write to the agent's own guardrail/shell config: " + c}
+				Reason: "write to the agent's own guardrail/shell config: " + path}
 		}
 	}
 	if tc.IsBash() {
@@ -609,10 +630,15 @@ func checkCIInfraLockfile(tc ToolCall) *policy.Verdict {
 	if isFileTool(tc.Tool) && !isWriteToolCall(tc.Tool) {
 		return nil
 	}
-	for _, c := range writeCandidates(tc) {
-		if matchesAnyGlob(strings.TrimPrefix(c, "./"), ciInfraLockGlobs) {
+	for _, candidate := range writeCandidates(tc) {
+		path := candidate.path
+		protected := matchesAnyGlob(strings.TrimPrefix(path, "./"), ciInfraLockGlobs)
+		if resolved, ok := resolveExistingPath(path, candidate.cwd); ok {
+			protected = protected || matchesAnyGlob(resolved, ciInfraLockGlobs)
+		}
+		if protected {
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P5.ci-infra-lockfile",
-				Reason: "edit of a CI/infra/lockfile — this code runs later with more privilege: " + c}
+				Reason: "edit of a CI/infra/lockfile — this code runs later with more privilege: " + path}
 		}
 	}
 	return nil
@@ -649,7 +675,7 @@ func matchesAnyGlob(p string, globs []string) bool {
 	return false
 }
 
-func checkSymlinkEscape(cand string, tc ToolCall) *policy.Verdict {
+func checkSymlinkEscape(cand, cwd string, tc ToolCall) *policy.Verdict {
 	if tc.RepoRoot == "" || filepath.IsAbs(cand) && !strings.HasPrefix(filepath.Clean(cand), filepath.Clean(tc.RepoRoot)) {
 		// only guard paths that claim to be inside the repo
 		if !strings.HasPrefix(filepath.Clean(cand), filepath.Clean(tc.RepoRoot)) {
@@ -658,7 +684,7 @@ func checkSymlinkEscape(cand string, tc ToolCall) *policy.Verdict {
 	}
 	abs := cand
 	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(tc.CWD, cand)
+		abs = filepath.Join(cwd, cand)
 	}
 	if !strings.HasPrefix(filepath.Clean(abs), filepath.Clean(tc.RepoRoot)+string(filepath.Separator)) {
 		return nil

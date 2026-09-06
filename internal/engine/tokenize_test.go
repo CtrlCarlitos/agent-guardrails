@@ -1,6 +1,9 @@
 package engine
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -1109,14 +1112,18 @@ func TestNormalizeRecognizesAbsoluteWrappersShellsAndRunners(t *testing.T) {
 }
 
 func TestNormalizeTracksLiteralCdCwd(t *testing.T) {
-	got, err := Normalize(`cd src; cd nested; rm -rf build`, "/repo")
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "src", "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Normalize(`cd src; cd nested; rm -rf build`, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []Simple{
-		{Argv: []string{"cd", "src"}, Cwd: "/repo"},
-		{Argv: []string{"cd", "nested"}, Cwd: "/repo/src"},
-		{Argv: []string{"rm", "-rf", "build"}, Cwd: "/repo/src/nested"},
+		{Argv: []string{"cd", "src"}, Cwd: repo},
+		{Argv: []string{"cd", "nested"}, Cwd: filepath.Join(repo, "src")},
+		{Argv: []string{"rm", "-rf", "build"}, Cwd: filepath.Join(repo, "src", "nested")},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Normalize cd chain = %+v, want %+v", got, want)
@@ -1136,13 +1143,18 @@ func TestNormalizeTracksLiteralCdCwd(t *testing.T) {
 }
 
 func TestNormalizeTracksChainedConditionalCdSuccessPath(t *testing.T) {
-	got, err := Normalize(`cd src && cd nested && rm -rf build`, "/repo")
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "src", "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Normalize(`cd src && cd nested && rm -rf build`, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	last := got[len(got)-1]
-	if !reflect.DeepEqual(last.Argv, []string{"rm", "-rf", "build"}) || last.Cwd != "/repo/src/nested" || last.Unresolved {
-		t.Fatalf("last = %+v, want resolved rm in /repo/src/nested", last)
+	wantCwd := filepath.Join(repo, "src", "nested")
+	if !reflect.DeepEqual(last.Argv, []string{"rm", "-rf", "build"}) || last.Cwd != wantCwd || last.Unresolved {
+		t.Fatalf("last = %+v, want resolved rm in %s", last, wantCwd)
 	}
 }
 
@@ -1224,7 +1236,7 @@ func TestNormalizeUncertainControlFlowInvalidatesJoin(t *testing.T) {
 	commands := []string{
 		`if condition; then cd /etc; fi; rm -rf .`,
 		`while condition; do cd /etc; done; rm -rf .`,
-		`for item in "$ITEMS"; do cd /etc; done; rm -rf .`,
+		`for item in $ITEMS; do cd /etc; done; rm -rf .`,
 	}
 	for _, command := range commands {
 		got, err := Normalize(command, "/repo")
@@ -1265,5 +1277,242 @@ func TestNormalizeRelativeCdWithEmptyCwdIsUnknown(t *testing.T) {
 	last := got[len(got)-1]
 	if last.Cwd != "" || !last.Unresolved {
 		t.Fatalf("last = %+v, want unknown cwd and unresolved", last)
+	}
+}
+
+func TestNormalizeCdSuccessAndFailureOutcomes(t *testing.T) {
+	repo := t.TempDir()
+	missing := filepath.Join(repo, "missing")
+	notDir := filepath.Join(repo, "file")
+	if err := os.WriteFile(notDir, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{missing, notDir} {
+		command := fmt.Sprintf(`cd /etc; cd %q; rm -rf .`, target)
+		got, err := Normalize(command, repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		last := got[len(got)-1]
+		if last.Cwd != "/etc" || last.Unresolved {
+			t.Errorf("Normalize(%q) last = %+v, want known cwd /etc", command, last)
+		}
+	}
+
+	got, err := Normalize(fmt.Sprintf(`cd %q && rm -rf /`, missing), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, simple := range got {
+		if reflect.DeepEqual(simple.Argv, []string{"rm", "-rf", "/"}) {
+			t.Fatalf("known failed cd exposed unreachable rm: %+v", got)
+		}
+	}
+
+	created := filepath.Join(repo, "created")
+	got, err = Normalize(fmt.Sprintf(`mkdir %q; cd %q; pwd`, created, created), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := got[len(got)-1]; last.Cwd != "" || !last.Unresolved {
+		t.Fatalf("post-mutation cd last = %+v, want unresolved cwd", last)
+	}
+}
+
+func TestNormalizeCdPathAssignmentsAndModes(t *testing.T) {
+	repo := t.TempDir()
+	localSSL := filepath.Join(repo, "ssl")
+	if err := os.Mkdir(localSSL, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	out := t.TempDir()
+	physicalTarget := filepath.Join(out, "target")
+	if err := os.Mkdir(physicalTarget, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(repo, "link")
+	if err := os.Symlink(physicalTarget, link); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+
+	cases := []struct {
+		command string
+		wantCwd string
+	}{
+		{`CDPATH=/etc cd ssl; pwd`, "/etc/ssl"},
+		{`CDPATH=/etc; cd ssl; pwd`, "/etc/ssl"},
+		{`OTHER=value cd ./ssl; pwd`, localSSL},
+		{`cd -L link; pwd`, link},
+		{`cd -P link; pwd`, physicalTarget},
+		{`cd -L link/..; pwd`, repo},
+		{`cd -P link/..; pwd`, out},
+	}
+	for _, test := range cases {
+		got, err := Normalize(test.command, repo)
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", test.command, err)
+			continue
+		}
+		last := got[len(got)-1]
+		if last.Cwd != test.wantCwd || last.Unresolved {
+			t.Errorf("Normalize(%q) last = %+v, want cwd %q", test.command, last, test.wantCwd)
+		}
+	}
+
+	t.Setenv("CDPATH", "/etc")
+	got, err := Normalize(`cd ssl; pwd`, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := got[len(got)-1]; last.Cwd != "/etc/ssl" || last.Unresolved {
+		t.Fatalf("ambient CDPATH last = %+v, want /etc/ssl", last)
+	}
+	got, err = Normalize(`cd ./ssl; pwd`, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := got[len(got)-1]; last.Cwd != localSSL || last.Unresolved {
+		t.Fatalf("dot-relative CDPATH bypass last = %+v, want %s", last, localSSL)
+	}
+
+	t.Setenv("CDPATH", "")
+	commandCDPath := t.TempDir()
+	for _, directory := range []string{"first", "next"} {
+		if err := os.Mkdir(filepath.Join(commandCDPath, directory), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err = Normalize(fmt.Sprintf(`CDPATH=%q cd first; cd next; pwd`, commandCDPath), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(commandCDPath, "first"); got[len(got)-1].Cwd != want || got[len(got)-1].Unresolved {
+		t.Fatalf("temporary CDPATH assignment last = %+v, want failed second cd to retain %s", got[len(got)-1], want)
+	}
+
+	got, err = Normalize(`cd -LP /etc; pwd`, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := got[len(got)-1]; last.Cwd != "" || !last.Unresolved {
+		t.Fatalf("conflicting cd modes last = %+v, want unresolved cwd", last)
+	}
+}
+
+func TestNormalizeUnknownCwdIsStickyAcrossRecursiveSources(t *testing.T) {
+	commands := []string{
+		`cd "$TARGET"; cd /etc; pwd`,
+		`cd "$TARGET"; bash -c 'cd /etc; pwd'`,
+		`cd "$TARGET"; watch 'cd /etc; pwd'`,
+		`cd "$TARGET"; eval 'cd /etc; pwd'`,
+	}
+	for _, command := range commands {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", command, err)
+			continue
+		}
+		last := got[len(got)-1]
+		if last.Cwd != "" || !last.Unresolved {
+			t.Errorf("Normalize(%q) last = %+v, want sticky unknown cwd", command, last)
+		}
+	}
+}
+
+func TestNormalizeEvalUsesCurrentShellState(t *testing.T) {
+	got, err := Normalize(`eval 'cd /etc'; pwd`, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := got[len(got)-1]; last.Cwd != "/etc" || last.Unresolved {
+		t.Fatalf("eval cd last = %+v, want cwd /etc", last)
+	}
+	foundRm := false
+	got, err = Normalize(`eval 'rm -rf /'`, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, simple := range got {
+		foundRm = foundRm || reflect.DeepEqual(simple.Argv, []string{"rm", "-rf", "/"})
+	}
+	if !foundRm {
+		t.Fatalf("eval did not expose inner rm: %+v", got)
+	}
+
+	got, err = Normalize(`eval "$SOURCE"; pwd`, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := got[len(got)-1]; last.Cwd != "" || !last.Unresolved {
+		t.Fatalf("dynamic eval last = %+v, want unresolved cwd", last)
+	}
+}
+
+func TestNormalizeReusesStaticControlReachability(t *testing.T) {
+	commands := []string{
+		`false && rm -rf /`,
+		`true || rm -rf /`,
+		`if false; then rm -rf /; fi`,
+		`case x in y) rm -rf /;; x) printf ok;; esac`,
+		`while false; do rm -rf /; done`,
+		`until true; do rm -rf /; done`,
+		`for item in; do rm -rf /; done`,
+	}
+	for _, command := range commands {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", command, err)
+			continue
+		}
+		for _, simple := range got {
+			if reflect.DeepEqual(simple.Argv, []string{"rm", "-rf", "/"}) {
+				t.Errorf("Normalize(%q) exposed unreachable rm: %+v", command, got)
+			}
+		}
+	}
+}
+
+func TestNormalizeFunctionsOnlyWhenInvoked(t *testing.T) {
+	got, err := Normalize(`danger() { rm -rf /; }`, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("uncalled function emitted Simples: %+v", got)
+	}
+
+	got, err = Normalize(`danger() { rm -rf /; }; danger`, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundRm := false
+	for _, simple := range got {
+		foundRm = foundRm || reflect.DeepEqual(simple.Argv, []string{"rm", "-rf", "/"})
+	}
+	if !foundRm {
+		t.Fatalf("invoked function did not emit body: %+v", got)
+	}
+
+	got, err = Normalize(`move() { cd /etc; }; move; pwd`, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := got[len(got)-1]; last.Cwd != "/etc" || last.Unresolved {
+		t.Fatalf("function cwd last = %+v, want /etc", last)
+	}
+
+	for _, command := range []string{
+		`recur() { recur; }; recur; pwd`,
+		`move() { cd /etc; }; "$FN"; pwd`,
+	} {
+		got, err = Normalize(command, "/repo")
+		if err != nil {
+			t.Errorf("Normalize(%q): %v", command, err)
+			continue
+		}
+		last := got[len(got)-1]
+		if last.Cwd != "" || !last.Unresolved {
+			t.Errorf("Normalize(%q) last = %+v, want unresolved cwd", command, last)
+		}
 	}
 }

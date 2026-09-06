@@ -80,6 +80,59 @@ func TestCheckPathsBashReader(t *testing.T) {
 	}
 }
 
+func TestBashPathCandidatesRetainStatementCwd(t *testing.T) {
+	repo := t.TempDir()
+	for _, dir := range []string{".aws", ".git", ".claude", filepath.Join(".github", "workflows")} {
+		if err := os.MkdirAll(filepath.Join(repo, dir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := []struct {
+		command string
+		ruleID  string
+	}{
+		{`cd .aws; cat credentials`, "P4.secret-path"},
+		{`cd .aws; cat < credentials`, "P4.secret-path"},
+		{`cd .aws; printf x > credentials`, "P4.secret-path"},
+		{`cd .aws; cp source credentials`, "P4.secret-path"},
+		{`cd .git; touch config`, "P2.git-protected-path"},
+		{`cd .git; printf x > config`, "P2.git-protected-path"},
+		{`cd .claude; touch settings.json`, "P5.self-config"},
+		{`cd .claude; cp source settings.json`, "P5.self-config"},
+		{`cd .github/workflows; touch ci.yml`, "P5.ci-infra-lockfile"},
+	}
+	for _, test := range cases {
+		tc := ToolCall{Tool: "Bash", Command: test.command, CWD: repo, RepoRoot: repo}
+		v := checkPaths(tc, pathPol())
+		if v == nil || v.RuleID != test.ruleID {
+			t.Errorf("%q -> %+v, want %s", test.command, v, test.ruleID)
+		}
+	}
+}
+
+func TestBashSymlinkCandidateRetainsStatementCwd(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	repo := t.TempDir()
+	subdir := filepath.Join(repo, "subdir")
+	if err := os.Mkdir(subdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.WriteFile(outside, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(subdir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	tc := ToolCall{Tool: "Bash", Command: `cd subdir; cat link`, CWD: repo, RepoRoot: repo}
+	v := checkPaths(tc, pathPol())
+	if v == nil || v.Decision != policy.Deny || v.RuleID != "P4.symlink-escape" {
+		t.Fatalf("-> %+v, want deny/P4.symlink-escape", v)
+	}
+}
+
 func TestCheckPathsSymlinkEscape(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink creation is privileged on Windows")
