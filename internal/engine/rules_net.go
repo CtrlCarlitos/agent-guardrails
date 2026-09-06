@@ -291,6 +291,20 @@ func parseNetworkArgs(argv []string, tool string, spec networkOptionSpec) (parse
 	return parsed, nil
 }
 
+func sshRemoteCommand(argv []string) (string, bool, error) {
+	if head(argv) != "ssh" {
+		return "", false, nil
+	}
+	parsed, err := parseNetworkArgs(argv, "ssh", sshOptions)
+	if err != nil {
+		return "", false, err
+	}
+	if len(parsed.operands) <= 1 {
+		return "", false, nil
+	}
+	return strings.Join(parsed.operands[1:], " "), true, nil
+}
+
 func addNetworkOptionTarget(parsed *parsedNetworkArgs, tool, option, value string) error {
 	if tool == "curl" {
 		switch option {

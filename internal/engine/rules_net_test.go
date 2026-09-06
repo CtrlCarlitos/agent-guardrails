@@ -549,6 +549,45 @@ func TestSSHAndSFTPHostExtraction(t *testing.T) {
 	}
 }
 
+func TestSSHRemoteCommandReachesBashRules(t *testing.T) {
+	commands := []string{
+		`ssh localhost rm -rf /`,
+		`ssh -p 2222 localhost rm -rf /`,
+		`ssh -- localhost rm -rf /`,
+		`ssh localhost "printf ok; rm -rf /"`,
+	}
+	for _, command := range commands {
+		v := evalNet(t, command, netPol())
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Errorf("%q -> %+v, want deny/P1.rm-rf", command, v)
+		}
+	}
+}
+
+func TestSSHRemoteCommandParsingControls(t *testing.T) {
+	for _, command := range []string{
+		`ssh localhost`,
+		`ssh -p 2222 localhost`,
+		`ssh -o "RemoteCommand=rm -rf /" localhost`,
+		`ssh localhost printf ok`,
+		`ssh -- localhost printf ok`,
+	} {
+		if v := evalNet(t, command, netPol()); v != nil {
+			t.Errorf("%q -> %+v, want allow", command, v)
+		}
+	}
+
+	for _, command := range []string{
+		`ssh evil.example.com printf ok`,
+		`ssh -Z localhost printf ok`,
+	} {
+		v := evalNet(t, command, netPol())
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P6.egress" {
+			t.Errorf("%q -> %+v, want deny/P6.egress", command, v)
+		}
+	}
+}
+
 func TestCurlConnectionOverridesAreEgressTargets(t *testing.T) {
 	pol := netPol("allowed.example.com")
 	commands := []string{

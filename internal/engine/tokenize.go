@@ -1877,6 +1877,17 @@ loop:
 		}
 		result = append(result, inner...)
 	}
+	remoteSource, remote, err := sshRemoteCommand(argv)
+	if err != nil {
+		return nil, err
+	}
+	if remote {
+		inner, err := normalizeShellDashC(remoteSource, s.shellState, s.pipelines, ctx)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, inner...)
+	}
 	if chrooted {
 		for i := range result {
 			result[i].Unresolved = true
