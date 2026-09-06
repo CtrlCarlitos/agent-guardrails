@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -26,14 +27,23 @@ import (
 )
 
 type entry struct {
-	Name                    string   `json:"name"`
-	Tool                    string   `json:"tool"`
-	Command                 string   `json:"command,omitempty"`
-	Paths                   []string `json:"paths,omitempty"`
-	CWD                     string   `json:"cwd"`
-	RepoRoot                string   `json:"repo_root"`
-	Want                    string   `json:"want"`
-	RewriteLogicalRepoPaths bool     `json:"rewrite_logical_repo_paths,omitempty"`
+	Name                    string           `json:"name"`
+	Tool                    string           `json:"tool"`
+	Command                 string           `json:"command,omitempty"`
+	Paths                   []string         `json:"paths,omitempty"`
+	CWD                     string           `json:"cwd"`
+	RepoRoot                string           `json:"repo_root"`
+	RepoAlias               string           `json:"repo_alias,omitempty"`
+	FixtureFiles            []string         `json:"fixture_files,omitempty"`
+	FixtureSymlinks         []fixtureSymlink `json:"fixture_symlinks,omitempty"`
+	Waive                   []string         `json:"waive,omitempty"`
+	Want                    string           `json:"want"`
+	RewriteLogicalRepoPaths bool             `json:"rewrite_logical_repo_paths,omitempty"`
+}
+
+type fixtureSymlink struct {
+	Path   string `json:"path"`
+	Target string `json:"target"`
 }
 
 var (
@@ -142,7 +152,28 @@ func TestAdversarialCorpus(t *testing.T) {
 			stateHome := t.TempDir()
 			configHome := t.TempDir()
 			config := filepath.Join(t.TempDir(), "guardrail.toml")
-			if err := os.WriteFile(config, nil, 0o600); err != nil {
+			var overlay []byte
+			if len(e.Waive) > 0 {
+				quoted := make([]string, len(e.Waive))
+				for i, ruleID := range e.Waive {
+					quoted[i] = fmt.Sprintf("%q", ruleID)
+				}
+				overlay = []byte("waive = [" + strings.Join(quoted, ",") + "]\n")
+
+				grantRoot, err := filepath.EvalSymlinks(physicalRoot)
+				if err != nil {
+					t.Fatalf("resolve repository root for waiver grant: %v", err)
+				}
+				operatorDir := filepath.Join(configHome, "guardrail")
+				if err := os.MkdirAll(operatorDir, 0o700); err != nil {
+					t.Fatalf("create Operator config directory: %v", err)
+				}
+				operatorConfig := fmt.Sprintf("[%q]\nwaive = [%s]\n", grantRoot, strings.Join(quoted, ","))
+				if err := os.WriteFile(filepath.Join(operatorDir, "waivers.toml"), []byte(operatorConfig), 0o600); err != nil {
+					t.Fatalf("write Operator config: %v", err)
+				}
+			}
+			if err := os.WriteFile(config, overlay, 0o600); err != nil {
 				t.Fatal(err)
 			}
 			cmd := exec.Command(bin, "hook", "claude")
@@ -384,6 +415,18 @@ func validateEntry(e entry, names map[string]bool) error {
 	if len(e.Paths) > 1 {
 		return fmt.Errorf("%q has %d paths; Claude accepts one file_path", e.Name, len(e.Paths))
 	}
+	if e.RepoAlias != "" {
+		root := filepath.Clean(filepath.FromSlash(e.RepoRoot))
+		alias := filepath.Clean(filepath.FromSlash(e.RepoAlias))
+		if !e.RewriteLogicalRepoPaths || root == alias || !strings.EqualFold(root, alias) {
+			return fmt.Errorf("%q repo_alias must be a case-only repo_root alias with logical rewriting enabled", e.Name)
+		}
+	}
+	for _, ruleID := range e.Waive {
+		if ruleID == "" {
+			return fmt.Errorf("%q has an empty waiver rule ID", e.Name)
+		}
+	}
 	switch e.Want {
 	case "allow", "ask", "deny":
 		return nil
@@ -396,11 +439,15 @@ func materializeRepo(t *testing.T, e entry) (string, string) {
 	t.Helper()
 	logicalRoot := filepath.Clean(filepath.FromSlash(e.RepoRoot))
 	logicalCWD := filepath.Clean(filepath.FromSlash(e.CWD))
+	if logicalRoot == string(filepath.Separator) {
+		return logicalCWD, logicalRoot
+	}
 	rel, err := filepath.Rel(logicalRoot, logicalCWD)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		t.Fatalf("cwd %q must be inside repo_root %q", e.CWD, e.RepoRoot)
 	}
-	repo := filepath.Join(t.TempDir(), "repo")
+	fixtureRoot := t.TempDir()
+	repo := filepath.Join(fixtureRoot, "repo")
 	if err := os.MkdirAll(repo, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +458,97 @@ func materializeRepo(t *testing.T, e entry) (string, string) {
 	if err := os.MkdirAll(cwd, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return cwd, repo
+	fixturePath := func(base, name string) string {
+		candidate := filepath.Clean(filepath.Join(base, filepath.FromSlash(name)))
+		rel, err := filepath.Rel(fixtureRoot, candidate)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			t.Fatalf("fixture path %q escapes fixture root", name)
+		}
+		return candidate
+	}
+	for _, name := range e.FixtureFiles {
+		path := fixturePath(repo, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("create fixture file parent: %v", err)
+		}
+		if err := os.WriteFile(path, []byte("fixture"), 0o600); err != nil {
+			t.Fatalf("create fixture file: %v", err)
+		}
+	}
+	for _, symlink := range e.FixtureSymlinks {
+		path := fixturePath(repo, symlink.Path)
+		if rel, err := filepath.Rel(repo, path); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			t.Fatalf("fixture symlink path %q must be inside the repository", symlink.Path)
+		}
+		if filepath.IsAbs(symlink.Target) {
+			t.Fatalf("fixture symlink target %q must be relative", symlink.Target)
+		}
+		fixturePath(filepath.Dir(path), symlink.Target)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("create fixture symlink parent: %v", err)
+		}
+		if err := os.Symlink(filepath.FromSlash(symlink.Target), path); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+	}
+	if e.RepoAlias == "" {
+		return cwd, repo
+	}
+	alias := filepath.Join(fixtureRoot, filepath.Base(filepath.FromSlash(e.RepoAlias)))
+	if err := os.Symlink(repo, alias); err != nil {
+		t.Skipf("case-variant repository alias unavailable: %v", err)
+	}
+	return cwd, alias
+}
+
+func TestMaterializeRepoSupportsFilesystemRoot(t *testing.T) {
+	cwd, root := materializeRepo(t, entry{CWD: "/", RepoRoot: "/"})
+	if cwd != "/" || root != "/" {
+		t.Fatalf("materializeRepo(root) = (%q, %q), want (/, /)", cwd, root)
+	}
+}
+
+func TestMaterializeRepoSupportsCaseVariantAlias(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("case-only alias cannot coexist on a case-insensitive filesystem")
+	}
+	cwd, root := materializeRepo(t, entry{CWD: "/repo", RepoRoot: "/repo", RepoAlias: "/REPO"})
+	if filepath.Base(root) != "REPO" {
+		t.Fatalf("materialized rewrite root = %q, want case-variant REPO alias", root)
+	}
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cwd != resolved || filepath.Base(resolved) != "repo" {
+		t.Fatalf("materialized cwd = %q, alias resolves to %q; want cwd at real repo", cwd, resolved)
+	}
+}
+
+func TestMaterializeRepoCreatesSandboxedFixtures(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	e := entry{
+		CWD:          "/repo",
+		RepoRoot:     "/repo",
+		FixtureFiles: []string{"../outside/id_rsa"},
+		FixtureSymlinks: []fixtureSymlink{
+			{Path: "innocent.bin", Target: "../outside/id_rsa"},
+		},
+	}
+	_, root := materializeRepo(t, e)
+	want := filepath.Clean(filepath.Join(root, "../outside/id_rsa"))
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("fixture target not created: %v", err)
+	}
+	got, err := filepath.EvalSymlinks(filepath.Join(root, "innocent.bin"))
+	if err != nil {
+		t.Fatalf("fixture symlink not created: %v", err)
+	}
+	if got != want {
+		t.Fatalf("fixture symlink resolves to %q, want %q", got, want)
+	}
 }
 
 func rewriteLogicalRepoPaths(e entry, physicalRoot string) (entry, error) {
@@ -419,6 +556,9 @@ func rewriteLogicalRepoPaths(e entry, physicalRoot string) (entry, error) {
 		return e, nil
 	}
 	logicalRoot := filepath.ToSlash(filepath.Clean(e.RepoRoot))
+	if e.RepoAlias != "" {
+		logicalRoot = filepath.ToSlash(filepath.Clean(e.RepoAlias))
+	}
 	physicalRoot = filepath.ToSlash(filepath.Clean(physicalRoot))
 	replacePath := func(value string) (string, bool) {
 		if value == logicalRoot {

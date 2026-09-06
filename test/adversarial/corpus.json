@@ -2437,5 +2437,78 @@
     "cwd": "/repo",
     "repo_root": "/repo",
     "want": "allow"
+  },
+  {
+    "name": "filesystem root claude instructions write",
+    "tool": "Write",
+    "paths": ["/CLAUDE.md"],
+    "cwd": "/",
+    "repo_root": "/",
+    "want": "deny"
+  },
+  {
+    "name": "case variant repository containment",
+    "tool": "Write",
+    "paths": ["/REPO/CLAUDE.md"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "repo_alias": "/REPO",
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "ambiguous then symlink escape",
+    "tool": "Bash",
+    "command": "cat /repo/docs/cert.pem /repo/link",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "fixture_files": ["../outside/id_rsa"],
+    "fixture_symlinks": [{"path": "link", "target": "../outside/id_rsa"}],
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "symlink escape then ambiguous",
+    "tool": "Bash",
+    "command": "cat /repo/link /repo/docs/cert.pem",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "fixture_files": ["../outside/id_rsa"],
+    "fixture_symlinks": [{"path": "link", "target": "../outside/id_rsa"}],
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "waived ambiguous then symlink escape",
+    "tool": "Bash",
+    "command": "cat /repo/docs/cert.pem /repo/link",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "fixture_files": ["../outside/id_rsa"],
+    "fixture_symlinks": [{"path": "link", "target": "../outside/id_rsa"}],
+    "waive": ["P4.secret-path-ambiguous"],
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "waived ambiguous secret alone",
+    "tool": "Bash",
+    "command": "cat /repo/docs/cert.pem",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "waive": ["P4.secret-path-ambiguous"],
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "dd input symlink escape",
+    "tool": "Bash",
+    "command": "dd if=innocent.bin of=/tmp/x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "fixture_files": ["../outside/id_rsa"],
+    "fixture_symlinks": [{"path": "innocent.bin", "target": "../outside/id_rsa"}],
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
   }
 ]
