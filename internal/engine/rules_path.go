@@ -126,7 +126,6 @@ func classifySecretPath(candidate pathCandidate, pol *policy.Policy, honorWaiver
 		}
 		if matchesAnyGlob(form, pol.Slots.SecretGlobs) {
 			take(secretPathVerdict(policy.Deny, "P4.secret-path", form))
-			continue
 		}
 		if matchesAnyGlob(form, pol.Slots.SecretAskGlobs) {
 			decision := policy.Deny

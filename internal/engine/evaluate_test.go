@@ -104,6 +104,27 @@ func TestEvaluateWaivedLexicalDenyKeepsResolvedAsk(t *testing.T) {
 	}
 }
 
+func TestEvaluateStrongestUnwaivedSecretTierOnSameForm(t *testing.T) {
+	tc := ToolCall{Tool: "Read", Paths: []string{"/repo/foo-private-key.pem"}, CWD: "/repo", RepoRoot: "/repo"}
+	for _, test := range []struct {
+		name   string
+		waived bool
+		want   policy.Decision
+		ruleID string
+	}{
+		{name: "deny wins without waiver", want: policy.Deny, ruleID: "P4.secret-path"},
+		{name: "ask survives deny waiver", waived: true, want: policy.Ask, ruleID: "P4.secret-path-ambiguous"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			p := fullPol()
+			p.Waived["P4.secret-path"] = test.waived
+			if v := Evaluate(tc, p); v.Decision != test.want || v.RuleID != test.ruleID {
+				t.Fatalf("Evaluate() = %+v, want %s/%s", v, test.want, test.ruleID)
+			}
+		})
+	}
+}
+
 func TestEvaluateWaivedOverlayRuleStillAllows(t *testing.T) {
 	p := fullPol()
 	p.Waived["proj.tf"] = true
