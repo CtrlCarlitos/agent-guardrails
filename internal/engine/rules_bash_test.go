@@ -1,6 +1,9 @@
 package engine
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -490,6 +493,59 @@ func TestDestinationWritesWithinConfiguredSafeRootRemainAllowed(t *testing.T) {
 		if v := evalBash(t, command); v != nil {
 			t.Errorf("%q -> %+v, want nil", command, v)
 		}
+	}
+}
+
+func TestDestinationWritesToOSTempFromInRepoRemainAllowed(t *testing.T) {
+	temp := filepath.Join(os.TempDir(), "agent-guardrails-task7")
+	commands := []string{
+		fmt.Sprintf(`cp /repo/source %q`, filepath.Join(temp, "copy")),
+		fmt.Sprintf(`mv /repo/source %q`, filepath.Join(temp, "move")),
+		fmt.Sprintf(`ln -s /repo/source %q`, filepath.Join(temp, "link")),
+		fmt.Sprintf(`tee %q`, filepath.Join(temp, "tee")),
+		fmt.Sprintf(`install /repo/source %q`, filepath.Join(temp, "install")),
+		fmt.Sprintf(`rsync --delete /repo/source/ %q`, filepath.Join(temp, "rsync")+string(filepath.Separator)),
+	}
+	for _, command := range commands {
+		if v := evalBash(t, command); v != nil {
+			t.Errorf("%q -> %+v, want nil", command, v)
+		}
+	}
+}
+
+func TestMoveFromOutsideSafeRootsToOSTempAsks(t *testing.T) {
+	temp := filepath.Join(os.TempDir(), "agent-guardrails-task7")
+	commands := []string{
+		fmt.Sprintf(`mv /etc %q`, filepath.Join(temp, "gone")),
+		fmt.Sprintf(`mv --suffix .bak /etc %q`, filepath.Join(temp, "gone")),
+		fmt.Sprintf(`mv --target-directory %q /etc`, temp),
+	}
+	for _, command := range commands {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.out-of-repo-write" {
+			t.Errorf("%q -> %+v, want ask/P1.out-of-repo-write", command, v)
+		}
+	}
+}
+
+func TestMoveWithinOSTempRemainsAllowed(t *testing.T) {
+	temp := filepath.Join(os.TempDir(), "agent-guardrails-task7")
+	command := fmt.Sprintf(`mv %q %q`, filepath.Join(temp, "source"), filepath.Join(temp, "destination"))
+	if v := evalBash(t, command); v != nil {
+		t.Fatalf("%q -> %+v, want nil", command, v)
+	}
+}
+
+func TestOSTempDestinationSymlinkOutsideTempStillAsks(t *testing.T) {
+	temp := t.TempDir()
+	escape := filepath.Join(temp, "escape")
+	if err := os.Symlink("/etc", escape); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	command := fmt.Sprintf(`cp /repo/source %q`, filepath.Join(escape, "passwd"))
+	v := evalBash(t, command)
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.out-of-repo-write" {
+		t.Fatalf("%q -> %+v, want ask/P1.out-of-repo-write", command, v)
 	}
 }
 

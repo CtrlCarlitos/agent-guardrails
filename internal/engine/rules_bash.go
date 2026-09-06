@@ -62,7 +62,8 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 }
 
 func checkDestinationWrites(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
-	switch head(s.Argv) {
+	command := head(s.Argv)
+	switch command {
 	case "mv", "cp", "ln", "tee", "install":
 	case "rsync":
 		deletes, err := rsyncDeletionMode(s.Argv)
@@ -75,15 +76,49 @@ func checkDestinationWrites(s Simple, tc ToolCall, pol *policy.Policy) *policy.V
 	default:
 		return nil
 	}
+	if command == "mv" {
+		for _, source := range moveSourceTargets(s.Argv) {
+			resolved := resolvePath(source, tc.CWD)
+			if withinSafe(resolved, tc.RepoRoot, pol.Slots.SafeRoots) || withinOSTemp(source, tc.CWD) {
+				continue
+			}
+			if _, err := os.Lstat(resolved); !os.IsNotExist(err) {
+				return ask("P1.out-of-repo-write", "moves a source outside the repo and configured safe roots: "+source)
+			}
+		}
+	}
 	for _, target := range writeTargets(s) {
-		if head(s.Argv) == "rsync" && rsyncRemoteTarget(target) {
+		if command == "rsync" && rsyncRemoteTarget(target) {
 			return ask("P1.out-of-repo-write", "writes to a remote destination outside configured safe roots: "+target)
+		}
+		if withinOSTemp(target, tc.CWD) {
+			continue
 		}
 		if !withinSafe(resolvePath(target, tc.CWD), tc.RepoRoot, pol.Slots.SafeRoots) {
 			return ask("P1.out-of-repo-write", "writes to a path outside the repo and configured safe roots: "+target)
 		}
 	}
 	return nil
+}
+
+func withinOSTemp(target, cwd string) bool {
+	temp, err := filepath.Abs(os.TempDir())
+	if err != nil {
+		return false
+	}
+	resolved, err := filepath.Abs(resolvePath(target, cwd))
+	if err != nil || !withinSafe(resolved, temp, nil) {
+		return false
+	}
+	tempResolved, ok := resolveExistingPath(temp, "")
+	if !ok {
+		return false
+	}
+	resolved, ok = resolveExistingPath(resolved, "")
+	if !ok {
+		return false
+	}
+	return withinSafe(resolved, tempResolved, nil)
 }
 
 func rsyncRemoteTarget(target string) bool {

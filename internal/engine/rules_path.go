@@ -168,12 +168,16 @@ func listedOption(options, option string) bool {
 	return strings.Contains(" "+options+" ", " "+option+" ")
 }
 
-func destinationTargets(argv []string, spec destinationCommandSpec) []string {
-	var operands []string
-	var optionWritePaths []string
-	var targetDirectory string
-	targetDirectorySet := false
-	ambiguous := false
+type destinationArgs struct {
+	operands           []string
+	optionWritePaths   []string
+	targetDirectory    string
+	targetDirectorySet bool
+	ambiguous          bool
+}
+
+func parseDestinationArgs(argv []string, spec destinationCommandSpec) destinationArgs {
+	var parsed destinationArgs
 	options := true
 	for i := 1; i < len(argv); i++ {
 		a := argv[i]
@@ -184,20 +188,20 @@ func destinationTargets(argv []string, spec destinationCommandSpec) []string {
 		if options && strings.HasPrefix(a, "--") {
 			name, value, attached := strings.Cut(strings.TrimPrefix(a, "--"), "=")
 			if spec.targetDirectory && name == "target-directory" {
-				targetDirectorySet = true
+				parsed.targetDirectorySet = true
 				if attached {
-					targetDirectory = value
+					parsed.targetDirectory = value
 				} else if i+1 < len(argv) {
 					i++
-					targetDirectory = argv[i]
+					parsed.targetDirectory = argv[i]
 				} else {
-					ambiguous = true
+					parsed.ambiguous = true
 				}
 				continue
 			}
 			if attached {
 				if listedOption(spec.longWritePaths, name) {
-					optionWritePaths = append(optionWritePaths, value)
+					parsed.optionWritePaths = append(parsed.optionWritePaths, value)
 				}
 				continue
 			}
@@ -205,15 +209,15 @@ func destinationTargets(argv []string, spec destinationCommandSpec) []string {
 				if i+1 < len(argv) {
 					i++
 					if listedOption(spec.longWritePaths, name) {
-						optionWritePaths = append(optionWritePaths, argv[i])
+						parsed.optionWritePaths = append(parsed.optionWritePaths, argv[i])
 					}
 				} else {
-					ambiguous = true
+					parsed.ambiguous = true
 				}
 				continue
 			}
 			if !listedOption(spec.longFlags, name) && !strings.HasPrefix(name, "no-") {
-				ambiguous = true
+				parsed.ambiguous = true
 			}
 			continue
 		}
@@ -222,14 +226,14 @@ func destinationTargets(argv []string, spec destinationCommandSpec) []string {
 			for j := 0; j < len(short); j++ {
 				option := short[j]
 				if spec.targetDirectory && option == 't' {
-					targetDirectorySet = true
+					parsed.targetDirectorySet = true
 					if j+1 < len(short) {
-						targetDirectory = short[j+1:]
+						parsed.targetDirectory = short[j+1:]
 					} else if i+1 < len(argv) {
 						i++
-						targetDirectory = argv[i]
+						parsed.targetDirectory = argv[i]
 					} else {
-						ambiguous = true
+						parsed.ambiguous = true
 					}
 					break
 				}
@@ -241,43 +245,58 @@ func destinationTargets(argv []string, spec destinationCommandSpec) []string {
 						i++
 						value = argv[i]
 					} else {
-						ambiguous = true
+						parsed.ambiguous = true
 					}
 					if strings.ContainsRune(spec.shortWritePaths, rune(option)) && value != "" {
-						optionWritePaths = append(optionWritePaths, value)
+						parsed.optionWritePaths = append(parsed.optionWritePaths, value)
 					}
 					break
 				}
 				if !strings.ContainsRune(spec.shortFlags, rune(option)) {
-					ambiguous = true
+					parsed.ambiguous = true
 				}
 			}
 			continue
 		}
-		operands = append(operands, a)
+		parsed.operands = append(parsed.operands, a)
 	}
+	return parsed
+}
 
-	out := optionWritePaths
-	if targetDirectorySet {
-		if targetDirectory == "" {
-			return append(out, operands...)
+func destinationTargets(argv []string, spec destinationCommandSpec) []string {
+	parsed := parseDestinationArgs(argv, spec)
+	out := parsed.optionWritePaths
+	if parsed.targetDirectorySet {
+		if parsed.targetDirectory == "" {
+			return append(out, parsed.operands...)
 		}
-		out = append(out, targetDirectory)
-		for _, source := range operands {
-			out = append(out, path.Join(targetDirectory, path.Base(source)))
+		out = append(out, parsed.targetDirectory)
+		for _, source := range parsed.operands {
+			out = append(out, path.Join(parsed.targetDirectory, path.Base(source)))
 		}
-		if ambiguous {
-			out = append(out, operands...)
+		if parsed.ambiguous {
+			out = append(out, parsed.operands...)
 		}
 		return out
 	}
-	if len(operands) == 0 {
+	if len(parsed.operands) == 0 {
 		return out
 	}
-	if ambiguous {
-		return append(out, operands...)
+	if parsed.ambiguous {
+		return append(out, parsed.operands...)
 	}
-	return append(out, operands[len(operands)-1])
+	return append(out, parsed.operands[len(parsed.operands)-1])
+}
+
+func moveSourceTargets(argv []string) []string {
+	parsed := parseDestinationArgs(argv, mutatingDestinationCommands["mv"])
+	if parsed.targetDirectorySet || parsed.ambiguous {
+		return parsed.operands
+	}
+	if len(parsed.operands) < 2 {
+		return nil
+	}
+	return parsed.operands[:len(parsed.operands)-1]
 }
 
 func writeTargets(s Simple) []string {
