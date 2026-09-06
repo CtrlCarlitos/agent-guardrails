@@ -92,6 +92,8 @@ func trackCommandSources(t *testing.T) {
 	}
 }
 
+// The corpus harness requires CWD inside RepoRoot. The cwd ~/.ssh bare-filename
+// cases therefore remain covered by focused Engine tests.
 func TestAdversarialCorpus(t *testing.T) {
 	bin := buildAdversarialBinary(t)
 	raw, err := os.ReadFile("corpus.json")

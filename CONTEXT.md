@@ -12,8 +12,10 @@ mechanism. Today: Claude Code, opencode, Antigravity. Planned: Codex.
 _Avoid_: harness, runner, agent, tool
 
 **Guardrail Policy**:
-The plane-agnostic ruleset the guard enforces. Split into the **Base policy**
+The plane-agnostic ruleset the guard enforces, comprising the **Base policy**
 (universal, shipped by the dotfiles package) and an **Overlay** (a project's own).
+Its secret tiers classify a directory secret as an unwaivable deny, a file secret
+as a waivable deny, and an ambiguous secret as an ask only inside the repository.
 _Avoid_: SOP, ruleset, config
 
 **Base policy**:

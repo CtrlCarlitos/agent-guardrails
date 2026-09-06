@@ -25,6 +25,8 @@ engine_min_version = "0.1"
 # Total wildcards `*` and `**` are always dropped, even when granted.
 safe_roots       = ["./tmp", "./.cache"] # P1: rm -rf permitted here
 egress_allowlist = ["api.github.com"]    # P6: hosts curl/wget may reach
+# secret_dirs      = ["**/.vault/**"]      # P4: unwaivable secret directories
+# secret_ask_globs = ["**/*.crt"]          # P4: ambiguous in-repo secret files
 
 # Extra project rules (added to the Base).
 [[rules]]

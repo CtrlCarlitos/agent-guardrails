@@ -1571,5 +1571,871 @@
     "cwd": "/repo",
     "repo_root": "/repo",
     "want": "deny"
+  },
+  {
+    "name": "nested relative claude instructions write",
+    "tool": "Write",
+    "paths": ["CLAUDE.md"],
+    "cwd": "/repo/docs/templates",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "nested absolute claude instructions write",
+    "tool": "Write",
+    "paths": ["/repo/docs/templates/CLAUDE.md"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "nested relative makefile write",
+    "tool": "Write",
+    "paths": ["Makefile"],
+    "cwd": "/repo/vendor/x",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "nested absolute makefile write",
+    "tool": "Write",
+    "paths": ["/repo/vendor/x/Makefile"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "nested relative conftest write",
+    "tool": "Write",
+    "paths": ["conftest.py"],
+    "cwd": "/repo/tests/unit",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "nested absolute conftest write",
+    "tool": "Write",
+    "paths": ["/repo/tests/unit/conftest.py"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "root relative claude instructions write",
+    "tool": "Write",
+    "paths": ["CLAUDE.md"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "root absolute claude instructions write",
+    "tool": "Write",
+    "paths": ["/repo/CLAUDE.md"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "root dot relative claude instructions write",
+    "tool": "Write",
+    "paths": ["./CLAUDE.md"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "shell rc write remains protected anywhere",
+    "tool": "Write",
+    "paths": ["/home/u/.bashrc"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "nested envrc write remains protected",
+    "tool": "Write",
+    "paths": ["/repo/sub/.envrc"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "root envrc write remains protected",
+    "tool": "Write",
+    "paths": ["/repo/.envrc"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "case variant root claude instructions write",
+    "tool": "Write",
+    "paths": ["/repo/claude.MD"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "outside repository claude instructions write",
+    "tool": "Write",
+    "paths": ["/etc/CLAUDE.md"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask"
+  },
+  {
+    "name": "root makefile write",
+    "tool": "Write",
+    "paths": ["/repo/Makefile"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "nested workflow write remains protected",
+    "tool": "Write",
+    "paths": ["/repo/sub/.github/workflows/ci.yml"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "ssh env example read",
+    "tool": "Read",
+    "paths": ["/home/u/.ssh/.env.example"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "ssh env sample read",
+    "tool": "Read",
+    "paths": ["/home/u/.ssh/.env.sample"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "aws env example read",
+    "tool": "Read",
+    "paths": ["/home/u/.aws/.env.example"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "ssh public key read",
+    "tool": "Read",
+    "paths": ["/home/u/.ssh/id_rsa.pub"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "gnupg env example read",
+    "tool": "Read",
+    "paths": ["/home/u/.gnupg/.env.example"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "repository env example read",
+    "tool": "Read",
+    "paths": ["/repo/.env.example"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "translation key source read",
+    "tool": "Read",
+    "paths": ["/repo/i18n/translations.key"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "repository public rsa key read",
+    "tool": "Read",
+    "paths": ["/repo/testdata/id_rsa.pub"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "repository public server key read",
+    "tool": "Read",
+    "paths": ["/repo/keys/server.pub"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "repository certificate read asks",
+    "tool": "Read",
+    "paths": ["/repo/docs/cert.pem"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "repository fake service account read asks",
+    "tool": "Read",
+    "paths": ["/repo/testdata/service-account-fake.json"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "repository localhost certificate read asks",
+    "tool": "Read",
+    "paths": ["/repo/testdata/tls/localhost.pem"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "repository private key read",
+    "tool": "Read",
+    "paths": ["/repo/certs/private.key"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "repository rsa suffix read",
+    "tool": "Read",
+    "paths": ["/repo/deploy_rsa"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "ssh certificate read remains denied",
+    "tool": "Read",
+    "paths": ["/home/u/.ssh/server.pem"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "repository rsa key suffix read",
+    "tool": "Read",
+    "paths": ["/repo/keys/id_rsa_work"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "repository ed25519 key suffix read",
+    "tool": "Read",
+    "paths": ["/repo/keys/id_ed25519.old"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "outside repository certificate read remains denied",
+    "tool": "Read",
+    "paths": ["/home/u/certs/client.pem"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "outside repository service account read remains denied",
+    "tool": "Read",
+    "paths": ["/opt/svc/service-account.json"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "tilde outside repository certificate read remains denied",
+    "tool": "Read",
+    "paths": ["~/client.pem"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "ambiguous then definitive secret read",
+    "tool": "Bash",
+    "command": "cat /repo/docs/cert.pem /home/u/.ssh/id_rsa",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "definitive then ambiguous secret read",
+    "tool": "Bash",
+    "command": "cat /home/u/.ssh/id_rsa /repo/docs/cert.pem",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "benign ambiguous definitive secret read",
+    "tool": "Bash",
+    "command": "cat /repo/README.md /repo/docs/cert.pem /home/u/.ssh/id_rsa",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "benign and ambiguous secret read asks",
+    "tool": "Bash",
+    "command": "cat /repo/README.md /repo/docs/cert.pem",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "ambiguous read and self config write",
+    "tool": "Bash",
+    "command": "cat /repo/docs/cert.pem > /repo/CLAUDE.md",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "outside repository agent memory write",
+    "tool": "Write",
+    "paths": ["/home/u/.claude/projects/x/memory/note.md"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask"
+  },
+  {
+    "name": "user claude local settings write",
+    "tool": "Write",
+    "paths": ["/home/u/.claude/settings.local.json"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "user claude hook write",
+    "tool": "Write",
+    "paths": ["/home/u/.claude/hooks/pre.sh"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "user claude plugin write",
+    "tool": "Write",
+    "paths": ["/home/u/.claude/plugins/p.js"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "user claude agent write",
+    "tool": "Write",
+    "paths": ["/home/u/.claude/agents/a.md"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "user claude command write",
+    "tool": "Write",
+    "paths": ["/home/u/.claude/commands/c.md"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "user claude skill write",
+    "tool": "Write",
+    "paths": ["/home/u/.claude/skills/s/SKILL.md"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "user claude instructions write",
+    "tool": "Write",
+    "paths": ["/home/u/.claude/CLAUDE.md"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "repository claude local settings write",
+    "tool": "Write",
+    "paths": ["/repo/.claude/settings.local.json"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "git clean selection flags dry run",
+    "tool": "Bash",
+    "command": "git clean -nxd",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "git clean long dry run",
+    "tool": "Bash",
+    "command": "git clean --dry-run -d",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "git clean destructive flags",
+    "tool": "Bash",
+    "command": "git clean -fdx",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "case variant ssh key read",
+    "tool": "Read",
+    "paths": ["/home/u/.SSH/ID_RSA"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "mixed case ssh key read",
+    "tool": "Read",
+    "paths": ["/home/u/.Ssh/id_rsa"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "case variant repository env read",
+    "tool": "Read",
+    "paths": ["/repo/.ENV"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "case variant aws credentials read",
+    "tool": "Read",
+    "paths": ["/home/u/.AWS/credentials"],
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "grep attached absolute pattern file secret",
+    "tool": "Bash",
+    "command": "grep -f/home/u/.ssh/id_rsa x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "grep attached parent relative pattern file secret",
+    "tool": "Bash",
+    "command": "grep -f../secrets/id_rsa x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "grep attached dot relative pattern file secret",
+    "tool": "Bash",
+    "command": "grep -f./id_rsa x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "grep attached tilde pattern file secret",
+    "tool": "Bash",
+    "command": "grep -f~/.ssh/id_rsa x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "grep attached windows pattern file secret",
+    "tool": "Bash",
+    "command": "grep '-fC:\\Users\\u\\.ssh\\id_rsa' x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "grep long attached relative pattern file secret",
+    "tool": "Bash",
+    "command": "grep --file=../secrets/id_rsa x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "sed attached pattern file secret",
+    "tool": "Bash",
+    "command": "sed -f/home/u/.ssh/id_rsa x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "nonpath option values ignored",
+    "tool": "Bash",
+    "command": "ls -la --color=auto",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "head count option value ignored",
+    "tool": "Bash",
+    "command": "head -n5 file",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "copy secret source",
+    "tool": "Bash",
+    "command": "cp /home/u/.ssh/id_rsa /tmp/x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "move secret source",
+    "tool": "Bash",
+    "command": "mv /home/u/.ssh/id_rsa /tmp/x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "base64 secret source",
+    "tool": "Bash",
+    "command": "base64 /home/u/.aws/credentials",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "tar secret source",
+    "tool": "Bash",
+    "command": "tar cf - /home/u/.ssh/id_rsa",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "openssl secret source",
+    "tool": "Bash",
+    "command": "openssl rsa -in /home/u/.ssh/id_rsa",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "md5sum secret source",
+    "tool": "Bash",
+    "command": "md5sum /home/u/.ssh/id_rsa",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "dd secret input",
+    "tool": "Bash",
+    "command": "dd if=/home/u/.ssh/id_rsa",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "grep relative attached secret pattern file",
+    "tool": "Bash",
+    "command": "grep -f../.ssh/id_rsa x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "unlisted command path shaped secret source",
+    "tool": "Bash",
+    "command": "somenewtool /home/u/.ssh/id_rsa",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "python visible secret read",
+    "tool": "Bash",
+    "command": "python3 -c \"print(open('/home/u/.ssh/id_rsa').read())\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "python visible secret mention",
+    "tool": "Bash",
+    "command": "python3 -c \"print('/home/u/.ssh/id_rsa')\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "node visible secret read",
+    "tool": "Bash",
+    "command": "node -e \"require('fs').readFileSync('/home/u/.ssh/id_rsa')\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "grep pem pattern is not a path",
+    "tool": "Bash",
+    "command": "grep '*.pem' /repo/build.log",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "grep rsa pattern is not a path",
+    "tool": "Bash",
+    "command": "grep -r id_rsa /repo/src",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "grep explicit pem pattern is not a path",
+    "tool": "Bash",
+    "command": "grep -e '*.pem' /repo/build.log",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "jq env filter is not a path",
+    "tool": "Bash",
+    "command": "jq '.env' /repo/pkg.json",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "jq ssh filter is not a path",
+    "tool": "Bash",
+    "command": "jq '.ssh.keys[]' /repo/cfg.json",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "sed env program is not a path",
+    "tool": "Bash",
+    "command": "sed 's/.env/.cfg/' /repo/a.txt",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "awk rsa program is not a path",
+    "tool": "Bash",
+    "command": "awk '/id_rsa/ {print}' /repo/log",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "printf key text is not a path",
+    "tool": "Bash",
+    "command": "printf '%s.key\\n' name",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "echo rsa text is not a path",
+    "tool": "Bash",
+    "command": "echo \"id_rsa is a filename\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "go build path control",
+    "tool": "Bash",
+    "command": "go build ./...",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "npm test path control",
+    "tool": "Bash",
+    "command": "npm test",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "copy repository source control phase four",
+    "tool": "Bash",
+    "command": "cp src/a.go src/b.go",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "docker compose up control phase four",
+    "tool": "Bash",
+    "command": "docker compose up -d",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "grep separated secret pattern file",
+    "tool": "Bash",
+    "command": "grep -f /home/u/.ssh/id_rsa /repo/log",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "grep late pem expression is not a path",
+    "tool": "Bash",
+    "command": "grep /repo/build.log -e '*.pem'",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "sed late env expression is not a path",
+    "tool": "Bash",
+    "command": "sed /repo/a.txt -e 's/.env/.cfg/'",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "jq literal argument and filter are not paths",
+    "tool": "Bash",
+    "command": "jq --arg k '.env' '.[$k]' /repo/x.json",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "tar exclusion pattern is not a path",
+    "tool": "Bash",
+    "command": "tar --exclude='*.pem' -cf /tmp/a.tar /repo/src",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "awk field option does not shift program",
+    "tool": "Bash",
+    "command": "awk -F: '/id_rsa/' /repo/passwd.txt",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "jq secret filter file",
+    "tool": "Bash",
+    "command": "jq -f /home/u/.ssh/id_rsa /repo/x.json",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "awk secret program file",
+    "tool": "Bash",
+    "command": "awk -f /home/u/.ssh/id_rsa /repo/log",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "cat end marker secret path",
+    "tool": "Bash",
+    "command": "cat -- /home/u/.ssh/id_rsa",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "grep end marker pattern then secret path",
+    "tool": "Bash",
+    "command": "grep -- id_rsa /home/u/.ssh/id_rsa",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "opaque relative repository certificate mention asks",
+    "tool": "Bash",
+    "command": "python3 -c \"print('docs/cert.pem')\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask"
+  },
+  {
+    "name": "ordinary opaque source control",
+    "tool": "Bash",
+    "command": "python3 -c \"print('hello world')\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
   }
 ]
