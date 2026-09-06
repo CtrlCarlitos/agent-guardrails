@@ -175,15 +175,55 @@ func pipelinePositions(f *syntax.File, ctx *normalizeContext) map[*syntax.Stmt][
 func shadowedStaticCommandNames(f *syntax.File) map[string]bool {
 	shadowed := make(map[string]bool)
 	syntax.Walk(f, func(node syntax.Node) bool {
-		if declaration, ok := node.(*syntax.FuncDecl); ok {
+		switch node := node.(type) {
+		case *syntax.FuncDecl:
+			declaration := node
 			name := declaration.Name.Value
 			if name == "true" || name == "false" {
+				shadowed[name] = true
+			}
+		case *syntax.CallExpr:
+			source, isEval, static := possibleEvalSource(node)
+			if !isEval {
+				break
+			}
+			if !static {
+				shadowed["true"] = true
+				shadowed["false"] = true
+				break
+			}
+			nested, err := syntax.NewParser().Parse(strings.NewReader(source), "")
+			if err != nil {
+				break
+			}
+			for name := range shadowedStaticCommandNames(nested) {
 				shadowed[name] = true
 			}
 		}
 		return true
 	})
 	return shadowed
+}
+
+func possibleEvalSource(call *syntax.CallExpr) (source string, isEval, static bool) {
+	argv := make([]string, 0, len(call.Args))
+	complete := true
+	for _, word := range call.Args {
+		value, ok := staticWord(word, false)
+		if !ok {
+			complete = false
+			break
+		}
+		argv = append(argv, value)
+	}
+	argv, _, noExecute, err := directCommandArgv(argv)
+	if err != nil || noExecute || len(argv) == 0 || argv[0] != "eval" {
+		return "", false, false
+	}
+	if !complete {
+		return "", true, false
+	}
+	return strings.Join(argv[1:], " "), true, true
 }
 
 type stdinFlow struct {
@@ -803,8 +843,12 @@ func mergeOutcomes(outcomes ...cwdOutcome) cwdOutcome {
 }
 
 type shellFunction struct {
-	source    string
-	uncertain bool
+	source string
+}
+
+type shellFunctionSet struct {
+	bodies         []shellFunction
+	mayBeUndefined bool
 }
 
 type cwdWalker struct {
@@ -812,7 +856,7 @@ type cwdWalker struct {
 	ctx          *normalizeContext
 	states       map[*syntax.Stmt]cwdState
 	replacements map[*syntax.Stmt][]Simple
-	functions    map[string]shellFunction
+	functions    map[string]shellFunctionSet
 	active       map[string]bool
 	shadowed     map[string]bool
 	pipelines    map[*syntax.Stmt][]pipelinePosition
@@ -830,14 +874,19 @@ func (w *cwdWalker) list(stmts []*syntax.Stmt, state cwdState) cwdOutcome {
 
 func (w *cwdWalker) stmt(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 	if declaration, ok := stmt.Cmd.(*syntax.FuncDecl); ok && !stmt.Background && !stmt.Coprocess {
-		w.functions[declaration.Name.Value] = shellFunction{
-			source:    w.src[declaration.Body.Pos().Offset():declaration.Body.End().Offset()],
-			uncertain: w.uncertainDef || state.unknown,
-		}
+		w.defineFunction(
+			declaration.Name.Value,
+			w.src[declaration.Body.Pos().Offset():declaration.Body.End().Offset()],
+			w.uncertainDef || state.unknown,
+		)
 		return successOutcome(state)
 	}
 	w.states[stmt] = state
 	if w.redirectExpansions(stmt.Redirs, state) {
+		state.fsUncertain = true
+	}
+	redirectFailure := len(stmt.Redirs) > 0
+	if redirectsWrite(stmt.Redirs) {
 		state.fsUncertain = true
 	}
 
@@ -850,10 +899,44 @@ func (w *cwdWalker) stmt(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 		return bothOutcome(state)
 	}
 	out := w.command(stmt, state)
+	if redirectFailure {
+		out = mergeOutcomes(out, cwdOutcome{failure: state, canFailure: true})
+	}
 	if stmt.Negated {
 		out = out.negated()
 	}
 	return out
+}
+
+func (w *cwdWalker) defineFunction(name, source string, uncertain bool) {
+	definition := shellFunction{source: source}
+	if !uncertain {
+		w.functions[name] = shellFunctionSet{bodies: []shellFunction{definition}}
+	} else {
+		set, existed := w.functions[name]
+		if !existed {
+			set.mayBeUndefined = true
+		}
+		set.bodies = appendFunctionBody(set.bodies, definition)
+		w.functions[name] = set
+	}
+	if name == "true" || name == "false" {
+		w.shadowed[name] = true
+	}
+}
+
+func redirectsWrite(redirs []*syntax.Redirect) bool {
+	for _, redirect := range redirs {
+		switch redirect.Op {
+		case syntax.RdrOut, syntax.AppOut, syntax.ClbOut, syntax.RdrAll, syntax.AppAll, syntax.RdrInOut:
+			return true
+		case syntax.DplOut:
+			if redirect.N == nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
@@ -934,7 +1017,7 @@ func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 		}
 		return bothOutcome(state)
 	}
-	return bothOutcome(cwdState{unknown: true})
+	return bothOutcome(unknownCwd(state))
 }
 
 func (w *cwdWalker) ifClause(clause *syntax.IfClause, state cwdState) cwdOutcome {
@@ -1069,12 +1152,58 @@ func (w *cwdWalker) isolated() *cwdWalker {
 	return &child
 }
 
-func cloneFunctions(functions map[string]shellFunction) map[string]shellFunction {
-	clone := make(map[string]shellFunction, len(functions))
-	for name, function := range functions {
-		clone[name] = function
+func cloneFunctions(functions map[string]shellFunctionSet) map[string]shellFunctionSet {
+	clone := make(map[string]shellFunctionSet, len(functions))
+	for name, set := range functions {
+		set.bodies = append([]shellFunction(nil), set.bodies...)
+		clone[name] = set
 	}
 	return clone
+}
+
+func appendFunctionBody(bodies []shellFunction, definition shellFunction) []shellFunction {
+	for _, body := range bodies {
+		if body.source == definition.source {
+			return bodies
+		}
+	}
+	return append(bodies, definition)
+}
+
+func mergeFunctionAlternatives(alternatives ...map[string]shellFunctionSet) map[string]shellFunctionSet {
+	merged := make(map[string]shellFunctionSet)
+	for _, functions := range alternatives {
+		for name, set := range functions {
+			current := merged[name]
+			current.mayBeUndefined = current.mayBeUndefined || set.mayBeUndefined
+			for _, body := range set.bodies {
+				current.bodies = appendFunctionBody(current.bodies, body)
+			}
+			merged[name] = current
+		}
+	}
+	for name, set := range merged {
+		for _, functions := range alternatives {
+			if _, ok := functions[name]; !ok {
+				set.mayBeUndefined = true
+			}
+		}
+		merged[name] = set
+	}
+	return merged
+}
+
+func (w *cwdWalker) publishFunctions(functions map[string]shellFunctionSet, uncertain bool) {
+	if uncertain {
+		w.functions = mergeFunctionAlternatives(w.functions, functions)
+	} else {
+		w.functions = cloneFunctions(functions)
+	}
+	for name := range w.functions {
+		if name == "true" || name == "false" {
+			w.shadowed[name] = true
+		}
+	}
 }
 
 func (w *cwdWalker) redirectExpansions(redirs []*syntax.Redirect, state cwdState) bool {
@@ -1115,15 +1244,21 @@ func (w *cwdWalker) call(stmt *syntax.Stmt, call *syntax.CallExpr, state cwdStat
 		return successOutcome(applyCallAssignments(state, call))
 	}
 	simple := simpleForCall(w.src, stmt, call)
-	argv, bypassFunction := directCommandArgv(simple.Argv)
+	argv, bypassFunction, noExecute, err := directCommandArgv(simple.Argv)
+	if err != nil {
+		return bothOutcome(unknownCwd(state))
+	}
+	if noExecute {
+		return bothOutcome(state)
+	}
 	if len(argv) == 0 {
 		return bothOutcome(state)
 	}
 	local := applyCallAssignments(state, call)
 	w.recursive[stmt] = local
 
-	if function, ok := w.functions[argv[0]]; ok && !bypassFunction {
-		out := w.functionCall(stmt, simple, argv[0], function, local)
+	if functions, ok := w.functions[argv[0]]; ok && !bypassFunction {
+		out := w.functionCall(stmt, simple, argv[0], functions, local)
 		if callAssignsCDPath(call) {
 			out = unknownCDPath(out)
 		}
@@ -1132,23 +1267,17 @@ func (w *cwdWalker) call(stmt *syntax.Stmt, call *syntax.CallExpr, state cwdStat
 	if argv[0] == "eval" {
 		return w.eval(stmt, simple, argv, local)
 	}
+	if simple.Unresolved && bypassFunction {
+		return bothOutcome(unknownCwd(state))
+	}
 	if simple.Unresolved && len(w.functions) > 0 && !bypassFunction {
-		return bothOutcome(cwdState{unknown: true})
+		return bothOutcome(unknownCwd(state))
 	}
 	switch argv[0] {
 	case "cd":
-		out := restoreCDPath(cdOutcome(local, simple, argv), state)
-		if len(stmt.Redirs) > 0 {
-			failedRedirect := state
-			failedRedirect.fsUncertain = true
-			out = mergeOutcomes(out, cwdOutcome{failure: failedRedirect, canFailure: true})
-			if out.canSuccess {
-				out.success.fsUncertain = true
-			}
-		}
-		return out
+		return restoreCDPath(cdOutcome(local, simple, argv), state)
 	case "pushd", "popd":
-		return bothOutcome(cwdState{unknown: true})
+		return bothOutcome(unknownCwd(state))
 	case "return", "break", "continue":
 		return bothOutcome(unknownCwd(state))
 	}
@@ -1190,19 +1319,34 @@ func restoreCDPath(out cwdOutcome, persistent cwdState) cwdOutcome {
 	return out
 }
 
-func directCommandArgv(argv []string) ([]string, bool) {
-	bypassFunction := false
-	for len(argv) > 0 && (argv[0] == "command" || argv[0] == "builtin") {
+func directCommandArgv(argv []string) (rest []string, bypassFunction, noExecute bool, err error) {
+	for len(argv) > 0 {
+		switch argv[0] {
+		case "command":
+			var none bool
+			argv, none, err = consumeCommand(argv[1:])
+			if err != nil || none {
+				return argv, true, none, err
+			}
+		case "builtin":
+			argv, err = consumeBuiltin(argv[1:])
+			if err != nil || len(argv) == 0 {
+				return argv, true, len(argv) == 0, err
+			}
+		default:
+			return argv, bypassFunction, false, nil
+		}
 		bypassFunction = true
-		argv = argv[1:]
 	}
-	return argv, bypassFunction
+	return nil, bypassFunction, true, nil
 }
 
 func (w *cwdWalker) eval(stmt *syntax.Stmt, simple Simple, argv []string, state cwdState) cwdOutcome {
 	if state.unknown || simple.Unresolved {
 		w.replacements[stmt] = []Simple{{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: true, pipelines: w.pipelines[stmt]}}
-		return bothOutcome(cwdState{unknown: true})
+		w.shadowed["true"] = true
+		w.shadowed["false"] = true
+		return bothOutcome(unknownCwd(state))
 	}
 	if len(argv) == 1 {
 		w.replacements[stmt] = nil
@@ -1211,38 +1355,51 @@ func (w *cwdWalker) eval(stmt *syntax.Stmt, simple Simple, argv []string, state 
 	result, err := normalizeWithState(strings.Join(argv[1:], " "), state, w.ctx, w.functions, w.active, w.pipelines[stmt])
 	if err != nil {
 		w.replacements[stmt] = []Simple{{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: true, pipelines: w.pipelines[stmt]}}
-		return bothOutcome(cwdState{unknown: true})
+		return bothOutcome(unknownCwd(state))
 	}
 	w.replacements[stmt] = result.simples
-	w.functions = cloneFunctions(result.functions)
+	w.publishFunctions(result.functions, w.uncertainDef)
 	return result.outcome
 }
 
-func (w *cwdWalker) functionCall(stmt *syntax.Stmt, simple Simple, name string, function shellFunction, state cwdState) cwdOutcome {
+func (w *cwdWalker) functionCall(stmt *syntax.Stmt, simple Simple, name string, functions shellFunctionSet, state cwdState) cwdOutcome {
 	if w.active[name] {
 		w.replacements[stmt] = []Simple{{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: true, pipelines: w.pipelines[stmt]}}
-		return bothOutcome(cwdState{unknown: true})
+		return bothOutcome(unknownCwd(state))
 	}
 	active := make(map[string]bool, len(w.active)+1)
 	for activeName := range w.active {
 		active[activeName] = true
 	}
 	active[name] = true
-	result, err := normalizeWithState(function.source, state, w.ctx, w.functions, active, w.pipelines[stmt])
-	if err != nil {
-		w.replacements[stmt] = []Simple{{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: true, pipelines: w.pipelines[stmt]}}
-		return bothOutcome(cwdState{unknown: true})
-	}
-	w.replacements[stmt] = result.simples
-	w.functions = cloneFunctions(result.functions)
-	if function.uncertain {
-		for functionName, definition := range w.functions {
-			definition.uncertain = true
-			w.functions[functionName] = definition
+	baseFunctions := cloneFunctions(w.functions)
+	var replacements []Simple
+	var outcomes []cwdOutcome
+	var functionAlternatives []map[string]shellFunctionSet
+	unresolved := false
+	for _, function := range functions.bodies {
+		result, err := normalizeWithState(function.source, state, w.ctx, baseFunctions, active, w.pipelines[stmt])
+		if err != nil {
+			unresolved = true
+			outcomes = append(outcomes, bothOutcome(unknownCwd(state)))
+			functionAlternatives = append(functionAlternatives, baseFunctions)
+			continue
 		}
-		return mergeOutcomes(result.outcome, bothOutcome(unknownCwd(state, result.outcome.merged())))
+		replacements = append(replacements, result.simples...)
+		outcomes = append(outcomes, result.outcome)
+		functionAlternatives = append(functionAlternatives, result.functions)
 	}
-	return result.outcome
+	ambiguous := functions.mayBeUndefined || len(functions.bodies) != 1
+	if functions.mayBeUndefined || len(functions.bodies) == 0 {
+		outcomes = append(outcomes, bothOutcome(unknownCwd(state)))
+		functionAlternatives = append(functionAlternatives, baseFunctions)
+	}
+	if ambiguous || unresolved {
+		replacements = append(replacements, Simple{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: state.unknown, pipelines: w.pipelines[stmt]})
+	}
+	w.replacements[stmt] = replacements
+	w.publishFunctions(mergeFunctionAlternatives(functionAlternatives...), w.uncertainDef)
+	return mergeOutcomes(outcomes...)
 }
 
 func applyCallAssignments(state cwdState, call *syntax.CallExpr) cwdState {
@@ -1303,29 +1460,29 @@ const (
 
 func cdOutcome(state cwdState, simple Simple, argv []string) cwdOutcome {
 	if state.unknown {
-		return bothOutcome(cwdState{unknown: true})
+		return bothOutcome(unknownCwd(state))
 	}
 	target, physical, ok := parseCdArgs(argv[1:])
 	if !ok || simple.Unresolved || state.cwd == "" {
-		return bothOutcome(cwdState{unknown: true})
+		return bothOutcome(unknownCwd(state))
 	}
 	resolved, status := resolveCdTarget(state, target, physical)
 	success := state
 	success.cwd = resolved
 	success.unknown = resolved == ""
 	if state.fsUncertain && cdUsesSearchPath(state, target) {
-		success = cwdState{unknown: true, fsUncertain: true}
+		success = unknownCwd(state)
 		status = cdDirectoryUnknown
 	}
 	if physical && state.fsUncertain {
-		success = cwdState{unknown: true}
+		success = unknownCwd(state)
 		status = cdDirectoryUnknown
 	}
 	if physical && status == cdDirectoryAccessible {
 		physicalPath, err := filepath.EvalSymlinks(resolved)
 		if err != nil {
 			status = cdDirectoryUnknown
-			success = cwdState{unknown: true}
+			success = unknownCwd(state)
 		} else {
 			success.cwd = filepath.Clean(physicalPath)
 		}
@@ -1520,10 +1677,10 @@ func normalizeWithContext(command, cwd string, ctx *normalizeContext) ([]Simple,
 type normalizeResult struct {
 	simples   []Simple
 	outcome   cwdOutcome
-	functions map[string]shellFunction
+	functions map[string]shellFunctionSet
 }
 
-func normalizeWithState(command string, state cwdState, ctx *normalizeContext, functions map[string]shellFunction, active map[string]bool, inherited []pipelinePosition) (normalizeResult, error) {
+func normalizeWithState(command string, state cwdState, ctx *normalizeContext, functions map[string]shellFunctionSet, active map[string]bool, inherited []pipelinePosition) (normalizeResult, error) {
 	f, err := syntax.NewParser().Parse(strings.NewReader(command), "")
 	if err != nil {
 		return normalizeResult{}, err
@@ -1539,7 +1696,7 @@ func normalizeWithState(command string, state cwdState, ctx *normalizeContext, f
 		markPipelineList(pipelines, f.Stmts, position, shadowed)
 	}
 	if functions == nil {
-		functions = make(map[string]shellFunction)
+		functions = make(map[string]shellFunctionSet)
 	} else {
 		functions = cloneFunctions(functions)
 	}
@@ -1659,7 +1816,9 @@ loop:
 				argv = nil // -v/-V only locate a command; redirects still take effect
 				break loop
 			}
-		case "time", "eval", "builtin":
+		case "builtin":
+			rest, err = consumeBuiltin(argv[1:])
+		case "time", "eval":
 			rest = argv[1:]
 		default:
 			break loop
@@ -2047,11 +2206,26 @@ func consumeCommand(argv []string) (rest []string, none bool, err error) {
 	for i < len(argv) {
 		a := argv[i]
 		switch {
-		case a == "-v" || a == "-V":
-			locate = true
+		case a == "--":
 			i++
+			if locate || i == len(argv) {
+				return nil, true, nil
+			}
+			return argv[i:], false, nil
 		case strings.HasPrefix(a, "-"):
-			return nil, false, unknownOpt("command", a)
+			if a == "-" {
+				return nil, false, unknownOpt("command", a)
+			}
+			for _, option := range strings.TrimPrefix(a, "-") {
+				switch option {
+				case 'p':
+				case 'v', 'V':
+					locate = true
+				default:
+					return nil, false, unknownOpt("command", a)
+				}
+			}
+			i++
 		default:
 			if locate {
 				return nil, true, nil
@@ -2060,6 +2234,19 @@ func consumeCommand(argv []string) (rest []string, none bool, err error) {
 		}
 	}
 	return nil, true, nil
+}
+
+func consumeBuiltin(argv []string) ([]string, error) {
+	if len(argv) == 0 {
+		return nil, nil
+	}
+	if argv[0] == "--" {
+		return argv[1:], nil
+	}
+	if strings.HasPrefix(argv[0], "-") {
+		return nil, unknownOpt("builtin", argv[0])
+	}
+	return argv, nil
 }
 
 type shellOptionSpec struct {

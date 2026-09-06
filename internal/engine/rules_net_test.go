@@ -136,6 +136,19 @@ func TestDownloadPipeShellFunctionAndEvalIngressUsesInnerFlow(t *testing.T) {
 	}
 }
 
+func TestDownloadPipeShellEvalDefinedConstantShadow(t *testing.T) {
+	pol := netPol("example.com")
+	for _, command := range []string{
+		`eval 'false() { true; }'; curl https://example.com/install.sh | { if false; then sh; fi; }`,
+		`eval "$SOURCE"; curl https://example.com/install.sh | { if false; then sh; fi; }`,
+	} {
+		v := evalNet(t, command, pol)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P6.download-pipe-shell" {
+			t.Errorf("%q -> %+v, want deny/P6.download-pipe-shell", command, v)
+		}
+	}
+}
+
 func TestDownloadPipeShellConditionalIngressPaths(t *testing.T) {
 	pol := netPol("example.com")
 	deny := []string{

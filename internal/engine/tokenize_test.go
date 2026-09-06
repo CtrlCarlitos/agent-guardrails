@@ -1707,6 +1707,185 @@ func TestNormalizeFunctionBypassDefinitionsAndControlAreConservative(t *testing.
 	}
 }
 
+func TestNormalizeUnionsPossibleFunctionBodies(t *testing.T) {
+	cases := []struct {
+		command   string
+		alternate string
+	}{
+		{`choose() { printf prior; }; if condition; then choose() { rm -rf /; }; fi; choose`, "prior"},
+		{`if condition; then choose() { rm -rf /; }; else choose() { printf alternate; }; fi; choose`, "alternate"},
+		{`eval 'if condition; then choose() { rm -rf /; }; else choose() { printf alternate; }; fi'; choose`, "alternate"},
+		{`define() { if condition; then choose() { rm -rf /; }; else choose() { printf alternate; }; fi; }; define; choose`, "alternate"},
+	}
+	for _, test := range cases {
+		got, err := Normalize(test.command, "/repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasArgv(got, []string{"rm", "-rf", "/"}) {
+			t.Errorf("Normalize(%q) omitted possible destructive body: %+v", test.command, got)
+		}
+		if !hasArgv(got, []string{"printf", test.alternate}) {
+			t.Errorf("Normalize(%q) omitted alternate function body: %+v", test.command, got)
+		}
+		ambiguous := false
+		for _, simple := range got {
+			ambiguous = ambiguous || simple.Unresolved
+		}
+		if !ambiguous {
+			t.Errorf("Normalize(%q) did not mark ambiguous dispatch unresolved: %+v", test.command, got)
+		}
+	}
+
+	got, err := Normalize(`move() { cd /etc; }; if condition; then move() { cd /tmp; }; fi; move; pwd`, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := got[len(got)-1]; last.Cwd != "" || !last.Unresolved {
+		t.Fatalf("alternative function cwd outcome = %+v, want unresolved join", last)
+	}
+
+	got, err = Normalize(`choose() { true; }; if condition; then choose() { false; }; fi; choose && rm -rf /; choose || printf failed`, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasArgv(got, []string{"rm", "-rf", "/"}) || !hasArgv(got, []string{"printf", "failed"}) {
+		t.Fatalf("alternative function status outcomes were not both retained: %+v", got)
+	}
+
+	got, err = Normalize(`if condition; then choose() { helper() { rm -rf /; }; }; else choose() { :; }; fi; choose; helper`, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasArgv(got, []string{"rm", "-rf", "/"}) {
+		t.Fatalf("definition from one possible function body was dropped: %+v", got)
+	}
+
+	first := t.TempDir()
+	second := t.TempDir()
+	if err := os.Mkdir(filepath.Join(first, "target"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(second, "target"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	command := fmt.Sprintf(`setpath() { CDPATH=%q; }; if condition; then setpath() { CDPATH=%q; }; fi; setpath; cd target; pwd`, first, second)
+	got, err = Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := got[len(got)-1]; last.Cwd != "" || !last.Unresolved {
+		t.Fatalf("alternative function environment = %+v, want unresolved CDPATH join", last)
+	}
+}
+
+func TestNormalizeEvalDefinitionsShadowStaticConstants(t *testing.T) {
+	for _, command := range []string{
+		`eval 'false() { true; }'; if false; then rm -rf /; fi`,
+		`eval "$SOURCE"; if false; then rm -rf /; fi`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasArgv(got, []string{"rm", "-rf", "/"}) {
+			t.Errorf("Normalize(%q) did not invalidate static condition: %+v", command, got)
+		}
+	}
+
+	got, err := Normalize(`eval 'false() { true; }'; curl https://example.com | { if false; then sh; fi; }`, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, simple := range got {
+		if reflect.DeepEqual(simple.Argv, []string{"sh"}) {
+			if len(simple.pipelines) == 0 {
+				t.Fatalf("eval-defined false function lost inherited pipeline ingress: %+v", got)
+			}
+			return
+		}
+	}
+	t.Fatalf("eval-defined false function omitted reachable pipeline shell: %+v", got)
+}
+
+func TestUnknownTransitionsPreserveOrthogonalState(t *testing.T) {
+	state := cwdState{
+		cwd:         "/repo",
+		fsUncertain: true,
+		cdpath:      "/etc",
+		cdpathSet:   true,
+	}
+	out := cdOutcome(state, Simple{Unresolved: true}, []string{"cd", "$TARGET"})
+	for name, got := range map[string]cwdState{"success": out.success, "failure": out.failure} {
+		if !got.unknown || !got.fsUncertain || got.cdpath != state.cdpath || !got.cdpathSet {
+			t.Errorf("%s unknown transition = %+v, want cwd uncertainty with filesystem and CDPATH state preserved", name, got)
+		}
+	}
+}
+
+func TestNormalizeParsesCommandAndBuiltinOptionsBeforeDispatch(t *testing.T) {
+	for _, command := range []string{
+		`command -- cd /etc; pwd`,
+		`command -p -- cd /etc; pwd`,
+		`command -- eval 'cd /etc'; pwd`,
+		`builtin -- cd /etc; pwd`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if last := got[len(got)-1]; last.Cwd != "/etc" || last.Unresolved {
+			t.Errorf("Normalize(%q) last = %+v, want cwd /etc", command, last)
+		}
+	}
+
+	for _, command := range []string{
+		`command -v cd /etc; pwd`,
+		`command -V eval 'cd /etc'; pwd`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if last := got[len(got)-1]; last.Cwd != "/repo" || last.Unresolved {
+			t.Errorf("Normalize(%q) executed a locate-only operand: %+v", command, last)
+		}
+	}
+
+	for _, command := range []string{
+		`command -Z cd /etc; pwd`,
+		`builtin -Z cd /etc; pwd`,
+		`command "$COMMAND"; pwd`,
+		`builtin "$BUILTIN"; pwd`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if last := got[len(got)-1]; last.Cwd != "" || !last.Unresolved {
+			t.Errorf("Normalize(%q) did not fail closed: %+v", command, last)
+		}
+	}
+}
+
+func TestNormalizeRedirectFailurePrecedesFunctionAndEvalExecution(t *testing.T) {
+	repo := t.TempDir()
+	redirect := filepath.Join(repo, "missing", "out")
+	for _, command := range []string{
+		fmt.Sprintf(`f() { true; }; f > %q || rm -rf /`, redirect),
+		fmt.Sprintf(`eval 'true' > %q || rm -rf /`, redirect),
+		fmt.Sprintf(`command -- eval 'true' > %q || rm -rf /`, redirect),
+	} {
+		got, err := Normalize(command, repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasArgv(got, []string{"rm", "-rf", "/"}) {
+			t.Errorf("Normalize(%q) omitted redirect-failure branch: %+v", command, got)
+		}
+	}
+}
+
 func hasArgv(simples []Simple, want []string) bool {
 	for _, simple := range simples {
 		if reflect.DeepEqual(simple.Argv, want) {

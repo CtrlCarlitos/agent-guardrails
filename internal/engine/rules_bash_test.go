@@ -344,6 +344,13 @@ func TestShellFunctionsAreEvaluatedOnlyWhenInvoked(t *testing.T) {
 	}
 }
 
+func TestAmbiguousFunctionDispatchAsks(t *testing.T) {
+	v := evalBash(t, `choose() { printf prior; }; if condition; then choose() { printf alternate; }; fi; choose`)
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+		t.Fatalf("ambiguous function dispatch -> %+v, want ask/P3.unresolved", v)
+	}
+}
+
 func TestUnknowableStatementAloneStillAsks(t *testing.T) {
 	v := evalBash(t, `env -Z x`)
 	if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
