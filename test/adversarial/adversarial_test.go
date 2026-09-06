@@ -435,6 +435,54 @@ func validateEntry(e entry, names map[string]bool) error {
 	}
 }
 
+func fixturePath(fixtureRoot, base, name string) (string, error) {
+	candidate := filepath.Clean(filepath.Join(base, filepath.FromSlash(name)))
+	rel, err := filepath.Rel(fixtureRoot, candidate)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("fixture path %q escapes fixture root", name)
+	}
+	return candidate, nil
+}
+
+func createFixtureSymlink(fixtureRoot, repo string, symlink fixtureSymlink) error {
+	path, err := fixturePath(fixtureRoot, repo, symlink.Path)
+	if err != nil {
+		return err
+	}
+	if rel, err := filepath.Rel(repo, path); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("fixture symlink path %q must be inside the repository", symlink.Path)
+	}
+	if filepath.IsAbs(symlink.Target) {
+		return fmt.Errorf("fixture symlink target %q must be relative", symlink.Target)
+	}
+	if _, err := fixturePath(fixtureRoot, filepath.Dir(path), symlink.Target); err != nil {
+		return err
+	}
+	parent := filepath.Dir(path)
+	for ancestor := parent; ancestor != repo; ancestor = filepath.Dir(ancestor) {
+		info, err := os.Lstat(ancestor)
+		if err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("inspect fixture symlink ancestor: %w", err)
+		}
+		if err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("fixture symlink path %q traverses symlink ancestor %q", symlink.Path, ancestor)
+		}
+	}
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return fmt.Errorf("create fixture symlink parent: %w", err)
+	}
+	// Preserve .. ordering so it is evaluated after any target symlink component.
+	rawTarget := parent + string(filepath.Separator) + filepath.FromSlash(symlink.Target)
+	resolvedTarget, err := filepath.EvalSymlinks(rawTarget)
+	if err != nil {
+		return fmt.Errorf("resolve fixture symlink target %q: %w", symlink.Target, err)
+	}
+	if rel, err := filepath.Rel(fixtureRoot, resolvedTarget); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("fixture symlink target %q resolves outside fixture root", symlink.Target)
+	}
+	return os.Symlink(filepath.FromSlash(symlink.Target), path)
+}
+
 func materializeRepo(t *testing.T, e entry) (string, string) {
 	t.Helper()
 	logicalRoot := filepath.Clean(filepath.FromSlash(e.RepoRoot))
@@ -458,16 +506,11 @@ func materializeRepo(t *testing.T, e entry) (string, string) {
 	if err := os.MkdirAll(cwd, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	fixturePath := func(base, name string) string {
-		candidate := filepath.Clean(filepath.Join(base, filepath.FromSlash(name)))
-		rel, err := filepath.Rel(fixtureRoot, candidate)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			t.Fatalf("fixture path %q escapes fixture root", name)
-		}
-		return candidate
-	}
 	for _, name := range e.FixtureFiles {
-		path := fixturePath(repo, name)
+		path, err := fixturePath(fixtureRoot, repo, name)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatalf("create fixture file parent: %v", err)
 		}
@@ -476,19 +519,12 @@ func materializeRepo(t *testing.T, e entry) (string, string) {
 		}
 	}
 	for _, symlink := range e.FixtureSymlinks {
-		path := fixturePath(repo, symlink.Path)
-		if rel, err := filepath.Rel(repo, path); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			t.Fatalf("fixture symlink path %q must be inside the repository", symlink.Path)
-		}
-		if filepath.IsAbs(symlink.Target) {
-			t.Fatalf("fixture symlink target %q must be relative", symlink.Target)
-		}
-		fixturePath(filepath.Dir(path), symlink.Target)
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			t.Fatalf("create fixture symlink parent: %v", err)
-		}
-		if err := os.Symlink(filepath.FromSlash(symlink.Target), path); err != nil {
-			t.Skipf("symlinks unavailable: %v", err)
+		if err := createFixtureSymlink(fixtureRoot, repo, symlink); err != nil {
+			var linkErr *os.LinkError
+			if errors.As(err, &linkErr) {
+				t.Skipf("symlinks unavailable: %v", err)
+			}
+			t.Fatal(err)
 		}
 	}
 	if e.RepoAlias == "" {
@@ -548,6 +584,61 @@ func TestMaterializeRepoCreatesSandboxedFixtures(t *testing.T) {
 	}
 	if got != want {
 		t.Fatalf("fixture symlink resolves to %q, want %q", got, want)
+	}
+}
+
+func TestCreateFixtureSymlinkRejectsChainedAncestor(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	fixtureRoot := t.TempDir()
+	repo := filepath.Join(fixtureRoot, "repo")
+	outside := filepath.Join(fixtureRoot, "outside")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := createFixtureSymlink(fixtureRoot, repo, fixtureSymlink{Path: "pivot", Target: "../outside"}); err != nil {
+		t.Fatalf("create ancestor fixture symlink: %v", err)
+	}
+	if err := createFixtureSymlink(fixtureRoot, repo, fixtureSymlink{Path: "pivot/link", Target: "target"}); err == nil {
+		t.Fatal("created fixture through a symlink ancestor")
+	}
+	if _, err := os.Lstat(filepath.Join(outside, "link")); !os.IsNotExist(err) {
+		t.Fatalf("outside fixture created through symlink ancestor: %v", err)
+	}
+}
+
+func TestCreateFixtureSymlinkRejectsEscapingRelativeTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	sandbox := t.TempDir()
+	fixtureRoot := filepath.Join(sandbox, "fixture")
+	repo := filepath.Join(fixtureRoot, "repo")
+	outside := filepath.Join(fixtureRoot, "outside")
+	escape := filepath.Join(sandbox, "escape")
+	for _, path := range []string{repo, outside, escape} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := createFixtureSymlink(fixtureRoot, repo, fixtureSymlink{Path: "pivot", Target: "../outside"}); err != nil {
+		t.Fatalf("create target fixture symlink: %v", err)
+	}
+	if err := createFixtureSymlink(fixtureRoot, repo, fixtureSymlink{Path: "link", Target: "pivot/../../escape"}); err == nil {
+		t.Fatal("created fixture with a target outside the fixture root")
+	}
+	if _, err := os.Lstat(filepath.Join(repo, "link")); !os.IsNotExist(err) {
+		t.Fatalf("fixture with escaping target was created: %v", err)
+	}
+	rawTarget := filepath.Join(repo, "pivot") + string(filepath.Separator) + filepath.FromSlash("../../escape")
+	if resolved, err := filepath.EvalSymlinks(rawTarget); err != nil {
+		t.Fatal(err)
+	} else if resolved != escape {
+		t.Fatalf("test target resolves to %q, want outside path %q", resolved, escape)
 	}
 }
 
