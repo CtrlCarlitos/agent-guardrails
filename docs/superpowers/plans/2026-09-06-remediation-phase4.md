@@ -587,6 +587,13 @@ git push origin main && git tag v0.13.0-dev && git push origin v0.13.0-dev
 
 ---
 
+
+## NF-2 (found 2026-09-06 during the Task 5/6 review): executable identity is not canonicalized
+
+▶ On the deployed `v0.12.0-dev`: `cat /home/u/.ssh/id_rsa` → exit 2, but `cat.exe /home/u/.ssh/id_rsa` → exit 0 and `C:\bin\cat.exe /home/u/.ssh/id_rsa` → exit 0. `head()` is `path.Base(argv[0])`: no backslash handling, no `.exe` strip, no case fold. Every command map keys on it — `pathReaders`, `mutatingDestinationCommands`, `netTools`, the git/docker/rm heads — so on the Windows plane (and under WSL interop) an `.exe` suffix or a backslash path defeats every command-name rule at once. `isOpaqueExecutor` already normalizes locally, which is how the inconsistency went unnoticed.
+
+**Fix, in Task 5/6:** canonicalize once, in `head()` itself — replace `\` with `/`, take the basename, lowercase, strip a trailing `.exe` — so every consumer benefits and no second helper can drift. Lock with a table test over `cat.exe`, `CAT`, `C:\bin\cat.exe`, `/usr/bin/cat`, and a corpus `deny` for `cat.exe <secret>`.
+
 ## Revision History
 
 ### Revision 4 → 5 (two wrong tests, seven omissions; all confirmed)
