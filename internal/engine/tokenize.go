@@ -133,52 +133,180 @@ func pipelinePositions(f *syntax.File, ctx *normalizeContext) map[*syntax.Stmt][
 			continue
 		}
 		ctx.nextPipelineID++
+		pipelineID := ctx.nextPipelineID
+		carriesInput := true
 		for stage, stageRoot := range flattenPipeline(stmt) {
-			position := pipelinePosition{id: ctx.nextPipelineID, stage: stage}
-			markPipelineIngress(positions, stageRoot, position)
+			if stage > 0 && !carriesInput {
+				ctx.nextPipelineID++
+				pipelineID = ctx.nextPipelineID
+			}
+			position := pipelinePosition{id: pipelineID, stage: stage}
+			carriesInput = markPipelineIngress(positions, stageRoot, position).forwards
 		}
 	}
 	return positions
 }
 
-func markPipelineIngress(positions map[*syntax.Stmt][]pipelinePosition, stmt *syntax.Stmt, position pipelinePosition) {
+type stdinFlow struct {
+	consumes bool
+	forwards bool
+}
+
+func markPipelineIngress(positions map[*syntax.Stmt][]pipelinePosition, stmt *syntax.Stmt, position pipelinePosition) stdinFlow {
 	if stmt == nil {
-		return
+		return stdinFlow{}
 	}
 	positions[stmt] = append(positions[stmt], position)
-	first := func(stmts []*syntax.Stmt) {
-		if len(stmts) > 0 {
-			markPipelineIngress(positions, stmts[0], position)
-		}
+	if stdinReplaced(stmt) {
+		return stdinFlow{}
 	}
+	var flow stdinFlow
 	switch command := stmt.Cmd.(type) {
+	case *syntax.CallExpr:
+		flow = simpleStdinFlow(command)
 	case *syntax.BinaryCmd:
 		if command.Op == syntax.Pipe || command.Op == syntax.PipeAll {
-			for _, stage := range flattenPipeline(stmt) {
-				if stage != stmt {
-					markPipelineIngress(positions, stage, position)
+			carriesInput := true
+			for stage, stageRoot := range flattenPipeline(stmt) {
+				if !carriesInput {
+					break
 				}
+				stageFlow := markPipelineIngress(positions, stageRoot, position)
+				if stage == 0 {
+					flow.consumes = stageFlow.consumes
+				}
+				carriesInput = stageFlow.forwards
 			}
-			return
+			flow.forwards = carriesInput
+			break
 		}
-		markPipelineIngress(positions, command.X, position)
+		flow = markPipelineList(positions, []*syntax.Stmt{command.X, command.Y}, position)
 	case *syntax.Block:
-		first(command.Stmts)
+		flow = markPipelineList(positions, command.Stmts, position)
 	case *syntax.Subshell:
-		first(command.Stmts)
+		flow = markPipelineList(positions, command.Stmts, position)
 	case *syntax.IfClause:
-		first(command.Cond)
+		flow = markPipelineList(positions, command.Cond, position)
+		if !flow.consumes {
+			flow = mergeStdinFlow(flow, markPipelineList(positions, command.Then, position))
+		}
 	case *syntax.WhileClause:
-		first(command.Cond)
+		flow = markPipelineList(positions, command.Cond, position)
+		if !flow.consumes {
+			flow = mergeStdinFlow(flow, markPipelineList(positions, command.Do, position))
+		}
 	case *syntax.ForClause:
-		first(command.Do)
+		flow = markPipelineList(positions, command.Do, position)
 	case *syntax.CaseClause:
 		for _, item := range command.Items {
-			first(item.Stmts)
+			flow = mergeStdinFlow(flow, markPipelineList(positions, item.Stmts, position))
 		}
 	case *syntax.TimeClause:
-		markPipelineIngress(positions, command.Stmt, position)
+		flow = markPipelineIngress(positions, command.Stmt, position)
+	default:
+		// Unknown compound forms may consume or forward stdin. Preserve both
+		// possibilities so later checks fail closed.
+		flow.forwards = true
 	}
+	if stdoutReplaced(stmt) {
+		flow.forwards = false
+	}
+	return flow
+}
+
+func markPipelineList(positions map[*syntax.Stmt][]pipelinePosition, stmts []*syntax.Stmt, position pipelinePosition) stdinFlow {
+	var flow stdinFlow
+	for _, stmt := range stmts {
+		if flow.consumes {
+			break
+		}
+		statementFlow := markPipelineIngress(positions, stmt, position)
+		flow.forwards = flow.forwards || statementFlow.forwards
+		flow.consumes = statementFlow.consumes
+	}
+	return flow
+}
+
+func mergeStdinFlow(left, right stdinFlow) stdinFlow {
+	return stdinFlow{
+		consumes: left.consumes || right.consumes,
+		forwards: left.forwards || right.forwards,
+	}
+}
+
+func simpleStdinFlow(command *syntax.CallExpr) stdinFlow {
+	if len(command.Args) == 0 {
+		return stdinFlow{}
+	}
+	name := command.Args[0].Lit()
+	if slash := strings.LastIndexAny(name, `/\`); slash >= 0 {
+		name = name[slash+1:]
+	}
+	switch name {
+	case ":", "true", "false", "printf", "echo", "pwd", "ls", "touch", "mkdir", "sleep", "test", "[":
+		return stdinFlow{}
+	case "cat":
+		usesStdin := false
+		hasFileOperand := false
+		options := true
+		for _, word := range command.Args[1:] {
+			arg := word.Lit()
+			if options && arg == "--" {
+				options = false
+				continue
+			}
+			if options && strings.HasPrefix(arg, "-") && arg != "-" {
+				continue
+			}
+			if arg == "-" {
+				usesStdin = true
+			} else if arg == "" {
+				usesStdin = true
+			} else {
+				hasFileOperand = true
+			}
+		}
+		usesStdin = usesStdin || !hasFileOperand
+		return stdinFlow{consumes: usesStdin, forwards: usesStdin}
+	case "tee":
+		return stdinFlow{consumes: true, forwards: true}
+	case "read":
+		return stdinFlow{consumes: true}
+	default:
+		// An unknown command may leave stdin untouched and may copy it to
+		// stdout. Keeping both possibilities is conservative without making a
+		// later source-only pipeline inherit this command's input.
+		return stdinFlow{forwards: true}
+	}
+}
+
+func stdinReplaced(stmt *syntax.Stmt) bool {
+	for _, redirect := range stmt.Redirs {
+		if redirect.N != nil && redirect.N.Value != "0" {
+			continue
+		}
+		switch redirect.Op {
+		case syntax.RdrIn, syntax.RdrInOut, syntax.DplIn, syntax.Hdoc, syntax.DashHdoc, syntax.WordHdoc:
+			return true
+		}
+	}
+	return false
+}
+
+func stdoutReplaced(stmt *syntax.Stmt) bool {
+	for _, redirect := range stmt.Redirs {
+		if redirect.Op == syntax.RdrAll || redirect.Op == syntax.AppAll {
+			return true
+		}
+		if redirect.N != nil && redirect.N.Value != "1" {
+			continue
+		}
+		switch redirect.Op {
+		case syntax.RdrOut, syntax.AppOut, syntax.ClbOut, syntax.DplOut:
+			return true
+		}
+	}
+	return false
 }
 
 func flattenPipeline(stmt *syntax.Stmt) []*syntax.Stmt {

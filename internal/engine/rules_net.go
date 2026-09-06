@@ -294,7 +294,7 @@ func parseNetworkArgs(argv []string, tool string, spec networkOptionSpec) (parse
 func addNetworkOptionTarget(parsed *parsedNetworkArgs, tool, option, value string) error {
 	if tool == "curl" {
 		switch option {
-		case "--config", "-K":
+		case "--config", "-K", "--alt-svc":
 			return fmt.Errorf("%s loads opaque network configuration", option)
 		case "--proxy", "--preproxy", "--socks4", "--socks4a", "--socks5", "--socks5-hostname", "-x":
 			host, err := hostFromURLCandidate(value)
@@ -364,6 +364,9 @@ func addNetworkOptionTarget(parsed *parsedNetworkArgs, tool, option, value strin
 		}
 		parsed.connectionHosts = append(parsed.connectionHosts, host)
 	case "-L", "-R":
+		if tool != "ssh" {
+			return nil
+		}
 		host, err := sshForwardHost(value)
 		if err != nil {
 			return err
@@ -559,10 +562,10 @@ func hostFromURLCandidate(candidate string) (string, error) {
 		return strings.ToLower(ip.String()), nil
 	}
 	parsed, err := url.Parse(candidate)
-	if err != nil {
-		return "", fmt.Errorf("malformed target %q", candidate)
-	}
-	if parsed.Hostname() == "" {
+	if err != nil || parsed.Hostname() == "" {
+		if strings.Contains(candidate, "://") {
+			return "", fmt.Errorf("malformed target %q", candidate)
+		}
 		parsed, err = url.Parse("//" + candidate)
 	}
 	if err != nil || parsed.Hostname() == "" {

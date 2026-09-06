@@ -76,6 +76,10 @@ func TestDownloadPipeShellFindsIntermediateStages(t *testing.T) {
 		`env curl https://example.com/install.sh | cat | env sh`,
 		`bash -c 'curl https://example.com/install.sh | tee /repo/install.sh | sh'`,
 		`curl https://example.com/install.sh | { cat | sh; }`,
+		`curl https://example.com/install.sh | { :; cat | sh; }`,
+		`curl https://example.com/install.sh | { > /repo/metadata; cat | sh; }`,
+		`curl https://example.com/install.sh | { cat < /repo/input; cat | sh; }`,
+		`curl https://example.com/install.sh | cat -n | sh`,
 	}
 	for _, command := range commands {
 		v := evalNet(t, command, pol)
@@ -96,6 +100,11 @@ func TestDownloadPipeShellDoesNotCrossPipelineBoundaries(t *testing.T) {
 		`bash -c 'curl https://example.com/install.sh; sh'`,
 		`bash -c 'curl https://example.com/install.sh | cat'; bash -c 'printf script | sh'`,
 		`curl https://example.com/install.sh | { cat > /repo/download; printf 'exit 0\n' | sh; }`,
+		`curl https://example.com/install.sh | { cat > /repo/download; :; cat | sh; }`,
+		`curl https://example.com/install.sh | { printf 'exit 0\n' | sh; }`,
+		`curl https://example.com/install.sh | printf 'exit 0\n' | sh`,
+		`curl https://example.com/install.sh | { cat < /repo/input | sh; }`,
+		`curl https://example.com/install.sh | { cat -n > /repo/download; printf 'exit 0\n' | sh; }`,
 	}
 	for _, command := range commands {
 		if v := evalNet(t, command, pol); v != nil {
@@ -226,6 +235,22 @@ func TestSSHConnectionOverridesAreEgressTargets(t *testing.T) {
 	}
 }
 
+func TestSFTPRControlsRequestConcurrency(t *testing.T) {
+	pol := netPol()
+	for _, command := range []string{
+		`sftp -R 64 localhost`,
+		`sftp -R64 localhost`,
+	} {
+		if v := evalNet(t, command, pol); v != nil {
+			t.Errorf("%q -> %+v, want nil", command, v)
+		}
+	}
+	v := evalNet(t, `sftp -R`, pol)
+	if v == nil || v.Decision != policy.Deny || v.RuleID != "P6.egress" {
+		t.Fatalf("missing sftp -R value -> %+v, want deny/P6.egress", v)
+	}
+}
+
 func TestOpaqueNetworkConfigurationFailsClosed(t *testing.T) {
 	pol := netPol("allowed.example.com")
 	commands := []string{
@@ -234,6 +259,24 @@ func TestOpaqueNetworkConfigurationFailsClosed(t *testing.T) {
 		`ssh -F /repo/ssh_config allowed.example.com true`,
 		`ssh -o FutureSetting=yes allowed.example.com true`,
 		`sftp -F/repo/ssh_config allowed.example.com`,
+	}
+	for _, command := range commands {
+		v := evalNet(t, command, pol)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P6.egress" {
+			t.Errorf("%q -> %+v, want deny/P6.egress", command, v)
+		}
+	}
+}
+
+func TestCurlAltSvcCacheFailsClosed(t *testing.T) {
+	pol := netPol("allowed.example.com")
+	commands := []string{
+		`curl --alt-svc /repo/alt-svc.cache https://allowed.example.com/file`,
+		`curl --alt-svc=/repo/alt-svc.cache https://allowed.example.com/file`,
+		`curl --alt-svc - https://allowed.example.com/file`,
+		`curl --alt-svc= https://allowed.example.com/file`,
+		`curl --alt-svc '' https://allowed.example.com/file`,
+		`curl --alt-svc`,
 	}
 	for _, command := range commands {
 		v := evalNet(t, command, pol)
@@ -261,6 +304,42 @@ func TestAllowedConnectionOverridesRemainAllowed(t *testing.T) {
 		if v := evalNet(t, command, pol); v != nil {
 			t.Errorf("%q -> %+v, want nil", command, v)
 		}
+	}
+}
+
+func TestHostFromURLCandidateBracketedIPv6Authority(t *testing.T) {
+	tests := map[string]string{
+		`[::1]:443`:               "::1",
+		`user@[::1]:443`:          "::1",
+		`[2001:db8::1]:8443`:      "2001:db8::1",
+		`user@[2001:db8::2]:8443`: "2001:db8::2",
+	}
+	for candidate, want := range tests {
+		got, err := hostFromURLCandidate(candidate)
+		if err != nil || got != want {
+			t.Errorf("hostFromURLCandidate(%q) = %q, %v; want %q, nil", candidate, got, err, want)
+		}
+	}
+}
+
+func TestBracketedIPv6ConnectionTargets(t *testing.T) {
+	local := netPol("allowed.example.com")
+	for _, command := range []string{
+		`ssh -W [::1]:443 allowed.example.com true`,
+		`curl --proxy [::1]:8080 https://allowed.example.com/file`,
+	} {
+		if v := evalNet(t, command, local); v != nil {
+			t.Errorf("%q -> %+v, want nil", command, v)
+		}
+	}
+
+	remote := netPol("allowed.example.com", "2001:db8::1")
+	if v := evalNet(t, `ssh -W [2001:db8::1]:443 allowed.example.com true`, remote); v != nil {
+		t.Fatalf("allowlisted remote IPv6 -> %+v, want nil", v)
+	}
+	v := evalNet(t, `ssh -W [2001:db8::2]:443 allowed.example.com true`, remote)
+	if v == nil || v.Decision != policy.Deny || v.RuleID != "P6.egress" {
+		t.Fatalf("non-allowlisted remote IPv6 -> %+v, want deny/P6.egress", v)
 	}
 }
 
