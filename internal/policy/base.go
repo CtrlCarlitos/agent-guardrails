@@ -12,6 +12,7 @@ var baseTOML []byte
 type fileShape struct {
 	Slots struct {
 		SafeRoots       []string `toml:"safe_roots"`
+		SecretDirs      []string `toml:"secret_dirs"`
 		SecretGlobs     []string `toml:"secret_globs"`
 		SecretAllow     []string `toml:"secret_allow"`
 		EgressAllowlist []string `toml:"egress_allowlist"`
@@ -30,6 +31,7 @@ func (f fileShape) toPolicy() *Policy {
 	p := &Policy{
 		Slots: Slots{
 			SafeRoots:       f.Slots.SafeRoots,
+			SecretDirs:      f.Slots.SecretDirs,
 			SecretGlobs:     f.Slots.SecretGlobs,
 			SecretAllow:     f.Slots.SecretAllow,
 			EgressAllowlist: f.Slots.EgressAllowlist,

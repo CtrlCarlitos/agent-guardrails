@@ -340,6 +340,32 @@ func TestOpencodeConfigReadEditPermissions(t *testing.T) {
 	}
 }
 
+func TestOpencodeSecretDirsOutrankSecretAllow(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		allow string
+		path  string
+	}{
+		{name: "exact", allow: "**/.ssh/**", path: "/home/u/.ssh/id_rsa"},
+		{name: "overlapping", allow: "**/.ssh/*.example", path: "/home/u/.ssh/key.example"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pol := secretPol()
+			pol.Slots.SecretAllow = []string{tt.allow}
+			raw, err := json.Marshal(OpencodeConfig(pol, "/x/guardrail.js"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, category := range []string{"read", "edit"} {
+				rules := parseOpencodePermissionRules(t, raw, category)
+				if got := opencodeFindLast(rules, tt.path); got != "deny" {
+					t.Errorf("%s findLast permission for %q = %q, want deny", category, tt.path, got)
+				}
+			}
+		})
+	}
+}
+
 func TestOpencodeConfigProtectsGuardrailOwnMachinery(t *testing.T) {
 	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
 	edit := frag["permission"].(map[string]any)["edit"].(orderedPermissionRules)

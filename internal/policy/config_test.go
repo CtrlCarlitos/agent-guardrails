@@ -81,6 +81,7 @@ audit_log = ".agents/guardrail.jsonl"
 
 [slots]
 safe_roots = ["./tmp"]
+secret_dirs = ["**/.vault/**"]
 egress_allowlist = ["api.example.com"]
 
 [[rules]]
@@ -100,6 +101,9 @@ waive = ["P6.curl-egress"]
 	}
 	if len(ov.SafeRoots) != 1 || ov.SafeRoots[0] != "./tmp" {
 		t.Errorf("safe_roots wrong: %v", ov.SafeRoots)
+	}
+	if !slices.Equal(ov.SecretDirs, []string{"**/.vault/**"}) {
+		t.Errorf("secret_dirs wrong: %v", ov.SecretDirs)
 	}
 	if len(ov.Rules) != 1 || ov.Rules[0].Decision != Ask {
 		t.Errorf("rules wrong: %+v", ov.Rules)
@@ -207,6 +211,7 @@ func decodeOverlayContract(raw string) (*Overlay, toml.MetaData, error) {
 		Waive            []string `toml:"waive"`
 		Slots            struct {
 			SafeRoots       []string `toml:"safe_roots"`
+			SecretDirs      []string `toml:"secret_dirs"`
 			SecretGlobs     []string `toml:"secret_globs"`
 			SecretAllow     []string `toml:"secret_allow"`
 			EgressAllowlist []string `toml:"egress_allowlist"`
@@ -227,6 +232,7 @@ func decodeOverlayContract(raw string) (*Overlay, toml.MetaData, error) {
 		EngineMinVersion: f.EngineMinVersion,
 		AuditLog:         f.AuditLog,
 		SafeRoots:        f.Slots.SafeRoots,
+		SecretDirs:       f.Slots.SecretDirs,
 		SecretGlobs:      f.Slots.SecretGlobs,
 		SecretAllow:      f.Slots.SecretAllow,
 		EgressAllowlist:  f.Slots.EgressAllowlist,

@@ -17,6 +17,7 @@ type Overlay struct {
 	EngineMinVersion string
 	AuditLog         string
 	SafeRoots        []string
+	SecretDirs       []string
 	SecretGlobs      []string
 	SecretAllow      []string
 	EgressAllowlist  []string
@@ -78,6 +79,7 @@ func LoadOverlay(pth string) (*Overlay, error) {
 		Waive            []string `toml:"waive"`
 		Slots            struct {
 			SafeRoots       []string `toml:"safe_roots"`
+			SecretDirs      []string `toml:"secret_dirs"`
 			SecretGlobs     []string `toml:"secret_globs"`
 			SecretAllow     []string `toml:"secret_allow"`
 			EgressAllowlist []string `toml:"egress_allowlist"`
@@ -98,6 +100,7 @@ func LoadOverlay(pth string) (*Overlay, error) {
 		EngineMinVersion: f.EngineMinVersion,
 		AuditLog:         f.AuditLog,
 		SafeRoots:        f.Slots.SafeRoots,
+		SecretDirs:       f.Slots.SecretDirs,
 		SecretGlobs:      f.Slots.SecretGlobs,
 		SecretAllow:      f.Slots.SecretAllow,
 		EgressAllowlist:  f.Slots.EgressAllowlist,

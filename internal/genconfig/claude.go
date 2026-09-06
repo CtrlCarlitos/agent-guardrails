@@ -59,6 +59,10 @@ func bashAskGlobs() []string {
 
 func secretDenyGlobs(pol *policy.Policy) []string {
 	var reads, edits []string
+	for _, g := range pol.Slots.SecretDirs {
+		reads = append(reads, "Read("+g+")")
+		edits = append(edits, "Edit("+g+")")
+	}
 	for _, g := range pol.Slots.SecretGlobs {
 		if collidesWithAllow(g, pol.Slots.SecretAllow) {
 			continue

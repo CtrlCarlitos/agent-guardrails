@@ -38,9 +38,24 @@ func TestBashAskGlobs(t *testing.T) {
 
 func secretPol() *policy.Policy {
 	return &policy.Policy{Slots: policy.Slots{
-		SecretGlobs: []string{"**/.env", ".env.*", "**/.ssh/**", "id_rsa*", "*.pem"},
+		SecretDirs:  []string{"**/.ssh/**"},
+		SecretGlobs: []string{"**/.env", ".env.*", "id_rsa*", "*.pem"},
 		SecretAllow: []string{"**/.env.example", ".env.example"},
 	}}
+}
+
+func TestSecretDirsReachTheDeclarativeFloor(t *testing.T) {
+	pol := &policy.Policy{Slots: policy.Slots{
+		SecretDirs:  []string{"**/.ssh/**"},
+		SecretGlobs: []string{"**/.env"},
+		SecretAllow: []string{"**/.ssh/**"},
+	}}
+	got := secretDenyGlobs(pol)
+	for _, want := range []string{"Read(**/.ssh/**)", "Edit(**/.ssh/**)", "Read(**/.env)"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("floor = %v, want to contain %q", got, want)
+		}
+	}
 }
 
 func TestSecretDenyGlobs(t *testing.T) {

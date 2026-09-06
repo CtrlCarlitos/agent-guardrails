@@ -49,6 +49,7 @@ type Rule struct {
 // Slots are the parameterized values a Base policy leaves for an Overlay to fill.
 type Slots struct {
 	SafeRoots       []string
+	SecretDirs      []string
 	SecretGlobs     []string
 	SecretAllow     []string
 	EgressAllowlist []string

@@ -100,6 +100,9 @@ func privatePathCandidates(tc ToolCall) []pathCandidate {
 
 func classifiedSecretPath(candidate pathCandidate, pol *policy.Policy) (string, bool) {
 	for _, form := range pathCandidateForms(candidate) {
+		if matchesAnyGlob(form, pol.Slots.SecretDirs) {
+			return form, true
+		}
 		if matchesAnyGlob(form, pol.Slots.SecretAllow) {
 			continue
 		}

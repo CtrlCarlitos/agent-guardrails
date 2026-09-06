@@ -83,6 +83,17 @@ func TestMergePreservesBaseAndAppendsTightenings(t *testing.T) {
 	}
 }
 
+func TestSecretDirsMergeIsAdditiveOnly(t *testing.T) {
+	base := &Policy{Slots: Slots{SecretDirs: []string{"**/.ssh/**"}}}
+	ov := &Overlay{SecretDirs: []string{"**/.vault/**"}}
+	m, _ := mergeNoOp(t, base, ov)
+	for _, want := range []string{"**/.ssh/**", "**/.vault/**"} {
+		if !slices.Contains(m.Slots.SecretDirs, want) {
+			t.Errorf("merged SecretDirs = %v, want to contain %q", m.Slots.SecretDirs, want)
+		}
+	}
+}
+
 func TestMergePartiallyAuthorizedWaivers(t *testing.T) {
 	op := &OperatorConfig{Repos: map[string]RepoGrant{
 		"/repo": {Waive: []string{"P6.egress"}},

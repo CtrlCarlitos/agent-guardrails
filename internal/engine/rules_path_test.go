@@ -13,9 +13,13 @@ func pathPol() *policy.Policy {
 	return &policy.Policy{
 		Slots: policy.Slots{
 			// Mirrors base.toml: full-path globs, "**/" for any depth, no basename fallback.
+			SecretDirs: []string{
+				"**/.ssh/**", "**/.aws/**", "**/.config/gcloud/**", "**/.docker/config.json",
+				"**/.gnupg/**", "/root/.ssh/**",
+			},
 			SecretGlobs: []string{
 				"**/.env", "**/.env.*",
-				"**/.ssh/**", "**/.aws/**", "**/.kube/config", "**/.docker/config.json", "**/.netrc",
+				"**/.kube/config", "**/.netrc",
 				"**/id_rsa*", "**/id_ed25519*", "**/*.pem", "**/*.key",
 				"**/.claude.json", "**/service-account*.json",
 			},
@@ -23,6 +27,23 @@ func pathPol() *policy.Policy {
 		},
 		Waived: map[string]bool{},
 	}
+}
+
+func TestSecretDirsAreUnwaivableByFilenameAllow(t *testing.T) {
+	pol := pathPol()
+	pol.Slots.SecretAllow = append(pol.Slots.SecretAllow, "**/.ssh/**")
+	for _, p := range []string{
+		"/home/u/.ssh/.env.example", "/home/u/.ssh/.env.sample",
+		"/home/u/.aws/.env.example", "/home/u/.ssh/id_rsa.pub",
+		"/home/u/.gnupg/.env.example",
+	} {
+		tc := ToolCall{Tool: "Read", Paths: []string{p}, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkPaths(tc, pol); v == nil || v.Decision != policy.Deny {
+			t.Errorf("%q -> %+v, want deny", p, v)
+		}
+	}
+	tc := ToolCall{Tool: "Read", Paths: []string{"/repo/.env.example"}, CWD: "/repo", RepoRoot: "/repo"}
+	wantAllow(t, "/repo/.env.example", checkPaths(tc, pol))
 }
 
 func TestCheckPathsFileTool(t *testing.T) {
@@ -218,15 +239,16 @@ func TestOutsideRepoSymlinkTargets(t *testing.T) {
 		}
 	}
 
-	tc := ToolCall{Tool: "Read", Paths: []string{secretAlias}, RepoRoot: repo, CWD: repo}
-	if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny || v.RuleID != "P4.secret-path" {
-		t.Fatalf("Read outside-repo secret alias -> %+v, want deny/P4.secret-path", v)
-	}
-	for _, alias := range []string{allowedAlias, benignAlias} {
+	tc := ToolCall{Tool: "Read", RepoRoot: repo, CWD: repo}
+	for _, alias := range []string{secretAlias, allowedAlias} {
 		tc.Paths = []string{alias}
-		if v := checkPaths(tc, pathPol()); v != nil {
-			t.Errorf("Read benign/allowed outside-repo alias %q -> %+v, want nil", alias, v)
+		if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny || v.RuleID != "P4.secret-path" {
+			t.Errorf("Read outside-repo secret alias %q -> %+v, want deny/P4.secret-path", alias, v)
 		}
+	}
+	tc.Paths = []string{benignAlias}
+	if v := checkPaths(tc, pathPol()); v != nil {
+		t.Errorf("Read benign outside-repo alias %q -> %+v, want nil", benignAlias, v)
 	}
 }
 
