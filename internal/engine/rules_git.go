@@ -411,9 +411,9 @@ func gitCommonDirectory(globalArgs []string, cwd string, variables map[string]st
 				return "", false
 			}
 			index++
-			gitDir = resolvePath(globalArgs[index], current)
+			gitDir = globalArgs[index]
 		case strings.HasPrefix(arg, "--git-dir="):
-			gitDir = resolvePath(strings.TrimPrefix(arg, "--git-dir="), current)
+			gitDir = strings.TrimPrefix(arg, "--git-dir=")
 		case arg == "--bare":
 			return "", false
 		}

@@ -213,7 +213,7 @@ func authorizedPath(candidate pathCandidate, repoRoot string, safeRoots, strictR
 		addRoot(os.TempDir(), false, false)
 	}
 	for _, root := range strictRoots {
-		addRoot(root, true, true)
+		addRoot(root, false, true)
 	}
 	withinRoot := func(root authorizedRoot) bool {
 		if withinSafe(target, root.lexical, nil) {
@@ -255,8 +255,8 @@ func systemTempRoots() []string {
 		if !filepath.IsAbs(root) || root == volumeRoot || seen[root] {
 			continue
 		}
-		info, err := os.Lstat(root)
-		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		info, err := os.Stat(root)
+		if err != nil || !info.IsDir() {
 			continue
 		}
 		seen[root] = true

@@ -621,6 +621,46 @@ func TestGitConfigLocalWritesRequireTheToolCallRepository(t *testing.T) {
 	}
 }
 
+func TestGitConfigRelativeGitDirUsesFinalSequentialCContext(t *testing.T) {
+	base := t.TempDir()
+	trusted := filepath.Join(base, "trusted")
+	foreign := filepath.Join(base, "foreign")
+	if err := os.MkdirAll(trusted, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(foreign, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	initGitRepository(t, trusted, false)
+	initGitRepository(t, foreign, false)
+
+	foreignCommands := []string{
+		`git --git-dir=.git -C ../foreign config user.email x@y.com`,
+		`git -C ../foreign --git-dir=.git config user.email x@y.com`,
+		`git --git-dir .git -C../foreign config user.email x@y.com`,
+		fmt.Sprintf(`git --git-dir=%q -C . config user.email x@y.com`, filepath.Join(foreign, ".git")),
+		`git -C .. -C foreign --git-dir=.git config user.email x@y.com`,
+	}
+	for _, command := range foreignCommands {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: trusted, RepoRoot: trusted}
+		v := checkBash(tc, bashPol())
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P2.git-config-write" {
+			t.Errorf("%q -> %+v, want ask/P2.git-config-write for foreign repository", command, v)
+		}
+	}
+
+	for _, command := range []string{
+		`git --git-dir=.git -C . config user.email x@y.com`,
+		`git -C . --git-dir .git config user.email x@y.com`,
+		`git -C .. -C trusted --git-dir=.git config user.email x@y.com`,
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: trusted, RepoRoot: trusted}
+		if v := checkBash(tc, bashPol()); v != nil {
+			t.Errorf("%q -> %+v, want local allow", command, v)
+		}
+	}
+}
+
 func TestGitConfigIdentityNeverExecutesAttemptedGitPath(t *testing.T) {
 	repo := t.TempDir()
 	initGitRepository(t, repo, false)

@@ -1047,15 +1047,53 @@ func TestSystemTempDescendantsAllowRmAndRedirectsButNotRoots(t *testing.T) {
 		}
 	}
 
-	for _, command := range []string{
-		`rm -rf /tmp/..`,
-		`rm -rf /tmp/work/..`,
-		`echo x >/tmp/../etc/passwd`,
-	} {
+	for _, command := range []string{`rm -rf /tmp/..`, `rm -rf /tmp/work/..`} {
 		v := evalBash(t, command)
-		if v == nil {
-			t.Errorf("%q -> allow, want protected", command)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Errorf("%q -> %+v, want deny/P1.rm-rf", command, v)
 		}
+	}
+	command := `echo x >/tmp/../etc/passwd`
+	v := evalBash(t, command)
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.redirect" {
+		t.Errorf("%q -> %+v, want ask/P1.redirect", command, v)
+	}
+}
+
+func TestSymlinkedBaseTempRootRequiresLexicalAndPhysicalStrictDescendants(t *testing.T) {
+	physical := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "tmp")
+	if err := os.Symlink(physical, alias); err != nil {
+		t.Skipf("create temp-root alias: %v", err)
+	}
+	t.Setenv("TMPDIR", alias)
+
+	roots := systemTempRoots()
+	found := false
+	for _, root := range roots {
+		found = found || root == alias
+	}
+	if !found {
+		t.Fatalf("systemTempRoots() = %q, want lexical symlink alias %q", roots, alias)
+	}
+
+	descendant := pathCandidate{path: filepath.Join(alias, "work", "out"), cwd: "/"}
+	if authorized, lexical := authorizedPath(descendant, "", nil, []string{alias}, false); !authorized || !lexical {
+		t.Fatalf("symlinked Base temp descendant authorized=%v lexical=%v, want both true", authorized, lexical)
+	}
+	if authorized, _ := authorizedPath(pathCandidate{path: alias, cwd: "/"}, "", nil, []string{alias}, false); authorized {
+		t.Fatal("symlinked Base temp root equality was authorized")
+	}
+
+	escape := filepath.Join(physical, "escape")
+	if err := os.Symlink(t.TempDir(), escape); err != nil {
+		t.Skipf("create temp-root escape: %v", err)
+	}
+	if authorized, _ := authorizedPath(pathCandidate{path: filepath.Join(alias, "escape", "out"), cwd: "/"}, "", nil, []string{alias}, false); authorized {
+		t.Fatal("symlink escape below Base temp alias was authorized")
+	}
+	if authorized, _ := authorizedPath(descendant, "", []string{alias}, nil, false); authorized {
+		t.Fatal("symlinked Overlay SafeRoot was authorized")
 	}
 }
 
@@ -1077,7 +1115,7 @@ func TestSystemTempAuthorizationUsesPhysicalStrictDescendants(t *testing.T) {
 	}
 }
 
-func TestSystemTempRootsDoNotAuthorizeAliasesEqualityOrInvalidRoots(t *testing.T) {
+func TestSystemTempRootsHandleOverlapAliasesAndInvalidRoots(t *testing.T) {
 	t.Run("overlapping roots", func(t *testing.T) {
 		tmpdir := filepath.Join(t.TempDir(), "nested")
 		if err := os.Mkdir(tmpdir, 0o700); err != nil {
@@ -1092,16 +1130,17 @@ func TestSystemTempRootsDoNotAuthorizeAliasesEqualityOrInvalidRoots(t *testing.T
 		}
 	})
 
-	t.Run("symlinked TMPDIR", func(t *testing.T) {
+	t.Run("symlinked TMPDIR descendant", func(t *testing.T) {
 		parent := t.TempDir()
 		alias := filepath.Join(parent, "tmp-alias")
-		if err := os.Symlink("/etc", alias); err != nil {
+		physical := t.TempDir()
+		if err := os.Symlink(physical, alias); err != nil {
 			t.Skipf("create symlink: %v", err)
 		}
 		t.Setenv("TMPDIR", alias)
 		command := fmt.Sprintf(`rm -rf %q`, filepath.Join(alias, "guardrail-missing"))
-		if v := evalBash(t, command); v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
-			t.Fatalf("symlinked TMPDIR descendant -> %+v, want deny/P1.rm-rf", v)
+		if v := evalBash(t, command); v != nil {
+			t.Fatalf("symlinked TMPDIR descendant -> %+v, want allow", v)
 		}
 	})
 
@@ -1575,6 +1614,51 @@ func TestShellStateVariableMutationsAskBeforePolicyUse(t *testing.T) {
 		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
 			t.Errorf("%q -> %+v, want ask/P3.unresolved", command, v)
 		}
+	}
+}
+
+func TestFunctionPrefixAssignmentsRestoreCallerState(t *testing.T) {
+	command := `noop(){ :; }; TARGET=/etc; TARGET=/repo/safe noop; rm -rf "$TARGET/y"`
+	v := evalBash(t, command)
+	if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+		t.Fatalf("%q -> %+v, want deny/P1.rm-rf from restored caller value", command, v)
+	}
+}
+
+func TestMapfileCallbacksInvalidateCurrentShellFacts(t *testing.T) {
+	for _, command := range []string{
+		`mutate(){ TARGET=/etc; }; TARGET=/repo/safe; mapfile -C mutate -c 1 ROWS <<<x; rm -rf "$TARGET/y"`,
+		`mutate(){ cd /etc; }; mapfile -C mutate -c 1 ROWS <<<x; rm -rf relative`,
+		`mutate(){ TARGET=/etc; }; TARGET=/repo/safe; readarray -C mutate -c 1 ROWS <<<x; rm -rf "$TARGET/y"`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want ask/P3.unresolved", command, v)
+		}
+	}
+	for _, command := range []string{
+		`TARGET=/repo/safe; mapfile ROWS <<<x; rm -rf "$TARGET/y"`,
+		`TARGET=/repo/safe; readarray -t ROWS <<<x; rm -rf "$TARGET/y"`,
+	} {
+		if v := evalBash(t, command); v != nil {
+			t.Errorf("%q -> %+v, want scoped non-callback allow", command, v)
+		}
+	}
+}
+
+func TestGetoptsInvalidatesExplicitAndImplicitOutputs(t *testing.T) {
+	for _, command := range []string{
+		`opt=/repo/safe; getopts a: opt -a /etc; rm -rf "$opt/y"`,
+		`OPTARG=/repo/safe; getopts a: opt -a /etc; rm -rf "$OPTARG/y"`,
+		`OPTIND=/repo/safe; getopts a: opt -a /etc; rm -rf "$OPTIND/y"`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want ask/P3.unresolved", command, v)
+		}
+	}
+	if command := `TARGET=/repo/safe; getopts a: opt -a /etc; rm -rf "$TARGET/y"`; evalBash(t, command) != nil {
+		t.Fatalf("%q invalidated an unrelated variable", command)
 	}
 }
 

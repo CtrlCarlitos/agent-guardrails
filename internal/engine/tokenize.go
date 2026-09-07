@@ -1426,10 +1426,7 @@ func (w *cwdWalker) call(stmt *syntax.Stmt, call *syntax.CallExpr, state cwdStat
 
 	if functions, ok := w.functions[argv[0]]; ok && !bypassFunction {
 		out := w.functionCall(stmt, simple, argv[0], functions, local)
-		if callAssignsCDPath(call) {
-			out = unknownCDPath(out)
-		}
-		return out
+		return restoreCallAssignments(out, state, call)
 	}
 	if argv[0] == "eval" {
 		return w.eval(stmt, simple, argv, local)
@@ -1637,6 +1634,62 @@ func applyCallAssignments(state cwdState, call *syntax.CallExpr) cwdState {
 	return state
 }
 
+func restoreCallAssignments(out cwdOutcome, persistent cwdState, call *syntax.CallExpr) cwdOutcome {
+	var names []string
+	restoreCDPath := false
+	for _, assignment := range call.Assigns {
+		if assignment.Name == nil {
+			continue
+		}
+		names = append(names, assignment.Name.Value)
+		restoreCDPath = restoreCDPath || assignment.Name.Value == "CDPATH"
+	}
+	resolved, ok := resolveNamerefNames(persistent.namerefs, names)
+	restore := func(state cwdState) cwdState {
+		if !ok {
+			state.variables = nil
+			state.namerefs = nil
+			state.gitEnvironmentUnknown = true
+			return state
+		}
+		variables := make(map[string]string, len(state.variables))
+		for name, value := range state.variables {
+			variables[name] = value
+		}
+		namerefs := make(map[string]string, len(state.namerefs))
+		for name, target := range state.namerefs {
+			namerefs[name] = target
+		}
+		for _, name := range resolved {
+			if value, exists := persistent.variables[name]; exists {
+				variables[name] = value
+			} else {
+				delete(variables, name)
+			}
+			if target, exists := persistent.namerefs[name]; exists {
+				namerefs[name] = target
+			} else {
+				delete(namerefs, name)
+			}
+		}
+		state.variables = variables
+		state.namerefs = namerefs
+		if restoreCDPath {
+			state.cdpath = persistent.cdpath
+			state.cdpathSet = persistent.cdpathSet
+			state.cdpathUnknown = persistent.cdpathUnknown
+		}
+		return state
+	}
+	if out.canSuccess {
+		out.success = restore(out.success)
+	}
+	if out.canFailure {
+		out.failure = restore(out.failure)
+	}
+	return out
+}
+
 func applyPersistentAssignments(state cwdState, call *syntax.CallExpr) cwdState {
 	state = applyCallAssignments(state, call)
 	variables := make(map[string]string, len(state.variables)+len(call.Assigns))
@@ -1695,13 +1748,21 @@ func invalidateCallVariables(state cwdState, argv []string) cwdState {
 		return invalidateNamedVariables(state, names, uncontrolled)
 	case "readarray", "mapfile":
 		names, uncontrolled := mapfileVariableNames(argv[1:])
-		return invalidateNamedVariables(state, names, uncontrolled)
+		state = invalidateNamedVariables(state, names, uncontrolled)
+		if uncontrolled {
+			state = unknownCwd(state)
+			state.fsUncertain = true
+			state.cdpath = ""
+			state.cdpathSet = false
+			state.cdpathUnknown = true
+		}
+		return state
 	case "declare", "typeset", "local", "export", "readonly", "unset":
 		names, uncontrolled := declarationArgumentNames(argv[1:])
 		return invalidateNamedVariables(state, names, uncontrolled)
 	case "getopts":
 		if len(argv) > 2 {
-			return invalidateNamedVariables(state, []string{argv[2]}, !validShellVariableName(argv[2]))
+			return invalidateNamedVariables(state, []string{argv[2], "OPTARG", "OPTIND"}, !validShellVariableName(argv[2]))
 		}
 	case "let":
 		state.variables = nil
@@ -1863,6 +1924,9 @@ func mapfileVariableNames(argv []string) ([]string, bool) {
 					}
 					index++
 				}
+				if option == 'C' {
+					return nil, true
+				}
 				break
 			}
 			if option != 't' {
@@ -1967,31 +2031,6 @@ func resolveNameref(namerefs map[string]string, name string) (string, bool) {
 		}
 		name = target
 	}
-}
-
-func callAssignsCDPath(call *syntax.CallExpr) bool {
-	for _, assignment := range call.Assigns {
-		if assignment.Name != nil && assignment.Name.Value == "CDPATH" {
-			return true
-		}
-	}
-	return false
-}
-
-func unknownCDPath(out cwdOutcome) cwdOutcome {
-	mark := func(state cwdState) cwdState {
-		state.cdpath = ""
-		state.cdpathSet = false
-		state.cdpathUnknown = true
-		return state
-	}
-	if out.canSuccess {
-		out.success = mark(out.success)
-	}
-	if out.canFailure {
-		out.failure = mark(out.failure)
-	}
-	return out
 }
 
 type cdDirectoryStatus uint8

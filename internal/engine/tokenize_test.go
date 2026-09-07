@@ -231,6 +231,85 @@ func TestNormalizeInvalidatesVariablesMutatedByShellState(t *testing.T) {
 	}
 }
 
+func TestNormalizeRestoresCommandPrefixAssignmentsAfterFunctionCalls(t *testing.T) {
+	command := `FIRST=/etc; SECOND=/var; inspect(){ rm -rf "$FIRST/body" "$SECOND/body"; }; FIRST=/repo/first SECOND=/repo/second inspect; rm -rf "$FIRST/caller" "$SECOND/caller"`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasArgv(got, []string{"rm", "-rf", "/repo/first/body", "/repo/second/body"}) {
+		t.Fatalf("function body did not see command-prefix assignments: %+v", got)
+	}
+	if !hasArgv(got, []string{"rm", "-rf", "/etc/caller", "/var/caller"}) {
+		t.Fatalf("caller did not regain both prior assignments: %+v", got)
+	}
+}
+
+func TestNormalizeInvalidatesAllShellFactsForMapfileCallbacks(t *testing.T) {
+	command := `mutate(){ TARGET=/etc; cd /etc; }; TARGET=/repo/safe; KEEP=/repo/safe; mapfile -C mutate -c 1 ROWS <<<x; rm -rf "$TARGET/y" "$KEEP/y" relative`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got[len(got)-1]
+	if !last.wordUnresolved(2) || !last.wordUnresolved(3) || !last.cwdUnknown || last.Cwd != "" {
+		t.Fatalf("mapfile callback retained current-shell facts: %+v", last)
+	}
+	initial := cwdState{
+		cwd:       "/repo",
+		cdpath:    "/repo/safe",
+		cdpathSet: true,
+		variables: map[string]string{"TARGET": "/repo/safe"},
+	}
+	result, err := normalizeWithState(`mapfile -C mutate -c 1 ROWS <<<x`, initial, &normalizeContext{}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := result.outcome.merged()
+	if !state.unknown || !state.fsUncertain || !state.cdpathUnknown || state.cdpathSet || len(state.variables) != 0 || !state.gitEnvironmentUnknown {
+		t.Fatalf("mapfile callback outcome retained shell facts: %+v", state)
+	}
+
+	for _, command := range []string{
+		`TARGET=/repo/safe; mapfile ROWS <<<x; rm -rf "$TARGET/y"`,
+		`TARGET=/repo/safe; readarray -t ROWS <<<x; rm -rf "$TARGET/y"`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatalf("Normalize(%q): %v", command, err)
+		}
+		last := got[len(got)-1]
+		if last.wordUnresolved(2) || last.cwdUnknown || last.Cwd != "/repo" || last.Argv[2] != "/repo/safe/y" {
+			t.Errorf("non-callback mapfile/readarray lost unrelated facts: %+v", last)
+		}
+	}
+}
+
+func TestNormalizeInvalidatesGetoptsOutputsOnly(t *testing.T) {
+	for _, command := range []string{
+		`opt=/repo/safe; getopts a: opt -a /etc; rm -rf "$opt/y"`,
+		`OPTARG=/repo/safe; getopts a: opt -a /etc; rm -rf "$OPTARG/y"`,
+		`OPTIND=/repo/safe; getopts a: opt -a /etc; rm -rf "$OPTIND/y"`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatalf("Normalize(%q): %v", command, err)
+		}
+		if last := got[len(got)-1]; !last.wordUnresolved(2) {
+			t.Errorf("Normalize(%q) retained stale getopts output: %+v", command, last)
+		}
+	}
+
+	got, err := Normalize(`TARGET=/repo/safe; getopts a: opt -a /etc; rm -rf "$TARGET/y"`, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got[len(got)-1]
+	if last.wordUnresolved(2) || last.Argv[2] != "/repo/safe/y" {
+		t.Fatalf("getopts invalidated an unrelated variable: %+v", last)
+	}
+}
+
 func TestNormalizeScopesGitEnvironmentUncertaintyToMutatedVariables(t *testing.T) {
 	for _, command := range []string{
 		`printf -v TARGET /etc; git config user.email x@y.com`,
