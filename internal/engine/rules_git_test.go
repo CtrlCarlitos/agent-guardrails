@@ -2,6 +2,8 @@ package engine
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -10,7 +12,21 @@ import (
 
 func evalGitSafety(t *testing.T, cmd string) *policy.Verdict {
 	t.Helper()
-	return checkBash(ToolCall{Tool: "Bash", Command: cmd, CWD: "/repo", RepoRoot: "/repo"}, bashPol())
+	repo := t.TempDir()
+	initGitRepository(t, repo, false)
+	return checkBash(ToolCall{Tool: "Bash", Command: cmd, CWD: repo, RepoRoot: repo}, bashPol())
+}
+
+func initGitRepository(t *testing.T, path string, bare bool) {
+	t.Helper()
+	args := []string{"init", "--quiet"}
+	if bare {
+		args = append(args, "--bare")
+	}
+	args = append(args, path)
+	if output, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, output)
+	}
 }
 
 func TestGitResetHardDenied(t *testing.T) {
@@ -545,6 +561,12 @@ func TestGitConfigMalformedAndUnknownOptionsAsk(t *testing.T) {
 func TestGitConfigLocalWritesRequireTheToolCallRepository(t *testing.T) {
 	repo := t.TempDir()
 	other := t.TempDir()
+	initGitRepository(t, repo, false)
+	initGitRepository(t, other, false)
+	subdirectory := filepath.Join(repo, "sub")
+	if err := os.Mkdir(subdirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	approved := `config user.email x@y.com`
 	for _, command := range []string{
 		`git ` + approved,
@@ -559,16 +581,39 @@ func TestGitConfigLocalWritesRequireTheToolCallRepository(t *testing.T) {
 			t.Errorf("%q -> %+v, want allow in ToolCall repository", command, v)
 		}
 	}
+	tc := ToolCall{Tool: "Bash", Command: `git ` + approved, CWD: subdirectory, RepoRoot: repo}
+	if v := checkBash(tc, bashPol()); v != nil {
+		t.Errorf("git config from repository subdirectory -> %+v, want allow", v)
+	}
+
+	foreignBare := filepath.Join(repo, "foreign.git")
+	initGitRepository(t, foreignBare, true)
 
 	for _, command := range []string{
 		fmt.Sprintf(`git -C %q %s`, other, approved),
 		fmt.Sprintf(`git --git-dir %q %s`, filepath.Join(other, ".git"), approved),
+		fmt.Sprintf(`GIT_DIR=%q git %s`, filepath.Join(other, ".git"), approved),
+		fmt.Sprintf(`env GIT_DIR=%q git %s`, filepath.Join(other, ".git"), approved),
+		fmt.Sprintf(`git --git-dir=%q %s`, foreignBare, approved),
 	} {
 		tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
 		v := checkBash(tc, bashPol())
 		if v == nil || v.Decision != policy.Ask || v.RuleID != "P2.git-config-write" {
 			t.Errorf("%q -> %+v, want ask/P2.git-config-write for another repository", command, v)
 		}
+	}
+
+	tc = ToolCall{Tool: "Bash", Command: `GIT_DIR="$TARGET" git ` + approved, CWD: repo, RepoRoot: repo}
+	v := checkBash(tc, bashPol())
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+		t.Errorf("dynamic GIT_DIR -> %+v, want ask/P3.unresolved", v)
+	}
+
+	command := fmt.Sprintf(`GIT_DIR=%q; printf -v GIT_DIR %q; git %s`, filepath.Join(repo, ".git"), filepath.Join(other, ".git"), approved)
+	tc = ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+	v = checkBash(tc, bashPol())
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+		t.Errorf("mutated GIT_DIR -> %+v, want ask/P3.unresolved", v)
 	}
 }
 

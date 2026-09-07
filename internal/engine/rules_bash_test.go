@@ -443,6 +443,13 @@ func TestStandardOutputDeviceExemptionIsRedirectOnlyAndExact(t *testing.T) {
 	}
 }
 
+func TestLiteralRedirectsRemainConcreteThroughReplacement(t *testing.T) {
+	command := `watch printf "$PATTERN" > '$OUT'`
+	if v := evalBash(t, command); v != nil {
+		t.Errorf("%q -> %+v, want allow for literal in-repository redirect", command, v)
+	}
+}
+
 func TestRedirectOnlyStatementDoesNotMaskSiblingDeny(t *testing.T) {
 	for _, c := range []string{`rm -rf /; > /etc/passwd`, `> /etc/passwd; rm -rf /`} {
 		v := evalBash(t, c)
@@ -1552,6 +1559,21 @@ func TestLocallyResolvedPathsReachConcretePolicyRules(t *testing.T) {
 		}
 		if v == nil || v.Decision != test.decision || v.RuleID != test.ruleID {
 			t.Errorf("%q -> %+v, want %s/%s", test.command, v, test.decision, test.ruleID)
+		}
+	}
+}
+
+func TestShellStateVariableMutationsAskBeforePolicyUse(t *testing.T) {
+	for _, command := range []string{
+		`TARGET=/repo/safe; printf -v TARGET /etc; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; read TARGET < /repo/input; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; source /repo/script; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; declare TARGET=/etc; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; for TARGET in /etc; do :; done; rm -rf "$TARGET/guardrail-test"`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want ask/P3.unresolved", command, v)
 		}
 	}
 }

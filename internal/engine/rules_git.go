@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -20,7 +22,7 @@ func checkGitSafety(s Simple, tc ToolCall) *policy.Verdict {
 				Reason: "git reset --hard/--keep discards the working tree and index irrecoverably"}
 		}
 	case "config":
-		verdict := checkGitConfig(parseGitConfig(s.Argv, tc))
+		verdict := checkGitConfig(parseGitConfig(s, tc))
 		if verdict != nil && verdict.Decision == policy.Deny {
 			return verdict
 		}
@@ -145,8 +147,9 @@ type parsedGitConfig struct {
 	uncertain bool
 }
 
-func parseGitConfig(argv []string, tc ToolCall) parsedGitConfig {
-	parsed := parsedGitConfig{operation: "read", scope: "local", localRepo: gitConfigTargetsToolCallRepo(argv, tc)}
+func parseGitConfig(s Simple, tc ToolCall) parsedGitConfig {
+	argv := s.Argv
+	parsed := parsedGitConfig{operation: "read", scope: "local", localRepo: gitConfigTargetsToolCallRepo(s, tc)}
 	subcommand := gitSubcommandIndex(argv)
 	if subcommand < 0 || argv[subcommand] != "config" {
 		parsed.uncertain = true
@@ -366,39 +369,78 @@ func approvedGitConfigSubject(subject, operation string) bool {
 	return strings.HasPrefix(subject, "user.") || strings.HasPrefix(subject, "advice.") || strings.HasPrefix(subject, "color.")
 }
 
-func gitConfigTargetsToolCallRepo(argv []string, tc ToolCall) bool {
+func gitConfigTargetsToolCallRepo(s Simple, tc ToolCall) bool {
+	argv := s.Argv
 	subcommand := gitSubcommandIndex(argv)
-	if subcommand < 0 || tc.CWD == "" || tc.RepoRoot == "" {
+	if subcommand < 0 || s.cwdUnknown || s.gitEnvironmentUnknown || s.Cwd == "" || tc.RepoRoot == "" {
 		return false
 	}
-	cwd := tc.CWD
-	gitDir := ""
-	for i := 1; i < subcommand; i++ {
-		arg := argv[i]
-		switch {
-		case arg == "-C":
-			if i+1 >= subcommand {
-				return false
-			}
-			i++
-			cwd = resolvePath(argv[i], cwd)
-		case strings.HasPrefix(arg, "-C") && len(arg) > 2:
-			cwd = resolvePath(arg[2:], cwd)
-		case arg == "--git-dir":
-			if i+1 >= subcommand {
-				return false
-			}
-			i++
-			gitDir = resolvePath(argv[i], cwd)
-		case strings.HasPrefix(arg, "--git-dir="):
-			gitDir = resolvePath(strings.TrimPrefix(arg, "--git-dir="), cwd)
+	target, ok := gitCommonDirectory(argv[0], normalizeGitIdentityArgs(argv[1:subcommand]), s.Cwd, s.gitEnvironment, false)
+	if !ok {
+		return false
+	}
+	trusted, ok := gitCommonDirectory(argv[0], []string{"-C", tc.RepoRoot}, s.Cwd, nil, true)
+	if !ok {
+		return false
+	}
+	return sameGitConfigPath(target, trusted)
+}
+
+func gitCommonDirectory(binary string, globalArgs []string, cwd string, variables map[string]string, cleanEnvironment bool) (string, bool) {
+	args := append(append([]string{}, globalArgs...), "rev-parse", "--path-format=absolute", "--git-common-dir")
+	command := exec.Command(binary, args...)
+	command.Dir = cwd
+	environment := os.Environ()
+	if cleanEnvironment {
+		environment = withoutGitRepositoryEnvironment(environment)
+	}
+	for name, value := range variables {
+		environment = withoutEnvironmentVariable(environment, name)
+		environment = append(environment, name+"="+value)
+	}
+	command.Env = environment
+	output, err := command.Output()
+	if err != nil {
+		return "", false
+	}
+	path := strings.TrimSpace(string(output))
+	return path, path != ""
+}
+
+func normalizeGitIdentityArgs(args []string) []string {
+	normalized := make([]string, 0, len(args)+1)
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-C") && len(arg) > 2 {
+			normalized = append(normalized, "-C", arg[2:])
+			continue
+		}
+		normalized = append(normalized, arg)
+	}
+	return normalized
+}
+
+func withoutGitRepositoryEnvironment(environment []string) []string {
+	cleaned := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		name, _, _ := strings.Cut(entry, "=")
+		switch name {
+		case "GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM":
+			continue
+		}
+		cleaned = append(cleaned, entry)
+	}
+	return cleaned
+}
+
+func withoutEnvironmentVariable(environment []string, excluded string) []string {
+	cleaned := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		name, _, _ := strings.Cut(entry, "=")
+		if name != excluded {
+			cleaned = append(cleaned, entry)
 		}
 	}
-	target := cwd
-	if gitDir != "" {
-		target = filepath.Dir(gitDir)
-	}
-	return sameGitConfigPath(target, tc.RepoRoot)
+	return cleaned
 }
 
 func sameGitConfigPath(left, right string) bool {

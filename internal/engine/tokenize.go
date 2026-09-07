@@ -13,21 +13,23 @@ import (
 )
 
 type Simple struct {
-	Argv          []string
-	Redirects     []string
-	ReadRedirects []string
-	Cwd           string
-	Unresolved    bool
-	literalArgs   map[int]bool
-	literalOut    map[int]bool
-	literalIn     map[int]bool
-	resolvedArgs  map[int]bool
-	resolvedOut   map[int]bool
-	resolvedIn    map[int]bool
-	pipelines     []pipelinePosition
-	cwdUnknown    bool
-	origin        *syntax.Stmt
-	shellState    cwdState
+	Argv                  []string
+	Redirects             []string
+	ReadRedirects         []string
+	Cwd                   string
+	Unresolved            bool
+	literalArgs           map[int]bool
+	literalOut            map[int]bool
+	literalIn             map[int]bool
+	resolvedArgs          map[int]bool
+	resolvedOut           map[int]bool
+	resolvedIn            map[int]bool
+	gitEnvironment        map[string]string
+	gitEnvironmentUnknown bool
+	pipelines             []pipelinePosition
+	cwdUnknown            bool
+	origin                *syntax.Stmt
+	shellState            cwdState
 }
 
 type pipelinePosition struct {
@@ -894,13 +896,14 @@ func flattenPipeline(stmt *syntax.Stmt) []*syntax.Stmt {
 }
 
 type cwdState struct {
-	cwd           string
-	unknown       bool
-	fsUncertain   bool
-	cdpath        string
-	cdpathSet     bool
-	cdpathUnknown bool
-	variables     map[string]string
+	cwd                   string
+	unknown               bool
+	fsUncertain           bool
+	cdpath                string
+	cdpathSet             bool
+	cdpathUnknown         bool
+	variables             map[string]string
+	gitEnvironmentUnknown bool
 }
 
 type cwdOutcome struct {
@@ -1128,6 +1131,7 @@ func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 		case iterationNone:
 			return successOutcome(state)
 		}
+		state = invalidateLoopVariables(state, command.Loop)
 		uncertainBody := forClauseIterations(command) == iterationPossible || forClauseMayRepeat(command)
 		body := w.withUncertainDefinitions(uncertainBody, func() cwdOutcome { return w.list(command.Do, state) })
 		post := body.merged()
@@ -1142,6 +1146,10 @@ func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 		return w.caseClause(command, state)
 	case *syntax.TimeClause:
 		return w.stmt(command.Stmt, state)
+	case *syntax.DeclClause, *syntax.LetClause, *syntax.ArithmCmd:
+		state.variables = nil
+		state.gitEnvironmentUnknown = true
+		return bothOutcome(state)
 	case *syntax.FuncDecl:
 		w.isolated().stmt(command.Body, state)
 		return bothOutcome(state)
@@ -1427,11 +1435,15 @@ func (w *cwdWalker) call(stmt *syntax.Stmt, call *syntax.CallExpr, state cwdStat
 	if simple.Unresolved && len(w.functions) > 0 && !bypassFunction {
 		return bothOutcome(unknownCwd(state))
 	}
+	state = invalidateCallVariables(state, argv)
+	local = invalidateCallVariables(local, argv)
 	switch argv[0] {
 	case "cd":
 		return restoreCDPath(cdOutcome(local, simple, argv), state)
 	case "pushd", "popd":
 		return bothOutcome(unknownCwd(state))
+	case ".", "source":
+		return bothOutcome(unknownCwd(local))
 	case "return", "break", "continue":
 		return bothOutcome(unknownCwd(state))
 	}
@@ -1557,8 +1569,36 @@ func (w *cwdWalker) functionCall(stmt *syntax.Stmt, simple Simple, name string, 
 }
 
 func applyCallAssignments(state cwdState, call *syntax.CallExpr) cwdState {
+	variables := make(map[string]string, len(state.variables)+len(call.Assigns))
+	for name, value := range state.variables {
+		variables[name] = value
+	}
 	for _, assignment := range call.Assigns {
-		if assignment.Name == nil || assignment.Name.Value != "CDPATH" {
+		if assignment.Name == nil {
+			continue
+		}
+		name := assignment.Name.Value
+		if assignment.Append || assignment.Index != nil || assignment.Array != nil {
+			delete(variables, name)
+			if gitRepositoryEnvironmentVariable(name) {
+				state.gitEnvironmentUnknown = true
+			}
+		} else {
+			value := ""
+			ok := assignment.Value == nil
+			if !ok {
+				value, ok = staticWord(assignment.Value, false)
+			}
+			if ok {
+				variables[name] = value
+			} else {
+				delete(variables, name)
+				if gitRepositoryEnvironmentVariable(name) {
+					state.gitEnvironmentUnknown = true
+				}
+			}
+		}
+		if name != "CDPATH" {
 			continue
 		}
 		if assignment.Append || assignment.Index != nil || assignment.Array != nil {
@@ -1576,6 +1616,7 @@ func applyCallAssignments(state cwdState, call *syntax.CallExpr) cwdState {
 		state.cdpathSet = true
 		state.cdpathUnknown = false
 	}
+	state.variables = variables
 	return state
 }
 
@@ -1604,6 +1645,59 @@ func applyPersistentAssignments(state cwdState, call *syntax.CallExpr) cwdState 
 			continue
 		}
 		variables[name] = value
+	}
+	state.variables = variables
+	return state
+}
+
+func invalidateCallVariables(state cwdState, argv []string) cwdState {
+	if len(argv) == 0 {
+		return state
+	}
+	switch argv[0] {
+	case "cd", "pushd", "popd":
+		return withoutVariables(state, "PWD", "OLDPWD")
+	case ".", "source", "read", "readarray", "mapfile", "declare", "typeset", "local", "export", "readonly", "unset", "getopts", "let":
+		state.variables = nil
+		state.gitEnvironmentUnknown = true
+	case "printf":
+		for _, arg := range argv[1:] {
+			if arg == "-v" || strings.HasPrefix(arg, "-v") && len(arg) > 2 {
+				state.variables = nil
+				state.gitEnvironmentUnknown = true
+				break
+			}
+		}
+	}
+	return state
+}
+
+func invalidateLoopVariables(state cwdState, loop syntax.Loop) cwdState {
+	wordLoop, ok := loop.(*syntax.WordIter)
+	if !ok || wordLoop.Name == nil {
+		state.variables = nil
+		state.gitEnvironmentUnknown = true
+		return state
+	}
+	if gitRepositoryEnvironmentVariable(wordLoop.Name.Value) {
+		state.gitEnvironmentUnknown = true
+	}
+	return withoutVariables(state, wordLoop.Name.Value)
+}
+
+func withoutVariables(state cwdState, names ...string) cwdState {
+	if len(state.variables) == 0 {
+		return state
+	}
+	variables := make(map[string]string, len(state.variables))
+	for name, value := range state.variables {
+		variables[name] = value
+	}
+	for _, name := range names {
+		delete(variables, name)
+		if gitRepositoryEnvironmentVariable(name) {
+			state.gitEnvironmentUnknown = true
+		}
 	}
 	state.variables = variables
 	return state
@@ -1816,6 +1910,7 @@ func mergeCwd(states ...cwdState) cwdState {
 	merged.variables = commonVariables(states)
 	for _, state := range states[1:] {
 		merged.fsUncertain = merged.fsUncertain || state.fsUncertain
+		merged.gitEnvironmentUnknown = merged.gitEnvironmentUnknown || state.gitEnvironmentUnknown
 		if state.unknown || merged.unknown || state.cwd != merged.cwd {
 			merged.cwd = ""
 			merged.unknown = true
@@ -1923,6 +2018,15 @@ func normalizeWithState(command string, state cwdState, ctx *normalizeContext, f
 	for _, s := range base {
 		if recursiveState, ok := walker.recursive[s.origin]; ok {
 			s.shellState = recursiveState
+			s.gitEnvironment = gitRepositoryEnvironment(recursiveState.variables)
+			s.gitEnvironmentUnknown = recursiveState.gitEnvironmentUnknown
+			if s.gitEnvironmentUnknown && head(s.Argv) == "git" {
+				s.Unresolved = true
+			}
+		}
+		if gitEnvironmentAssignmentUnknown(s.origin) {
+			s.gitEnvironmentUnknown = true
+			s.Unresolved = true
 		}
 		if replacement, ok := walker.replacements[s.origin]; ok {
 			out = append(out, replacementWithOuterMetadata(s, replacement)...)
@@ -1955,7 +2059,11 @@ func replacementWithOuterMetadata(outer Simple, replacement []Simple) []Simple {
 			Redirects:     outer.Redirects,
 			ReadRedirects: outer.ReadRedirects,
 			Cwd:           outer.Cwd,
-			Unresolved:    outer.Unresolved,
+			Unresolved:    redirectsUnresolved(outer),
+			literalOut:    outer.literalOut,
+			literalIn:     outer.literalIn,
+			resolvedOut:   outer.resolvedOut,
+			resolvedIn:    outer.resolvedIn,
 			pipelines:     outer.pipelines,
 			cwdUnknown:    outer.cwdUnknown,
 		})
@@ -1972,22 +2080,106 @@ func replacementWithOuterMetadata(outer Simple, replacement []Simple) []Simple {
 
 func commandDerivedFrom(outer Simple, argv []string) Simple {
 	derived := Simple{
-		Argv:        argv,
-		Cwd:         outer.Cwd,
-		Unresolved:  outer.Unresolved,
-		literalOut:  outer.literalOut,
-		literalIn:   outer.literalIn,
-		resolvedOut: outer.resolvedOut,
-		resolvedIn:  outer.resolvedIn,
-		pipelines:   outer.pipelines,
-		cwdUnknown:  outer.cwdUnknown,
-		shellState:  outer.shellState,
+		Argv:                  argv,
+		Cwd:                   outer.Cwd,
+		Unresolved:            outer.Unresolved,
+		literalOut:            outer.literalOut,
+		literalIn:             outer.literalIn,
+		resolvedOut:           outer.resolvedOut,
+		resolvedIn:            outer.resolvedIn,
+		gitEnvironment:        outer.gitEnvironment,
+		gitEnvironmentUnknown: outer.gitEnvironmentUnknown,
+		pipelines:             outer.pipelines,
+		cwdUnknown:            outer.cwdUnknown,
+		shellState:            outer.shellState,
 	}
 	if offset := argvSubsliceOffset(outer.Argv, argv); offset >= 0 {
 		derived.literalArgs = remapProvenance(outer.literalArgs, offset, len(argv))
 		derived.resolvedArgs = remapProvenance(outer.resolvedArgs, offset, len(argv))
 	}
 	return derived
+}
+
+func gitRepositoryEnvironment(variables map[string]string) map[string]string {
+	var environment map[string]string
+	for _, name := range []string{"GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM"} {
+		if value, ok := variables[name]; ok {
+			if environment == nil {
+				environment = make(map[string]string)
+			}
+			environment[name] = value
+		}
+	}
+	return environment
+}
+
+func gitEnvironmentAssignmentUnknown(stmt *syntax.Stmt) bool {
+	if stmt == nil {
+		return false
+	}
+	call, ok := stmt.Cmd.(*syntax.CallExpr)
+	if !ok {
+		return false
+	}
+	for _, assignment := range call.Assigns {
+		if assignment.Name == nil || !gitRepositoryEnvironmentVariable(assignment.Name.Value) {
+			continue
+		}
+		if assignment.Append || assignment.Index != nil || assignment.Array != nil {
+			return true
+		}
+		if assignment.Value != nil {
+			if _, ok := staticWord(assignment.Value, false); !ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func gitRepositoryEnvironmentVariable(name string) bool {
+	switch name {
+	case "GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM":
+		return true
+	default:
+		return false
+	}
+}
+
+func applyEnvGitEnvironment(simple Simple, argv []string) Simple {
+	offset := argvSubsliceOffset(simple.Argv, argv)
+	if offset < 0 {
+		return simple
+	}
+	for index := 1; index < len(argv); index++ {
+		arg := argv[index]
+		switch {
+		case arg == "--":
+			return simple
+		case arg == "-u":
+			index++
+			continue
+		case strings.HasPrefix(arg, "-"):
+			continue
+		}
+		name, value, assignment := strings.Cut(arg, "=")
+		if !assignment {
+			return simple
+		}
+		if !gitRepositoryEnvironmentVariable(name) {
+			continue
+		}
+		if simple.wordUnresolved(offset + index) {
+			simple.gitEnvironmentUnknown = true
+			simple.Unresolved = true
+			continue
+		}
+		if simple.gitEnvironment == nil {
+			simple.gitEnvironment = make(map[string]string)
+		}
+		simple.gitEnvironment[name] = value
+	}
+	return simple
 }
 
 func argvSubsliceOffset(source, derived []string) int {
@@ -2035,6 +2227,7 @@ loop:
 		var err error
 		switch head(argv) {
 		case "env":
+			s = applyEnvGitEnvironment(s, argv)
 			rest, err = consumeEnv(argv[1:])
 		case "timeout":
 			rest, err = consumeTimeout(argv[1:])
@@ -2145,6 +2338,7 @@ func normalizeWatch(outer Simple, argv []string, unresolved bool, ctx *normalize
 		return nil, err
 	}
 	inner := result.simples
+	contextUnresolved := unresolved
 	unresolved = unresolved || outer.Unresolved
 	if unresolved {
 		for i := range inner {
@@ -2156,7 +2350,11 @@ func normalizeWatch(outer Simple, argv []string, unresolved bool, ctx *normalize
 			Redirects:     outer.Redirects,
 			ReadRedirects: outer.ReadRedirects,
 			Cwd:           outer.Cwd,
-			Unresolved:    unresolved,
+			Unresolved:    contextUnresolved || redirectsUnresolved(outer),
+			literalOut:    outer.literalOut,
+			literalIn:     outer.literalIn,
+			resolvedOut:   outer.resolvedOut,
+			resolvedIn:    outer.resolvedIn,
 			pipelines:     outer.pipelines,
 			cwdUnknown:    outer.cwdUnknown,
 		}
@@ -2166,6 +2364,20 @@ func normalizeWatch(outer Simple, argv []string, unresolved bool, ctx *normalize
 		return []Simple{{Cwd: outer.Cwd, Unresolved: true, pipelines: outer.pipelines, cwdUnknown: outer.cwdUnknown}}, nil
 	}
 	return inner, nil
+}
+
+func redirectsUnresolved(simple Simple) bool {
+	for index := range simple.Redirects {
+		if simple.outputRedirectUnresolved(index) {
+			return true
+		}
+	}
+	for index := range simple.ReadRedirects {
+		if simple.inputRedirectUnresolved(index) {
+			return true
+		}
+	}
+	return false
 }
 
 func literalText(tok string) (string, bool) {

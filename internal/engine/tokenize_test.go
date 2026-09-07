@@ -153,6 +153,31 @@ func TestNormalizePreservesPerWordProvenance(t *testing.T) {
 	}
 }
 
+func TestNormalizePreservesRedirectProvenanceThroughReplacement(t *testing.T) {
+	for _, command := range []string{
+		`f() { printf ok; }; f "$PATTERN" > '$OUT'`,
+		`watch printf "$PATTERN" > '$OUT'`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatalf("Normalize(%q): %v", command, err)
+		}
+		found := false
+		for _, simple := range got {
+			if len(simple.Redirects) == 0 {
+				continue
+			}
+			found = true
+			if simple.Redirects[0] != "$OUT" || simple.outputRedirectUnresolved(0) {
+				t.Errorf("Normalize(%q) redirect = %+v, want concrete literal $OUT", command, simple)
+			}
+		}
+		if !found {
+			t.Errorf("Normalize(%q) omitted redirect metadata: %+v", command, got)
+		}
+	}
+}
+
 func TestOperandRolesRetainAttachedOptionSourceArgument(t *testing.T) {
 	parsed := parseOperandRolesWithSources([]string{"grep", "--file=$FILE", "/repo/input"})
 	if len(parsed.operands) != 2 {
@@ -183,6 +208,25 @@ func TestNormalizeOnlyResolvesEligiblePriorAssignments(t *testing.T) {
 		}
 		if len(got) == 0 || !got[len(got)-1].Unresolved {
 			t.Errorf("Normalize(%q) = %+v, want unresolved final command", command, got)
+		}
+	}
+}
+
+func TestNormalizeInvalidatesVariablesMutatedByShellState(t *testing.T) {
+	for _, command := range []string{
+		`TARGET=/repo/safe; printf -v TARGET /etc; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; read TARGET < /repo/input; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; source /repo/script; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; declare TARGET=/etc; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; for TARGET in /etc; do :; done; rm -rf "$TARGET/guardrail-test"`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatalf("Normalize(%q): %v", command, err)
+		}
+		last := got[len(got)-1]
+		if !last.wordUnresolved(2) {
+			t.Errorf("Normalize(%q) last = %+v, want unresolved rm target", command, last)
 		}
 	}
 }
