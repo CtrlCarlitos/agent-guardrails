@@ -316,8 +316,19 @@ func TestOpencodeConfigBashPermissions(t *testing.T) {
 	if bash["*"] != "allow" {
 		t.Errorf(`bash["*"] = %q, want "allow"`, bash["*"])
 	}
-	if bash["rm -rf *"] != "deny" {
-		t.Errorf(`bash["rm -rf *"] = %q, want "deny"`, bash["rm -rf *"])
+	if bash["rm -rf /"] != "deny" {
+		t.Errorf(`bash["rm -rf /"] = %q, want "deny"`, bash["rm -rf /"])
+	}
+	if _, ok := bash["rm -rf *"]; ok {
+		t.Error(`bash["rm -rf *"] broadly preempts Engine temp authorization`)
+	}
+	raw, err := json.Marshal(frag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules := parseOpencodePermissionRules(t, raw, "bash")
+	if got := opencodeFindLast(rules, "rm -rf /tmp/work/item"); got != "allow" {
+		t.Errorf("temp descendant native decision = %q, want allow so the plugin can evaluate it", got)
 	}
 	if bash["chmod -R *"] != "ask" {
 		t.Errorf(`bash["chmod -R *"] = %q, want "ask"`, bash["chmod -R *"])
@@ -524,8 +535,8 @@ func TestMergeOpencodePreservesExistingProjectConfig(t *testing.T) {
 	if bash["git commit *"] != "ask" {
 		t.Errorf("existing project rule lost: %v", bash["git commit *"])
 	}
-	if bash["rm -rf *"] != "deny" {
-		t.Errorf("guardrail rule not added: %v", bash["rm -rf *"])
+	if bash["rm -rf /"] != "deny" {
+		t.Errorf("guardrail rule not added: %v", bash["rm -rf /"])
 	}
 	if _, ok := perm["external_directory"]; !ok {
 		t.Error("external_directory block lost")

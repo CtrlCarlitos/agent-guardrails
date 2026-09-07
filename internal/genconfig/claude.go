@@ -18,7 +18,10 @@ type Fragment = map[string]any
 // Engine binary is missing.
 func bashDenyGlobs() []string {
 	return []string{
-		"Bash(rm -rf *)", "Bash(rm -fr *)", "Bash(rm -r -f *)", "Bash(rm -f -r *)",
+		"Bash(rm -rf /)", "Bash(rm -rf ~)", "Bash(rm -rf .)", "Bash(rm -rf ..)",
+		"Bash(rm -fr /)", "Bash(rm -fr ~)", "Bash(rm -fr .)", "Bash(rm -fr ..)",
+		"Bash(rm -r -f /)", "Bash(rm -r -f ~)", "Bash(rm -r -f .)", "Bash(rm -r -f ..)",
+		"Bash(rm -f -r /)", "Bash(rm -f -r ~)", "Bash(rm -f -r .)", "Bash(rm -f -r ..)",
 		"Bash(dd *)",
 		"Bash(mkfs*)", "Bash(wipefs *)",
 		"Bash(shred *)", "Bash(srm *)",

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -84,7 +85,7 @@ func checkDestinationWrites(s Simple, tc ToolCall, pol *policy.Policy) *policy.V
 	if command == "mv" {
 		for _, source := range moveSourceTargets(s.Argv) {
 			candidate := pathCandidate{path: source, cwd: cwd, cwdUnknown: s.cwdUnknown}
-			authorized, lexical := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, true)
+			authorized, lexical := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, nil, true)
 			if authorized {
 				continue
 			}
@@ -102,7 +103,7 @@ func checkDestinationWrites(s Simple, tc ToolCall, pol *policy.Policy) *policy.V
 			return ask("P1.out-of-repo-write", "writes to a remote destination outside configured safe roots: "+target)
 		}
 		candidate := pathCandidate{path: target, cwd: cwd, cwdUnknown: s.cwdUnknown}
-		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, true); !authorized {
+		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, nil, true); !authorized {
 			return ask("P1.out-of-repo-write", "writes to a path outside the repo and configured safe roots: "+target)
 		}
 	}
@@ -112,9 +113,10 @@ func checkDestinationWrites(s Simple, tc ToolCall, pol *policy.Policy) *policy.V
 type authorizedRoot struct {
 	lexical  string
 	physical string
+	strict   bool
 }
 
-func authorizedPath(candidate pathCandidate, repoRoot string, safeRoots []string, allowTemp bool) (authorized, lexical bool) {
+func authorizedPath(candidate pathCandidate, repoRoot string, safeRoots, strictRoots []string, allowTemp bool) (authorized, lexical bool) {
 	if candidate.path == "~" || strings.HasPrefix(candidate.path, "~/") || candidate.cwdUnknown && !filepath.IsAbs(candidate.path) {
 		return false, false
 	}
@@ -127,7 +129,7 @@ func authorizedPath(candidate pathCandidate, repoRoot string, safeRoots []string
 		return false, false
 	}
 	var roots []authorizedRoot
-	addRoot := func(root string, rejectSymlink bool) {
+	addRoot := func(root string, rejectSymlink, strict bool) {
 		if root == "" {
 			return
 		}
@@ -142,24 +144,66 @@ func authorizedPath(candidate pathCandidate, repoRoot string, safeRoots []string
 		if !ok || rejectSymlink && filepath.Clean(physical) != filepath.Clean(root) {
 			return
 		}
-		roots = append(roots, authorizedRoot{lexical: root, physical: physical})
+		roots = append(roots, authorizedRoot{lexical: root, physical: physical, strict: strict})
 	}
-	addRoot(repoRoot, false)
+	addRoot(repoRoot, false, false)
 	for _, root := range safeRoots {
-		addRoot(root, true)
+		addRoot(root, true, false)
 	}
 	if allowTemp {
-		addRoot(os.TempDir(), false)
+		addRoot(os.TempDir(), false, false)
 	}
-	for _, root := range roots {
+	for _, root := range strictRoots {
+		addRoot(root, true, true)
+	}
+	withinRoot := func(root authorizedRoot) bool {
 		if withinSafe(target, root.lexical, nil) {
 			lexical = true
 			if withinSafe(physicalTarget, root.physical, nil) {
-				return true, true
+				return true
 			}
+		}
+		return false
+	}
+	for _, root := range roots {
+		if !root.strict && withinRoot(root) {
+			return true, true
+		}
+	}
+	for _, root := range roots {
+		if root.strict && (filepath.Clean(target) == filepath.Clean(root.lexical) || filepath.Clean(physicalTarget) == filepath.Clean(root.physical)) {
+			return false, lexical
+		}
+	}
+	for _, root := range roots {
+		if root.strict && withinRoot(root) {
+			return true, true
 		}
 	}
 	return false, lexical
+}
+
+func systemTempRoots() []string {
+	candidates := []string{os.TempDir()}
+	if runtime.GOOS != "windows" {
+		candidates = append(candidates, "/tmp", "/var/tmp")
+	}
+	seen := make(map[string]bool, len(candidates))
+	roots := make([]string, 0, len(candidates))
+	for _, root := range candidates {
+		root = filepath.Clean(root)
+		volumeRoot := filepath.VolumeName(root) + string(filepath.Separator)
+		if !filepath.IsAbs(root) || root == volumeRoot || seen[root] {
+			continue
+		}
+		info, err := os.Lstat(root)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		seen[root] = true
+		roots = append(roots, root)
+	}
+	return roots
 }
 
 func rsyncRemoteTarget(target string) bool {
@@ -285,7 +329,7 @@ func checkRmRf(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		if candidate.cwdUnknown && !filepath.IsAbs(raw) {
 			continue // P3 owns runtime-relative targets whose cwd is unknowable.
 		}
-		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, false); !authorized {
+		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, systemTempRoots(), false); !authorized {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.rm-rf",
 				Reason: "recursive/forced rm of a path outside the repo and configured safe roots: " + raw}
 		}
@@ -805,7 +849,7 @@ func checkAskTier(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 				continue
 			}
 		}
-		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, false); !authorized {
+		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, systemTempRoots(), false); !authorized {
 			return ask("P1.redirect", "output redirection onto a path outside the repo/safe roots: "+r)
 		}
 	}

@@ -12,7 +12,7 @@ import (
 func TestBashDenyGlobs(t *testing.T) {
 	got := bashDenyGlobs()
 	mustHave := []string{
-		"Bash(rm -rf *)", "Bash(dd *)", "Bash(mkfs*)", "Bash(shred *)",
+		"Bash(rm -rf /)", "Bash(dd *)", "Bash(mkfs*)", "Bash(shred *)",
 		"Bash(sudo *)", "Bash(git push --force*)", "Bash(git clean -f*)",
 		"Bash(docker compose down*)", "Bash(docker system prune*)",
 	}
@@ -135,7 +135,7 @@ func TestClaudeConfigShape(t *testing.T) {
 	frag := ClaudeConfig(secretPol(), "guardrail")
 	perms := frag["permissions"].(map[string]any)
 	deny := perms["deny"].([]string)
-	if !slices.Contains(deny, "Bash(rm -rf *)") || !slices.Contains(deny, "Read(**/.ssh/**)") {
+	if !slices.Contains(deny, "Bash(rm -rf /)") || !slices.Contains(deny, "Read(**/.ssh/**)") {
 		t.Errorf("deny incomplete: %v", deny)
 	}
 	if _, ok := frag["hooks"]; !ok {
@@ -149,10 +149,37 @@ func TestClaudeConfigShape(t *testing.T) {
 
 func TestBashDenyGlobsP2P6(t *testing.T) {
 	got := bashDenyGlobs()
-	for _, m := range []string{"Bash(git reset --hard*)", "Bash(git config *)", "Bash(pip install --index-url*)"} {
+	for _, m := range []string{
+		"Bash(rm -rf /)", "Bash(rm -rf ~)", "Bash(rm -rf .)", "Bash(rm -rf ..)",
+		"Bash(rm -fr /)", "Bash(rm -fr ~)", "Bash(rm -fr .)", "Bash(rm -fr ..)",
+		"Bash(rm -r -f /)", "Bash(rm -r -f ~)", "Bash(rm -r -f .)", "Bash(rm -r -f ..)",
+		"Bash(rm -f -r /)", "Bash(rm -f -r ~)", "Bash(rm -f -r .)", "Bash(rm -f -r ..)",
+		"Bash(git reset --hard*)", "Bash(git config *)", "Bash(pip install --index-url*)",
+	} {
 		if !slices.Contains(got, m) {
 			t.Errorf("missing %q", m)
 		}
+	}
+	for _, broad := range []string{"Bash(rm -rf *)", "Bash(rm -fr *)", "Bash(rm -r -f *)", "Bash(rm -f -r *)"} {
+		if slices.Contains(got, broad) {
+			t.Errorf("broad native deny %q prevents Engine authorization", broad)
+		}
+	}
+}
+
+func TestClaudeTempDeleteReachesExistingBashPreHook(t *testing.T) {
+	frag := ClaudeConfig(secretPol(), "guardrail")
+	perms := frag["permissions"].(map[string]any)
+	if got := claudeNativeDecision(perms, "Bash(rm -rf /)"); got != "deny" {
+		t.Fatalf("rm -rf / native decision = %q, want deny", got)
+	}
+	if got := claudeNativeDecision(perms, "Bash(rm -rf /tmp/work/item)"); got != "" {
+		t.Fatalf("temp descendant native decision = %q, want no preemptive permission", got)
+	}
+	hooks := frag["hooks"].(map[string]any)["PreToolUse"].([]any)
+	matcher := hooks[0].(map[string]any)["matcher"].(string)
+	if !strings.Contains(matcher, "Bash") {
+		t.Fatalf("PreToolUse matcher %q does not deliver Bash calls to the Engine", matcher)
 	}
 }
 

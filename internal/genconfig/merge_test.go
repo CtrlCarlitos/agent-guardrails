@@ -224,7 +224,8 @@ func TestMergeIntoOpencodePermissionCollision(t *testing.T) {
 	for key, want := range map[string]string{
 		"*":          "deny",
 		"chmod -R *": "deny",
-		"rm -rf *":   "deny",
+		"rm -rf *":   "allow",
+		"rm -rf /":   "deny",
 	} {
 		if got := bash[key]; got != want {
 			t.Errorf("permission.bash[%q] = %v, want %q", key, got, want)
@@ -321,7 +322,7 @@ func TestMergeIntoOpencodeTopLevelScalarPermission(t *testing.T) {
 
 func TestMergeIntoOpencodeCategoryScalarPermission(t *testing.T) {
 	denyPattern := map[string]string{
-		"bash": "rm -rf tmp",
+		"bash": "rm -rf /",
 		"read": "nested/.ssh/id_rsa",
 		"edit": "nested/.ssh/id_rsa",
 	}
@@ -562,7 +563,7 @@ func TestMergeIntoOpencodeUnknownScalarFloor(t *testing.T) {
 
 			bash := permission["bash"].(map[string]any)
 			edit := permission["edit"].(map[string]any)
-			if bash["rm -rf *"] != "deny" || bash["chmod -R *"] != "ask" || edit[".env.example"] != "allow" {
+			if bash["rm -rf /"] != "deny" || bash["chmod -R *"] != "ask" || edit[".env.example"] != "allow" {
 				t.Fatalf("generated floor incomplete: bash=%#v edit=%#v", bash, edit)
 			}
 

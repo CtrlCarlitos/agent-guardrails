@@ -271,7 +271,7 @@ func TestCdPathAndPhysicalModeReachEffectiveDirectory(t *testing.T) {
 	if err := os.Mkdir(repoSSL, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	outside := t.TempDir()
+	outside := "/etc"
 	link := filepath.Join(repo, "link")
 	if err := os.Symlink(outside, link); err != nil {
 		t.Skipf("create symlink: %v", err)
@@ -1007,6 +1007,123 @@ func TestPhysicalContainmentAppliesToRmRedirectAndSafeRootItself(t *testing.T) {
 	tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: ""}
 	if v := checkBash(tc, pol); v == nil || v.RuleID != "P1.out-of-repo-write" {
 		t.Fatalf("configured symlink root %q -> %+v, want P1.out-of-repo-write", command, v)
+	}
+}
+
+func TestSystemTempDescendantsAllowRmAndRedirectsButNotRoots(t *testing.T) {
+	tmpdir := t.TempDir()
+	t.Setenv("TMPDIR", tmpdir)
+	roots := []string{tmpdir}
+	for _, root := range []string{"/tmp", "/var/tmp"} {
+		if _, err := os.Stat(root); err == nil {
+			roots = append(roots, root)
+		}
+	}
+
+	for _, root := range roots {
+		for _, command := range []string{
+			fmt.Sprintf(`rm -rf %q`, filepath.Join(root, "work", "item")),
+			fmt.Sprintf(`echo x >%q`, filepath.Join(root, "work", "out")),
+		} {
+			if v := evalBash(t, command); v != nil {
+				t.Errorf("%q -> %+v, want allow", command, v)
+			}
+		}
+
+		v := evalBash(t, fmt.Sprintf(`rm -rf %q`, root))
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Errorf("rm temp root %q -> %+v, want deny/P1.rm-rf", root, v)
+		}
+		v = evalBash(t, fmt.Sprintf(`echo x >%q`, root))
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.redirect" {
+			t.Errorf("redirect temp root %q -> %+v, want ask/P1.redirect", root, v)
+		}
+	}
+
+	for _, command := range []string{
+		`rm -rf /tmp/..`,
+		`rm -rf /tmp/work/..`,
+		`echo x >/tmp/../etc/passwd`,
+	} {
+		v := evalBash(t, command)
+		if v == nil {
+			t.Errorf("%q -> allow, want protected", command)
+		}
+	}
+}
+
+func TestSystemTempAuthorizationUsesPhysicalStrictDescendants(t *testing.T) {
+	tmpdir := t.TempDir()
+	t.Setenv("TMPDIR", tmpdir)
+	escape := filepath.Join(tmpdir, "escape")
+	if err := os.Symlink("/etc", escape); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+
+	rm := fmt.Sprintf(`rm -rf %q`, filepath.Join(escape, "guardrail-missing"))
+	if v := evalBash(t, rm); v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+		t.Errorf("%q -> %+v, want deny/P1.rm-rf", rm, v)
+	}
+	redirect := fmt.Sprintf(`echo x >%q`, filepath.Join(escape, "guardrail-missing"))
+	if v := evalBash(t, redirect); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.redirect" {
+		t.Errorf("%q -> %+v, want ask/P1.redirect", redirect, v)
+	}
+}
+
+func TestSystemTempRootsDoNotAuthorizeAliasesEqualityOrInvalidRoots(t *testing.T) {
+	t.Run("overlapping roots", func(t *testing.T) {
+		tmpdir := filepath.Join(t.TempDir(), "nested")
+		if err := os.Mkdir(tmpdir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("TMPDIR", tmpdir)
+		if v := evalBash(t, fmt.Sprintf(`rm -rf %q`, tmpdir)); v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Fatalf("overlapping temp root equality -> %+v, want deny/P1.rm-rf", v)
+		}
+		if v := evalBash(t, fmt.Sprintf(`rm -rf %q`, filepath.Join(tmpdir, "child"))); v != nil {
+			t.Fatalf("overlapping temp descendant -> %+v, want allow", v)
+		}
+	})
+
+	t.Run("symlinked TMPDIR", func(t *testing.T) {
+		parent := t.TempDir()
+		alias := filepath.Join(parent, "tmp-alias")
+		if err := os.Symlink("/etc", alias); err != nil {
+			t.Skipf("create symlink: %v", err)
+		}
+		t.Setenv("TMPDIR", alias)
+		command := fmt.Sprintf(`rm -rf %q`, filepath.Join(alias, "guardrail-missing"))
+		if v := evalBash(t, command); v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Fatalf("symlinked TMPDIR descendant -> %+v, want deny/P1.rm-rf", v)
+		}
+	})
+
+	for _, test := range []struct {
+		name   string
+		tmpdir string
+		target string
+	}{
+		{"filesystem root", "/", "/etc/agent-guardrails-missing"},
+		{"prefix lookalike", "/tmpish", "/tmpish/agent-guardrails-missing"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("TMPDIR", test.tmpdir)
+			command := fmt.Sprintf(`rm -rf %q`, test.target)
+			if v := evalBash(t, command); v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+				t.Fatalf("invalid temp root %q -> %+v, want deny/P1.rm-rf", test.tmpdir, v)
+			}
+		})
+	}
+}
+
+func TestClaudeScratchpadRedirectUsesSystemTempAuthorizationOnEveryPlane(t *testing.T) {
+	path := filepath.Join("/tmp", "claude-1000", "session", "scratchpad", "out.txt")
+	command := fmt.Sprintf(`echo x >%q`, path)
+	for _, plane := range []string{"claude", "opencode", "antigravity"} {
+		tc := ToolCall{Plane: plane, Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkBash(tc, bashPol()); v != nil {
+			t.Errorf("%s %q -> %+v, want allow", plane, command, v)
+		}
 	}
 }
 
