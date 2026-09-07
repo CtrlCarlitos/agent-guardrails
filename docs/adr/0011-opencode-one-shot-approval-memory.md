@@ -7,31 +7,35 @@ reply to an Engine Verdict. ADR-0007 therefore rendered an Engine `ask` as a
 throw telling the model to ask the user and retry, but an identical retry still
 produces the same `ask` and can never execute.
 
-Decision: for OpenCode pre-execution Bash calls only, the Engine will use
-one-shot **approval memory** in the existing per-session state. The first `ask`
-stores a pending entry and still throws. The Adapter message is:
+Decision: for every OpenCode pre-execution tool call, not only Bash, the Engine
+will use one-shot **approval memory** in the existing per-session state. The
+first `ask` stores a pending entry and still throws. The Adapter message is:
 
 > guardrail needs confirmation — &lt;reason&gt;. Ask the user; if they approve,
-> re-run this exact command.
+> re-run this exact tool call.
 
-If the same OpenCode session submits the byte-for-byte same command from the
-byte-for-byte same CWD within ten minutes, normal policy evaluation runs again.
-A current `deny` remains a Deny and consumes any matching entry. A current
-`allow` remains an Allow and consumes any matching entry. A current `ask` with
-the same Rule ID atomically consumes the entry and becomes a single Allow,
-audited with `rule_id:"ask-approved-by-retry"`. A later replay asks again and
-creates a new pending entry.
+If the same OpenCode session submits the same normalized tool and canonical
+arguments from the byte-for-byte same CWD within ten minutes, normal policy
+evaluation runs again. A current `deny` remains a Deny and consumes any matching
+entry. A current `allow` remains an Allow and consumes any matching entry. A
+current `ask` with the same Rule ID atomically consumes the entry and becomes a
+single Allow, audited with `rule_id:"ask-approved-by-retry"` and the original Ask
+Rule ID in `origin_rule_id`. A later replay asks again and creates a new pending
+entry.
 
 The approval key is SHA-256 over a versioned, length-prefixed tuple of the
-native session ID, Adapter-supplied CWD, and exact command bytes. Length
-prefixing prevents tuple-boundary collisions; the state file stores neither the
-raw command nor the raw session ID. The entry stores the originating Ask Rule
-ID and expiry. A changed session, CWD, command spelling, command whitespace, or
-Rule ID cannot consume it. Missing identity fields, expired state, or session
-transaction failure preserve the Ask. When the current Verdict is Ask but the
-matching entry is expired or names a different Rule ID, the current Ask
-replaces that entry with a fresh ten-minute pending entry; stale approval can
-never become consumable after a later policy change.
+native session ID, Adapter-supplied CWD, normalized tool name, and canonical
+tool arguments. Canonicalization uses a deterministic encoding of the native
+argument payload; object key order is irrelevant, array order and scalar values
+are preserved, and Bash command bytes remain exact. Length prefixing prevents
+tuple-boundary collisions; the state file stores neither the raw arguments nor
+the raw session ID. The entry stores the originating Ask Rule ID and expiry. A
+changed session, CWD, tool, canonical arguments, or Rule ID cannot consume it.
+Missing identity fields, expired state, or session transaction failure preserve
+the Ask. When the current Verdict is Ask but the matching entry is expired or
+names a different Rule ID, the current Ask replaces that entry with a fresh
+ten-minute pending entry; stale approval can never become consumable after a
+later policy change.
 
 Approval memory extends M-7's session state and uses its single exclusive
 cross-process transaction for load, expiry, evaluation, consume-or-record, and
@@ -56,9 +60,10 @@ until M-7's transaction exists.
   confirmation guarantee.
 - Definitive shapes still Deny because policy is evaluated before approval
   memory and a Deny is never downgraded.
-- Approval is narrow, short-lived, and one-shot. It cannot authorize a changed
-  command, directory, session, or Ask rule.
+- Approval is narrow, short-lived, and one-shot. It cannot authorize changed
+  arguments, tool, directory, session, or Ask rule.
 - Audit records distinguish inferred approval with
-  `rule_id:"ask-approved-by-retry"`; no new audit field is required.
+  `rule_id:"ask-approved-by-retry"` and preserve the originating Ask rule in the
+  `origin_rule_id` field.
 - Planes whose Adapter boundary can render an Engine Ask natively continue to
   do so. This design is specific to OpenCode's extension boundary.
