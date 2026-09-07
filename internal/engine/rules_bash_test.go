@@ -1144,6 +1144,34 @@ func TestSystemTempRootsHandleOverlapAliasesAndInvalidRoots(t *testing.T) {
 		}
 	})
 
+	t.Run("symlinked TMPDIR to filesystem root", func(t *testing.T) {
+		physical, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		volumeRoot := filepath.VolumeName(physical) + string(filepath.Separator)
+		alias := filepath.Join(t.TempDir(), "tmp-alias")
+		if err := os.Symlink(volumeRoot, alias); err != nil {
+			t.Skipf("create filesystem-root symlink: %v", err)
+		}
+		t.Setenv("TMPDIR", alias)
+		roots := systemTempRoots()
+		found := false
+		for _, root := range roots {
+			found = found || root == alias
+		}
+		if !found {
+			t.Fatalf("systemTempRoots() = %q, want filesystem-root alias %q registered", roots, alias)
+		}
+		relative, err := filepath.Rel(volumeRoot, physical)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if authorized, _ := authorizedPath(pathCandidate{path: filepath.Join(alias, relative), cwd: volumeRoot}, "", nil, []string{alias}, false); authorized {
+			t.Fatal("filesystem-root TMPDIR alias authorized a physical root descendant")
+		}
+	})
+
 	for _, test := range []struct {
 		name   string
 		tmpdir string
