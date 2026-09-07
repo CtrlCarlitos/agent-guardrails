@@ -265,6 +265,32 @@ func TestNormalizeScopesGitEnvironmentUncertaintyToMutatedVariables(t *testing.T
 	}
 }
 
+func TestNormalizeInvalidatesImplicitAndNamerefMutationTargets(t *testing.T) {
+	for _, command := range []string{
+		`REPLY=/repo/safe; read < /repo/input; rm -rf "$REPLY/guardrail-test"`,
+		`REPLY=/repo/safe; read -rp prompt < /repo/input; rm -rf "$REPLY/guardrail-test"`,
+		`MAPFILE=/repo/safe; mapfile < /repo/input; rm -rf "$MAPFILE/guardrail-test"`,
+		`MAPFILE=/repo/safe; mapfile -C callback < /repo/input; rm -rf "$MAPFILE/guardrail-test"`,
+		`MAPFILE=/repo/safe; readarray < /repo/input; rm -rf "$MAPFILE/guardrail-test"`,
+		`TARGET=/repo/safe; read -a TARGET < /repo/input; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; mapfile -t TARGET < /repo/input; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; readarray TARGET < /repo/input; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; declare -n REF=TARGET; printf -v REF /etc; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; typeset -n REF=TARGET; read REF < /repo/input; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; declare -gn REF=TARGET; read REF < /repo/input; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; declare -n REF=TARGET; REF=/etc; rm -rf "$TARGET/guardrail-test"`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatalf("Normalize(%q): %v", command, err)
+		}
+		last := got[len(got)-1]
+		if !last.wordUnresolved(2) {
+			t.Errorf("Normalize(%q) last = %+v, want unresolved mutation target", command, last)
+		}
+	}
+}
+
 func TestSplitSimplesRedirect(t *testing.T) {
 	got, err := splitSimples(`echo hi > out.txt`)
 	if err != nil {

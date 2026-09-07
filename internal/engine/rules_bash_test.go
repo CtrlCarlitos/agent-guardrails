@@ -1578,6 +1578,28 @@ func TestShellStateVariableMutationsAskBeforePolicyUse(t *testing.T) {
 	}
 }
 
+func TestImplicitAndNamerefVariableMutationsAskBeforePolicyUse(t *testing.T) {
+	for _, command := range []string{
+		`REPLY=/repo/safe; read < /repo/input; rm -rf "$REPLY/guardrail-test"`,
+		`REPLY=/repo/safe; read -rp prompt < /repo/input; rm -rf "$REPLY/guardrail-test"`,
+		`MAPFILE=/repo/safe; mapfile < /repo/input; rm -rf "$MAPFILE/guardrail-test"`,
+		`MAPFILE=/repo/safe; mapfile -C callback < /repo/input; rm -rf "$MAPFILE/guardrail-test"`,
+		`MAPFILE=/repo/safe; readarray < /repo/input; rm -rf "$MAPFILE/guardrail-test"`,
+		`TARGET=/repo/safe; read -a TARGET < /repo/input; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; mapfile -t TARGET < /repo/input; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; readarray TARGET < /repo/input; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; declare -n REF=TARGET; printf -v REF /etc; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; typeset -n REF=TARGET; read REF < /repo/input; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; declare -gn REF=TARGET; read REF < /repo/input; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; declare -n REF=TARGET; REF=/etc; rm -rf "$TARGET/guardrail-test"`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want ask/P3.unresolved", command, v)
+		}
+	}
+}
+
 func TestLocallyResolvedSecretAndSelfConfigPathsReachPathPolicy(t *testing.T) {
 	pol := bashPol()
 	pol.Slots.SecretDirs = []string{"**/.ssh/**"}

@@ -903,6 +903,7 @@ type cwdState struct {
 	cdpathSet             bool
 	cdpathUnknown         bool
 	variables             map[string]string
+	namerefs              map[string]string
 	gitEnvironmentUnknown bool
 }
 
@@ -1151,6 +1152,7 @@ func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 		return bothOutcome(state)
 	case *syntax.LetClause, *syntax.ArithmCmd:
 		state.variables = nil
+		state.namerefs = nil
 		state.gitEnvironmentUnknown = true
 		return bothOutcome(state)
 	case *syntax.FuncDecl:
@@ -1581,6 +1583,18 @@ func applyCallAssignments(state cwdState, call *syntax.CallExpr) cwdState {
 			continue
 		}
 		name := assignment.Name.Value
+		if target, ok := resolveNameref(state.namerefs, name); !ok {
+			state.variables = nil
+			state.namerefs = nil
+			state.gitEnvironmentUnknown = true
+			return state
+		} else if target != name {
+			delete(variables, target)
+			if gitRepositoryEnvironmentVariable(target) {
+				state.gitEnvironmentUnknown = true
+			}
+			continue
+		}
 		if assignment.Append || assignment.Index != nil || assignment.Array != nil {
 			delete(variables, name)
 			if gitRepositoryEnvironmentVariable(name) {
@@ -1634,6 +1648,18 @@ func applyPersistentAssignments(state cwdState, call *syntax.CallExpr) cwdState 
 			continue
 		}
 		name := assignment.Name.Value
+		if target, ok := resolveNameref(state.namerefs, name); !ok {
+			state.variables = nil
+			state.namerefs = nil
+			state.gitEnvironmentUnknown = true
+			return state
+		} else if target != name {
+			delete(variables, target)
+			if gitRepositoryEnvironmentVariable(target) {
+				state.gitEnvironmentUnknown = true
+			}
+			continue
+		}
 		if assignment.Append || assignment.Index != nil || assignment.Array != nil {
 			delete(variables, name)
 			continue
@@ -1662,12 +1688,13 @@ func invalidateCallVariables(state cwdState, argv []string) cwdState {
 		return withoutVariables(state, "PWD", "OLDPWD")
 	case ".", "source":
 		state.variables = nil
+		state.namerefs = nil
 		state.gitEnvironmentUnknown = true
 	case "read":
 		names, uncontrolled := readVariableNames(argv[1:])
 		return invalidateNamedVariables(state, names, uncontrolled)
 	case "readarray", "mapfile":
-		names, uncontrolled := lastVariableName(argv[1:])
+		names, uncontrolled := mapfileVariableNames(argv[1:])
 		return invalidateNamedVariables(state, names, uncontrolled)
 	case "declare", "typeset", "local", "export", "readonly", "unset":
 		names, uncontrolled := declarationArgumentNames(argv[1:])
@@ -1678,6 +1705,7 @@ func invalidateCallVariables(state cwdState, argv []string) cwdState {
 		}
 	case "let":
 		state.variables = nil
+		state.namerefs = nil
 		state.gitEnvironmentUnknown = true
 	case "printf":
 		name, found := printfVariableName(argv[1:])
@@ -1701,12 +1729,51 @@ func invalidateDeclarationVariables(state cwdState, declaration *syntax.DeclClau
 			uncontrolled = true
 		}
 	}
-	return invalidateNamedVariables(state, names, uncontrolled)
+	state = invalidateNamedVariables(state, names, uncontrolled)
+	if uncontrolled || !declarationCreatesNameref(declaration) {
+		return state
+	}
+	namerefs := make(map[string]string, len(state.namerefs)+len(names))
+	for name, target := range state.namerefs {
+		namerefs[name] = target
+	}
+	for _, assignment := range declaration.Args {
+		if assignment.Name == nil || assignment.Value == nil {
+			continue
+		}
+		target, ok := staticWord(assignment.Value, false)
+		if !ok || !validShellVariableName(target) {
+			state.variables = nil
+			state.namerefs = nil
+			state.gitEnvironmentUnknown = true
+			return state
+		}
+		namerefs[assignment.Name.Value] = target
+	}
+	state.namerefs = namerefs
+	return state
+}
+
+func declarationCreatesNameref(declaration *syntax.DeclClause) bool {
+	if declaration.Variant != nil && declaration.Variant.Value == "nameref" {
+		return true
+	}
+	for _, assignment := range declaration.Args {
+		if assignment.Name != nil {
+			continue
+		}
+		value, ok := staticWord(assignment.Value, false)
+		if ok && strings.HasPrefix(value, "-") && strings.Contains(strings.TrimPrefix(value, "-"), "n") {
+			return true
+		}
+	}
+	return false
 }
 
 func invalidateNamedVariables(state cwdState, names []string, uncontrolled ...bool) cwdState {
 	if len(uncontrolled) > 0 && uncontrolled[0] {
 		state.variables = nil
+		state.namerefs = nil
 		state.gitEnvironmentUnknown = true
 		return state
 	}
@@ -1739,11 +1806,25 @@ func readVariableNames(argv []string) ([]string, bool) {
 			break
 		}
 		if strings.HasPrefix(arg, "-") && arg != "-" {
-			if strings.Contains("adinNpStu", strings.TrimPrefix(arg, "-")) && index+1 < len(argv) {
-				if strings.HasPrefix(arg, "-a") {
-					names = append(names, argv[index+1])
+			cluster := strings.TrimPrefix(arg, "-")
+			for optionIndex, option := range cluster {
+				if strings.ContainsRune("adinNptu", option) {
+					value := cluster[optionIndex+1:]
+					if value == "" {
+						if index+1 >= len(argv) {
+							return nil, true
+						}
+						index++
+						value = argv[index]
+					}
+					if option == 'a' {
+						names = append(names, value)
+					}
+					break
 				}
-				index++
+				if !strings.ContainsRune("ers", option) {
+					return nil, true
+				}
 			}
 			continue
 		}
@@ -1754,18 +1835,42 @@ func readVariableNames(argv []string) ([]string, bool) {
 			return names, true
 		}
 	}
+	if len(names) == 0 {
+		names = []string{"REPLY"}
+	}
 	return names, false
 }
 
-func lastVariableName(argv []string) ([]string, bool) {
-	if len(argv) == 0 {
-		return nil, false
+func mapfileVariableNames(argv []string) ([]string, bool) {
+	for index := 0; index < len(argv); index++ {
+		arg := argv[index]
+		if arg == "--" {
+			if index+1 == len(argv) {
+				return []string{"MAPFILE"}, false
+			}
+			name := argv[index+1]
+			return []string{name}, !validShellVariableName(name)
+		}
+		if !strings.HasPrefix(arg, "-") || arg == "-" {
+			return []string{arg}, !validShellVariableName(arg)
+		}
+		cluster := strings.TrimPrefix(arg, "-")
+		for optionIndex, option := range cluster {
+			if strings.ContainsRune("nOsCc", option) {
+				if optionIndex+1 == len(cluster) {
+					if index+1 >= len(argv) {
+						return nil, true
+					}
+					index++
+				}
+				break
+			}
+			if option != 't' {
+				return nil, true
+			}
+		}
 	}
-	name := argv[len(argv)-1]
-	if strings.HasPrefix(name, "-") {
-		return nil, false
-	}
-	return []string{name}, !validShellVariableName(name)
+	return []string{"MAPFILE"}, false
 }
 
 func declarationArgumentNames(argv []string) ([]string, bool) {
@@ -1810,6 +1915,14 @@ func invalidateLoopVariables(state cwdState, loop syntax.Loop) cwdState {
 }
 
 func withoutVariables(state cwdState, names ...string) cwdState {
+	resolved, ok := resolveNamerefNames(state.namerefs, names)
+	if !ok {
+		state.variables = nil
+		state.namerefs = nil
+		state.gitEnvironmentUnknown = true
+		return state
+	}
+	names = resolved
 	for _, name := range names {
 		if gitRepositoryEnvironmentVariable(name) {
 			state.gitEnvironmentUnknown = true
@@ -1827,6 +1940,33 @@ func withoutVariables(state cwdState, names ...string) cwdState {
 	}
 	state.variables = variables
 	return state
+}
+
+func resolveNamerefNames(namerefs map[string]string, names []string) ([]string, bool) {
+	resolved := make([]string, 0, len(names))
+	for _, name := range names {
+		target, ok := resolveNameref(namerefs, name)
+		if !ok {
+			return nil, false
+		}
+		resolved = append(resolved, target)
+	}
+	return resolved, true
+}
+
+func resolveNameref(namerefs map[string]string, name string) (string, bool) {
+	seen := make(map[string]bool)
+	for {
+		if seen[name] {
+			return "", false
+		}
+		seen[name] = true
+		target, ok := namerefs[name]
+		if !ok {
+			return name, true
+		}
+		name = target
+	}
 }
 
 func callAssignsCDPath(call *syntax.CallExpr) bool {
@@ -2034,6 +2174,7 @@ func mergeCwd(states ...cwdState) cwdState {
 	}
 	merged := states[0]
 	merged.variables = commonVariables(states)
+	merged.namerefs = commonNamerefs(states)
 	for _, state := range states[1:] {
 		merged.fsUncertain = merged.fsUncertain || state.fsUncertain
 		merged.gitEnvironmentUnknown = merged.gitEnvironmentUnknown || state.gitEnvironmentUnknown
@@ -2047,6 +2188,24 @@ func mergeCwd(states ...cwdState) cwdState {
 		}
 	}
 	return merged
+}
+
+func commonNamerefs(states []cwdState) map[string]string {
+	if len(states) == 0 || len(states[0].namerefs) == 0 {
+		return nil
+	}
+	common := make(map[string]string, len(states[0].namerefs))
+	for name, target := range states[0].namerefs {
+		common[name] = target
+	}
+	for _, state := range states[1:] {
+		for name, target := range common {
+			if candidate, ok := state.namerefs[name]; !ok || candidate != target {
+				delete(common, name)
+			}
+		}
+	}
+	return common
 }
 
 func commonVariables(states []cwdState) map[string]string {

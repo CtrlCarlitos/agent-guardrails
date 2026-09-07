@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
@@ -638,18 +637,70 @@ func TestGitConfigIdentityNeverExecutesAttemptedGitPath(t *testing.T) {
 	}
 }
 
-func TestGitIdentityProbeTimesOutAndFailsClosed(t *testing.T) {
-	probe := filepath.Join(t.TempDir(), "git")
-	if err := os.WriteFile(probe, []byte("#!/bin/sh\nsleep 2\n"), 0o700); err != nil {
+func TestGitConfigIdentityIgnoresAmbientPathAtInitialization(t *testing.T) {
+	if os.Getenv("GUARDRAIL_PATH_GIT_HELPER") == "1" {
+		repo := os.Getenv("GUARDRAIL_PATH_GIT_REPO")
+		marker := os.Getenv("GUARDRAIL_PATH_GIT_MARKER")
+		tc := ToolCall{Tool: "Bash", Command: `git config user.email x@y.com`, CWD: repo, RepoRoot: repo}
+		if v := checkBash(tc, bashPol()); v != nil {
+			t.Fatalf("PATH-controlled Git config -> %+v, want allow from filesystem identity", v)
+		}
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			t.Fatalf("policy evaluation executed PATH-controlled Git; marker stat error = %v", err)
+		}
+		return
+	}
+
+	repo := t.TempDir()
+	initGitRepository(t, repo, false)
+	attackerDir := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "executed")
+	script := fmt.Sprintf("#!/bin/sh\nprintf touched > %q\nprintf '%%s\\n' %q\n", marker, filepath.Join(repo, ".git"))
+	if err := os.WriteFile(filepath.Join(attackerDir, "git"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	started := time.Now()
-	_, ok := gitCommonDirectory(probe, nil, t.TempDir(), nil, true)
-	if elapsed := time.Since(started); elapsed > time.Second {
-		t.Fatalf("Git identity probe took %s, want bounded execution", elapsed)
+
+	command := exec.Command(os.Args[0], "-test.run=^TestGitConfigIdentityIgnoresAmbientPathAtInitialization$")
+	command.Env = append(os.Environ(),
+		"GUARDRAIL_PATH_GIT_HELPER=1",
+		"GUARDRAIL_PATH_GIT_REPO="+repo,
+		"GUARDRAIL_PATH_GIT_MARKER="+marker,
+		"PATH="+attackerDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("PATH initialization helper: %v\n%s", err, output)
 	}
-	if ok {
-		t.Fatal("timed-out Git identity probe succeeded, want fail closed")
+}
+
+func TestGitConfigFilesystemIdentityHandlesLinkedWorktree(t *testing.T) {
+	repo := t.TempDir()
+	initGitRepository(t, repo, false)
+	commit := exec.Command("git", "-C", repo, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "init")
+	if output, err := commit.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v: %s", err, output)
+	}
+	linked := filepath.Join(t.TempDir(), "linked")
+	worktree := exec.Command("git", "-C", repo, "worktree", "add", "--detach", linked)
+	if output, err := worktree.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v: %s", err, output)
+	}
+	subdirectory := filepath.Join(linked, "sub")
+	if err := os.Mkdir(subdirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	tc := ToolCall{Tool: "Bash", Command: `git config user.email x@y.com`, CWD: subdirectory, RepoRoot: linked}
+	if v := checkBash(tc, bashPol()); v != nil {
+		t.Fatalf("linked-worktree Git config -> %+v, want allow", v)
+	}
+}
+
+func TestGitConfigFilesystemIdentityFailsClosedWhenUnprovable(t *testing.T) {
+	directory := t.TempDir()
+	tc := ToolCall{Tool: "Bash", Command: `git config user.email x@y.com`, CWD: directory, RepoRoot: directory}
+	v := checkBash(tc, bashPol())
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P2.git-config-write" {
+		t.Fatalf("unprovable Git identity -> %+v, want ask/P2.git-config-write", v)
 	}
 }
 

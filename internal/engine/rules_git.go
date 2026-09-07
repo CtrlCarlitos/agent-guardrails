@@ -1,29 +1,12 @@
 package engine
 
 import (
-	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
-
-const gitIdentityTimeout = 500 * time.Millisecond
-
-var trustedGitExecutable = func() string {
-	path, err := exec.LookPath("git")
-	if err != nil {
-		return ""
-	}
-	absolute, err := filepath.Abs(path)
-	if err != nil {
-		return ""
-	}
-	return absolute
-}()
 
 func checkGitSafety(s Simple, tc ToolCall) *policy.Verdict {
 	if head(s.Argv) != "git" || len(s.Argv) < 2 {
@@ -391,42 +374,136 @@ func gitConfigTargetsToolCallRepo(s Simple, tc ToolCall) bool {
 	if subcommand < 0 || s.cwdUnknown || s.gitEnvironmentUnknown || s.Cwd == "" || tc.RepoRoot == "" {
 		return false
 	}
-	target, ok := gitCommonDirectory(trustedGitExecutable, normalizeGitIdentityArgs(argv[1:subcommand]), s.Cwd, s.gitEnvironment, false)
+	target, ok := gitCommonDirectory(normalizeGitIdentityArgs(argv[1:subcommand]), s.Cwd, s.gitEnvironment, false)
 	if !ok {
 		return false
 	}
-	trusted, ok := gitCommonDirectory(trustedGitExecutable, []string{"-C", tc.RepoRoot}, s.Cwd, nil, true)
+	trusted, ok := gitCommonDirectory([]string{"-C", tc.RepoRoot}, s.Cwd, nil, true)
 	if !ok {
 		return false
 	}
 	return sameGitConfigPath(target, trusted)
 }
 
-func gitCommonDirectory(binary string, globalArgs []string, cwd string, variables map[string]string, cleanEnvironment bool) (string, bool) {
-	if binary == "" {
+func gitCommonDirectory(globalArgs []string, cwd string, variables map[string]string, cleanEnvironment bool) (string, bool) {
+	environment := gitRepositoryEnvironmentFromProcess(cleanEnvironment)
+	for name, value := range variables {
+		environment[name] = value
+	}
+	if environment["GIT_CEILING_DIRECTORIES"] != "" {
 		return "", false
 	}
-	args := append(append([]string{}, globalArgs...), "rev-parse", "--path-format=absolute", "--git-common-dir")
-	ctx, cancel := context.WithTimeout(context.Background(), gitIdentityTimeout)
-	defer cancel()
-	command := exec.CommandContext(ctx, binary, args...)
-	command.WaitDelay = 100 * time.Millisecond
-	command.Dir = cwd
-	environment := os.Environ()
-	if cleanEnvironment {
-		environment = withoutGitRepositoryEnvironment(environment)
+
+	current := cwd
+	gitDir := environment["GIT_DIR"]
+	for index := 0; index < len(globalArgs); index++ {
+		arg := globalArgs[index]
+		switch {
+		case arg == "-C":
+			if index+1 >= len(globalArgs) {
+				return "", false
+			}
+			index++
+			current = resolvePath(globalArgs[index], current)
+		case arg == "--git-dir":
+			if index+1 >= len(globalArgs) {
+				return "", false
+			}
+			index++
+			gitDir = resolvePath(globalArgs[index], current)
+		case strings.HasPrefix(arg, "--git-dir="):
+			gitDir = resolvePath(strings.TrimPrefix(arg, "--git-dir="), current)
+		case arg == "--bare":
+			return "", false
+		}
 	}
-	for name, value := range variables {
-		environment = withoutEnvironmentVariable(environment, name)
-		environment = append(environment, name+"="+value)
+	if gitDir == "" {
+		var ok bool
+		gitDir, ok = discoverGitDirectory(current)
+		if !ok {
+			return "", false
+		}
+	} else if !filepath.IsAbs(gitDir) {
+		gitDir = resolvePath(gitDir, current)
 	}
-	command.Env = environment
-	output, err := command.Output()
+
+	commonDir := environment["GIT_COMMON_DIR"]
+	if commonDir == "" {
+		if value, ok := readSmallFile(filepath.Join(gitDir, "commondir")); ok {
+			commonDir = resolvePath(strings.TrimSpace(value), gitDir)
+		} else {
+			commonDir = gitDir
+		}
+	} else if !filepath.IsAbs(commonDir) {
+		commonDir = resolvePath(commonDir, current)
+	}
+	if _, err := os.Stat(filepath.Join(gitDir, "HEAD")); err != nil {
+		return "", false
+	}
+	resolved, ok := resolveExistingPath(commonDir, "")
+	if !ok {
+		return "", false
+	}
+	info, err := os.Stat(resolved)
+	return resolved, err == nil && info.IsDir()
+}
+
+func gitRepositoryEnvironmentFromProcess(clean bool) map[string]string {
+	environment := make(map[string]string)
+	if clean {
+		return environment
+	}
+	for _, name := range []string{"GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM"} {
+		if value, ok := os.LookupEnv(name); ok {
+			environment[name] = value
+		}
+	}
+	return environment
+}
+
+func discoverGitDirectory(start string) (string, bool) {
+	directory, err := filepath.Abs(start)
 	if err != nil {
 		return "", false
 	}
-	path := strings.TrimSpace(string(output))
-	return path, path != ""
+	for {
+		candidate := filepath.Join(directory, ".git")
+		if info, err := os.Stat(candidate); err == nil {
+			if info.IsDir() {
+				return candidate, true
+			}
+			if target, ok := readGitDirectoryFile(candidate); ok {
+				return target, true
+			}
+			return "", false
+		}
+		parent := filepath.Dir(directory)
+		if parent == directory {
+			return "", false
+		}
+		directory = parent
+	}
+}
+
+func readGitDirectoryFile(path string) (string, bool) {
+	value, ok := readSmallFile(path)
+	if !ok {
+		return "", false
+	}
+	prefix, target, found := strings.Cut(strings.TrimSpace(value), ":")
+	if !found || !strings.EqualFold(strings.TrimSpace(prefix), "gitdir") || strings.TrimSpace(target) == "" {
+		return "", false
+	}
+	return resolvePath(strings.TrimSpace(target), filepath.Dir(path)), true
+}
+
+func readSmallFile(path string) (string, bool) {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() || info.Size() > 4096 {
+		return "", false
+	}
+	contents, err := os.ReadFile(path)
+	return string(contents), err == nil
 }
 
 func normalizeGitIdentityArgs(args []string) []string {
@@ -439,30 +516,6 @@ func normalizeGitIdentityArgs(args []string) []string {
 		normalized = append(normalized, arg)
 	}
 	return normalized
-}
-
-func withoutGitRepositoryEnvironment(environment []string) []string {
-	cleaned := make([]string, 0, len(environment))
-	for _, entry := range environment {
-		name, _, _ := strings.Cut(entry, "=")
-		switch name {
-		case "GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM":
-			continue
-		}
-		cleaned = append(cleaned, entry)
-	}
-	return cleaned
-}
-
-func withoutEnvironmentVariable(environment []string, excluded string) []string {
-	cleaned := make([]string, 0, len(environment))
-	for _, entry := range environment {
-		name, _, _ := strings.Cut(entry, "=")
-		if name != excluded {
-			cleaned = append(cleaned, entry)
-		}
-	}
-	return cleaned
 }
 
 func sameGitConfigPath(left, right string) bool {
