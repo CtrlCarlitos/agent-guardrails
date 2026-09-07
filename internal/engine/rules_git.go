@@ -412,12 +412,19 @@ func gitConfigPathUnderSystemTempRoot(path string) bool {
 	if !ok {
 		return false
 	}
+	var roots []string
 	for _, root := range systemTempRoots() {
 		physicalRoot, ok := resolveExistingPath(root, "")
-		if !ok || sameGitConfigPath(target, physicalRoot) {
+		if !ok {
 			continue
 		}
-		if withinSafe(target, physicalRoot, nil) {
+		if filepath.Clean(target) == filepath.Clean(physicalRoot) {
+			return false
+		}
+		roots = append(roots, physicalRoot)
+	}
+	for _, root := range roots {
+		if withinSafe(target, root, nil) {
 			return true
 		}
 	}

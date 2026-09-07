@@ -650,6 +650,38 @@ func TestGitConfigApprovedWritesAllowSystemTempRepositories(t *testing.T) {
 	}
 }
 
+func TestGitConfigSystemTempRootEqualityAsksAcrossOverlappingRoots(t *testing.T) {
+	base := t.TempDir()
+	toolRepo := filepath.Join(base, "tool")
+	tempRoot := filepath.Join(base, "root.git")
+	initGitRepository(t, toolRepo, false)
+	initGitRepository(t, tempRoot, true)
+	t.Setenv("TMPDIR", tempRoot)
+
+	command := fmt.Sprintf(`git --git-dir %q config user.email x@y.com`, tempRoot)
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: toolRepo, RepoRoot: toolRepo}
+	if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P2.git-config-write" {
+		t.Fatalf("system-temp root equality -> %+v, want ask/P2.git-config-write", v)
+	}
+}
+
+func TestGitConfigInitExpectationExpiresBeforeMetadataReplacement(t *testing.T) {
+	base := t.TempDir()
+	toolRepo := filepath.Join(base, "tool")
+	dynamicRepo := filepath.Join(base, "dynamic")
+	initGitRepository(t, toolRepo, false)
+
+	command := fmt.Sprintf(
+		`mkdir -p %q && cd %q && git init -q && rm -rf .git && ln -s /outside/foreign.git .git && git config user.email x@y.com`,
+		dynamicRepo,
+		dynamicRepo,
+	)
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: toolRepo, RepoRoot: toolRepo}
+	if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P2.git-config-write" {
+		t.Fatalf("metadata replacement after git init -> %+v, want ask/P2.git-config-write", v)
+	}
+}
+
 func TestGitConfigRelativeGitDirUsesFinalSequentialCContext(t *testing.T) {
 	base := t.TempDir()
 	trusted := filepath.Join(base, "trusted")
