@@ -29,6 +29,7 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 			Reason: "could not parse shell command; failing closed to ask"}
 	}
 	var worst *policy.Verdict
+	initializedGitDirs := make(map[string]bool)
 	take := func(v *policy.Verdict) {
 		if v == nil {
 			return
@@ -42,6 +43,12 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	}
 	take(checkDownloadPipeShell(simples))
 	for _, s := range simples {
+		if directory, ok := gitInitCurrentDirectory(s); ok {
+			initializedGitDirs[directory] = true
+		}
+		if !s.cwdUnknown {
+			s.gitInitExpected = initializedGitDirs[filepath.Clean(s.Cwd)]
+		}
 		if unresolvedPolicyPosition(s) {
 			take(&policy.Verdict{Decision: policy.Ask, RuleID: "P3.unresolved",
 				Reason: "command contains an unresolved value in a policy-bearing position"})

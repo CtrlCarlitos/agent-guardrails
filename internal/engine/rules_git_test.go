@@ -601,10 +601,13 @@ func TestGitConfigLocalWritesRequireTheToolCallRepository(t *testing.T) {
 		fmt.Sprintf(`git --git-dir=%q %s`, foreignBare, approved),
 	} {
 		tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
-		v := checkBash(tc, bashPol())
-		if v == nil || v.Decision != policy.Ask || v.RuleID != "P2.git-config-write" {
-			t.Errorf("%q -> %+v, want ask/P2.git-config-write for another repository", command, v)
+		if v := checkBash(tc, bashPol()); v != nil {
+			t.Errorf("%q -> %+v, want allow for another system-temp repository", command, v)
 		}
+	}
+	foreign := checkGitConfig(parsedGitConfig{operation: "write", scope: "local", subjects: []string{"user.email"}})
+	if foreign == nil || foreign.Decision != policy.Ask || foreign.RuleID != "P2.git-config-write" {
+		t.Fatalf("non-local approved write -> %+v, want ask/P2.git-config-write", foreign)
 	}
 
 	tc = ToolCall{Tool: "Bash", Command: `GIT_DIR="$TARGET" git ` + approved, CWD: repo, RepoRoot: repo}
@@ -618,6 +621,32 @@ func TestGitConfigLocalWritesRequireTheToolCallRepository(t *testing.T) {
 	v = checkBash(tc, bashPol())
 	if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
 		t.Errorf("mutated GIT_DIR -> %+v, want ask/P3.unresolved", v)
+	}
+}
+
+func TestGitConfigApprovedWritesAllowSystemTempRepositories(t *testing.T) {
+	base := t.TempDir()
+	toolRepo := filepath.Join(base, "tool")
+	fixtureRepo := filepath.Join(base, "fixture")
+	initGitRepository(t, toolRepo, false)
+	initGitRepository(t, fixtureRepo, false)
+	dynamicRepo := filepath.Join(base, "dynamic")
+
+	for _, command := range []string{
+		fmt.Sprintf(`cd %q && git config user.email x@y.com`, fixtureRepo),
+		fmt.Sprintf(`git -C %q config user.email x@y.com`, fixtureRepo),
+		fmt.Sprintf(`mkdir -p %q && cd %q && git init -q && git config user.email x@y.com`, dynamicRepo, dynamicRepo),
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: toolRepo, RepoRoot: toolRepo}
+		if v := checkBash(tc, bashPol()); v != nil {
+			t.Errorf("%q -> %+v, want allow for system-temp repository", command, v)
+		}
+	}
+
+	command := fmt.Sprintf(`git -C %q config core.hooksPath /tmp/evil`, fixtureRepo)
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: toolRepo, RepoRoot: toolRepo}
+	if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Deny || v.RuleID != "P2.git-config-write" {
+		t.Fatalf("dangerous system-temp repository key -> %+v, want deny/P2.git-config-write", v)
 	}
 }
 
@@ -641,11 +670,26 @@ func TestGitConfigRelativeGitDirUsesFinalSequentialCContext(t *testing.T) {
 		fmt.Sprintf(`git --git-dir=%q -C . config user.email x@y.com`, filepath.Join(foreign, ".git")),
 		`git -C .. -C foreign --git-dir=.git config user.email x@y.com`,
 	}
+	wantForeign, ok := gitCommonDirectory([]string{"-C", foreign}, trusted, nil, true)
+	if !ok {
+		t.Fatal("resolve expected foreign repository")
+	}
 	for _, command := range foreignCommands {
+		simples, err := Normalize(command, trusted)
+		if err != nil || len(simples) != 1 {
+			t.Fatalf("Normalize(%q) = %+v, %v", command, simples, err)
+		}
+		subcommand := gitSubcommandIndex(simples[0].Argv)
+		if subcommand < 1 {
+			t.Fatalf("%q has no Git subcommand", command)
+		}
+		target, ok := gitCommonDirectory(normalizeGitIdentityArgs(simples[0].Argv[1:subcommand]), trusted, nil, false)
+		if !ok || !sameGitConfigPath(target, wantForeign) {
+			t.Errorf("%q resolved common dir %q, want %q", command, target, wantForeign)
+		}
 		tc := ToolCall{Tool: "Bash", Command: command, CWD: trusted, RepoRoot: trusted}
-		v := checkBash(tc, bashPol())
-		if v == nil || v.Decision != policy.Ask || v.RuleID != "P2.git-config-write" {
-			t.Errorf("%q -> %+v, want ask/P2.git-config-write for foreign repository", command, v)
+		if v := checkBash(tc, bashPol()); v != nil {
+			t.Errorf("%q -> %+v, want system-temp allow after resolving foreign repository", command, v)
 		}
 	}
 

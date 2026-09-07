@@ -372,18 +372,111 @@ func approvedGitConfigSubject(subject, operation string) bool {
 func gitConfigTargetsToolCallRepo(s Simple, tc ToolCall) bool {
 	argv := s.Argv
 	subcommand := gitSubcommandIndex(argv)
-	if subcommand < 0 || s.cwdUnknown || s.gitEnvironmentUnknown || s.Cwd == "" || tc.RepoRoot == "" {
+	if subcommand < 0 || s.cwdUnknown || s.gitEnvironmentUnknown || s.Cwd == "" {
 		return false
 	}
-	target, ok := gitCommonDirectory(normalizeGitIdentityArgs(argv[1:subcommand]), s.Cwd, s.gitEnvironment, false)
+	globalArgs := normalizeGitIdentityArgs(argv[1:subcommand])
+	target, ok := gitCommonDirectory(globalArgs, s.Cwd, s.gitEnvironment, false)
+	if ok {
+		if gitConfigPathUnderSystemTempRoot(target) {
+			return true
+		}
+		if tc.RepoRoot == "" {
+			return false
+		}
+		trusted, ok := gitCommonDirectory([]string{"-C", tc.RepoRoot}, s.Cwd, nil, true)
+		return ok && sameGitConfigPath(target, trusted)
+	}
+	current, ok := gitConfigUninitializedDirectory(globalArgs, s.Cwd, s.gitEnvironment, s.gitInitExpected)
+	return ok && gitConfigPathUnderSystemTempRoot(current)
+}
+
+func gitInitCurrentDirectory(s Simple) (string, bool) {
+	if head(s.Argv) != "git" || s.cwdUnknown {
+		return "", false
+	}
+	subcommand := gitSubcommandIndex(s.Argv)
+	if subcommand < 0 || s.Argv[subcommand] != "init" {
+		return "", false
+	}
+	for _, arg := range s.Argv[subcommand+1:] {
+		if arg != "-q" && arg != "--quiet" && arg != "--" {
+			return "", false
+		}
+	}
+	return filepath.Clean(s.Cwd), true
+}
+
+func gitConfigPathUnderSystemTempRoot(path string) bool {
+	target, ok := resolveExistingPath(path, "")
 	if !ok {
 		return false
 	}
-	trusted, ok := gitCommonDirectory([]string{"-C", tc.RepoRoot}, s.Cwd, nil, true)
-	if !ok {
-		return false
+	for _, root := range systemTempRoots() {
+		physicalRoot, ok := resolveExistingPath(root, "")
+		if !ok || sameGitConfigPath(target, physicalRoot) {
+			continue
+		}
+		if withinSafe(target, physicalRoot, nil) {
+			return true
+		}
 	}
-	return sameGitConfigPath(target, trusted)
+	return false
+}
+
+func gitConfigUninitializedDirectory(globalArgs []string, cwd string, variables map[string]string, initialized bool) (string, bool) {
+	if !initialized {
+		return "", false
+	}
+	environment := gitRepositoryEnvironmentFromProcess(false)
+	for name, value := range variables {
+		environment[name] = value
+	}
+	for _, name := range []string{"GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_CEILING_DIRECTORIES"} {
+		if environment[name] != "" {
+			return "", false
+		}
+	}
+
+	current := cwd
+	for index := 0; index < len(globalArgs); index++ {
+		arg := globalArgs[index]
+		base := arg
+		if equals := strings.IndexByte(arg, '='); equals >= 0 {
+			base = arg[:equals]
+		}
+		switch {
+		case arg == "-C":
+			if index+1 >= len(globalArgs) {
+				return "", false
+			}
+			index++
+			current = resolvePath(globalArgs[index], current)
+		case base == "--git-dir" || arg == "--bare":
+			return "", false
+		case gitValueFlags[base] && !strings.Contains(arg, "="):
+			index++
+			if index >= len(globalArgs) {
+				return "", false
+			}
+		}
+	}
+
+	directory, err := filepath.Abs(current)
+	if err != nil {
+		return "", false
+	}
+	target := directory
+	for {
+		if _, err := os.Lstat(filepath.Join(directory, ".git")); err == nil || !os.IsNotExist(err) {
+			return "", false
+		}
+		parent := filepath.Dir(directory)
+		if parent == directory {
+			return target, true
+		}
+		directory = parent
+	}
 }
 
 func gitCommonDirectory(globalArgs []string, cwd string, variables map[string]string, cleanEnvironment bool) (string, bool) {

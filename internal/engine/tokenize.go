@@ -26,6 +26,7 @@ type Simple struct {
 	resolvedIn            map[int]bool
 	gitEnvironment        map[string]string
 	gitEnvironmentUnknown bool
+	gitInitExpected       bool
 	pipelines             []pipelinePosition
 	cwdUnknown            bool
 	origin                *syntax.Stmt
