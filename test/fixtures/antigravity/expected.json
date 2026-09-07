@@ -1,4 +1,5 @@
 {
+  "run-command-chmod-r.json": {"decision": "force_ask"},
   "run-command-rm-rf.json": {"decision": "deny"},
   "run-command-ls.json":    {"decision": "allow"},
   "write-secret.json":      {"decision": "deny"}

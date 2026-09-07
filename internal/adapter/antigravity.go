@@ -87,7 +87,11 @@ func EmitAntigravity(v policy.Verdict, phase string, stdout io.Writer) int {
 		stdout.Write([]byte("{}\n"))
 		return 0
 	}
-	payload := map[string]any{"decision": string(v.Decision)}
+	decision := string(v.Decision)
+	if v.Decision == policy.Ask {
+		decision = "force_ask"
+	}
+	payload := map[string]any{"decision": decision}
 	if v.Reason != "" {
 		payload["reason"] = sanitizeForModel(v.Reason)
 	}

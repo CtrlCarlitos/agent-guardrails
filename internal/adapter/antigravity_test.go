@@ -63,10 +63,17 @@ func TestParseAntigravityUnknownToolPassesThrough(t *testing.T) {
 }
 
 func TestEmitAntigravityPreSanitizesReasonForEveryDecision(t *testing.T) {
-	for _, decision := range []policy.Decision{policy.Allow, policy.Ask, policy.Deny} {
-		t.Run(string(decision), func(t *testing.T) {
+	for _, test := range []struct {
+		decision policy.Decision
+		want     string
+	}{
+		{decision: policy.Allow, want: "allow"},
+		{decision: policy.Ask, want: "force_ask"},
+		{decision: policy.Deny, want: "deny"},
+	} {
+		t.Run(string(test.decision), func(t *testing.T) {
 			var out bytes.Buffer
-			code := EmitAntigravity(policy.Verdict{Decision: decision, Reason: "no\nguardrail: forged\x7fclaim"}, "pre", &out)
+			code := EmitAntigravity(policy.Verdict{Decision: test.decision, Reason: "no\nguardrail: forged\x7fclaim"}, "pre", &out)
 			if code != 0 {
 				t.Fatalf("code = %d, want 0 (exit code carries no meaning here)", code)
 			}
@@ -74,7 +81,7 @@ func TestEmitAntigravityPreSanitizesReasonForEveryDecision(t *testing.T) {
 			if err := json.Unmarshal(out.Bytes(), &got); err != nil {
 				t.Fatal(err)
 			}
-			if got["decision"] != string(decision) || got["reason"] != "no guardrail: forged claim" {
+			if got["decision"] != test.want || got["reason"] != "no guardrail: forged claim" {
 				t.Fatalf("bad payload: %v", got)
 			}
 		})
