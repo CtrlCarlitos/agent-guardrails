@@ -154,13 +154,17 @@ func TestBashDenyGlobsP2P6(t *testing.T) {
 		"Bash(rm -fr /)", "Bash(rm -fr ~)", "Bash(rm -fr .)", "Bash(rm -fr ..)",
 		"Bash(rm -r -f /)", "Bash(rm -r -f ~)", "Bash(rm -r -f .)", "Bash(rm -r -f ..)",
 		"Bash(rm -f -r /)", "Bash(rm -f -r ~)", "Bash(rm -f -r .)", "Bash(rm -f -r ..)",
+		"Bash(srm *)",
 		"Bash(git reset --hard*)", "Bash(git config core.hooksPath /**)", "Bash(pip install --index-url*)",
 	} {
 		if !slices.Contains(got, m) {
 			t.Errorf("missing %q", m)
 		}
 	}
-	for _, broad := range []string{"Bash(rm -rf *)", "Bash(rm -fr *)", "Bash(rm -r -f *)", "Bash(rm -f -r *)"} {
+	for _, broad := range []string{
+		"Bash(rm -rf *)", "Bash(rm -fr *)", "Bash(rm -r -f *)", "Bash(rm -f -r *)",
+		"Bash(rm -rf /*)", "Bash(rm -fr /*)", "Bash(rm -r -f /*)", "Bash(rm -f -r /*)",
+	} {
 		if slices.Contains(got, broad) {
 			t.Errorf("broad native deny %q prevents Engine authorization", broad)
 		}
@@ -195,6 +199,9 @@ func TestClaudeTempDeleteReachesExistingBashPreHook(t *testing.T) {
 	if got := claudeNativeDecision(perms, "Bash(rm -rf /tmp/work/item)"); got != "" {
 		t.Fatalf("temp descendant native decision = %q, want no preemptive permission", got)
 	}
+	if got := claudeNativeDecision(perms, "Bash(find /tmp/work/item -delete)"); got != "" {
+		t.Fatalf("scoped find native decision = %q, want no preemptive permission", got)
+	}
 	hooks := frag["hooks"].(map[string]any)["PreToolUse"].([]any)
 	matcher := hooks[0].(map[string]any)["matcher"].(string)
 	if !strings.Contains(matcher, "Bash") {
@@ -208,6 +215,9 @@ func TestBashAskGlobsP2P6(t *testing.T) {
 		if !slices.Contains(got, m) {
 			t.Errorf("missing %q", m)
 		}
+	}
+	if slices.Contains(got, "Bash(find * -delete)") {
+		t.Fatal("broad native find ask prevents Engine authorization")
 	}
 }
 

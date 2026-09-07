@@ -92,6 +92,52 @@ func TestGenConfigClaudeMerge(t *testing.T) {
 	}
 }
 
+func TestGenConfigMergeRetiresObsoleteBashFloorRules(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		plane    string
+		filename string
+		existing string
+	}{
+		{
+			name:     "claude",
+			plane:    "claude",
+			filename: "settings.json",
+			existing: `{"permissions":{"deny":["Bash(rm -rf *)"],"ask":["Bash(find * -delete)","Bash(user-rule *)"]}}`,
+		},
+		{
+			name:     "opencode",
+			plane:    "opencode",
+			filename: "opencode.json",
+			existing: `{"permission":{"bash":{"rm -rf *":"deny","find * -delete":"ask","user-rule *":"ask"}}}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), test.filename)
+			if err := os.WriteFile(p, []byte(test.existing), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			var out, errb bytes.Buffer
+			code := run([]string{"gen-config", test.plane, "--merge", p, "--binary", "/opt/guardrail"}, strings.NewReader(""), &out, &errb)
+			if code != 0 {
+				t.Fatalf("exit=%d stderr=%s", code, errb.String())
+			}
+			raw, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, retired := range []string{"rm -rf *", "find * -delete"} {
+				if bytes.Contains(raw, []byte(retired)) {
+					t.Errorf("retired rule %q survived merge:\n%s", retired, raw)
+				}
+			}
+			if !bytes.Contains(raw, []byte("user-rule *")) {
+				t.Errorf("unrelated user rule was removed:\n%s", raw)
+			}
+		})
+	}
+}
+
 func TestGenConfigPrintFalseIsNoOp(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := run([]string{"gen-config", "claude", "--print=false"}, strings.NewReader(""), &out, &errb)

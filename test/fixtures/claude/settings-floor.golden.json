@@ -48,7 +48,6 @@
       "Bash(kill -9 *)",
       "Bash(killall *)",
       "Bash(pkill *)",
-      "Bash(find * -delete)",
       "Bash(git checkout .)",
       "Bash(git restore .)",
       "Bash(git branch -D *)",

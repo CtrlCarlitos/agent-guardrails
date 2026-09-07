@@ -54,7 +54,6 @@ func bashAskGlobs() []string {
 		"Bash(chown -R *)",
 		"Bash(truncate *)",
 		"Bash(kill -9 *)", "Bash(killall *)", "Bash(pkill *)",
-		"Bash(find * -delete)",
 		"Bash(git checkout .)", "Bash(git restore .)",
 		"Bash(git branch -D *)", "Bash(git commit --amend*)",
 		"Bash(git remote add *)", "Bash(git remote set-url *)",

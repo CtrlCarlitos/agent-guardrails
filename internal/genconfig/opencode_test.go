@@ -316,11 +316,29 @@ func TestOpencodeConfigBashPermissions(t *testing.T) {
 	if bash["*"] != "allow" {
 		t.Errorf(`bash["*"] = %q, want "allow"`, bash["*"])
 	}
-	if bash["rm -rf /"] != "deny" {
-		t.Errorf(`bash["rm -rf /"] = %q, want "deny"`, bash["rm -rf /"])
+	for _, catastrophic := range []string{
+		"rm -rf /", "rm -rf ~", "rm -rf .", "rm -rf ..",
+		"rm -fr /", "rm -fr ~", "rm -fr .", "rm -fr ..",
+		"rm -r -f /", "rm -r -f ~", "rm -r -f .", "rm -r -f ..",
+		"rm -f -r /", "rm -f -r ~", "rm -f -r .", "rm -f -r ..",
+		"srm *",
+	} {
+		if bash[catastrophic] != "deny" {
+			t.Errorf("bash[%q] = %q, want deny", catastrophic, bash[catastrophic])
+		}
 	}
-	if _, ok := bash["rm -rf *"]; ok {
-		t.Error(`bash["rm -rf *"] broadly preempts Engine temp authorization`)
+	for _, broad := range []string{"rm -rf *", "rm -fr *", "rm -r -f *", "rm -f -r *"} {
+		if _, ok := bash[broad]; ok {
+			t.Errorf("bash[%q] broadly preempts Engine temp authorization", broad)
+		}
+	}
+	if _, ok := bash["find * -delete"]; ok {
+		t.Error(`bash["find * -delete"] broadly preempts Engine scoped-find authorization`)
+	}
+	for _, absoluteWildcard := range []string{"rm -rf /*", "rm -fr /*", "rm -r -f /*", "rm -f -r /*"} {
+		if _, ok := bash[absoluteWildcard]; ok {
+			t.Errorf("bash[%q] preempts Engine authorization for absolute temp descendants", absoluteWildcard)
+		}
 	}
 	raw, err := json.Marshal(frag)
 	if err != nil {
@@ -329,6 +347,9 @@ func TestOpencodeConfigBashPermissions(t *testing.T) {
 	rules := parseOpencodePermissionRules(t, raw, "bash")
 	if got := opencodeFindLast(rules, "rm -rf /tmp/work/item"); got != "allow" {
 		t.Errorf("temp descendant native decision = %q, want allow so the plugin can evaluate it", got)
+	}
+	if got := opencodeFindLast(rules, "find /tmp/work/item -delete"); got != "allow" {
+		t.Errorf("scoped find native decision = %q, want allow so the plugin can evaluate it", got)
 	}
 	if bash["chmod -R *"] != "ask" {
 		t.Errorf(`bash["chmod -R *"] = %q, want "ask"`, bash["chmod -R *"])

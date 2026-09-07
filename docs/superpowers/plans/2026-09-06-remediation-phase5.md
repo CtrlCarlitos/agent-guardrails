@@ -561,16 +561,21 @@ The final independent review returned `READY`; the complete race suite and `make
 **Files:**
 - Modify: `internal/genconfig/claude.go`
 - Modify: `internal/genconfig/merge.go`
+- Modify: `cmd/guardrail/genconfig.go`
+- Modify: `cmd/guardrail/sync.go`
 - Test: `internal/genconfig/claude_test.go`
 - Test: `internal/genconfig/opencode_test.go`
 - Test: `internal/genconfig/merge_test.go`
+- Test: `cmd/guardrail/genconfig_test.go`
 - Test: `test/fixtures/claude/settings-floor.golden.json`
 - Test: `test/fixtures/opencode/settings-floor.golden.json`
+- Document: `docs/superpowers/plans/2026-09-06-remediation-phase5.md`
 
 **Interfaces:**
-- Fresh Claude and OpenCode floors retain exact catastrophic `rm` targets `/`, `~`, `.`, `..`, and `/*` for each supported recursive/force flag ordering, plus `srm *`.
+- Fresh Claude and OpenCode floors retain exact catastrophic `rm` targets `/`, `~`, `.`, and `..` for each supported recursive/force flag ordering, plus `srm *`.
 - Fresh floors contain none of `rm -rf *`, `rm -fr *`, `rm -r -f *`, `rm -f -r *`, or `find * -delete`.
-- Settings merge treats exactly those five patterns as retired guardrail floor rules. It removes the wrapped forms from Claude `permissions.deny`/`permissions.ask` and the unwrapped keys from OpenCode `permission.bash` before merging the current fragment. No other user permission is removed.
+- `MergePlaneInto(path, plane, frag)` treats exactly those five patterns as retired guardrail floor rules for explicit Claude/OpenCode generation. It removes the wrapped forms from Claude `permissions.deny`/`permissions.ask` and the unwrapped keys from OpenCode `permission.bash` before merging the current fragment. Generic `MergeInto` retains its non-destructive union semantics; no other user permission is removed.
+- The literal shell command `rm -rf /*` remains an Engine Deny, not a native-floor rule. Both planes define `*` as an unescapable Bash-permission wildcard, so a native `rm -rf /*` rule would also pre-empt NF-8 for absolute temp descendants.
 
 - [ ] **Step 0: Create the dedicated Task 4b worktree from local main**
 
@@ -580,7 +585,7 @@ git worktree add ../agent-guardrails-phase5-task4b -b phase5-task4b main
 
 - [ ] **Step 1: Add RED fresh-floor and migration regressions**
 
-Assert both generated floors retain every catastrophic literal and `srm *`, omit all five retired patterns, and allow a representative strict temp descendant to reach the hook. Start merge fixtures with the old Claude and OpenCode rules present; after `MergeInto`, assert every retired rule is absent while unrelated user rules survive.
+Assert both generated floors retain `/`, `~`, `.`, `..`, and `srm *`, omit all five retired patterns, and allow a representative strict temp descendant to reach the hook. Also prove no native `/*` rule reintroduces absolute-path pre-emption. Start merge fixtures with the old Claude and OpenCode rules present; after `MergePlaneInto`, assert every retired rule is absent while unrelated user rules survive.
 
 - [ ] **Step 2: Run the focused tests and confirm the root-cause failures**
 
@@ -592,7 +597,7 @@ Expected: fresh-generation coverage fails on `find * -delete`; merge fixtures fa
 
 - [ ] **Step 3: Implement exact retirement and regenerate goldens**
 
-Delete `Bash(find * -delete)` from `bashAskGlobs`. Before ordinary permission merging, remove only the five exact retired patterns from Claude's permission arrays and OpenCode's Bash permission object. Keep the retirement list centralized and do not broaden it to pattern-based deletion.
+Delete `Bash(find * -delete)` from `bashAskGlobs`. Add an explicit plane-aware merge entry point used by `gen-config` and `sync`; before its permission merge, remove only the five exact retired patterns from Claude's permission arrays and OpenCode's Bash permission object. Keep generic merges unchanged, centralize the retirement list, and do not broaden it to pattern-based deletion.
 
 ```bash
 /usr/local/go/bin/go test ./test -run Golden -update
@@ -606,12 +611,12 @@ Run live probe #5 through Claude with the candidate floor installed. Confirm a s
 - [ ] **Step 5: Verify, gate, and commit locally**
 
 ```bash
-/usr/local/go/bin/gofmt -w internal/genconfig/claude.go internal/genconfig/merge.go
-/usr/local/go/bin/go test ./internal/genconfig ./test -count=1
+/usr/local/go/bin/gofmt -w internal/genconfig/claude.go internal/genconfig/merge.go cmd/guardrail/genconfig.go cmd/guardrail/sync.go
+/usr/local/go/bin/go test ./internal/genconfig ./cmd/guardrail ./test -count=1
 /usr/local/go/bin/go test ./... -race -count=1
 make check
 git diff --check
-git add internal/genconfig test/fixtures/claude/settings-floor.golden.json test/fixtures/opencode/settings-floor.golden.json
+git add internal/genconfig cmd/guardrail/genconfig.go cmd/guardrail/genconfig_test.go cmd/guardrail/sync.go test/fixtures/claude/settings-floor.golden.json test/fixtures/opencode/settings-floor.golden.json docs/superpowers/plans/2026-09-06-remediation-phase5.md
 git commit -m "fix: retire native rules that pre-empt temp authorization (NF-10)"
 ```
 

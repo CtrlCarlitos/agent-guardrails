@@ -188,6 +188,124 @@ func TestPermissionsStillUnionAppend(t *testing.T) {
 	}
 }
 
+func TestMergePlaneIntoRetiresNativeRulesThatPreemptTempAuthorization(t *testing.T) {
+	retired := []string{"rm -rf *", "rm -fr *", "rm -r -f *", "rm -f -r *", "find * -delete"}
+
+	t.Run("claude", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), "settings.json")
+		existing := `{
+			"permissions": {
+				"deny": ["Bash(rm -rf *)", "Bash(rm -fr *)", "Bash(rm -r -f *)", "Bash(rm -f -r *)", "Bash(user-deny *)"],
+				"ask": ["Bash(find * -delete)", "Bash(user-ask *)"]
+			}
+		}`
+		if err := os.WriteFile(p, []byte(existing), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := MergePlaneInto(p, "claude", ClaudeConfig(secretPol(), "/x/guardrail")); err != nil {
+			t.Fatal(err)
+		}
+
+		perms := readJSON(t, p)["permissions"].(map[string]any)
+		for _, tier := range []string{"deny", "ask"} {
+			entries := perms[tier].([]any)
+			for _, entry := range entries {
+				for _, pattern := range retired {
+					if entry == "Bash("+pattern+")" {
+						t.Errorf("permissions.%s retained retired rule %q", tier, entry)
+					}
+				}
+			}
+		}
+		if got := claudeNativeDecision(map[string]any{
+			"deny": anyStrings(perms["deny"].([]any)),
+			"ask":  anyStrings(perms["ask"].([]any)),
+		}, "Bash(user-deny x)"); got != "deny" {
+			t.Errorf("unrelated user deny = %q, want deny", got)
+		}
+	})
+
+	t.Run("opencode", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), "opencode.json")
+		existing := `{
+			"permission": {
+				"bash": {
+					"rm -rf *": "deny",
+					"rm -fr *": "deny",
+					"rm -r -f *": "deny",
+					"rm -f -r *": "deny",
+					"find * -delete": "ask",
+					"user-rule *": "ask"
+				}
+			}
+		}`
+		if err := os.WriteFile(p, []byte(existing), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := MergePlaneInto(p, "opencode", OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
+			t.Fatal(err)
+		}
+
+		bash := readJSON(t, p)["permission"].(map[string]any)["bash"].(map[string]any)
+		for _, pattern := range retired {
+			if _, ok := bash[pattern]; ok {
+				t.Errorf("permission.bash retained retired rule %q", pattern)
+			}
+		}
+		if got := bash["user-rule *"]; got != "ask" {
+			t.Errorf("unrelated user rule = %v, want ask", got)
+		}
+	})
+}
+
+func TestMergeIntoDoesNotRetireRulesFromGenericFragments(t *testing.T) {
+	t.Run("claude-shaped", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), "settings.json")
+		if err := os.WriteFile(p, []byte(`{"permissions":{"deny":["Bash(rm -rf *)"]}}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		frag := Fragment{
+			"permissions": map[string]any{"ask": []string{"Bash(user-ask *)"}},
+			"hooks":       map[string]any{"UserEvent": []any{}},
+		}
+		if err := MergeInto(p, frag); err != nil {
+			t.Fatal(err)
+		}
+		deny := readJSON(t, p)["permissions"].(map[string]any)["deny"].([]any)
+		if len(deny) != 1 || deny[0] != "Bash(rm -rf *)" {
+			t.Fatalf("generic merge retired an existing permission: %v", deny)
+		}
+	})
+
+	t.Run("opencode-shaped", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), "opencode.json")
+		if err := os.WriteFile(p, []byte(`{"permission":{"bash":{"rm -rf *":"deny"}}}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		frag := Fragment{
+			"permission": map[string]any{"bash": map[string]string{"user-rule *": "ask"}},
+			"plugin":     []string{"user-plugin"},
+		}
+		if err := MergeInto(p, frag); err != nil {
+			t.Fatal(err)
+		}
+		bash := readJSON(t, p)["permission"].(map[string]any)["bash"].(map[string]any)
+		if got := bash["rm -rf *"]; got != "deny" {
+			t.Fatalf("generic merge retired an existing permission: %v", got)
+		}
+	})
+}
+
+func anyStrings(values []any) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if s, ok := value.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func TestMergeIntoOpencodePermissionCollision(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "opencode.json")
 	existing := `{
@@ -211,7 +329,7 @@ func TestMergeIntoOpencodePermissionCollision(t *testing.T) {
 	if err := os.WriteFile(p, []byte(existing), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := MergeInto(p, OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
+	if err := MergePlaneInto(p, "opencode", OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -224,7 +342,6 @@ func TestMergeIntoOpencodePermissionCollision(t *testing.T) {
 	for key, want := range map[string]string{
 		"*":          "deny",
 		"chmod -R *": "deny",
-		"rm -rf *":   "allow",
 		"rm -rf /":   "deny",
 	} {
 		if got := bash[key]; got != want {
@@ -377,19 +494,18 @@ func TestMergeIntoOpencodeCategoryScalarPermission(t *testing.T) {
 	}
 }
 
-func TestMergeIntoOpencodeUnknownCollision(t *testing.T) {
+func TestMergeIntoOpencodeRetiresUnknownValuedObsoleteRule(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "opencode.json")
 	existing := []byte(`{"permission":{"bash":{"rm -rf *":{"mode":"audit"}}}}`)
 	if err := os.WriteFile(p, existing, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := MergeInto(p, OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
+	if err := MergePlaneInto(p, "opencode", OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]any{"mode": "audit"}
-	got := readJSON(t, p)["permission"].(map[string]any)["bash"].(map[string]any)["rm -rf *"]
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("unknown exact collision = %#v, want %#v", got, want)
+	bash := readJSON(t, p)["permission"].(map[string]any)["bash"].(map[string]any)
+	if _, ok := bash["rm -rf *"]; ok {
+		t.Fatalf("retired rule survived despite its nonstandard value: %#v", bash["rm -rf *"])
 	}
 }
 

@@ -15,6 +15,21 @@ import (
 // intentional, as settings files may carry secrets; callers wanting 0644 can
 // chmod after.
 func MergeInto(path string, frag Fragment) error {
+	return mergeInto(path, "", frag)
+}
+
+// MergePlaneInto merges a generated plane fragment and applies exact migrations
+// for obsolete guardrail-owned settings from earlier releases.
+func MergePlaneInto(path, plane string, frag Fragment) error {
+	switch plane {
+	case "claude", "opencode", "antigravity":
+		return mergeInto(path, plane, frag)
+	default:
+		return fmt.Errorf("unsupported plane %q", plane)
+	}
+}
+
+func mergeInto(path, plane string, frag Fragment) error {
 	existing := map[string]any{}
 	if raw, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(raw)) > 0 {
 		if err := json.Unmarshal(raw, &existing); err != nil {
@@ -26,6 +41,7 @@ func MergeInto(path string, frag Fragment) error {
 	} else if err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	removeRetiredBashFloorRules(existing, plane)
 
 	if permission, ok := toStringAnyMap(frag["permission"]); ok {
 		mergeOpencodePermission(existing, permission)
@@ -65,6 +81,64 @@ func MergeInto(path string, frag Fragment) error {
 		return err
 	}
 	return os.Rename(tmpName, path)
+}
+
+var retiredBashFloorPatterns = []string{
+	"rm -rf *",
+	"rm -fr *",
+	"rm -r -f *",
+	"rm -f -r *",
+	"find * -delete",
+}
+
+func removeRetiredBashFloorRules(existing map[string]any, plane string) {
+	if plane == "claude" {
+		if permissions, ok := toStringAnyMap(existing["permissions"]); ok {
+			for _, tier := range []string{"deny", "ask"} {
+				entries, ok := toAnySlice(permissions[tier])
+				if !ok {
+					continue
+				}
+				kept := entries[:0]
+				for _, entry := range entries {
+					if !retiredBashFloorRule(entry, true) {
+						kept = append(kept, entry)
+					}
+				}
+				permissions[tier] = kept
+			}
+		}
+	}
+
+	if plane == "opencode" {
+		permission, ok := toStringAnyMap(existing["permission"])
+		if !ok {
+			return
+		}
+		bash, ok := toStringAnyMap(permission["bash"])
+		if !ok {
+			return
+		}
+		for _, pattern := range retiredBashFloorPatterns {
+			delete(bash, pattern)
+		}
+	}
+}
+
+func retiredBashFloorRule(value any, wrapped bool) bool {
+	rule, ok := value.(string)
+	if !ok {
+		return false
+	}
+	for _, pattern := range retiredBashFloorPatterns {
+		if wrapped {
+			pattern = "Bash(" + pattern + ")"
+		}
+		if rule == pattern {
+			return true
+		}
+	}
+	return false
 }
 
 type orderedPermissionRules map[string]any

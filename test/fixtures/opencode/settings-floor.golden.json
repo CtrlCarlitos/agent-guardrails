@@ -7,7 +7,6 @@
       "chmod -R 777 *": "ask",
       "chmod 777 *": "ask",
       "chown -R *": "ask",
-      "find * -delete": "ask",
       "gem install *": "ask",
       "git branch -D *": "ask",
       "git checkout .": "ask",

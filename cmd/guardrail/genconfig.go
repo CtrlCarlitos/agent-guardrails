@@ -77,7 +77,7 @@ func cmdGenConfig(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if *mergePath != "" {
-		if err := genconfig.MergeInto(*mergePath, frag); err != nil {
+		if err := genconfig.MergePlaneInto(*mergePath, plane, frag); err != nil {
 			fmt.Fprintf(stderr, "guardrail: merge failed: %v\n", err)
 			return 2
 		}

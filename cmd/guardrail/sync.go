@@ -101,7 +101,7 @@ func syncPlane(plane, dir, binary string, merged *policy.Policy, stdout, stderr 
 	case "claude":
 		target := filepath.Join(dir, ".claude", "settings.json")
 		frag := genconfig.ClaudeConfig(merged, binary)
-		if err := genconfig.MergeInto(target, frag); err != nil {
+		if err := genconfig.MergePlaneInto(target, plane, frag); err != nil {
 			fmt.Fprintf(stderr, "guardrail: sync claude failed: %s\n", safetext.SingleLine(err.Error()))
 			return
 		}
@@ -124,7 +124,7 @@ func syncPlane(plane, dir, binary string, merged *policy.Policy, stdout, stderr 
 		}
 		target := filepath.Join(dir, "opencode.json")
 		frag := genconfig.OpencodeConfig(merged, absPlugin)
-		if err := genconfig.MergeInto(target, frag); err != nil {
+		if err := genconfig.MergePlaneInto(target, plane, frag); err != nil {
 			fmt.Fprintf(stderr, "guardrail: sync opencode failed: %s\n", safetext.SingleLine(err.Error()))
 			return
 		}
@@ -137,7 +137,7 @@ func syncPlane(plane, dir, binary string, merged *policy.Policy, stdout, stderr 
 			return
 		}
 		frag := genconfig.AntigravityConfig(binary)
-		if err := genconfig.MergeInto(target, frag); err != nil {
+		if err := genconfig.MergePlaneInto(target, plane, frag); err != nil {
 			fmt.Fprintf(stderr, "guardrail: sync antigravity failed: %s\n", safetext.SingleLine(err.Error()))
 			return
 		}
