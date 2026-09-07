@@ -734,6 +734,21 @@ func TestGitFilesystemMetadataReadsRejectSpecialFilesAndEnforceLimit(t *testing.
 			if value, ok := readSmallFile("/proc/self/cmdline"); ok {
 				t.Fatalf("readSmallFile accepted %d bytes despite the 4096-byte limit", len(value))
 			}
+		case "replacement":
+			info, err := os.Stat(path)
+			if err != nil || !info.Mode().IsRegular() {
+				t.Fatalf("pre-open stat = %v, %v; want regular file", info, err)
+			}
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if output, err := exec.Command("mkfifo", path).CombinedOutput(); err != nil {
+				t.Fatalf("mkfifo: %v: %s", err, output)
+			}
+			if file, ok := openRegularFile(path); ok {
+				file.Close()
+				t.Fatal("regular-file opener accepted replacement FIFO")
+			}
 		default:
 			t.Fatalf("unknown helper mode %q", mode)
 		}
@@ -780,6 +795,17 @@ func TestGitFilesystemMetadataReadsRejectSpecialFilesAndEnforceLimit(t *testing.
 			setup: func(t *testing.T) string { return "" },
 			mode:  "oversized",
 			arg:   strings.Repeat("x", 8192),
+		},
+		{
+			name: "regular path replaced by fifo before open",
+			setup: func(t *testing.T) string {
+				path := filepath.Join(t.TempDir(), "metadata")
+				if err := os.WriteFile(path, []byte("gitdir: target\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				return path
+			},
+			mode: "replacement",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

@@ -506,17 +506,26 @@ func readSmallFile(path string) (string, bool) {
 	if err != nil || !info.Mode().IsRegular() || info.Size() > 4096 {
 		return "", false
 	}
-	file, err := os.Open(path)
-	if err != nil {
+	file, ok := openRegularFile(path)
+	if !ok {
 		return "", false
 	}
 	defer file.Close()
-	info, err = file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 4096 {
-		return "", false
-	}
 	contents, err := io.ReadAll(io.LimitReader(file, 4097))
 	return string(contents), err == nil && len(contents) <= 4096
+}
+
+func openRegularFile(path string) (*os.File, bool) {
+	file, err := openMetadataFile(path)
+	if err != nil {
+		return nil, false
+	}
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 4096 {
+		file.Close()
+		return nil, false
+	}
+	return file, true
 }
 
 func normalizeGitIdentityArgs(args []string) []string {
