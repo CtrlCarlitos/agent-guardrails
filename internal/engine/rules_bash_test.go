@@ -1280,8 +1280,8 @@ func TestFindDestructiveExecFamiliesAsk(t *testing.T) {
 		`find . -exec printf '%s\n' {} +`,
 		`find . -execdir /bin/echo {} +`,
 	} {
-		if v := evalBash(t, command); v != nil {
-			t.Errorf("%q -> %+v, want nil", command, v)
+		if v := evalBash(t, command); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+			t.Errorf("%q -> %+v, want ask/P1.find-delete", command, v)
 		}
 	}
 }
@@ -1295,11 +1295,15 @@ func TestFindScopedDeleteAllowsAuthorizedTempDescendants(t *testing.T) {
 	}
 	commands := []string{
 		fmt.Sprintf(`find %q -delete`, target),
-		fmt.Sprintf(`cd %q && find t -delete`, scratch),
+		fmt.Sprintf(`find %q -name '*.keep' -delete`, target),
+		fmt.Sprintf(`find %q -mtime -1 -delete`, target),
+		fmt.Sprintf(`find %q -type f,d -delete`, target),
+		fmt.Sprintf(`cd %q && find . -delete`, target),
 		fmt.Sprintf(`find %q -exec rm -rf {} +`, target),
 		fmt.Sprintf(`find %q -exec rm -rf {} \;`, target),
 		fmt.Sprintf(`find %q -execdir rm -rf {} +`, target),
 		fmt.Sprintf(`find %q -execdir rm -rf {} \;`, target),
+		fmt.Sprintf(`find %q -exec rm --force --recursive {} +`, target),
 	}
 	for _, command := range commands {
 		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
@@ -1310,8 +1314,7 @@ func TestFindScopedDeleteAllowsAuthorizedTempDescendants(t *testing.T) {
 
 }
 
-// Mutation caught: authorizing any one start point lets a mixed safe/unsafe find deletion through.
-func TestFindScopedDeleteRequiresEveryRootAuthorized(t *testing.T) {
+func TestFindScopedDeleteRejectsMultipleRoots(t *testing.T) {
 	scratch := t.TempDir()
 	first := filepath.Join(scratch, "first")
 	second := filepath.Join(scratch, "second")
@@ -1321,16 +1324,14 @@ func TestFindScopedDeleteRequiresEveryRootAuthorized(t *testing.T) {
 		}
 	}
 
-	allow := fmt.Sprintf(`find %q %q -delete`, first, second)
-	tc := ToolCall{Tool: "Bash", Command: allow, CWD: "/repo", RepoRoot: "/repo"}
-	if v := checkBash(tc, bashPol()); v != nil {
-		t.Fatalf("all authorized roots %q -> %+v, want allow", allow, v)
-	}
-
-	ask := fmt.Sprintf(`find %q /etc -delete`, first)
-	tc.Command = ask
-	if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
-		t.Fatalf("mixed roots %q -> %+v, want ask/P1.find-delete", ask, v)
+	for _, command := range []string{
+		fmt.Sprintf(`find %q %q -delete`, first, second),
+		fmt.Sprintf(`find %q /etc -delete`, first),
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+			t.Fatalf("multiple roots %q -> %+v, want ask/P1.find-delete", command, v)
+		}
 	}
 }
 
@@ -1474,6 +1475,43 @@ func TestFindScopedDeleteRejectsConcurrentPipelineMutation(t *testing.T) {
 	}
 }
 
+func TestFindScopedDeleteRejectsBackgroundAndWatchScope(t *testing.T) {
+	scratch := t.TempDir()
+	root := filepath.Join(scratch, "link")
+	for _, command := range []string{
+		fmt.Sprintf(`find %q -delete & ln -s /etc %q`, filepath.Join(root, "passwd"), root),
+		fmt.Sprintf(`watch 'find %s -delete'`, filepath.Join(scratch, "target")),
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+			t.Errorf("%q -> %+v, want ask/P1.find-delete", command, v)
+		}
+	}
+}
+
+func TestFindScopedDeleteRejectsDynamicAndForeignWrappers(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "target")
+	for _, command := range []string{
+		fmt.Sprintf(`xargs -I X find %q/X -delete < /tmp/guardrail-review-args`, filepath.Dir(target)),
+		fmt.Sprintf(`unshare -m find %q -delete`, target),
+		fmt.Sprintf(`nsenter -m -t 1 find %q -delete`, target),
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+			t.Errorf("%q -> %+v, want ask/P1.find-delete", command, v)
+		}
+	}
+}
+
+func TestFindScopedDeleteRejectsFilesystemRootRepository(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "target")
+	command := fmt.Sprintf(`find %q -delete`, target)
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: "/", RepoRoot: "/"}
+	if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+		t.Fatalf("filesystem-root repository %q -> %+v, want ask/P1.find-delete", command, v)
+	}
+}
+
 func TestFindScopedDeleteRejectsWrappedPriorFilesystemMutation(t *testing.T) {
 	for _, wrapper := range []string{"env", "command", "timeout 1", "nice", "time", "busybox"} {
 		scratch := t.TempDir()
@@ -1546,6 +1584,11 @@ func TestFindScopedDeleteKeepsOtherCallbacksAtAsk(t *testing.T) {
 		fmt.Sprintf(`find %q -exec busybox rm -rf /etc {} +`, target),
 		fmt.Sprintf(`find %q -exec sh -c 'rm -rf /etc' {} +`, target),
 		fmt.Sprintf(`find %q -exec wipefs /dev/sda {} +`, target),
+		fmt.Sprintf(`find %q -exec printf '%%s\n' {} +`, target),
+		fmt.Sprintf(`find %q -execdir echo {} +`, target),
+		fmt.Sprintf(`find %q -exec /bin/rm -rf {} +`, target),
+		fmt.Sprintf(`find %q -delete -exec printf {} +`, target),
+		fmt.Sprintf(`find %q -exec printf -delete {} +`, target),
 	}
 	for _, command := range commands {
 		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
@@ -1570,10 +1613,48 @@ func TestFindScopedDeleteRejectsRmOperandsOutsideMatches(t *testing.T) {
 		fmt.Sprintf(`find %q -exec rm -rf - {} +`, target),
 		fmt.Sprintf(`find %q -exec rm -rf {} -I \;`, target),
 		fmt.Sprintf(`find %q -exec rm -rf -{} {} +`, target),
+		fmt.Sprintf(`find %q -exec rm --future-option {} +`, target),
+		fmt.Sprintf(`find %q -exec rm -- -rf {} +`, target),
+		fmt.Sprintf(`find %q -print -delete`, target),
+		fmt.Sprintf(`find %q -name -delete`, target),
+		fmt.Sprintf(`find %q -name -type f -delete`, target),
+		fmt.Sprintf(`find %q -newer -type f -delete`, target),
+		fmt.Sprintf(`find %q -regextype -delete`, target),
+		fmt.Sprintf(`find %q -D tree -delete`, target),
+		fmt.Sprintf(`find %q -newerZZ marker -delete`, target),
+		fmt.Sprintf(`find %q -a -delete`, target),
+		fmt.Sprintf(`find %q -type z -delete`, target),
+		fmt.Sprintf(`find %q -type fd -delete`, target),
+		fmt.Sprintf(`find %q -exec rm --interactive=bogus {} +`, target),
+		fmt.Sprintf(`find %q -exec rm --preserve-root=bogus {} +`, target),
+		fmt.Sprintf(`find %q -fprint /etc/guardrail-review`, target),
 	} {
 		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
 		if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
 			t.Errorf("%q -> %+v, want ask/P1.find-delete", command, v)
+		}
+	}
+}
+
+func TestFindScopedDeleteAllowsNoArgumentPredicates(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "target")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	command := fmt.Sprintf(`find %q -mount -delete`, target)
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+	if v := checkBash(tc, bashPol()); v != nil {
+		t.Fatalf("%q -> %+v, want allow", command, v)
+	}
+}
+
+func TestNF5bEnvLongOptionsRetainLiteralChildInspection(t *testing.T) {
+	for _, command := range []string{
+		`env --ignore-environment bash -c 'rm -rf /'`,
+		`env --unset S bash -c 'rm -rf /'`,
+	} {
+		if v := evalBash(t, command); v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Errorf("%q -> %+v, want deny/P1.rm-rf", command, v)
 		}
 	}
 }
@@ -1591,8 +1672,8 @@ func TestFindScopedDeleteParsesLeadingOptionsConservatively(t *testing.T) {
 		fmt.Sprintf(`find -- %q -delete`, target),
 	} {
 		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
-		if v := checkBash(tc, bashPol()); v != nil {
-			t.Errorf("%q -> %+v, want allow", command, v)
+		if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+			t.Errorf("%q -> %+v, want ask/P1.find-delete", command, v)
 		}
 	}
 

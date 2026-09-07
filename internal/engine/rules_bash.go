@@ -885,47 +885,21 @@ func checkAskTier(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 			return ask("P1.chown", "recursive chown")
 		}
 	case "find":
-		scopedDelete := false
-		for i, a := range s.Argv {
-			if a == "-delete" {
-				scopedDelete = true
+		root, bulkAction, exact := scopedFindDelete(s.Argv)
+		if bulkAction {
+			if !exact {
+				return ask("P1.find-delete", "find action is not an exact scoped deletion")
 			}
-			if (a == "-exec" || a == "-execdir" || a == "-ok" || a == "-okdir") &&
-				i+1 < len(s.Argv) && findDestructiveCallbackCommand(head(s.Argv[i+1:])) {
-				if (a == "-exec" || a == "-execdir") && head(s.Argv[i+1:]) == "rm" {
-					if !findRmActionOnlyMatches(s.Argv, i+2) {
-						return ask("P1.find-delete", "find "+a+" rm includes an unscoped deletion operand")
-					}
-					scopedDelete = true
-					continue
-				}
-				return ask("P1.find-delete", "find "+a+" invokes a destructive command")
-			}
-			if (a == "-exec" || a == "-execdir" || a == "-ok" || a == "-okdir") &&
-				i+1 < len(s.Argv) && findWrappedDestructiveCallback(s.Argv[i+1:]) {
-				return ask("P1.find-delete", "find "+a+" invokes a destructive command through a wrapper")
-			}
-		}
-		if scopedDelete {
 			if s.fsUncertain {
 				return ask("P1.find-delete", "find deletion scope may have changed before execution")
 			}
-			if hasAnyArg(s.Argv, "-H", "-L", "-follow") {
-				return ask("P1.find-delete", "find deletion follows symlinks outside the starting roots")
-			}
-			roots, ok := findStartingRoots(s.Argv)
-			if !ok {
-				return ask("P1.find-delete", "find deletion scope could not be established")
-			}
 			cwd := simpleCwd(s, tc)
-			for _, root := range roots {
-				candidate := pathCandidate{path: root, cwd: cwd, cwdUnknown: s.cwdUnknown}
-				if findRootOverlapsRepository(candidate, tc.RepoRoot) {
-					return ask("P1.find-delete", "find deletion starts inside the repository: "+root)
-				}
-				if authorized, _ := authorizedPath(candidate, "", nil, systemTempRoots(), false); !authorized {
-					return ask("P1.find-delete", "find deletion starts outside configured safe roots: "+root)
-				}
+			candidate := pathCandidate{path: root, cwd: cwd, cwdUnknown: s.cwdUnknown}
+			if findRootOverlapsRepository(candidate, tc.RepoRoot) {
+				return ask("P1.find-delete", "find deletion starts inside the repository: "+root)
+			}
+			if authorized, _ := authorizedPath(candidate, "", nil, systemTempRoots(), false); !authorized {
+				return ask("P1.find-delete", "find deletion starts outside configured safe roots: "+root)
 			}
 		}
 	case "truncate":
@@ -956,181 +930,69 @@ func checkAskTier(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	return nil
 }
 
-func hasAnyArg(argv []string, values ...string) bool {
-	for _, arg := range argv {
-		for _, value := range values {
-			if arg == value {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func findRootOverlapsRepository(root pathCandidate, repoRoot string) bool {
 	if repoRoot == "" || root.cwdUnknown && !filepath.IsAbs(root.path) {
 		return false
 	}
-	lexicalRoot, err := filepath.Abs(resolvePath(root.path, root.cwd))
-	if err != nil {
-		return false
-	}
-	lexicalRepo, err := filepath.Abs(repoRoot)
-	if err != nil {
-		return false
-	}
-	if pathsOverlap(lexicalRoot, lexicalRepo) {
-		return true
-	}
-	physicalRoot, rootOK := resolveExistingPath(lexicalRoot, "")
-	physicalRepo, repoOK := resolveExistingPath(lexicalRepo, "")
-	return rootOK && repoOK && pathsOverlap(physicalRoot, physicalRepo)
-}
-
-func pathsOverlap(left, right string) bool {
-	contains := func(root, target string) bool {
-		relative, err := filepath.Rel(strings.ToLower(filepath.Clean(root)), strings.ToLower(filepath.Clean(target)))
-		if err != nil {
-			return false
-		}
-		return relative == "." || relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
-	}
-	return contains(left, right) || contains(right, left)
-}
-
-func findStartingRoots(argv []string) ([]string, bool) {
-	i := 1
-	for i < len(argv) {
-		arg := argv[i]
-		switch {
-		case arg == "--":
-			i++
-			goto roots
-		case arg == "-H" || arg == "-L" || arg == "-P":
-			i++
-		case arg == "-D":
-			if i+1 >= len(argv) || strings.HasPrefix(argv[i+1], "-") {
-				return nil, false
+	for _, candidate := range pathCandidateForms(root) {
+		for _, repo := range pathCandidateForms(pathCandidate{path: repoRoot}) {
+			candidate, repo = strings.ToLower(filepath.Clean(candidate)), strings.ToLower(filepath.Clean(repo))
+			if filepath.IsAbs(candidate) && filepath.Dir(candidate) == candidate || filepath.IsAbs(repo) && filepath.Dir(repo) == repo || withinSafe(candidate, repo, nil) || withinSafe(repo, candidate, nil) {
+				return true
 			}
-			i += 2
-		case strings.HasPrefix(arg, "-O"):
-			if len(arg) == 2 {
-				return nil, false
-			}
-			if _, err := strconv.Atoi(arg[2:]); err != nil {
-				return nil, false
-			}
-			i++
-		default:
-			goto roots
 		}
-	}
-
-roots:
-	start := i
-	for i < len(argv) {
-		arg := argv[i]
-		if strings.HasPrefix(arg, "-") || arg == "!" || arg == "(" || arg == ")" || arg == "," {
-			break
-		}
-		i++
-	}
-	if i == start {
-		return nil, false
-	}
-	return argv[start:i], true
-}
-
-func findRmActionOnlyMatches(argv []string, start int) bool {
-	foundMatch := false
-	options := true
-	for _, arg := range argv[start:] {
-		if arg == ";" || arg == `\;` || arg == "+" {
-			return foundMatch
-		}
-		if foundMatch {
-			if arg != "{}" {
-				return false
-			}
-			continue
-		}
-		if strings.Contains(arg, "{}") && arg != "{}" {
-			return false
-		}
-		if options && arg == "--" {
-			options = false
-			continue
-		}
-		if options && arg != "-" && strings.HasPrefix(arg, "-") {
-			continue
-		}
-		if arg != "{}" {
-			return false
-		}
-		foundMatch = true
 	}
 	return false
 }
 
-func findWrappedDestructiveCallback(argv []string) bool {
-	for len(argv) > 0 {
-		if findDestructiveCallbackCommand(head(argv)) {
-			return true
+func scopedFindDelete(argv []string) (root string, bulkAction, exact bool) {
+	for _, arg := range argv[1:] {
+		if strings.Contains(" -delete -exec -execdir -ok -okdir -print -print0 -printf -fprintf -fprint -fprint0 -ls -fls -prune -quit ", " "+arg+" ") {
+			bulkAction = true
 		}
-		switch head(argv) {
-		case "sh", "bash", "dash", "ash", "zsh", "ksh", "mksh", "csh", "tcsh":
-			return true
-		case "busybox":
-			if len(argv) < 2 || strings.HasPrefix(argv[1], "-") {
-				return true
+	}
+	if !bulkAction || len(argv) < 3 || strings.HasPrefix(argv[1], "-") || !strings.HasPrefix(argv[2], "-") && argv[2] != "!" && argv[2] != "(" {
+		return "", bulkAction, false
+	}
+	for i, arg := range argv[2:] {
+		i += 2
+		switch arg {
+		case "-delete":
+			return argv[1], true, i == len(argv)-1 && knownFindTests(argv[2:i])
+		case "-ok", "-okdir", "-follow", "-print", "-print0", "-printf", "-fprintf", "-fprint", "-fprint0", "-ls", "-fls", "-prune", "-quit":
+			return "", true, false
+		case "-exec", "-execdir":
+			if i+3 >= len(argv) || argv[i+1] != "rm" || !knownFindTests(argv[2:i]) {
+				return "", true, false
 			}
+			j := i + 2
+			for j < len(argv) && knownFindRmOption(argv[j]) {
+				j++
+			}
+			return argv[1], true, j+1 == len(argv)-1 && argv[j] == "{}" && (argv[j+1] == "+" || argv[j+1] == ";" || argv[j+1] == `\;`)
+		}
+	}
+	return "", true, false
+}
+
+func knownFindRmOption(arg string) bool {
+	return len(arg) > 1 && (arg[1] != '-' && strings.Trim(arg[1:], "dfirvIR") == "" || arg == "--directory" || arg == "--force" || arg == "--interactive" || arg == "--one-file-system" || arg == "--no-preserve-root" || arg == "--preserve-root" || arg == "--preserve-root=all" || arg == "--recursive" || arg == "--verbose" || arg == "--interactive=always" || arg == "--interactive=never" || arg == "--interactive=once")
+}
+
+func knownFindTests(argv []string) bool {
+	noValue := " -true -false -empty -readable -writable -executable -nouser -nogroup -xdev -mount -depth -daystart -ignore_readdir_race -noignore_readdir_race "
+	oneValue := " -amin -anewer -atime -cmin -cnewer -context -ctime -fstype -gid -group -ilname -iname -inum -ipath -iregex -links -lname -maxdepth -mindepth -mmin -mtime -name -newer -path -perm -regex -regextype -samefile -size -type -uid -used -user -wholename -xattrname -xtype "
+	for len(argv) > 0 {
+		if strings.Contains(noValue, " "+argv[0]+" ") {
 			argv = argv[1:]
 			continue
 		}
-		var rest []string
-		var err error
-		switch head(argv) {
-		case "env":
-			rest, err = consumeEnv(argv[1:])
-		case "timeout":
-			rest, err = consumeTimeout(argv[1:])
-		case "nice":
-			rest, err = consumeNice(argv[1:])
-		case "setsid":
-			rest, err = consumeSetsid(argv[1:])
-		case "stdbuf":
-			rest, err = consumeStdbuf(argv[1:])
-		case "ionice":
-			rest, err = consumeIonice(argv[1:])
-		case "nohup":
-			rest, err = consumeNoFlags("nohup", argv[1:])
-		case "command":
-			var none bool
-			rest, none, err = consumeCommand(argv[1:])
-			if none {
-				return false
-			}
-		default:
+		if !strings.Contains(oneValue, " "+argv[0]+" ") && !(len(argv[0]) == 8 && strings.HasPrefix(argv[0], "-newer") && strings.ContainsRune("aBcm", rune(argv[0][6])) && strings.ContainsRune("aBcmt", rune(argv[0][7]))) || len(argv) < 2 || strings.Contains(noValue+oneValue+" -delete -exec -execdir -ok -okdir ", " "+argv[1]+" ") || (argv[0] == "-type" || argv[0] == "-xtype") && (strings.Trim(argv[1], "bcdflpsD,") != "" || len(argv[1]) != 2*strings.Count(argv[1], ",")+1) || (argv[0] == "-maxdepth" || argv[0] == "-mindepth") && !allDigits(argv[1]) {
 			return false
 		}
-		if err != nil {
-			return true
-		}
-		if len(rest) == 0 || len(rest) >= len(argv) {
-			return false
-		}
-		argv = rest
+		argv = argv[2:]
 	}
-	return false
-}
-
-func findDestructiveCallbackCommand(command string) bool {
-	switch command {
-	case "rm", "shred", "srm", "truncate", "dd", "unlink", "rmdir", "mke2fs", "wipefs":
-		return true
-	default:
-		return command == "mkfs" || strings.HasPrefix(command, "mkfs.")
-	}
+	return true
 }
 
 func ask(id, reason string) *policy.Verdict {

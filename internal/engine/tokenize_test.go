@@ -337,63 +337,30 @@ func TestNF5bRestoresPrefixIFSAfterShellBuiltins(t *testing.T) {
 	}
 }
 
-// Mutation caught: restoring eval prefixes unconditionally is unsound when a supported shell runs in POSIX mode.
-func TestNF5bTreatsSpecialBuiltinPrefixAssignmentsAsModeDependent(t *testing.T) {
+func TestNF5bStopsAtExternalShellTransitions(t *testing.T) {
 	for _, command := range []string{
-		`sh -c 'IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
-		`bash --posix -c 'IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
+		`S=/tmp/scripts; bash -c 'bash $S/run.sh'`,
+		`S=/tmp/scripts bash -c 'bash $S/run.sh'`,
+		`S=/tmp/scripts; watch 'bash $S/run.sh'`,
 	} {
 		verdict := evalBash(t, command)
 		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
 			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
 		}
 	}
-}
 
-func TestNF5bPersistsPOSIXSpecialBuiltinPrefixAssignments(t *testing.T) {
-	for _, builtin := range []string{
-		`:`,
-		`export V=1`,
-		`readonly V=1`,
-		`set --`,
-		`trap - 0`,
-		`unset V`,
-	} {
-		command := fmt.Sprintf(`sh -c 'IFS=; IFS=X %s; S="--one-file-systemX/etc"; rm -rf $S/x'`, builtin)
-		verdict := evalBash(t, command)
-		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
-			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
-		}
-	}
-}
-
-func TestNF5bPersistsPOSIXBuiltinEvalPrefixAssignments(t *testing.T) {
-	command := `bash --posix -c 'IFS=; IFS=X builtin eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`
+	command := `bash -c 'rm -rf /'`
 	verdict := evalBash(t, command)
-	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
-		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+	if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
+		t.Fatalf("checkBash(%q) = %+v, want deny/P1.rm-rf", command, verdict)
 	}
 }
 
-func TestNF5bBoundsPOSIXModeToShellStartupOptions(t *testing.T) {
+func TestNF5bInvalidatesAmbiguousShellSemantics(t *testing.T) {
 	for _, command := range []string{
-		`bash -c 'IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x' --posix`,
-		`bash --posix +o posix -c 'IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
-		`POSIXLY_CORRECT=1 env -u POSIXLY_CORRECT bash -c 'IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
-	} {
-		if verdict := evalBash(t, command); verdict != nil {
-			t.Errorf("checkBash(%q) = %+v, want allow", command, verdict)
-		}
-	}
-}
-
-func TestNF5bTracksRuntimeAndEnvironmentPOSIXMode(t *testing.T) {
-	for _, command := range []string{
-		`bash -c 'IFS=; set -o posix; IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
-		`bash -c 'IFS=; POSIXLY_CORRECT=1; IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
-		`POSIXLY_CORRECT=1 bash -c 'IFS=; IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
-		`POSIXLY_CORRECT= bash -c 'IFS=; IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
-		`env POSIXLY_CORRECT=1 bash -c 'IFS=; IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
+		`S=/tmp/scripts; set -o posix; bash $S/run.sh`,
+		`S=/tmp/scripts; IFS=X builtin command eval ':'; bash $S/run.sh`,
+		`S=/tmp/scripts; IFS=X command builtin eval ':'; bash $S/run.sh`,
 	} {
 		verdict := evalBash(t, command)
 		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
@@ -402,15 +369,21 @@ func TestNF5bTracksRuntimeAndEnvironmentPOSIXMode(t *testing.T) {
 	}
 }
 
-func TestNF5bMergesConditionalPOSIXModeAsUnknown(t *testing.T) {
+func TestNF5bKeepsFactsInvalidAfterPersistentMutation(t *testing.T) {
 	for _, command := range []string{
-		`bash -c 'IFS=; if [ -e /runtime-choice ]; then set -o posix; fi; IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
-		`bash -c 'IFS=X; if [ -e /runtime-choice ]; then set -o posix; fi; IFS= eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
+		`S=/tmp; trap 'S=/etc' DEBUG; S=/tmp; rm -rf "$S/x"`,
+		`S=/tmp; shopt -s lastpipe; S=/tmp; printf /etc | read S; rm -rf "$S/x"`,
 	} {
 		verdict := evalBash(t, command)
 		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
 			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
 		}
+	}
+
+	command := `bash -c 'S=/etc; rm -rf "$S/x"'`
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
+		t.Fatalf("checkBash(%q) = %+v, want deny/P1.rm-rf", command, verdict)
 	}
 }
 
@@ -514,14 +487,6 @@ func TestNF5bLeavesLiteralSuffixGlobsUnresolved(t *testing.T) {
 		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
 			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
 		}
-	}
-}
-
-// Mutation caught: scanning a whole compound statement lets unreachable expansion side effects poison later state.
-func TestNF5bIgnoresUnreachableExpansionAssignments(t *testing.T) {
-	command := `if false; then : ${IFS:=X}; fi; S=/tmp/scripts; bash $S/run.sh`
-	if verdict := evalBash(t, command); verdict != nil {
-		t.Fatalf("checkBash(%q) = %+v, want allow", command, verdict)
 	}
 }
 
