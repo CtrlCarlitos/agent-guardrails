@@ -26,6 +26,12 @@
 - `session/session.go` — `Load` reads and unmarshals, `Save` marshals and writes, with no lock between them. `safeSessionID` rejects `""`.
 - `cmd/guardrail/hook.go:101` — the whole trifecta block is guarded by `tc.Event == "pre" && tc.SessionID != ""`. An empty session ID skips it **silently**: the `unsafe session id` warning is inside the `else` branch and is never reached.
 
+
+**Two findings from the 2026-09-06 v0.13.0-dev deployment, for this phase's preflight:**
+
+- **NF-3 — a plane-side disable is undetected.** The guardrail hooks in `~/.claude/settings.json` were switched off through Claude Code's own `/hooks` menu (which parks entries under a `hooks_disabled` key) in another session, and the guard stayed silently off for new Claude sessions until a reinstall re-merged them. `guardrail doctor` reports "hook NOT registered" correctly, but nothing runs doctor; the SessionStart posture cannot help because it is one of the disabled hooks. This is M-7's "the plane can neuter the guard" concern on a different surface. Candidate mitigation: have the chezmoi `update_ai_tools` script and `guardrail sync` re-run `gen-config --merge` (owned-entry, idempotent) and surface `doctor` output; and have `doctor` warn explicitly when a `hooks_disabled` key contains guardrail commands.
+- **Opaque-executor writes to self-config are not caught.** ▶ Audit log, plane `claude`: at `2026-09-06T06:40:53Z` a `python3 - <<'PY' … os.replace(tmp, "~/.claude/settings.json")` heredoc was **allowed** with no rule; at `2026-09-07T00:12:11Z` an equivalent heredoc drew only a generic `P3.unresolved` **ask** — in neither case did `P5.self-config` recognize the write, while the same write through the `Write` tool is denied by it. Task 6 of Phase 4 feeds opaque-source tokens into the *read* candidates (secret globs) only; `writeCandidates` still comes from redirects and the fixed `writeTargets` list. Closing it means routing path-shaped tokens from opaque source into `writeCandidates` as well, with the same ask-on-uncertainty shape. This is the RC4 residue Phase 4 recorded in its self-review, now with a live reproduction.
+
 ---
 
 ### Task 1: H-10 — unknown tools must reach the engine, and survive it
