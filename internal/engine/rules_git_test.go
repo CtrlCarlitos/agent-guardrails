@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
@@ -614,6 +615,56 @@ func TestGitConfigLocalWritesRequireTheToolCallRepository(t *testing.T) {
 	v = checkBash(tc, bashPol())
 	if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
 		t.Errorf("mutated GIT_DIR -> %+v, want ask/P3.unresolved", v)
+	}
+}
+
+func TestGitConfigIdentityNeverExecutesAttemptedGitPath(t *testing.T) {
+	repo := t.TempDir()
+	initGitRepository(t, repo, false)
+	attacker := filepath.Join(t.TempDir(), "git")
+	marker := filepath.Join(t.TempDir(), "executed")
+	script := fmt.Sprintf("#!/bin/sh\nprintf touched > %q\nprintf '%%s\\n' %q\n", marker, filepath.Join(repo, ".git"))
+	if err := os.WriteFile(attacker, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	command := fmt.Sprintf(`%q config user.email x@y.com`, attacker)
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+	if v := checkBash(tc, bashPol()); v != nil {
+		t.Fatalf("attacker-path Git config -> %+v, want trusted-probe allow", v)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("policy evaluation executed attempted Git path; marker stat error = %v", err)
+	}
+}
+
+func TestGitIdentityProbeTimesOutAndFailsClosed(t *testing.T) {
+	probe := filepath.Join(t.TempDir(), "git")
+	if err := os.WriteFile(probe, []byte("#!/bin/sh\nsleep 2\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	_, ok := gitCommonDirectory(probe, nil, t.TempDir(), nil, true)
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("Git identity probe took %s, want bounded execution", elapsed)
+	}
+	if ok {
+		t.Fatal("timed-out Git identity probe succeeded, want fail closed")
+	}
+}
+
+func TestUnrelatedVariableMutationsDoNotTaintGitIdentity(t *testing.T) {
+	repo := t.TempDir()
+	initGitRepository(t, repo, false)
+	for _, command := range []string{
+		`printf -v TARGET /etc; git config user.email x@y.com`,
+		`read TARGET < /repo/input; git config user.email x@y.com`,
+		`declare TARGET=/etc; git config user.email x@y.com`,
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+		if v := checkBash(tc, bashPol()); v != nil {
+			t.Errorf("%q -> %+v, want allow", command, v)
+		}
 	}
 }
 

@@ -1,13 +1,29 @@
 package engine
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
+
+const gitIdentityTimeout = 500 * time.Millisecond
+
+var trustedGitExecutable = func() string {
+	path, err := exec.LookPath("git")
+	if err != nil {
+		return ""
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return ""
+	}
+	return absolute
+}()
 
 func checkGitSafety(s Simple, tc ToolCall) *policy.Verdict {
 	if head(s.Argv) != "git" || len(s.Argv) < 2 {
@@ -375,11 +391,11 @@ func gitConfigTargetsToolCallRepo(s Simple, tc ToolCall) bool {
 	if subcommand < 0 || s.cwdUnknown || s.gitEnvironmentUnknown || s.Cwd == "" || tc.RepoRoot == "" {
 		return false
 	}
-	target, ok := gitCommonDirectory(argv[0], normalizeGitIdentityArgs(argv[1:subcommand]), s.Cwd, s.gitEnvironment, false)
+	target, ok := gitCommonDirectory(trustedGitExecutable, normalizeGitIdentityArgs(argv[1:subcommand]), s.Cwd, s.gitEnvironment, false)
 	if !ok {
 		return false
 	}
-	trusted, ok := gitCommonDirectory(argv[0], []string{"-C", tc.RepoRoot}, s.Cwd, nil, true)
+	trusted, ok := gitCommonDirectory(trustedGitExecutable, []string{"-C", tc.RepoRoot}, s.Cwd, nil, true)
 	if !ok {
 		return false
 	}
@@ -387,8 +403,14 @@ func gitConfigTargetsToolCallRepo(s Simple, tc ToolCall) bool {
 }
 
 func gitCommonDirectory(binary string, globalArgs []string, cwd string, variables map[string]string, cleanEnvironment bool) (string, bool) {
+	if binary == "" {
+		return "", false
+	}
 	args := append(append([]string{}, globalArgs...), "rev-parse", "--path-format=absolute", "--git-common-dir")
-	command := exec.Command(binary, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), gitIdentityTimeout)
+	defer cancel()
+	command := exec.CommandContext(ctx, binary, args...)
+	command.WaitDelay = 100 * time.Millisecond
 	command.Dir = cwd
 	environment := os.Environ()
 	if cleanEnvironment {

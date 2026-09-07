@@ -231,6 +231,40 @@ func TestNormalizeInvalidatesVariablesMutatedByShellState(t *testing.T) {
 	}
 }
 
+func TestNormalizeScopesGitEnvironmentUncertaintyToMutatedVariables(t *testing.T) {
+	for _, command := range []string{
+		`printf -v TARGET /etc; git config user.email x@y.com`,
+		`read TARGET < /repo/input; git config user.email x@y.com`,
+		`declare TARGET=/etc; git config user.email x@y.com`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatalf("Normalize(%q): %v", command, err)
+		}
+		last := got[len(got)-1]
+		if last.Unresolved || last.gitEnvironmentUnknown {
+			t.Errorf("Normalize(%q) last = %+v, want concrete Git environment", command, last)
+		}
+	}
+
+	for _, command := range []string{
+		`printf -v GIT_DIR /tmp/foreign/.git; git config user.email x@y.com`,
+		`read GIT_WORK_TREE < /repo/input; git config user.email x@y.com`,
+		`declare GIT_COMMON_DIR=/tmp/foreign/.git; git config user.email x@y.com`,
+		`printf -v "$NAME" /tmp/foreign/.git; git config user.email x@y.com`,
+		`source /repo/script; git config user.email x@y.com`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatalf("Normalize(%q): %v", command, err)
+		}
+		last := got[len(got)-1]
+		if !last.Unresolved || !last.gitEnvironmentUnknown {
+			t.Errorf("Normalize(%q) last = %+v, want unresolved Git environment", command, last)
+		}
+	}
+}
+
 func TestSplitSimplesRedirect(t *testing.T) {
 	got, err := splitSimples(`echo hi > out.txt`)
 	if err != nil {

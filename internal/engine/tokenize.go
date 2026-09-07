@@ -1146,7 +1146,10 @@ func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 		return w.caseClause(command, state)
 	case *syntax.TimeClause:
 		return w.stmt(command.Stmt, state)
-	case *syntax.DeclClause, *syntax.LetClause, *syntax.ArithmCmd:
+	case *syntax.DeclClause:
+		state = invalidateDeclarationVariables(state, command)
+		return bothOutcome(state)
+	case *syntax.LetClause, *syntax.ArithmCmd:
 		state.variables = nil
 		state.gitEnvironmentUnknown = true
 		return bothOutcome(state)
@@ -1657,19 +1660,140 @@ func invalidateCallVariables(state cwdState, argv []string) cwdState {
 	switch argv[0] {
 	case "cd", "pushd", "popd":
 		return withoutVariables(state, "PWD", "OLDPWD")
-	case ".", "source", "read", "readarray", "mapfile", "declare", "typeset", "local", "export", "readonly", "unset", "getopts", "let":
+	case ".", "source":
+		state.variables = nil
+		state.gitEnvironmentUnknown = true
+	case "read":
+		names, uncontrolled := readVariableNames(argv[1:])
+		return invalidateNamedVariables(state, names, uncontrolled)
+	case "readarray", "mapfile":
+		names, uncontrolled := lastVariableName(argv[1:])
+		return invalidateNamedVariables(state, names, uncontrolled)
+	case "declare", "typeset", "local", "export", "readonly", "unset":
+		names, uncontrolled := declarationArgumentNames(argv[1:])
+		return invalidateNamedVariables(state, names, uncontrolled)
+	case "getopts":
+		if len(argv) > 2 {
+			return invalidateNamedVariables(state, []string{argv[2]}, !validShellVariableName(argv[2]))
+		}
+	case "let":
 		state.variables = nil
 		state.gitEnvironmentUnknown = true
 	case "printf":
-		for _, arg := range argv[1:] {
-			if arg == "-v" || strings.HasPrefix(arg, "-v") && len(arg) > 2 {
-				state.variables = nil
-				state.gitEnvironmentUnknown = true
-				break
-			}
+		name, found := printfVariableName(argv[1:])
+		if found {
+			return invalidateNamedVariables(state, []string{name}, !validShellVariableName(name))
 		}
 	}
 	return state
+}
+
+func invalidateDeclarationVariables(state cwdState, declaration *syntax.DeclClause) cwdState {
+	var names []string
+	uncontrolled := false
+	for _, assignment := range declaration.Args {
+		if assignment.Name != nil {
+			names = append(names, assignment.Name.Value)
+			continue
+		}
+		value, ok := staticWord(assignment.Value, false)
+		if !ok || !strings.HasPrefix(value, "-") {
+			uncontrolled = true
+		}
+	}
+	return invalidateNamedVariables(state, names, uncontrolled)
+}
+
+func invalidateNamedVariables(state cwdState, names []string, uncontrolled ...bool) cwdState {
+	if len(uncontrolled) > 0 && uncontrolled[0] {
+		state.variables = nil
+		state.gitEnvironmentUnknown = true
+		return state
+	}
+	return withoutVariables(state, names...)
+}
+
+func printfVariableName(argv []string) (string, bool) {
+	for index, arg := range argv {
+		switch {
+		case arg == "--":
+			return "", false
+		case arg == "-v":
+			if index+1 >= len(argv) {
+				return "", false
+			}
+			return argv[index+1], true
+		case strings.HasPrefix(arg, "-v") && len(arg) > 2:
+			return arg[2:], true
+		}
+	}
+	return "", false
+}
+
+func readVariableNames(argv []string) ([]string, bool) {
+	var names []string
+	for index := 0; index < len(argv); index++ {
+		arg := argv[index]
+		if arg == "--" {
+			names = append(names, argv[index+1:]...)
+			break
+		}
+		if strings.HasPrefix(arg, "-") && arg != "-" {
+			if strings.Contains("adinNpStu", strings.TrimPrefix(arg, "-")) && index+1 < len(argv) {
+				if strings.HasPrefix(arg, "-a") {
+					names = append(names, argv[index+1])
+				}
+				index++
+			}
+			continue
+		}
+		names = append(names, arg)
+	}
+	for _, name := range names {
+		if !validShellVariableName(name) {
+			return names, true
+		}
+	}
+	return names, false
+}
+
+func lastVariableName(argv []string) ([]string, bool) {
+	if len(argv) == 0 {
+		return nil, false
+	}
+	name := argv[len(argv)-1]
+	if strings.HasPrefix(name, "-") {
+		return nil, false
+	}
+	return []string{name}, !validShellVariableName(name)
+}
+
+func declarationArgumentNames(argv []string) ([]string, bool) {
+	var names []string
+	for _, arg := range argv {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		name, _, _ := strings.Cut(arg, "=")
+		if !validShellVariableName(name) {
+			return names, true
+		}
+		names = append(names, name)
+	}
+	return names, false
+}
+
+func validShellVariableName(name string) bool {
+	if name == "" || name[0] != '_' && (name[0] < 'A' || name[0] > 'Z') && (name[0] < 'a' || name[0] > 'z') {
+		return false
+	}
+	for index := 1; index < len(name); index++ {
+		char := name[index]
+		if char != '_' && (char < 'A' || char > 'Z') && (char < 'a' || char > 'z') && (char < '0' || char > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 func invalidateLoopVariables(state cwdState, loop syntax.Loop) cwdState {
@@ -1686,6 +1810,11 @@ func invalidateLoopVariables(state cwdState, loop syntax.Loop) cwdState {
 }
 
 func withoutVariables(state cwdState, names ...string) cwdState {
+	for _, name := range names {
+		if gitRepositoryEnvironmentVariable(name) {
+			state.gitEnvironmentUnknown = true
+		}
+	}
 	if len(state.variables) == 0 {
 		return state
 	}
@@ -1695,9 +1824,6 @@ func withoutVariables(state cwdState, names ...string) cwdState {
 	}
 	for _, name := range names {
 		delete(variables, name)
-		if gitRepositoryEnvironmentVariable(name) {
-			state.gitEnvironmentUnknown = true
-		}
 	}
 	state.variables = variables
 	return state
