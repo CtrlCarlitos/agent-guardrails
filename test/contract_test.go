@@ -125,9 +125,18 @@ func TestAntigravityContractFixtures(t *testing.T) {
 			cmd := exec.Command(bin, "hook", "antigravity", "pre")
 			cmd.Stdin = bytes.NewReader(payload)
 			cmd.Env = append(os.Environ(), "XDG_STATE_HOME="+t.TempDir(), "GUARDRAIL_CONFIG=")
-			out, _ := cmd.Output()
-			if !bytes.Contains(out, []byte(`"decision":"`+want.Decision+`"`)) {
-				t.Fatalf("%s: stdout %s, want decision %q", name, out, want.Decision)
+			out, err := cmd.Output()
+			if err != nil {
+				t.Fatalf("%s: hook failed: %v", name, err)
+			}
+			var got struct {
+				Decision string `json:"decision"`
+			}
+			if err := json.Unmarshal(out, &got); err != nil {
+				t.Fatalf("%s: invalid JSON %q: %v", name, out, err)
+			}
+			if got.Decision != want.Decision {
+				t.Fatalf("%s: decision %q, want %q", name, got.Decision, want.Decision)
 			}
 		})
 	}
