@@ -33,7 +33,7 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		if v == nil {
 			return
 		}
-		if pol.Waived[v.RuleID] {
+		if pol.Waived[v.RuleID] && v.RuleID != "P3.unresolved" {
 			return
 		}
 		if worst == nil || v.Decision.Severity() > worst.Decision.Severity() {
@@ -42,9 +42,9 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	}
 	take(checkDownloadPipeShell(simples))
 	for _, s := range simples {
-		if s.Unresolved {
+		if unresolvedPolicyPosition(s) {
 			take(&policy.Verdict{Decision: policy.Ask, RuleID: "P3.unresolved",
-				Reason: "command contains an unexpanded variable or substitution; its real target cannot be verified"})
+				Reason: "command contains an unresolved value in a policy-bearing position"})
 		}
 		if len(s.Argv) == 0 {
 			take(checkAskTier(s, tc, pol)) // redirect targets only
@@ -61,6 +61,65 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		take(checkPackageInstall(s))
 	}
 	return worst
+}
+
+func unresolvedPolicyPosition(s Simple) bool {
+	if !s.Unresolved {
+		return false
+	}
+	unresolved := make(map[int]bool)
+	for index := range s.Argv {
+		if s.wordUnresolved(index) {
+			unresolved[index] = true
+		}
+	}
+	if unresolved[0] {
+		return true
+	}
+	for index := range s.Redirects {
+		if s.outputRedirectUnresolved(index) {
+			return true
+		}
+	}
+	for index := range s.ReadRedirects {
+		if s.inputRedirectUnresolved(index) {
+			return true
+		}
+	}
+
+	parsed := parseOperandRolesWithSources(s.Argv)
+	knownGrammar := knownInertOperandGrammar(head(s.Argv))
+	seen := make(map[int]bool)
+	for _, operand := range parsed.operands {
+		if operand.sourceArg < 0 || !unresolved[operand.sourceArg] {
+			continue
+		}
+		seen[operand.sourceArg] = true
+		if operand.role != operandNonPath || !knownGrammar {
+			return true
+		}
+	}
+	for index := range unresolved {
+		if index > 0 && (!knownGrammar || !seen[index]) {
+			return true
+		}
+	}
+	if len(unresolved) == 0 && s.Unresolved {
+		return true
+	}
+	return false
+}
+
+func knownInertOperandGrammar(command string) bool {
+	if pathOperandCommands[command] {
+		return true
+	}
+	switch command {
+	case ":", "true", "false", "echo", "printf", "pwd", "test", "[":
+		return true
+	default:
+		return false
+	}
 }
 
 func checkDestinationWrites(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {

@@ -109,6 +109,9 @@ func checkEgress(s Simple, pol *policy.Policy) *policy.Verdict {
 		return nil
 	}
 	for _, host := range hosts {
+		if _, literal := literalText(host); !literal {
+			continue // P3 owns unresolved network destinations.
+		}
 		if isLocalHost(host) || hostAllowed(host, pol.Slots.EgressAllowlist) {
 			continue
 		}

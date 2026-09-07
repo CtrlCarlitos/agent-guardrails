@@ -119,6 +119,74 @@ func TestSplitSimplesMarksUnresolved(t *testing.T) {
 	}
 }
 
+func TestNormalizeResolvesQuotedPriorScalarLiteralAssignments(t *testing.T) {
+	got, err := Normalize(`SDK="/abs/lit"; grep -rn Foo "$SDK/api/"`, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("Normalize returned %+v, want one command", got)
+	}
+	want := []string{"grep", "-rn", "Foo", "/abs/lit/api/"}
+	if !reflect.DeepEqual(got[0].Argv, want) || got[0].Unresolved {
+		t.Fatalf("Normalize argv = %v unresolved=%v, want locally resolved %v", got[0].Argv, got[0].Unresolved, want)
+	}
+}
+
+func TestNormalizePreservesPerWordProvenance(t *testing.T) {
+	got, err := Normalize(`SDK=/repo/sdk; OUT=/repo/out; grep "$PATTERN" '$LITERAL' "$SDK/api" > "$OUT"`, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("Normalize returned %+v, want one command", got)
+	}
+	simple := got[0]
+	if !simple.Unresolved || !simple.wordUnresolved(1) {
+		t.Fatalf("Normalize = %+v, want argument 1 unresolved", simple)
+	}
+	if simple.wordUnresolved(2) || simple.wordUnresolved(3) {
+		t.Fatalf("Normalize = %+v, want arguments 2 and 3 concrete", simple)
+	}
+	if !simple.resolvedArgs[3] || !simple.resolvedOut[0] {
+		t.Fatalf("Normalize = %+v, want locally resolved argument and redirect provenance", simple)
+	}
+}
+
+func TestOperandRolesRetainAttachedOptionSourceArgument(t *testing.T) {
+	parsed := parseOperandRolesWithSources([]string{"grep", "--file=$FILE", "/repo/input"})
+	if len(parsed.operands) != 2 {
+		t.Fatalf("parseOperandRolesWithSources returned %+v, want two operands", parsed.operands)
+	}
+	if got := parsed.operands[0]; got.value != "$FILE" || got.role != operandPath || got.sourceArg != 1 {
+		t.Errorf("attached option operand = %+v, want path from argument 1", got)
+	}
+	if got := parsed.operands[1]; got.value != "/repo/input" || got.role != operandPath || got.sourceArg != 2 {
+		t.Errorf("positional operand = %+v, want path from argument 2", got)
+	}
+}
+
+func TestNormalizeOnlyResolvesEligiblePriorAssignments(t *testing.T) {
+	for _, command := range []string{
+		`TARGET=/repo/input cat "$TARGET"`,
+		`if condition; then TARGET=/repo/a; else TARGET=/repo/b; fi; cat "$TARGET"`,
+		`TARGET=(/repo/a /repo/b); cat "$TARGET"`,
+		`TARGET=/repo/a; cat "${TARGET:-/repo/b}"`,
+		`TARGET=$(pwd); cat "$TARGET"`,
+		`TARGET=$((1 + 1)); cat "$TARGET"`,
+		`cat "$INHERITED"`,
+		`TARGET=/repo/a; cat $TARGET`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatalf("Normalize(%q): %v", command, err)
+		}
+		if len(got) == 0 || !got[len(got)-1].Unresolved {
+			t.Errorf("Normalize(%q) = %+v, want unresolved final command", command, got)
+		}
+	}
+}
+
 func TestSplitSimplesRedirect(t *testing.T) {
 	got, err := splitSimples(`echo hi > out.txt`)
 	if err != nil {

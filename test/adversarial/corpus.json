@@ -2569,5 +2569,37 @@
     "cwd": "/repo",
     "repo_root": "/repo",
     "want": "allow"
+  },
+  {
+    "name": "inert unresolved echo status",
+    "tool": "Bash",
+    "command": "echo \"exit: $?\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "unresolved unknown command operand",
+    "tool": "Bash",
+    "command": "future-tool \"$TARGET\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask"
+  },
+  {
+    "name": "locally resolved dangerous delete",
+    "tool": "Bash",
+    "command": "DANGER=/etc; rm -rf \"$DANGER/y\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
+  },
+  {
+    "name": "locally resolved temp delete",
+    "tool": "Bash",
+    "command": "SCRATCH=/tmp/x; rm -rf \"$SCRATCH/y\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
   }
 ]

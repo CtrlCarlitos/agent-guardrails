@@ -467,13 +467,13 @@ func TestUnresolvedRedirectOnlyStatementAsks(t *testing.T) {
 	}
 }
 
-func TestUnresolvedRedirectStillRunsRedirectChecks(t *testing.T) {
+func TestUnresolvedPolicyPositionCannotBeWaivedInsideEngine(t *testing.T) {
 	pol := bashPol()
 	pol.Waived["P3.unresolved"] = true
-	tc := ToolCall{Tool: "Bash", Command: `> "$TARGET"`, CWD: "/outside", RepoRoot: "/repo"}
+	tc := ToolCall{Tool: "Bash", Command: `> "$TARGET"`, CWD: "/repo", RepoRoot: "/repo"}
 	v := checkBash(tc, pol)
-	if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.redirect" {
-		t.Fatalf("-> %+v, want ask/P1.redirect with P3.unresolved waived", v)
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+		t.Fatalf("-> %+v, want unwaivable ask/P3.unresolved", v)
 	}
 }
 
@@ -1498,6 +1498,78 @@ func TestUnresolvedWordAsks(t *testing.T) {
 	v := evalBash(t, `rm -rf "$TARGET"`)
 	if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
 		t.Fatalf("-> %+v, want ask/P3.unresolved", v)
+	}
+}
+
+func TestP3OnlyAsksForUnresolvedPolicyPositions(t *testing.T) {
+	for _, command := range []string{
+		`echo "exit: $?"`,
+		`for f in a b; do echo "=== $f"; done`,
+		`grep "$PATTERN" '$PATTERN'`,
+		`echo "$?" > '$OUT'`,
+	} {
+		if v := evalBash(t, command); v != nil {
+			t.Errorf("%q -> %+v, want allow for inert unresolved word", command, v)
+		}
+	}
+
+	for _, command := range []string{
+		`"$CMD" harmless`,
+		`future-tool "$TARGET"`,
+		`cat "$INPUT"`,
+		`grep --future-option "$TARGET"`,
+		`echo x > "$OUT"`,
+		`curl "$URL"`,
+		`sh -c "$CODE"`,
+		`python3 -c "$CODE"`,
+	} {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want ask/P3.unresolved", command, v)
+		}
+	}
+}
+
+func TestLocallyResolvedPathsReachConcretePolicyRules(t *testing.T) {
+	cases := []struct {
+		command  string
+		decision policy.Decision
+		ruleID   string
+	}{
+		{`SDK="/abs/lit"; grep -rn Foo "$SDK/api/"`, policy.Allow, ""},
+		{`OUT="/etc/passwd"; echo x > "$OUT"`, policy.Ask, "P1.redirect"},
+		{`SCRATCH=/tmp/x; rm -rf "$SCRATCH/y"`, policy.Allow, ""},
+		{`DANGER=/etc; rm -rf "$DANGER/y"`, policy.Deny, "P1.rm-rf"},
+		{`rm -rf /etc/y`, policy.Deny, "P1.rm-rf"},
+	}
+	for _, test := range cases {
+		v := evalBash(t, test.command)
+		if test.decision == policy.Allow {
+			if v != nil {
+				t.Errorf("%q -> %+v, want allow", test.command, v)
+			}
+			continue
+		}
+		if v == nil || v.Decision != test.decision || v.RuleID != test.ruleID {
+			t.Errorf("%q -> %+v, want %s/%s", test.command, v, test.decision, test.ruleID)
+		}
+	}
+}
+
+func TestLocallyResolvedSecretAndSelfConfigPathsReachPathPolicy(t *testing.T) {
+	pol := bashPol()
+	pol.Slots.SecretDirs = []string{"**/.ssh/**"}
+	for _, test := range []struct {
+		command string
+		ruleID  string
+	}{
+		{`SECRET=/home/u/.ssh/id_rsa; cat "$SECRET"`, "P4.secret-path"},
+		{`CONFIG=/repo/CLAUDE.md; echo x > "$CONFIG"`, "P5.self-config"},
+	} {
+		v := Evaluate(ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}, pol)
+		if v.Decision != policy.Deny || v.RuleID != test.ruleID {
+			t.Errorf("%q -> %+v, want deny/%s", test.command, v, test.ruleID)
+		}
 	}
 }
 

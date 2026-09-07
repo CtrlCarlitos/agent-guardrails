@@ -14,6 +14,7 @@ type parsedOperand struct {
 	value       string
 	role        operandRole
 	writeTarget bool
+	sourceArg   int
 }
 
 type operandParseResult struct {
@@ -61,6 +62,35 @@ func parseOperandRoles(argv []string) operandParseResult {
 		return operandParseResult{operands: parseDDOperands(argv)}
 	}
 	return operandParseResult{operands: parseGenericOperands(argv, pathOperandCommands[command])}
+}
+
+func parseOperandRolesWithSources(argv []string) operandParseResult {
+	parsed := parseOperandRoles(argv)
+	start := 1
+	for index := range parsed.operands {
+		source := operandSourceArg(argv, parsed.operands[index].value, start)
+		parsed.operands[index].sourceArg = source
+		if source >= start {
+			start = source + 1
+		}
+	}
+	return parsed
+}
+
+func operandSourceArg(argv []string, value string, start int) int {
+	for pass := 0; pass < 2; pass++ {
+		from := start
+		if pass == 1 {
+			from = 1
+		}
+		for index := from; index < len(argv); index++ {
+			arg := argv[index]
+			if arg == value || strings.HasSuffix(arg, "="+value) || len(value) > 0 && strings.HasSuffix(arg, value) {
+				return index
+			}
+		}
+	}
+	return -1
 }
 
 func parseDDOperands(argv []string) []parsedOperand {

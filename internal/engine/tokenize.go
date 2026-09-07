@@ -18,6 +18,12 @@ type Simple struct {
 	ReadRedirects []string
 	Cwd           string
 	Unresolved    bool
+	literalArgs   map[int]bool
+	literalOut    map[int]bool
+	literalIn     map[int]bool
+	resolvedArgs  map[int]bool
+	resolvedOut   map[int]bool
+	resolvedIn    map[int]bool
 	pipelines     []pipelinePosition
 	cwdUnknown    bool
 	origin        *syntax.Stmt
@@ -79,10 +85,22 @@ func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pip
 			s.origin = stmt
 			s.shellState = state
 		}
-		for _, w := range args {
+		for index, w := range args {
 			raw := src[w.Pos().Offset():w.End().Offset()]
 			if lit, ok := literalText(raw); ok {
 				s.Argv = append(s.Argv, lit)
+				if _, stable := literalText(lit); !stable {
+					if s.literalArgs == nil {
+						s.literalArgs = make(map[int]bool)
+					}
+					s.literalArgs[index] = true
+				}
+			} else if resolved, ok := resolveLocalWord(w, state); tracked && ok {
+				s.Argv = append(s.Argv, resolved)
+				if s.resolvedArgs == nil {
+					s.resolvedArgs = make(map[int]bool)
+				}
+				s.resolvedArgs[index] = true
 			} else {
 				s.Argv = append(s.Argv, raw)
 				s.Unresolved = true
@@ -110,24 +128,131 @@ func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pip
 			}
 			raw := src[r.Word.Pos().Offset():r.Word.End().Offset()]
 			target, literal := literalText(raw)
+			resolved := false
 			if !literal {
-				target = raw
-				s.Unresolved = true
+				if tracked {
+					target, resolved = resolveLocalWord(r.Word, state)
+				}
+				if !resolved {
+					target = raw
+					s.Unresolved = true
+				}
 			}
 			if r.Op == syntax.DplOut && literal && (target == "-" || allDigits(target)) {
 				continue
 			}
 			if write {
+				index := len(s.Redirects)
 				s.Redirects = append(s.Redirects, target)
+				if literal {
+					if _, stable := literalText(target); !stable {
+						if s.literalOut == nil {
+							s.literalOut = make(map[int]bool)
+						}
+						s.literalOut[index] = true
+					}
+				} else if resolved {
+					if s.resolvedOut == nil {
+						s.resolvedOut = make(map[int]bool)
+					}
+					s.resolvedOut[index] = true
+				}
 			}
 			if read {
+				index := len(s.ReadRedirects)
 				s.ReadRedirects = append(s.ReadRedirects, target)
+				if literal {
+					if _, stable := literalText(target); !stable {
+						if s.literalIn == nil {
+							s.literalIn = make(map[int]bool)
+						}
+						s.literalIn[index] = true
+					}
+				} else if resolved {
+					if s.resolvedIn == nil {
+						s.resolvedIn = make(map[int]bool)
+					}
+					s.resolvedIn[index] = true
+				}
 			}
 		}
 		out = append(out, s)
 		return true
 	})
 	return out
+}
+
+func (s Simple) wordUnresolved(index int) bool {
+	if index < 0 || index >= len(s.Argv) || s.literalArgs[index] || s.resolvedArgs[index] {
+		return false
+	}
+	_, literal := literalText(s.Argv[index])
+	return !literal
+}
+
+func (s Simple) outputRedirectUnresolved(index int) bool {
+	if index < 0 || index >= len(s.Redirects) || s.literalOut[index] || s.resolvedOut[index] {
+		return false
+	}
+	_, literal := literalText(s.Redirects[index])
+	return !literal
+}
+
+func (s Simple) inputRedirectUnresolved(index int) bool {
+	if index < 0 || index >= len(s.ReadRedirects) || s.literalIn[index] || s.resolvedIn[index] {
+		return false
+	}
+	_, literal := literalText(s.ReadRedirects[index])
+	return !literal
+}
+
+func resolveLocalWord(word *syntax.Word, state cwdState) (string, bool) {
+	if word == nil || len(state.variables) == 0 {
+		return "", false
+	}
+	var value strings.Builder
+	for _, part := range word.Parts {
+		switch part := part.(type) {
+		case *syntax.Lit:
+			value.WriteString(part.Value)
+		case *syntax.SglQuoted:
+			if part.Dollar {
+				return "", false
+			}
+			value.WriteString(part.Value)
+		case *syntax.DblQuoted:
+			resolved, ok := resolveLocalQuotedParts(part.Parts, state.variables)
+			if !ok {
+				return "", false
+			}
+			value.WriteString(resolved)
+		default:
+			return "", false
+		}
+	}
+	return value.String(), true
+}
+
+func resolveLocalQuotedParts(parts []syntax.WordPart, variables map[string]string) (string, bool) {
+	var value strings.Builder
+	for _, part := range parts {
+		switch part := part.(type) {
+		case *syntax.Lit:
+			value.WriteString(part.Value)
+		case *syntax.ParamExp:
+			if part.Excl || part.Length || part.Width || part.Index != nil || part.Slice != nil || part.Repl != nil || part.Names != 0 || part.Exp != nil {
+				return "", false
+			}
+			resolved, ok := variables[part.Param.Value]
+			if !ok {
+				return "", false
+			}
+			value.WriteString(resolved)
+		default:
+			return "", false
+		}
+	}
+	return value.String(), true
 }
 
 func pipelinePositions(f *syntax.File, ctx *normalizeContext, shadowedConstants map[string]bool) map[*syntax.Stmt][]pipelinePosition {
@@ -775,6 +900,7 @@ type cwdState struct {
 	cdpath        string
 	cdpathSet     bool
 	cdpathUnknown bool
+	variables     map[string]string
 }
 
 type cwdOutcome struct {
@@ -1238,12 +1364,18 @@ func (w *cwdWalker) redirectExpansions(redirs []*syntax.Redirect, state cwdState
 	return filesystemUncertain
 }
 
-func simpleForCall(src string, stmt *syntax.Stmt, call *syntax.CallExpr) Simple {
+func simpleForCall(src string, stmt *syntax.Stmt, call *syntax.CallExpr, state cwdState) Simple {
 	s := Simple{}
-	for _, word := range call.Args {
+	for index, word := range call.Args {
 		raw := src[word.Pos().Offset():word.End().Offset()]
 		if literal, ok := literalText(raw); ok {
 			s.Argv = append(s.Argv, literal)
+		} else if resolved, ok := resolveLocalWord(word, state); ok {
+			s.Argv = append(s.Argv, resolved)
+			if s.resolvedArgs == nil {
+				s.resolvedArgs = make(map[int]bool)
+			}
+			s.resolvedArgs[index] = true
 		} else {
 			s.Argv = append(s.Argv, raw)
 			s.Unresolved = true
@@ -1263,9 +1395,9 @@ func simpleForCall(src string, stmt *syntax.Stmt, call *syntax.CallExpr) Simple 
 
 func (w *cwdWalker) call(stmt *syntax.Stmt, call *syntax.CallExpr, state cwdState) cwdOutcome {
 	if len(call.Args) == 0 {
-		return successOutcome(applyCallAssignments(state, call))
+		return successOutcome(applyPersistentAssignments(state, call))
 	}
-	simple := simpleForCall(w.src, stmt, call)
+	simple := simpleForCall(w.src, stmt, call, state)
 	argv, bypassFunction, noExecute, err := directCommandArgv(simple.Argv)
 	if err != nil {
 		return bothOutcome(unknownCwd(state))
@@ -1444,6 +1576,36 @@ func applyCallAssignments(state cwdState, call *syntax.CallExpr) cwdState {
 		state.cdpathSet = true
 		state.cdpathUnknown = false
 	}
+	return state
+}
+
+func applyPersistentAssignments(state cwdState, call *syntax.CallExpr) cwdState {
+	state = applyCallAssignments(state, call)
+	variables := make(map[string]string, len(state.variables)+len(call.Assigns))
+	for name, value := range state.variables {
+		variables[name] = value
+	}
+	for _, assignment := range call.Assigns {
+		if assignment.Name == nil {
+			continue
+		}
+		name := assignment.Name.Value
+		if assignment.Append || assignment.Index != nil || assignment.Array != nil {
+			delete(variables, name)
+			continue
+		}
+		value := ""
+		ok := assignment.Value == nil
+		if !ok {
+			value, ok = staticWord(assignment.Value, false)
+		}
+		if !ok {
+			delete(variables, name)
+			continue
+		}
+		variables[name] = value
+	}
+	state.variables = variables
 	return state
 }
 
@@ -1651,6 +1813,7 @@ func mergeCwd(states ...cwdState) cwdState {
 		return cwdState{unknown: true}
 	}
 	merged := states[0]
+	merged.variables = commonVariables(states)
 	for _, state := range states[1:] {
 		merged.fsUncertain = merged.fsUncertain || state.fsUncertain
 		if state.unknown || merged.unknown || state.cwd != merged.cwd {
@@ -1663,6 +1826,24 @@ func mergeCwd(states ...cwdState) cwdState {
 		}
 	}
 	return merged
+}
+
+func commonVariables(states []cwdState) map[string]string {
+	if len(states) == 0 || len(states[0].variables) == 0 {
+		return nil
+	}
+	common := make(map[string]string, len(states[0].variables))
+	for name, value := range states[0].variables {
+		common[name] = value
+	}
+	for _, state := range states[1:] {
+		for name, value := range common {
+			if candidate, ok := state.variables[name]; !ok || candidate != value {
+				delete(common, name)
+			}
+		}
+	}
+	return common
 }
 
 func unknownCwd(states ...cwdState) cwdState {
@@ -1790,14 +1971,53 @@ func replacementWithOuterMetadata(outer Simple, replacement []Simple) []Simple {
 }
 
 func commandDerivedFrom(outer Simple, argv []string) Simple {
-	return Simple{
-		Argv:       argv,
-		Cwd:        outer.Cwd,
-		Unresolved: outer.Unresolved,
-		pipelines:  outer.pipelines,
-		cwdUnknown: outer.cwdUnknown,
-		shellState: outer.shellState,
+	derived := Simple{
+		Argv:        argv,
+		Cwd:         outer.Cwd,
+		Unresolved:  outer.Unresolved,
+		literalOut:  outer.literalOut,
+		literalIn:   outer.literalIn,
+		resolvedOut: outer.resolvedOut,
+		resolvedIn:  outer.resolvedIn,
+		pipelines:   outer.pipelines,
+		cwdUnknown:  outer.cwdUnknown,
+		shellState:  outer.shellState,
 	}
+	if offset := argvSubsliceOffset(outer.Argv, argv); offset >= 0 {
+		derived.literalArgs = remapProvenance(outer.literalArgs, offset, len(argv))
+		derived.resolvedArgs = remapProvenance(outer.resolvedArgs, offset, len(argv))
+	}
+	return derived
+}
+
+func argvSubsliceOffset(source, derived []string) int {
+	for offset := 0; offset+len(derived) <= len(source); offset++ {
+		matches := true
+		for index := range derived {
+			if source[offset+index] != derived[index] {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return offset
+		}
+	}
+	return -1
+}
+
+func remapProvenance(provenance map[int]bool, offset, length int) map[int]bool {
+	var remapped map[int]bool
+	for index := range provenance {
+		if index < offset || index >= offset+length {
+			continue
+		}
+		if remapped == nil {
+			remapped = make(map[int]bool)
+		}
+		remapped[index-offset] = true
+	}
+	return remapped
 }
 
 func stripAndUnwrap(s Simple, ctx *normalizeContext) ([]Simple, error) {
