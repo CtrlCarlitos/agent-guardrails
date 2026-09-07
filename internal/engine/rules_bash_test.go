@@ -1286,6 +1286,334 @@ func TestFindDestructiveExecFamiliesAsk(t *testing.T) {
 	}
 }
 
+// Mutation caught: removing the scoped find exemption makes approved temp deletions ask again.
+func TestFindScopedDeleteAllowsAuthorizedTempDescendants(t *testing.T) {
+	scratch := t.TempDir()
+	target := filepath.Join(scratch, "t")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	commands := []string{
+		fmt.Sprintf(`find %q -delete`, target),
+		fmt.Sprintf(`cd %q && find t -delete`, scratch),
+		fmt.Sprintf(`find %q -exec rm -rf {} +`, target),
+		fmt.Sprintf(`find %q -exec rm -rf {} \;`, target),
+		fmt.Sprintf(`find %q -execdir rm -rf {} +`, target),
+		fmt.Sprintf(`find %q -execdir rm -rf {} \;`, target),
+	}
+	for _, command := range commands {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkBash(tc, bashPol()); v != nil {
+			t.Errorf("%q -> %+v, want allow", command, v)
+		}
+	}
+
+}
+
+// Mutation caught: authorizing any one start point lets a mixed safe/unsafe find deletion through.
+func TestFindScopedDeleteRequiresEveryRootAuthorized(t *testing.T) {
+	scratch := t.TempDir()
+	first := filepath.Join(scratch, "first")
+	second := filepath.Join(scratch, "second")
+	for _, root := range []string{first, second} {
+		if err := os.Mkdir(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	allow := fmt.Sprintf(`find %q %q -delete`, first, second)
+	tc := ToolCall{Tool: "Bash", Command: allow, CWD: "/repo", RepoRoot: "/repo"}
+	if v := checkBash(tc, bashPol()); v != nil {
+		t.Fatalf("all authorized roots %q -> %+v, want allow", allow, v)
+	}
+
+	ask := fmt.Sprintf(`find %q /etc -delete`, first)
+	tc.Command = ask
+	if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+		t.Fatalf("mixed roots %q -> %+v, want ask/P1.find-delete", ask, v)
+	}
+}
+
+// Mutation caught: checking temp authorization before repository containment allows in-repo bulk deletion.
+func TestFindScopedDeleteRepositoryTakesPrecedenceOverTemp(t *testing.T) {
+	repo := t.TempDir()
+	internal := filepath.Join(repo, "internal")
+	if err := os.Mkdir(internal, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	commands := []string{
+		`find internal/ -delete`,
+		fmt.Sprintf(`find %q -delete`, internal),
+	}
+	pol := bashPol()
+	pol.Slots.SafeRoots = []string{internal}
+	for _, command := range commands {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+		v := checkBash(tc, pol)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+			t.Errorf("%q -> %+v, want ask/P1.find-delete", command, v)
+		}
+	}
+}
+
+// Mutation caught: checking only roots inside the repository permits deleting an ancestor containing it.
+func TestFindScopedDeleteRejectsRootsContainingRepository(t *testing.T) {
+	parent := t.TempDir()
+	repo := filepath.Join(parent, "repo")
+	if err := os.Mkdir(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	command := fmt.Sprintf(`find %q -delete`, parent)
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+	if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+		t.Fatalf("repository ancestor root -> %+v, want ask/P1.find-delete", v)
+	}
+
+	alias := filepath.Join(t.TempDir(), "parent-alias")
+	if err := os.Symlink(parent, alias); err != nil {
+		t.Skipf("create repository-ancestor alias: %v", err)
+	}
+	tc.Command = fmt.Sprintf(`find %q -delete`, alias)
+	if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+		t.Fatalf("physical repository ancestor root -> %+v, want ask/P1.find-delete", v)
+	}
+}
+
+// Mutation caught: treating strict temp roots as ordinary safe roots permits deleting the temp root itself.
+func TestFindScopedDeleteRejectsTempRootEquality(t *testing.T) {
+	scratch := t.TempDir()
+	t.Setenv("TMPDIR", scratch)
+	command := fmt.Sprintf(`find %q -delete`, scratch)
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+	v := checkBash(tc, bashPol())
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+		t.Fatalf("%q -> %+v, want ask/P1.find-delete", command, v)
+	}
+}
+
+// Mutation caught: lexical-only authorization permits a find root to escape temp through a symlink.
+func TestFindScopedDeleteRejectsSymlinkEscape(t *testing.T) {
+	scratch := t.TempDir()
+	escape := filepath.Join(scratch, "escape")
+	if err := os.Symlink("/etc", escape); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	command := fmt.Sprintf(`find %q -delete`, filepath.Join(escape, "guardrail-missing"))
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+	v := checkBash(tc, bashPol())
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+		t.Fatalf("%q -> %+v, want ask/P1.find-delete", command, v)
+	}
+}
+
+// Mutation caught: authorizing only the starting root ignores traversal modes that follow descendant symlinks.
+func TestFindScopedDeleteRejectsSymlinkFollowing(t *testing.T) {
+	scratch := t.TempDir()
+	target := filepath.Join(scratch, "t")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{
+		fmt.Sprintf(`find -H %q -delete`, target),
+		fmt.Sprintf(`find -L %q -delete`, target),
+		fmt.Sprintf(`find %q -follow -delete`, target),
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+			t.Errorf("%q -> %+v, want ask/P1.find-delete", command, v)
+		}
+	}
+}
+
+// Mutation caught: pre-execution path resolution misses a symlink created by an earlier command.
+func TestFindScopedDeleteRejectsPriorFilesystemMutation(t *testing.T) {
+	scratch := t.TempDir()
+	root := filepath.Join(scratch, "link")
+	command := fmt.Sprintf(`ln -s /etc %q && find -H %q -delete`, root, root)
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+	if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+		t.Fatalf("find after symlink creation -> %+v, want ask/P1.find-delete", v)
+	}
+}
+
+func TestFindScopedDeleteRejectsFilesystemMutationFromExpansion(t *testing.T) {
+	scratch := t.TempDir()
+	link := filepath.Join(scratch, "link")
+	command := fmt.Sprintf(`case "$(ln -s /etc %[1]q)" in *) find %[2]q -delete;; esac`, link, filepath.Join(link, "passwd"))
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+	if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+		t.Errorf("%q -> %+v, want ask/P1.find-delete", command, v)
+	}
+}
+
+func TestFindScopedDeleteCarriesSameCommandExpansionUncertainty(t *testing.T) {
+	scratch := t.TempDir()
+	command := fmt.Sprintf(`find %q -newer <(ln -s /etc %q) -delete`, scratch, filepath.Join(scratch, "link"))
+	simples, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, simple := range simples {
+		if head(simple.Argv) == "find" {
+			if !simple.fsUncertain {
+				t.Fatalf("Normalize(%q) find = %+v, want filesystem uncertainty", command, simple)
+			}
+			return
+		}
+	}
+	t.Fatalf("Normalize(%q) produced no find: %+v", command, simples)
+}
+
+func TestFindScopedDeleteRejectsConcurrentPipelineMutation(t *testing.T) {
+	scratch := t.TempDir()
+	link := filepath.Join(scratch, "link")
+	command := fmt.Sprintf(`ln -s /etc %q | find %q -delete`, link, filepath.Join(link, "passwd"))
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+	if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+		t.Fatalf("%q -> %+v, want ask/P1.find-delete", command, v)
+	}
+}
+
+func TestFindScopedDeleteRejectsWrappedPriorFilesystemMutation(t *testing.T) {
+	for _, wrapper := range []string{"env", "command", "timeout 1", "nice", "time", "busybox"} {
+		scratch := t.TempDir()
+		link := filepath.Join(scratch, "link")
+		command := fmt.Sprintf(`%s ln -s /etc %q && find %q -delete`, wrapper, link, filepath.Join(link, "passwd"))
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+			t.Errorf("%q -> %+v, want ask/P1.find-delete", command, v)
+		}
+	}
+}
+
+func TestFindScopedDeleteRejectsOpaquePriorCommand(t *testing.T) {
+	scratch := t.TempDir()
+	link := filepath.Join(scratch, "link")
+	command := fmt.Sprintf(`python3 -c 'import os; os.symlink("/etc", %q)' && find %q -delete`, link, filepath.Join(link, "passwd"))
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+	if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+		t.Fatalf("%q -> %+v, want ask/P1.find-delete", command, v)
+	}
+}
+
+func TestFindScopedDeleteRejectsForeignExecutionNamespaces(t *testing.T) {
+	scratch := t.TempDir()
+	for _, command := range []string{
+		fmt.Sprintf(`docker run --rm -v /repo:%[1]s alpine find %[1]s -delete`, scratch),
+		fmt.Sprintf(`docker run --rm -v /repo:%[1]s alpine env find %[1]s -delete`, scratch),
+		fmt.Sprintf(`docker run --rm -v /repo:%[1]s alpine sh -c 'find %[1]s -delete'`, scratch),
+		fmt.Sprintf(`ssh example.invalid 'find %s -delete'`, scratch),
+	} {
+		simples, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatalf("Normalize(%q): %v", command, err)
+		}
+		found := false
+		for _, simple := range simples {
+			if head(simple.Argv) != "find" {
+				continue
+			}
+			found = true
+			tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+			if v := checkAskTier(simple, tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+				t.Errorf("%q inner find -> %+v, want ask/P1.find-delete", command, v)
+			}
+		}
+		if !found {
+			t.Errorf("Normalize(%q) produced no inner find: %+v", command, simples)
+		}
+	}
+}
+
+// Mutation caught: broadening the exemption beyond delete and exec-rm allows other destructive callbacks.
+func TestFindScopedDeleteKeepsOtherCallbacksAtAsk(t *testing.T) {
+	scratch := t.TempDir()
+	target := filepath.Join(scratch, "t")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	commands := []string{
+		fmt.Sprintf(`find %q -ok rm -rf {} \;`, target),
+		fmt.Sprintf(`find %q -okdir rm -rf {} \;`, target),
+		fmt.Sprintf(`find %q -exec shred {} \;`, target),
+		fmt.Sprintf(`find %q -execdir truncate -s 0 {} \;`, target),
+		fmt.Sprintf(`find %q -exec /bin/dd of={} \;`, target),
+		fmt.Sprintf(`find %q -exec srm /etc/passwd {} +`, target),
+		fmt.Sprintf(`find %q -exec unlink /etc/passwd {} +`, target),
+		fmt.Sprintf(`find %q -execdir rmdir /etc {} +`, target),
+		fmt.Sprintf(`find %q -exec env rm -rf /etc {} +`, target),
+		fmt.Sprintf(`find %q -exec env --ignore-environment rm -rf /etc {} +`, target),
+		fmt.Sprintf(`find %q -exec busybox rm -rf /etc {} +`, target),
+		fmt.Sprintf(`find %q -exec sh -c 'rm -rf /etc' {} +`, target),
+		fmt.Sprintf(`find %q -exec wipefs /dev/sda {} +`, target),
+	}
+	for _, command := range commands {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		v := checkBash(tc, bashPol())
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+			t.Errorf("%q -> %+v, want ask/P1.find-delete", command, v)
+		}
+	}
+}
+
+// Mutation caught: checking only the find root lets an exec-rm action include unrelated deletion operands.
+func TestFindScopedDeleteRejectsRmOperandsOutsideMatches(t *testing.T) {
+	scratch := t.TempDir()
+	target := filepath.Join(scratch, "t")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{
+		fmt.Sprintf(`find %q -exec rm -rf /etc {} +`, target),
+		fmt.Sprintf(`find %q -execdir rm -rf {}/child +`, target),
+		fmt.Sprintf(`find %q -exec rm -rf +`, target),
+		fmt.Sprintf(`find %q -exec rm -rf - {} +`, target),
+		fmt.Sprintf(`find %q -exec rm -rf {} -I \;`, target),
+		fmt.Sprintf(`find %q -exec rm -rf -{} {} +`, target),
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+			t.Errorf("%q -> %+v, want ask/P1.find-delete", command, v)
+		}
+	}
+}
+
+// Mutation caught: optimistic global-option parsing can mistake an option value or omitted root for a safe root.
+func TestFindScopedDeleteParsesLeadingOptionsConservatively(t *testing.T) {
+	scratch := t.TempDir()
+	target := filepath.Join(scratch, "t")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{
+		fmt.Sprintf(`find -D tree %q -delete`, target),
+		fmt.Sprintf(`find -O2 %q -delete`, target),
+		fmt.Sprintf(`find -- %q -delete`, target),
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		if v := checkBash(tc, bashPol()); v != nil {
+			t.Errorf("%q -> %+v, want allow", command, v)
+		}
+	}
+
+	for _, command := range []string{`find -delete`, `find -D -delete`, `find -Z /tmp/t -delete`} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+		v := checkBash(tc, bashPol())
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+			t.Errorf("%q -> %+v, want ask/P1.find-delete", command, v)
+		}
+	}
+}
+
+// Mutation caught: resolving a dynamic start point optimistically bypasses the unwaivable unresolved-path ask.
+func TestFindScopedDeleteUnresolvedRootAsks(t *testing.T) {
+	tc := ToolCall{Tool: "Bash", Command: `find "$TARGET" -delete`, CWD: "/repo", RepoRoot: "/repo"}
+	v := checkBash(tc, bashPol())
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+		t.Fatalf("unresolved find root -> %+v, want ask/P3.unresolved", v)
+	}
+}
+
 func TestCheckBashPrivesc(t *testing.T) {
 	for _, c := range []string{
 		`sudo rm x`,

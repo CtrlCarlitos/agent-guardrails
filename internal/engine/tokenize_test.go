@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
 func argvs(ss []Simple) [][]string {
@@ -130,6 +132,415 @@ func TestNormalizeResolvesQuotedPriorScalarLiteralAssignments(t *testing.T) {
 	want := []string{"grep", "-rn", "Foo", "/abs/lit/api/"}
 	if !reflect.DeepEqual(got[0].Argv, want) || got[0].Unresolved {
 		t.Fatalf("Normalize argv = %v unresolved=%v, want locally resolved %v", got[0].Argv, got[0].Unresolved, want)
+	}
+}
+
+// Mutation caught: rejecting every top-level ParamExp leaves safe embedded parameters unresolved and triggers P3.
+func TestNF5bResolvesPlainParametersEmbeddedInUnquotedWords(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "tlp"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, script := range []string{filepath.Join(tmp, "run.sh"), filepath.Join(tmp, "tlp", "x")} {
+		if err := os.WriteFile(script, []byte(":\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, test := range []struct {
+		command string
+		want    string
+	}{
+		{fmt.Sprintf(`S=%q; bash $S/run.sh`, tmp), filepath.Join(tmp, "run.sh")},
+		{fmt.Sprintf(`SP=%q; bash $SP/tlp/x`, tmp), filepath.Join(tmp, "tlp", "x")},
+		{fmt.Sprintf(`S=%q; bash ${S}/run.sh`, tmp), filepath.Join(tmp, "run.sh")},
+	} {
+		got, err := Normalize(test.command, "/repo")
+		if err != nil {
+			t.Fatalf("Normalize(%q): %v", test.command, err)
+		}
+		last := got[len(got)-1]
+		wantArgv := []string{"bash", test.want}
+		if !reflect.DeepEqual(last.Argv, wantArgv) || last.Unresolved || !last.resolvedArgs[1] || last.wordUnresolved(1) {
+			t.Errorf("Normalize(%q) last = %+v, want resolved argv %q with concrete provenance", test.command, last, wantArgv)
+		}
+		if verdict := checkBash(ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}, bashPol()); verdict != nil {
+			t.Errorf("checkBash(%q) = %+v, want allow", test.command, verdict)
+		}
+	}
+}
+
+// Mutation caught: resolving an embedded parameter without preserving provenance makes the concrete /etc target evade P1 or trip P3.
+func TestNF5bResolvedEmbeddedParameterReachesRmPolicy(t *testing.T) {
+	command := `S=/etc; rm -rf $S/x`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got[len(got)-1]
+	if want := []string{"rm", "-rf", "/etc/x"}; !reflect.DeepEqual(last.Argv, want) || last.Unresolved || !last.resolvedArgs[2] || last.wordUnresolved(2) {
+		t.Fatalf("Normalize(%q) last = %+v, want resolved argv %q with concrete provenance", command, last, want)
+	}
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
+		t.Fatalf("checkBash(%q) = %+v, want deny/P1.rm-rf", command, verdict)
+	}
+}
+
+// Mutation caught: accepting unknown, operated, indexed, indirect, name, or special parameters converts runtime-dependent words into literals.
+func TestNF5bLeavesNonPlainParametersUnresolved(t *testing.T) {
+	for _, command := range []string{
+		`bash $UNKNOWN/run.sh`,
+		`S=/tmp; bash ${S:-/var}/run.sh`,
+		`S=/tmp; bash ${S:0:2}/run.sh`,
+		`S=/tmp; bash ${S/tmp/var}/run.sh`,
+		`S=/tmp; bash ${!S}/run.sh`,
+		`S=/tmp; bash ${!S*}/run.sh`,
+		`S=/tmp; bash ${S[0]}/run.sh`,
+		`bash $?/run.sh`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatalf("Normalize(%q): %v", command, err)
+		}
+		last := got[len(got)-1]
+		if !last.Unresolved || !last.wordUnresolved(1) {
+			t.Errorf("Normalize(%q) last = %+v, want unresolved script word", command, last)
+		}
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+}
+
+// Mutation caught: multiple empty unquoted expansions can remove the apparent command word and shift a destructive command into its place.
+func TestNF5bLeavesZeroFieldCommandWordsUnresolved(t *testing.T) {
+	command := `A=; B=; $A$B rm -rf /etc`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got[len(got)-1]
+	if !last.Unresolved || !last.wordUnresolved(0) {
+		t.Fatalf("Normalize(%q) last = %+v, want command word unresolved", command, last)
+	}
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+	}
+}
+
+// Mutation caught: resolving split- or glob-bearing values unquoted collapses a runtime field set into one synthetic argument.
+func TestNF5bLeavesUnsafeUnquotedParameterValuesUnresolved(t *testing.T) {
+	for _, value := range []string{"/tmp/with space", "/tmp/*"} {
+		command := fmt.Sprintf(`S=%q; bash $S/run.sh`, value)
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatalf("Normalize(%q): %v", command, err)
+		}
+		last := got[len(got)-1]
+		if !last.Unresolved || !last.wordUnresolved(1) {
+			t.Errorf("Normalize(%q) last = %+v, want unsafe unquoted script word unresolved", command, last)
+		}
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+}
+
+// Mutation caught: checking only default IFS whitespace resolves a value that a tracked custom IFS splits into multiple fields.
+func TestNF5bHonorsTrackedIFSWhenResolvingUnquotedParameters(t *testing.T) {
+	command := `IFS=/; S=tmp/scripts; bash $S/run.sh`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got[len(got)-1]
+	if !last.Unresolved || !last.wordUnresolved(1) {
+		t.Fatalf("Normalize(%q) last = %+v, want custom-IFS script word unresolved", command, last)
+	}
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+	}
+}
+
+// Mutation caught: falling back to default IFS after targeted mutation can collapse runtime fields into one safe-looking path.
+func TestNF5bLeavesWordsUnresolvedAfterUnknownIFSMutation(t *testing.T) {
+	command := `S=/tmp/scripts; read IFS <<< /; bash $S/run.sh`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got[len(got)-1]
+	if !last.Unresolved || !last.wordUnresolved(1) {
+		t.Fatalf("Normalize(%q) last = %+v, want unknown-IFS script word unresolved", command, last)
+	}
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+	}
+}
+
+// Mutation caught: parameter and arithmetic expansions can mutate IFS before a later unquoted prefix expands.
+func TestNF5bInvalidatesIFSAfterExpansionSideEffects(t *testing.T) {
+	for _, command := range []string{
+		`IFS=; S='--one-file-systemX/etc'; : ${IFS:=X}; rm -rf $S/x`,
+		`IFS=; S='--one-file-system8/etc'; : $((IFS=8)); rm -rf $S/x`,
+	} {
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+}
+
+// Mutation caught: invalidating only IFS leaves the assigned parameter's stale literal available to later policy checks.
+func TestNF5bInvalidatesVariablesAssignedByExpansion(t *testing.T) {
+	command := `S=; : ${S:=/../../etc}; bash /repo$S/x`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got[len(got)-1]
+	if !last.Unresolved || !last.wordUnresolved(1) {
+		t.Fatalf("Normalize(%q) last = %+v, want assigned parameter unresolved", command, last)
+	}
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+	}
+}
+
+// Mutation caught: arithmetic recursively evaluates variable contents that may assign IFS.
+func TestNF5bInvalidatesVariablesForRecursiveArithmeticEvaluation(t *testing.T) {
+	command := `IFS=; X='IFS=8'; S='--one-file-system8/etc'; : $((X)); rm -rf $S/x`
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+	}
+}
+
+// Mutation caught: temporary command-prefix IFS assignments leaking past builtins can hide split deletion operands.
+func TestNF5bRestoresPrefixIFSAfterShellBuiltins(t *testing.T) {
+	for _, command := range []string{
+		`IFS= cd .; S='--one-file-system /etc'; rm -rf $S/x`,
+		`IFS= eval ':'; S='--one-file-system /etc'; rm -rf $S/x`,
+		`IFS= source /dev/null; S='--one-file-system /etc'; rm -rf $S/x`,
+	} {
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+}
+
+// Mutation caught: restoring eval prefixes unconditionally is unsound when a supported shell runs in POSIX mode.
+func TestNF5bTreatsSpecialBuiltinPrefixAssignmentsAsModeDependent(t *testing.T) {
+	for _, command := range []string{
+		`sh -c 'IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
+		`bash --posix -c 'IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
+	} {
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+}
+
+func TestNF5bPersistsPOSIXSpecialBuiltinPrefixAssignments(t *testing.T) {
+	for _, builtin := range []string{
+		`:`,
+		`export V=1`,
+		`readonly V=1`,
+		`set --`,
+		`trap - 0`,
+		`unset V`,
+	} {
+		command := fmt.Sprintf(`sh -c 'IFS=; IFS=X %s; S="--one-file-systemX/etc"; rm -rf $S/x'`, builtin)
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+}
+
+func TestNF5bPersistsPOSIXBuiltinEvalPrefixAssignments(t *testing.T) {
+	command := `bash --posix -c 'IFS=; IFS=X builtin eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+	}
+}
+
+func TestNF5bBoundsPOSIXModeToShellStartupOptions(t *testing.T) {
+	for _, command := range []string{
+		`bash -c 'IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x' --posix`,
+		`bash --posix +o posix -c 'IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
+		`POSIXLY_CORRECT=1 env -u POSIXLY_CORRECT bash -c 'IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
+	} {
+		if verdict := evalBash(t, command); verdict != nil {
+			t.Errorf("checkBash(%q) = %+v, want allow", command, verdict)
+		}
+	}
+}
+
+func TestNF5bTracksRuntimeAndEnvironmentPOSIXMode(t *testing.T) {
+	for _, command := range []string{
+		`bash -c 'IFS=; set -o posix; IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
+		`bash -c 'IFS=; POSIXLY_CORRECT=1; IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
+		`POSIXLY_CORRECT=1 bash -c 'IFS=; IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
+		`POSIXLY_CORRECT= bash -c 'IFS=; IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
+		`env POSIXLY_CORRECT=1 bash -c 'IFS=; IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
+	} {
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+}
+
+func TestNF5bMergesConditionalPOSIXModeAsUnknown(t *testing.T) {
+	for _, command := range []string{
+		`bash -c 'IFS=; if [ -e /runtime-choice ]; then set -o posix; fi; IFS=X eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
+		`bash -c 'IFS=X; if [ -e /runtime-choice ]; then set -o posix; fi; IFS= eval ":"; S="--one-file-systemX/etc"; rm -rf $S/x'`,
+	} {
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+}
+
+func TestNF5bTracksExpansionSideEffectsInDeclarations(t *testing.T) {
+	for _, declaration := range []string{"export", "readonly", "declare"} {
+		command := fmt.Sprintf(`IFS=; %s Z=${IFS:=X}; S='--one-file-systemX/etc'; rm -rf $S/x`, declaration)
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+}
+
+func TestNF5bTracksRecursiveArithmeticInIndicesAndSlices(t *testing.T) {
+	for _, command := range []string{
+		`IFS=; N='IFS=Z'; a=(x); : "${a[N]}"; S='--one-file-systemZ/etc'; rm -rf $S/x`,
+		`IFS=; N='IFS=Z'; A=abcdef; : "${A:N:1}"; S='--one-file-systemZ/etc'; rm -rf $S/x`,
+		`IFS=; N='IFS=Z'; a[N]=x; S='--one-file-systemZ/etc'; rm -rf $S/x`,
+	} {
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+}
+
+func TestNF5bTracksRecursiveArithmeticInArrayInitializers(t *testing.T) {
+	command := `IFS=; N='IFS=Z'; a=([N]=x); S='--one-file-systemZ/etc'; rm -rf $S/x`
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+	}
+}
+
+func TestNF5bTracksRecursiveArithmeticInIndirectExpansions(t *testing.T) {
+	command := `IFS=; N='IFS=Z'; ref='a[N]'; a=(x); : "${!ref}"; S='--one-file-systemZ/etc'; rm -rf $S/x`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got[len(got)-1]
+	if !last.Unresolved || !last.wordUnresolved(2) {
+		t.Fatalf("Normalize(%q) last = %+v, want deletion operand unresolved", command, last)
+	}
+}
+
+func TestNF5bInvalidatesVariablesAfterReachableTrapInstallation(t *testing.T) {
+	for _, command := range []string{
+		`IFS=; trap 'IFS=X' DEBUG; S='--one-file-systemX/etc'; rm -rf $S/x`,
+		`IFS=; trap 'IFS=X' RETURN; f(){ :; }; f; S='--one-file-systemX/etc'; rm -rf $S/x`,
+		`IFS=; trap 'IFS=X' ERR; false; S='--one-file-systemX/etc'; rm -rf $S/x`,
+	} {
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+}
+
+func TestNF5bInvalidatesVariablesAfterUnresolvedEval(t *testing.T) {
+	command := `S=/tmp/scripts; eval "$UNKNOWN"; bash $S/run.sh`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got[len(got)-1]
+	if last.resolvedArgs[1] || !last.wordUnresolved(1) {
+		t.Fatalf("Normalize(%q) last = %+v, want script word unresolved", command, last)
+	}
+}
+
+// Mutation caught: restoring prefix variables but not IFS certainty after a function leaves unsafe splitting modeled as concrete.
+func TestNF5bRestoresPrefixIFSAfterFunction(t *testing.T) {
+	command := `f(){ :; }; IFS=/; IFS= f; S=tmp/scripts; bash $S/run.sh`
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+	}
+}
+
+// Mutation caught: merging branches with different known IFS values as default permits unsafe concrete substitution.
+func TestNF5bMergesDifferentIFSValuesAsUnknown(t *testing.T) {
+	command := `if [ -e /runtime-choice ]; then IFS=/; else IFS=:; fi; S=tmp/scripts; bash $S/run.sh`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got[len(got)-1]
+	if !last.Unresolved || !last.wordUnresolved(1) {
+		t.Fatalf("Normalize(%q) last = %+v, want branch-merged IFS unresolved", command, last)
+	}
+}
+
+// Mutation caught: checking only the parameter value misses glob syntax in another part of the assembled word.
+func TestNF5bLeavesLiteralSuffixGlobsUnresolved(t *testing.T) {
+	for _, command := range []string{
+		`S=/tmp/scripts; bash $S/*.sh`,
+		`S=/tmp/scripts; bash $S/@(out)`,
+	} {
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+}
+
+// Mutation caught: scanning a whole compound statement lets unreachable expansion side effects poison later state.
+func TestNF5bIgnoresUnreachableExpansionAssignments(t *testing.T) {
+	command := `if false; then : ${IFS:=X}; fi; S=/tmp/scripts; bash $S/run.sh`
+	if verdict := evalBash(t, command); verdict != nil {
+		t.Fatalf("checkBash(%q) = %+v, want allow", command, verdict)
+	}
+}
+
+// Mutation caught: applying unquoted splitting/globbing restrictions inside double quotes rejects concrete one-field words.
+func TestNF5bPreservesQuotedParameterSemantics(t *testing.T) {
+	for _, value := range []string{"/tmp/with space", "/tmp/*"} {
+		command := fmt.Sprintf(`S=%q; bash "$S/run.sh"`, value)
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatalf("Normalize(%q): %v", command, err)
+		}
+		last := got[len(got)-1]
+		want := []string{"bash", value + "/run.sh"}
+		if !reflect.DeepEqual(last.Argv, want) || last.Unresolved || !last.resolvedArgs[1] || last.wordUnresolved(1) {
+			t.Errorf("Normalize(%q) last = %+v, want quoted resolved argv %q", command, last, want)
+		}
+		if verdict := evalBash(t, command); verdict != nil {
+			t.Errorf("checkBash(%q) = %+v, want allow", command, verdict)
+		}
 	}
 }
 

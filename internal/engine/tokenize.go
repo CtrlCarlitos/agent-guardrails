@@ -27,6 +27,7 @@ type Simple struct {
 	gitEnvironment        map[string]string
 	gitEnvironmentUnknown bool
 	gitInitExpected       bool
+	fsUncertain           bool
 	pipelines             []pipelinePosition
 	cwdUnknown            bool
 	origin                *syntax.Stmt
@@ -214,17 +215,80 @@ func resolveLocalWord(word *syntax.Word, state cwdState) (string, bool) {
 		return "", false
 	}
 	var value strings.Builder
+	unquotedParameter := false
+	fieldAnchor := false
 	for _, part := range word.Parts {
 		switch part := part.(type) {
 		case *syntax.Lit:
 			value.WriteString(part.Value)
+			fieldAnchor = fieldAnchor || part.Value != ""
 		case *syntax.SglQuoted:
 			if part.Dollar {
 				return "", false
 			}
 			value.WriteString(part.Value)
+			fieldAnchor = true
 		case *syntax.DblQuoted:
 			resolved, ok := resolveLocalQuotedParts(part.Parts, state.variables)
+			if !ok {
+				return "", false
+			}
+			value.WriteString(resolved)
+			fieldAnchor = true
+		case *syntax.ParamExp:
+			if len(word.Parts) == 1 {
+				return "", false
+			}
+			ifs, ok := trackedIFS(state)
+			if !ok {
+				return "", false
+			}
+			name, ok := plainLocalParameter(part)
+			if !ok {
+				return "", false
+			}
+			resolved, ok := state.variables[name]
+			if !ok || strings.ContainsAny(resolved, ifs) || strings.ContainsAny(resolved, "*?[") {
+				return "", false
+			}
+			unquotedParameter = true
+			value.WriteString(resolved)
+		default:
+			return "", false
+		}
+	}
+	if unquotedParameter && !fieldAnchor {
+		return "", false
+	}
+	resolved := value.String()
+	if unquotedParameter && strings.ContainsAny(resolved, "*?[") {
+		return "", false
+	}
+	return resolved, true
+}
+
+func trackedIFS(state cwdState) (string, bool) {
+	if state.ifsUnknown {
+		return "", false
+	}
+	if value, ok := state.variables["IFS"]; ok {
+		return value, true
+	}
+	return " \t\n", true
+}
+
+func resolveLocalQuotedParts(parts []syntax.WordPart, variables map[string]string) (string, bool) {
+	var value strings.Builder
+	for _, part := range parts {
+		switch part := part.(type) {
+		case *syntax.Lit:
+			value.WriteString(part.Value)
+		case *syntax.ParamExp:
+			name, ok := plainLocalParameter(part)
+			if !ok {
+				return "", false
+			}
+			resolved, ok := variables[name]
 			if !ok {
 				return "", false
 			}
@@ -236,26 +300,12 @@ func resolveLocalWord(word *syntax.Word, state cwdState) (string, bool) {
 	return value.String(), true
 }
 
-func resolveLocalQuotedParts(parts []syntax.WordPart, variables map[string]string) (string, bool) {
-	var value strings.Builder
-	for _, part := range parts {
-		switch part := part.(type) {
-		case *syntax.Lit:
-			value.WriteString(part.Value)
-		case *syntax.ParamExp:
-			if part.Excl || part.Length || part.Width || part.Index != nil || part.Slice != nil || part.Repl != nil || part.Names != 0 || part.Exp != nil {
-				return "", false
-			}
-			resolved, ok := variables[part.Param.Value]
-			if !ok {
-				return "", false
-			}
-			value.WriteString(resolved)
-		default:
-			return "", false
-		}
+func plainLocalParameter(parameter *syntax.ParamExp) (string, bool) {
+	if parameter.Excl || parameter.Length || parameter.Width || parameter.Index != nil || parameter.Slice != nil || parameter.Repl != nil || parameter.Names != 0 || parameter.Exp != nil {
+		return "", false
 	}
-	return value.String(), true
+	name := parameter.Param.Value
+	return name, validShellVariableName(name)
 }
 
 func pipelinePositions(f *syntax.File, ctx *normalizeContext, shadowedConstants map[string]bool) map[*syntax.Stmt][]pipelinePosition {
@@ -900,6 +950,10 @@ type cwdState struct {
 	cwd                   string
 	unknown               bool
 	fsUncertain           bool
+	findScopeUncertain    bool
+	ifsUnknown            bool
+	posixMode             bool
+	posixModeUnknown      bool
 	cdpath                string
 	cdpathSet             bool
 	cdpathUnknown         bool
@@ -1011,6 +1065,9 @@ func (w *cwdWalker) stmt(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 		)
 		return successOutcome(state)
 	}
+	for _, redirect := range stmt.Redirs {
+		state = applyExpansionVariableEffects(redirect, state)
+	}
 	w.states[stmt] = state
 	var preCommandFunctions map[string]shellFunctionSet
 	if len(stmt.Redirs) > 0 {
@@ -1079,6 +1136,8 @@ func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 	case nil:
 		return bothOutcome(state)
 	case *syntax.CallExpr:
+		state = applyExpansionVariableEffects(command, state)
+		w.states[stmt] = state
 		if w.expansions(command, state) {
 			state.fsUncertain = true
 		}
@@ -1086,8 +1145,10 @@ func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 	case *syntax.BinaryCmd:
 		switch command.Op {
 		case syntax.Pipe, syntax.PipeAll:
-			left := w.isolated().stmt(command.X, state)
-			right := w.isolated().stmt(command.Y, state)
+			stageState := state
+			stageState.findScopeUncertain = true
+			left := w.isolated().stmt(command.X, stageState)
+			right := w.isolated().stmt(command.Y, stageState)
 			state.fsUncertain = state.fsUncertain || left.hasFilesystemUncertainty() || right.hasFilesystemUncertainty()
 			return bothOutcome(state)
 		case syntax.AndStmt:
@@ -1126,6 +1187,8 @@ func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 	case *syntax.WhileClause:
 		return w.whileClause(command, state)
 	case *syntax.ForClause:
+		state = applyExpansionVariableEffects(command.Loop, state)
+		w.states[stmt] = state
 		if w.expansions(command.Loop, state) {
 			state.fsUncertain = true
 		}
@@ -1149,17 +1212,28 @@ func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 	case *syntax.TimeClause:
 		return w.stmt(command.Stmt, state)
 	case *syntax.DeclClause:
+		state = applyExpansionVariableEffects(command, state)
+		w.states[stmt] = state
 		state = invalidateDeclarationVariables(state, command)
+		for _, assignment := range command.Args {
+			if assignment.Name != nil && assignment.Name.Value == "POSIXLY_CORRECT" {
+				state.posixMode = true
+				state.posixModeUnknown = false
+			}
+		}
 		return bothOutcome(state)
 	case *syntax.LetClause, *syntax.ArithmCmd:
 		state.variables = nil
 		state.namerefs = nil
+		state.ifsUnknown = true
 		state.gitEnvironmentUnknown = true
 		return bothOutcome(state)
 	case *syntax.FuncDecl:
 		w.isolated().stmt(command.Body, state)
 		return bothOutcome(state)
 	default:
+		state = applyExpansionVariableEffects(command, state)
+		w.states[stmt] = state
 		if w.expansions(command, state) {
 			state.fsUncertain = true
 		}
@@ -1218,7 +1292,10 @@ func (w *cwdWalker) whileClause(clause *syntax.WhileClause, state cwdState) cwdO
 }
 
 func (w *cwdWalker) caseClause(clause *syntax.CaseClause, state cwdState) cwdOutcome {
-	w.expansions(clause.Word, state)
+	state = applyExpansionVariableEffects(clause.Word, state)
+	if w.expansions(clause.Word, state) {
+		state.fsUncertain = true
+	}
 	selector, static := staticWord(clause.Word, false)
 	if static {
 		matches := make([]bool, len(clause.Items))
@@ -1233,6 +1310,14 @@ func (w *cwdWalker) caseClause(clause *syntax.CaseClause, state cwdState) cwdOut
 				state = w.list(clause.Items[index].Stmts, state).merged()
 			}
 			return bothOutcome(state)
+		}
+	}
+	for _, item := range clause.Items {
+		for _, pattern := range item.Patterns {
+			state = applyExpansionVariableEffects(pattern, state)
+			if w.expansions(pattern, state) {
+				state.fsUncertain = true
+			}
 		}
 	}
 	exits := []cwdState{state}
@@ -1292,6 +1377,98 @@ func (w *cwdWalker) expansions(node syntax.Node, state cwdState) bool {
 		return true
 	})
 	return filesystemUncertain
+}
+
+func applyExpansionVariableEffects(node syntax.Node, state cwdState) cwdState {
+	if !expansionMayMutateVariables(node) {
+		return state
+	}
+	state.variables = nil
+	state.namerefs = nil
+	state.ifsUnknown = true
+	state.gitEnvironmentUnknown = true
+	return state
+}
+
+func expansionMayMutateVariables(node syntax.Node) bool {
+	mutates := false
+	syntax.Walk(node, func(node syntax.Node) bool {
+		if mutates {
+			return false
+		}
+		switch expression := node.(type) {
+		case *syntax.CmdSubst, *syntax.ProcSubst:
+			return false
+		case *syntax.ParamExp:
+			if expression.Excl {
+				mutates = true
+				return false
+			}
+			if expression.Index != nil && arithmeticExpressionMayMutate(expression.Index) ||
+				expression.Slice != nil && (arithmeticExpressionMayMutate(expression.Slice.Offset) || arithmeticExpressionMayMutate(expression.Slice.Length)) {
+				mutates = true
+				return false
+			}
+			if expression.Exp == nil || expression.Exp.Op != syntax.AssignUnset && expression.Exp.Op != syntax.AssignUnsetOrNull {
+				return true
+			}
+			mutates = true
+		case *syntax.Assign:
+			if expression.Index != nil && arithmeticExpressionMayMutate(expression.Index) {
+				mutates = true
+			}
+		case *syntax.ArrayElem:
+			if expression.Index != nil && arithmeticExpressionMayMutate(expression.Index) {
+				mutates = true
+			}
+		case *syntax.ArithmExp:
+			mutates = arithmeticExpressionMayMutate(expression.X)
+			return false
+		case *syntax.BinaryArithm:
+			mutates = arithmeticAssignment(expression.Op)
+		case *syntax.UnaryArithm:
+			mutates = expression.Op == syntax.Inc || expression.Op == syntax.Dec
+		}
+		return !mutates
+	})
+	return mutates
+}
+
+func arithmeticExpressionMayMutate(expression syntax.ArithmExpr) bool {
+	if expression == nil {
+		return false
+	}
+	switch expression := expression.(type) {
+	case *syntax.BinaryArithm:
+		return arithmeticAssignment(expression.Op) || arithmeticExpressionMayMutate(expression.X) || arithmeticExpressionMayMutate(expression.Y)
+	case *syntax.UnaryArithm:
+		return expression.Op == syntax.Inc || expression.Op == syntax.Dec || arithmeticExpressionMayMutate(expression.X)
+	case *syntax.ParenArithm:
+		return arithmeticExpressionMayMutate(expression.X)
+	case *syntax.Word:
+		value, ok := staticWord(expression, false)
+		if !ok || value == "" {
+			return true
+		}
+		for _, digit := range value {
+			if digit < '0' || digit > '9' {
+				return true
+			}
+		}
+		return false
+	default:
+		return true
+	}
+}
+
+func arithmeticAssignment(operator syntax.BinAritOperator) bool {
+	switch operator {
+	case syntax.Assgn, syntax.AddAssgn, syntax.SubAssgn, syntax.MulAssgn, syntax.QuoAssgn,
+		syntax.RemAssgn, syntax.AndAssgn, syntax.OrAssgn, syntax.XorAssgn, syntax.ShlAssgn, syntax.ShrAssgn:
+		return true
+	default:
+		return false
+	}
 }
 
 func (w *cwdWalker) isolated() *cwdWalker {
@@ -1409,7 +1586,14 @@ func simpleForCall(src string, stmt *syntax.Stmt, call *syntax.CallExpr, state c
 
 func (w *cwdWalker) call(stmt *syntax.Stmt, call *syntax.CallExpr, state cwdState) cwdOutcome {
 	if len(call.Args) == 0 {
-		return successOutcome(applyPersistentAssignments(state, call))
+		state = applyPersistentAssignments(state, call)
+		for _, assignment := range call.Assigns {
+			if assignment.Name != nil && assignment.Name.Value == "POSIXLY_CORRECT" {
+				state.posixMode = true
+				state.posixModeUnknown = false
+			}
+		}
+		return successOutcome(state)
 	}
 	simple := simpleForCall(w.src, stmt, call, state)
 	argv, bypassFunction, noExecute, err := directCommandArgv(simple.Argv)
@@ -1424,13 +1608,23 @@ func (w *cwdWalker) call(stmt *syntax.Stmt, call *syntax.CallExpr, state cwdStat
 	}
 	local := applyCallAssignments(state, call)
 	w.recursive[stmt] = local
+	posixSpecial := (!bypassFunction || directCommandUsesBuiltin(simple.Argv)) && posixSpecialBuiltin(argv[0])
+	posixPersistent := state.posixMode && !state.posixModeUnknown && posixSpecial
+	if state.posixModeUnknown && posixSpecial && len(call.Assigns) > 0 {
+		state = invalidateAllVariables(state)
+		local = invalidateAllVariables(local)
+	}
 
 	if functions, ok := w.functions[argv[0]]; ok && !bypassFunction {
 		out := w.functionCall(stmt, simple, argv[0], functions, local)
 		return restoreCallAssignments(out, state, call)
 	}
 	if argv[0] == "eval" {
-		return w.eval(stmt, simple, argv, local)
+		out := w.eval(stmt, simple, argv, local)
+		if posixPersistent {
+			return out
+		}
+		return restoreCallAssignments(out, state, call)
 	}
 	if simple.Unresolved && bypassFunction {
 		return bothOutcome(unknownCwd(state))
@@ -1438,15 +1632,26 @@ func (w *cwdWalker) call(stmt *syntax.Stmt, call *syntax.CallExpr, state cwdStat
 	if simple.Unresolved && len(w.functions) > 0 && !bypassFunction {
 		return bothOutcome(unknownCwd(state))
 	}
+	persistent := state
+	if posixPersistent {
+		state = local
+	}
 	state = invalidateCallVariables(state, argv)
 	local = invalidateCallVariables(local, argv)
+	state = applyShellModeCommand(state, argv)
+	local = applyShellModeCommand(local, argv)
 	switch argv[0] {
 	case "cd":
-		return restoreCDPath(cdOutcome(local, simple, argv), state)
+		return restoreCallAssignments(restoreCDPath(cdOutcome(local, simple, argv), state), persistent, call)
 	case "pushd", "popd":
 		return bothOutcome(unknownCwd(state))
 	case ".", "source":
-		return bothOutcome(unknownCwd(local))
+		local.posixModeUnknown = true
+		out := bothOutcome(unknownCwd(local))
+		if posixPersistent {
+			return out
+		}
+		return restoreCallAssignments(out, persistent, call)
 	case "return", "break", "continue":
 		return bothOutcome(unknownCwd(state))
 	}
@@ -1455,7 +1660,7 @@ func (w *cwdWalker) call(stmt *syntax.Stmt, call *syntax.CallExpr, state cwdStat
 	if shellCommand || argv[0] == "watch" {
 		state.fsUncertain = true
 	}
-	if len(simple.Redirects) > 0 || len(writeTargets(simple)) > 0 {
+	if len(simple.Redirects) > 0 || callMayWriteFilesystem(simple) {
 		state.fsUncertain = true
 	}
 	truth := literalCondition([]*syntax.Stmt{stmt}, w.shadowed)
@@ -1470,6 +1675,104 @@ func (w *cwdWalker) call(stmt *syntax.Stmt, call *syntax.CallExpr, state cwdStat
 	default:
 		return bothOutcome(state)
 	}
+}
+
+func callMayWriteFilesystem(simple Simple) bool {
+	for len(simple.Argv) > 0 {
+		if len(writeTargets(simple)) > 0 {
+			return true
+		}
+		argv := simple.Argv
+		switch head(argv) {
+		case ":", "true", "false", "test", "[", "pwd", "echo", "printf", "type", "hash", "help",
+			"alias", "unalias", "set", "shift", "getopts", "read", "declare", "typeset", "local",
+			"export", "readonly", "unset", "return", "break", "continue", "times", "cd":
+			return false
+		case "busybox":
+			if len(argv) < 2 || strings.HasPrefix(argv[1], "-") {
+				return true
+			}
+			simple.Argv = argv[1:]
+			continue
+		}
+		var rest []string
+		var err error
+		switch head(argv) {
+		case "env":
+			rest, err = consumeEnv(argv[1:])
+		case "timeout":
+			rest, err = consumeTimeout(argv[1:])
+		case "nice":
+			rest, err = consumeNice(argv[1:])
+		case "setsid":
+			rest, err = consumeSetsid(argv[1:])
+		case "stdbuf":
+			rest, err = consumeStdbuf(argv[1:])
+		case "ionice":
+			rest, err = consumeIonice(argv[1:])
+		case "nohup":
+			rest, err = consumeNoFlags("nohup", argv[1:])
+		case "command":
+			var none bool
+			rest, none, err = consumeCommand(argv[1:])
+			if none {
+				return false
+			}
+		case "builtin":
+			rest, err = consumeBuiltin(argv[1:])
+		case "exec":
+			rest, err = consumeExec(argv[1:])
+		default:
+			return true
+		}
+		if err != nil || len(rest) == 0 || len(rest) >= len(argv) {
+			return err != nil
+		}
+		simple.Argv = rest
+	}
+	return false
+}
+
+func posixSpecialBuiltin(command string) bool {
+	switch command {
+	case ":", ".", "source", "break", "continue", "eval", "exec", "exit", "export", "readonly", "return", "set", "shift", "times", "trap", "unset":
+		return true
+	default:
+		return false
+	}
+}
+
+func directCommandUsesBuiltin(argv []string) bool {
+	for len(argv) > 0 {
+		switch argv[0] {
+		case "command":
+			var none bool
+			var err error
+			argv, none, err = consumeCommand(argv[1:])
+			if err != nil || none {
+				return false
+			}
+		case "builtin":
+			return true
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+func applyShellModeCommand(state cwdState, argv []string) cwdState {
+	if len(argv) == 3 && argv[0] == "set" && argv[2] == "posix" {
+		switch argv[1] {
+		case "-o":
+			state.posixMode = true
+			state.posixModeUnknown = false
+		case "+o":
+			state.posixMode = false
+			state.posixModeUnknown = false
+		}
+	}
+	return state
 }
 
 func restoreCDPath(out cwdOutcome, persistent cwdState) cwdOutcome {
@@ -1515,6 +1818,8 @@ func (w *cwdWalker) eval(stmt *syntax.Stmt, simple Simple, argv []string, state 
 		w.replacements[stmt] = []Simple{{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: true, pipelines: w.pipelines[stmt]}}
 		w.shadowed["true"] = true
 		w.shadowed["false"] = true
+		state = invalidateAllVariables(state)
+		state.posixModeUnknown = true
 		return bothOutcome(unknownCwd(state))
 	}
 	if len(argv) == 1 {
@@ -1524,11 +1829,21 @@ func (w *cwdWalker) eval(stmt *syntax.Stmt, simple Simple, argv []string, state 
 	result, err := normalizeWithState(strings.Join(argv[1:], " "), state, w.ctx, w.functions, w.active, w.pipelines[stmt])
 	if err != nil {
 		w.replacements[stmt] = []Simple{{Argv: simple.Argv, Cwd: state.cwd, Unresolved: true, cwdUnknown: true, pipelines: w.pipelines[stmt]}}
+		state = invalidateAllVariables(state)
+		state.posixModeUnknown = true
 		return bothOutcome(unknownCwd(state))
 	}
 	w.replacements[stmt] = result.simples
 	w.publishFunctions(result.functions, w.uncertainDef)
 	return result.outcome
+}
+
+func invalidateAllVariables(state cwdState) cwdState {
+	state.variables = nil
+	state.namerefs = nil
+	state.ifsUnknown = true
+	state.gitEnvironmentUnknown = true
+	return state
 }
 
 func (w *cwdWalker) functionCall(stmt *syntax.Stmt, simple Simple, name string, functions shellFunctionSet, state cwdState) cwdOutcome {
@@ -1584,10 +1899,14 @@ func applyCallAssignments(state cwdState, call *syntax.CallExpr) cwdState {
 		if target, ok := resolveNameref(state.namerefs, name); !ok {
 			state.variables = nil
 			state.namerefs = nil
+			state.ifsUnknown = true
 			state.gitEnvironmentUnknown = true
 			return state
 		} else if target != name {
 			delete(variables, target)
+			if target == "IFS" {
+				state.ifsUnknown = true
+			}
 			if gitRepositoryEnvironmentVariable(target) {
 				state.gitEnvironmentUnknown = true
 			}
@@ -1595,6 +1914,9 @@ func applyCallAssignments(state cwdState, call *syntax.CallExpr) cwdState {
 		}
 		if assignment.Append || assignment.Index != nil || assignment.Array != nil {
 			delete(variables, name)
+			if name == "IFS" {
+				state.ifsUnknown = true
+			}
 			if gitRepositoryEnvironmentVariable(name) {
 				state.gitEnvironmentUnknown = true
 			}
@@ -1606,8 +1928,14 @@ func applyCallAssignments(state cwdState, call *syntax.CallExpr) cwdState {
 			}
 			if ok {
 				variables[name] = value
+				if name == "IFS" {
+					state.ifsUnknown = false
+				}
 			} else {
 				delete(variables, name)
+				if name == "IFS" {
+					state.ifsUnknown = true
+				}
 				if gitRepositoryEnvironmentVariable(name) {
 					state.gitEnvironmentUnknown = true
 				}
@@ -1638,18 +1966,24 @@ func applyCallAssignments(state cwdState, call *syntax.CallExpr) cwdState {
 func restoreCallAssignments(out cwdOutcome, persistent cwdState, call *syntax.CallExpr) cwdOutcome {
 	var names []string
 	restoreCDPath := false
+	restoreIFS := false
 	for _, assignment := range call.Assigns {
 		if assignment.Name == nil {
 			continue
 		}
 		names = append(names, assignment.Name.Value)
 		restoreCDPath = restoreCDPath || assignment.Name.Value == "CDPATH"
+		restoreIFS = restoreIFS || assignment.Name.Value == "IFS"
 	}
 	resolved, ok := resolveNamerefNames(persistent.namerefs, names)
+	for _, name := range resolved {
+		restoreIFS = restoreIFS || name == "IFS"
+	}
 	restore := func(state cwdState) cwdState {
 		if !ok {
 			state.variables = nil
 			state.namerefs = nil
+			state.ifsUnknown = true
 			state.gitEnvironmentUnknown = true
 			return state
 		}
@@ -1675,6 +2009,9 @@ func restoreCallAssignments(out cwdOutcome, persistent cwdState, call *syntax.Ca
 		}
 		state.variables = variables
 		state.namerefs = namerefs
+		if restoreIFS {
+			state.ifsUnknown = persistent.ifsUnknown
+		}
 		if restoreCDPath {
 			state.cdpath = persistent.cdpath
 			state.cdpathSet = persistent.cdpathSet
@@ -1705,6 +2042,7 @@ func applyPersistentAssignments(state cwdState, call *syntax.CallExpr) cwdState 
 		if target, ok := resolveNameref(state.namerefs, name); !ok {
 			state.variables = nil
 			state.namerefs = nil
+			state.ifsUnknown = true
 			state.gitEnvironmentUnknown = true
 			return state
 		} else if target != name {
@@ -1743,6 +2081,7 @@ func invalidateCallVariables(state cwdState, argv []string) cwdState {
 	case ".", "source":
 		state.variables = nil
 		state.namerefs = nil
+		state.ifsUnknown = true
 		state.gitEnvironmentUnknown = true
 	case "read":
 		names, uncontrolled := readVariableNames(argv[1:])
@@ -1768,7 +2107,14 @@ func invalidateCallVariables(state cwdState, argv []string) cwdState {
 	case "let":
 		state.variables = nil
 		state.namerefs = nil
+		state.ifsUnknown = true
 		state.gitEnvironmentUnknown = true
+	case "trap":
+		state.variables = nil
+		state.namerefs = nil
+		state.ifsUnknown = true
+		state.gitEnvironmentUnknown = true
+		state.posixModeUnknown = true
 	case "printf":
 		name, found := printfVariableName(argv[1:])
 		if found {
@@ -1807,6 +2153,7 @@ func invalidateDeclarationVariables(state cwdState, declaration *syntax.DeclClau
 		if !ok || !validShellVariableName(target) {
 			state.variables = nil
 			state.namerefs = nil
+			state.ifsUnknown = true
 			state.gitEnvironmentUnknown = true
 			return state
 		}
@@ -1836,6 +2183,7 @@ func invalidateNamedVariables(state cwdState, names []string, uncontrolled ...bo
 	if len(uncontrolled) > 0 && uncontrolled[0] {
 		state.variables = nil
 		state.namerefs = nil
+		state.ifsUnknown = true
 		state.gitEnvironmentUnknown = true
 		return state
 	}
@@ -1970,6 +2318,7 @@ func invalidateLoopVariables(state cwdState, loop syntax.Loop) cwdState {
 	wordLoop, ok := loop.(*syntax.WordIter)
 	if !ok || wordLoop.Name == nil {
 		state.variables = nil
+		state.ifsUnknown = true
 		state.gitEnvironmentUnknown = true
 		return state
 	}
@@ -1984,11 +2333,15 @@ func withoutVariables(state cwdState, names ...string) cwdState {
 	if !ok {
 		state.variables = nil
 		state.namerefs = nil
+		state.ifsUnknown = true
 		state.gitEnvironmentUnknown = true
 		return state
 	}
 	names = resolved
 	for _, name := range names {
+		if name == "IFS" {
+			state.ifsUnknown = true
+		}
 		if gitRepositoryEnvironmentVariable(name) {
 			state.gitEnvironmentUnknown = true
 		}
@@ -2213,10 +2566,19 @@ func mergeCwd(states ...cwdState) cwdState {
 		return cwdState{unknown: true}
 	}
 	merged := states[0]
+	ifs, ifsKnown := trackedIFS(merged)
 	merged.variables = commonVariables(states)
 	merged.namerefs = commonNamerefs(states)
 	for _, state := range states[1:] {
+		candidateIFS, candidateKnown := trackedIFS(state)
+		if !ifsKnown || !candidateKnown || candidateIFS != ifs {
+			merged.ifsUnknown = true
+		}
 		merged.fsUncertain = merged.fsUncertain || state.fsUncertain
+		merged.findScopeUncertain = merged.findScopeUncertain || state.findScopeUncertain
+		if merged.posixModeUnknown || state.posixModeUnknown || merged.posixMode != state.posixMode {
+			merged.posixModeUnknown = true
+		}
 		merged.gitEnvironmentUnknown = merged.gitEnvironmentUnknown || state.gitEnvironmentUnknown
 		if state.unknown || merged.unknown || state.cwd != merged.cwd {
 			merged.cwd = ""
@@ -2391,6 +2753,7 @@ func replacementWithOuterMetadata(outer Simple, replacement []Simple) []Simple {
 			resolvedIn:    outer.resolvedIn,
 			pipelines:     outer.pipelines,
 			cwdUnknown:    outer.cwdUnknown,
+			fsUncertain:   outer.fsUncertain,
 		})
 	}
 	for _, inner := range replacement {
@@ -2416,6 +2779,7 @@ func commandDerivedFrom(outer Simple, argv []string) Simple {
 		gitEnvironmentUnknown: outer.gitEnvironmentUnknown,
 		pipelines:             outer.pipelines,
 		cwdUnknown:            outer.cwdUnknown,
+		fsUncertain:           head(argv) == "find" && (outer.shellState.fsUncertain || outer.shellState.findScopeUncertain),
 		shellState:            outer.shellState,
 	}
 	if offset := argvSubsliceOffset(outer.Argv, argv); offset >= 0 {
@@ -2553,6 +2917,7 @@ loop:
 		switch head(argv) {
 		case "env":
 			s = applyEnvGitEnvironment(s, argv)
+			s.shellState = applyEnvShellState(s.shellState, argv[1:])
 			rest, err = consumeEnv(argv[1:])
 		case "timeout":
 			rest, err = consumeTimeout(argv[1:])
@@ -2616,14 +2981,33 @@ loop:
 		return nil, err
 	}
 	if inner != nil {
-		result = append(result, commandDerivedFrom(s, inner))
+		derived := commandDerivedFrom(s, inner)
+		switch head(argv) {
+		case "docker", "podman", "nerdctl":
+			derived.shellState.fsUncertain = true
+			nested, nestedErr := stripAndUnwrap(derived, ctx)
+			if nestedErr != nil {
+				return nil, nestedErr
+			}
+			result = append(result, nested...)
+			derived = Simple{}
+		}
+		if len(derived.Argv) > 0 {
+			result = append(result, derived)
+		}
 	}
 	source, dashC, err := shellDashC(argv)
 	if err != nil {
 		return nil, err
 	}
 	if dashC {
-		inner, err := normalizeShellDashC(source, s.shellState, s.pipelines, ctx)
+		innerState := s.shellState
+		innerState.posixMode = shellUsesPOSIXMode(argv)
+		innerState.posixModeUnknown = false
+		if _, present := innerState.variables["POSIXLY_CORRECT"]; head(argv) == "bash" && present {
+			innerState.posixMode = true
+		}
+		inner, err := normalizeShellDashC(source, innerState, s.pipelines, ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -2634,7 +3018,9 @@ loop:
 		return nil, err
 	}
 	for _, remoteSource := range remoteSources {
-		inner, err := normalizeShellDashC(remoteSource, s.shellState, s.pipelines, ctx)
+		remoteState := s.shellState
+		remoteState.fsUncertain = true
+		inner, err := normalizeShellDashC(remoteSource, remoteState, s.pipelines, ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -2881,9 +3267,9 @@ func consumeEnv(argv []string) ([]string, error) {
 		switch {
 		case a == "--":
 			return argv[i+1:], nil
-		case a == "-i" || a == "-v" || a == "-0":
+		case a == "-i" || a == "--ignore-environment" || a == "-v" || a == "--debug" || a == "-0" || a == "--null":
 			i++
-		case a == "-u":
+		case a == "-u" || a == "--unset":
 			if i+1 >= len(argv) {
 				return nil, needsValue("env", a)
 			}
@@ -2897,6 +3283,41 @@ func consumeEnv(argv []string) ([]string, error) {
 		}
 	}
 	return nil, nil
+}
+
+func applyEnvShellState(state cwdState, argv []string) cwdState {
+	variables := make(map[string]string, len(state.variables)+1)
+	for name, value := range state.variables {
+		variables[name] = value
+	}
+	for index := 0; index < len(argv); index++ {
+		arg := argv[index]
+		switch {
+		case arg == "--":
+			state.variables = variables
+			return state
+		case arg == "-i" || arg == "--ignore-environment":
+			delete(variables, "POSIXLY_CORRECT")
+		case arg == "-u" || arg == "--unset":
+			if index+1 >= len(argv) {
+				state.variables = variables
+				return state
+			}
+			index++
+			delete(variables, argv[index])
+		case strings.HasPrefix(arg, "-"):
+		case strings.Contains(arg, "="):
+			name, value, _ := strings.Cut(arg, "=")
+			if validShellVariableName(name) {
+				variables[name] = value
+			}
+		default:
+			state.variables = variables
+			return state
+		}
+	}
+	state.variables = variables
+	return state
 }
 
 func consumeTimeout(argv []string) ([]string, error) {
@@ -3238,6 +3659,61 @@ func shellDashC(argv []string) (string, bool, error) {
 		}
 	}
 	return "", false, nil
+}
+
+func shellUsesPOSIXMode(argv []string) bool {
+	shell := head(argv)
+	switch shell {
+	case "sh", "dash", "ash", "ksh", "mksh":
+		return true
+	case "bash":
+	default:
+		return false
+	}
+
+	posix := false
+	for index := 1; index < len(argv); index++ {
+		option := argv[index]
+		if option == "--posix" {
+			posix = true
+			continue
+		}
+		if strings.HasPrefix(option, "--") {
+			base := option
+			attached := false
+			if equals := strings.IndexByte(option, '='); equals >= 0 {
+				base, attached = option[:equals], true
+			}
+			if bashShellOptions.longValues[base] && !attached {
+				index++
+			}
+			continue
+		}
+		if len(option) < 2 || option[0] != '-' && option[0] != '+' {
+			return posix
+		}
+		command := false
+		for offset := 1; offset < len(option); offset++ {
+			switch option[offset] {
+			case 'c':
+				command = true
+			case 'o', 'O':
+				value := option[offset+1:]
+				if value == "" && index+1 < len(argv) {
+					index++
+					value = argv[index]
+				}
+				if option[offset] == 'o' && value == "posix" {
+					posix = option[0] == '-'
+				}
+				offset = len(option)
+			}
+		}
+		if command {
+			return posix
+		}
+	}
+	return posix
 }
 
 func runnerInner(argv []string) ([]string, error) {

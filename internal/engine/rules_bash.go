@@ -885,14 +885,47 @@ func checkAskTier(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 			return ask("P1.chown", "recursive chown")
 		}
 	case "find":
-		destructive := map[string]bool{"rm": true, "shred": true, "truncate": true, "dd": true}
+		scopedDelete := false
 		for i, a := range s.Argv {
 			if a == "-delete" {
-				return ask("P1.find-delete", "find -delete is a bulk deletion primitive")
+				scopedDelete = true
 			}
 			if (a == "-exec" || a == "-execdir" || a == "-ok" || a == "-okdir") &&
-				i+1 < len(s.Argv) && destructive[head(s.Argv[i+1:])] {
+				i+1 < len(s.Argv) && findDestructiveCallbackCommand(head(s.Argv[i+1:])) {
+				if (a == "-exec" || a == "-execdir") && head(s.Argv[i+1:]) == "rm" {
+					if !findRmActionOnlyMatches(s.Argv, i+2) {
+						return ask("P1.find-delete", "find "+a+" rm includes an unscoped deletion operand")
+					}
+					scopedDelete = true
+					continue
+				}
 				return ask("P1.find-delete", "find "+a+" invokes a destructive command")
+			}
+			if (a == "-exec" || a == "-execdir" || a == "-ok" || a == "-okdir") &&
+				i+1 < len(s.Argv) && findWrappedDestructiveCallback(s.Argv[i+1:]) {
+				return ask("P1.find-delete", "find "+a+" invokes a destructive command through a wrapper")
+			}
+		}
+		if scopedDelete {
+			if s.fsUncertain {
+				return ask("P1.find-delete", "find deletion scope may have changed before execution")
+			}
+			if hasAnyArg(s.Argv, "-H", "-L", "-follow") {
+				return ask("P1.find-delete", "find deletion follows symlinks outside the starting roots")
+			}
+			roots, ok := findStartingRoots(s.Argv)
+			if !ok {
+				return ask("P1.find-delete", "find deletion scope could not be established")
+			}
+			cwd := simpleCwd(s, tc)
+			for _, root := range roots {
+				candidate := pathCandidate{path: root, cwd: cwd, cwdUnknown: s.cwdUnknown}
+				if findRootOverlapsRepository(candidate, tc.RepoRoot) {
+					return ask("P1.find-delete", "find deletion starts inside the repository: "+root)
+				}
+				if authorized, _ := authorizedPath(candidate, "", nil, systemTempRoots(), false); !authorized {
+					return ask("P1.find-delete", "find deletion starts outside configured safe roots: "+root)
+				}
 			}
 		}
 	case "truncate":
@@ -921,6 +954,183 @@ func checkAskTier(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		}
 	}
 	return nil
+}
+
+func hasAnyArg(argv []string, values ...string) bool {
+	for _, arg := range argv {
+		for _, value := range values {
+			if arg == value {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func findRootOverlapsRepository(root pathCandidate, repoRoot string) bool {
+	if repoRoot == "" || root.cwdUnknown && !filepath.IsAbs(root.path) {
+		return false
+	}
+	lexicalRoot, err := filepath.Abs(resolvePath(root.path, root.cwd))
+	if err != nil {
+		return false
+	}
+	lexicalRepo, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return false
+	}
+	if pathsOverlap(lexicalRoot, lexicalRepo) {
+		return true
+	}
+	physicalRoot, rootOK := resolveExistingPath(lexicalRoot, "")
+	physicalRepo, repoOK := resolveExistingPath(lexicalRepo, "")
+	return rootOK && repoOK && pathsOverlap(physicalRoot, physicalRepo)
+}
+
+func pathsOverlap(left, right string) bool {
+	contains := func(root, target string) bool {
+		relative, err := filepath.Rel(strings.ToLower(filepath.Clean(root)), strings.ToLower(filepath.Clean(target)))
+		if err != nil {
+			return false
+		}
+		return relative == "." || relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+	}
+	return contains(left, right) || contains(right, left)
+}
+
+func findStartingRoots(argv []string) ([]string, bool) {
+	i := 1
+	for i < len(argv) {
+		arg := argv[i]
+		switch {
+		case arg == "--":
+			i++
+			goto roots
+		case arg == "-H" || arg == "-L" || arg == "-P":
+			i++
+		case arg == "-D":
+			if i+1 >= len(argv) || strings.HasPrefix(argv[i+1], "-") {
+				return nil, false
+			}
+			i += 2
+		case strings.HasPrefix(arg, "-O"):
+			if len(arg) == 2 {
+				return nil, false
+			}
+			if _, err := strconv.Atoi(arg[2:]); err != nil {
+				return nil, false
+			}
+			i++
+		default:
+			goto roots
+		}
+	}
+
+roots:
+	start := i
+	for i < len(argv) {
+		arg := argv[i]
+		if strings.HasPrefix(arg, "-") || arg == "!" || arg == "(" || arg == ")" || arg == "," {
+			break
+		}
+		i++
+	}
+	if i == start {
+		return nil, false
+	}
+	return argv[start:i], true
+}
+
+func findRmActionOnlyMatches(argv []string, start int) bool {
+	foundMatch := false
+	options := true
+	for _, arg := range argv[start:] {
+		if arg == ";" || arg == `\;` || arg == "+" {
+			return foundMatch
+		}
+		if foundMatch {
+			if arg != "{}" {
+				return false
+			}
+			continue
+		}
+		if strings.Contains(arg, "{}") && arg != "{}" {
+			return false
+		}
+		if options && arg == "--" {
+			options = false
+			continue
+		}
+		if options && arg != "-" && strings.HasPrefix(arg, "-") {
+			continue
+		}
+		if arg != "{}" {
+			return false
+		}
+		foundMatch = true
+	}
+	return false
+}
+
+func findWrappedDestructiveCallback(argv []string) bool {
+	for len(argv) > 0 {
+		if findDestructiveCallbackCommand(head(argv)) {
+			return true
+		}
+		switch head(argv) {
+		case "sh", "bash", "dash", "ash", "zsh", "ksh", "mksh", "csh", "tcsh":
+			return true
+		case "busybox":
+			if len(argv) < 2 || strings.HasPrefix(argv[1], "-") {
+				return true
+			}
+			argv = argv[1:]
+			continue
+		}
+		var rest []string
+		var err error
+		switch head(argv) {
+		case "env":
+			rest, err = consumeEnv(argv[1:])
+		case "timeout":
+			rest, err = consumeTimeout(argv[1:])
+		case "nice":
+			rest, err = consumeNice(argv[1:])
+		case "setsid":
+			rest, err = consumeSetsid(argv[1:])
+		case "stdbuf":
+			rest, err = consumeStdbuf(argv[1:])
+		case "ionice":
+			rest, err = consumeIonice(argv[1:])
+		case "nohup":
+			rest, err = consumeNoFlags("nohup", argv[1:])
+		case "command":
+			var none bool
+			rest, none, err = consumeCommand(argv[1:])
+			if none {
+				return false
+			}
+		default:
+			return false
+		}
+		if err != nil {
+			return true
+		}
+		if len(rest) == 0 || len(rest) >= len(argv) {
+			return false
+		}
+		argv = rest
+	}
+	return false
+}
+
+func findDestructiveCallbackCommand(command string) bool {
+	switch command {
+	case "rm", "shred", "srm", "truncate", "dd", "unlink", "rmdir", "mke2fs", "wipefs":
+		return true
+	default:
+		return command == "mkfs" || strings.HasPrefix(command, "mkfs.")
+	}
 }
 
 func ask(id, reason string) *policy.Verdict {
