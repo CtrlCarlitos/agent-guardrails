@@ -1126,6 +1126,33 @@ func TestGuardrailOwnMachineryIsProtected(t *testing.T) {
 	}
 }
 
+func TestSessionStoreDeletionDenied(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		command string
+	}{
+		{"linux", "/home/u/.local/state/guardrail/sessions/key.json", `rm /home/u/.local/state/guardrail/sessions/key.json`},
+		{"xdg", "/var/user-state/guardrail/sessions/key.json", `rm /var/user-state/guardrail/sessions/key.json`},
+		{"macos", "/Users/u/Library/Application Support/guardrail/sessions/key.json", `rm "/Users/u/Library/Application Support/guardrail/sessions/key.json"`},
+		{"windows", `C:\Users\u\AppData\Local\guardrail\sessions\key.json`, `rm "C:\Users\u\AppData\Local\guardrail\sessions\key.json"`},
+		{"transaction lock", "/home/u/.local/state/guardrail/sessions/.lock", `rm /home/u/.local/state/guardrail/sessions/.lock`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, tc := range []ToolCall{
+				{Tool: "Write", Paths: []string{test.path}, RepoRoot: "/repo", CWD: "/repo"},
+				{Tool: "Bash", Command: test.command, RepoRoot: "/repo", CWD: "/repo"},
+			} {
+				v := checkPaths(tc, pathPol())
+				if v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
+					t.Errorf("%s session state %q -> %+v, want deny/P5.self-config", tc.Tool, test.path, v)
+				}
+			}
+		})
+	}
+}
+
 func TestOperatorConfigIsProtected(t *testing.T) {
 	protected := []string{
 		"/home/u/.config/guardrail/anything.toml",

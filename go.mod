@@ -5,5 +5,8 @@ go 1.23
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/bmatcuk/doublestar/v4 v4.10.0
+	github.com/gofrs/flock v0.12.1
 	mvdan.cc/sh/v3 v3.10.0
 )
+
+require golang.org/x/sys v0.26.0 // indirect

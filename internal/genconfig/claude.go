@@ -44,6 +44,7 @@ func bashDenyGlobs() []string {
 		"Bash(npm install --registry*)",
 		"Bash(docker compose down*)",
 		"Bash(docker system prune*)", "Bash(docker volume prune*)", "Bash(docker network prune*)",
+		"Bash(rm *guardrail/sessions/*)", `Bash(rm *guardrail\sessions\*)`,
 	}
 }
 
@@ -117,6 +118,11 @@ var operatorConfigGlobsFloor = []string{
 	"**/.config/guardrail/**", "**/guardrail/waivers.toml",
 }
 
+var sessionStoreGlobsFloor = []string{
+	"**/guardrail/sessions", "**/guardrail/sessions/**",
+	`**\guardrail\sessions`, `**\guardrail\sessions\**`,
+}
+
 var selfConfigGlobsFloor = append([]string{
 	".claude/settings.json", ".claude/settings.local.json",
 	".claude/hooks/**", ".claude/plugins/**", ".claude/agents/**",
@@ -129,7 +135,7 @@ var selfConfigGlobsFloor = append([]string{
 	".agents/hooks.json",
 	"**/.gemini/config/hooks.json",
 	"**/.local/bin/guardrail", "**/bin/guardrail",
-}, operatorConfigGlobsFloor...)
+}, append(operatorConfigGlobsFloor, sessionStoreGlobsFloor...)...)
 
 var gitProtectedGlobsFloor = []string{"**/.git/config", "**/.git/hooks/**"}
 
@@ -155,7 +161,7 @@ func selfConfigDenyGlobs() []string {
 
 func claudeSelfConfigDenyGlobs() []string {
 	out := selfConfigDenyGlobs()
-	for _, g := range operatorConfigGlobsFloor {
+	for _, g := range append(operatorConfigGlobsFloor, sessionStoreGlobsFloor...) {
 		out = append(out, "Edit(//"+g+")")
 	}
 	return out

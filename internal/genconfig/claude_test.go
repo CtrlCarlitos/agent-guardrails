@@ -257,6 +257,30 @@ func TestClaudeConfigProtectsGuardrailOwnMachinery(t *testing.T) {
 	}
 }
 
+func TestClaudeConfigProtectsSessionStore(t *testing.T) {
+	perms := ClaudeConfig(secretPol(), "guardrail")["permissions"].(map[string]any)
+	for _, operation := range []string{
+		"Edit(home/u/.local/state/guardrail/sessions/key.json)",
+		"Edit(Users/u/Library/Application Support/guardrail/sessions/key.json)",
+		"Edit(//home/u/.local/state/guardrail/sessions/key.json)",
+	} {
+		if got := claudeNativeDecision(perms, operation); got != "deny" {
+			t.Errorf("Claude permission for %q = %q, want deny", operation, got)
+		}
+	}
+	deny := perms["deny"].([]string)
+	for _, entry := range []string{
+		"Edit(//**/guardrail/sessions/**)",
+		`Edit(**\guardrail\sessions\**)`,
+		"Bash(rm *guardrail/sessions/*)",
+		`Bash(rm *guardrail\sessions\*)`,
+	} {
+		if !slices.Contains(deny, entry) {
+			t.Errorf("Claude deny missing session-store fallback %q", entry)
+		}
+	}
+}
+
 func TestClaudeConfigProtectsOperatorConfig(t *testing.T) {
 	frag := ClaudeConfig(secretPol(), "guardrail")
 	deny := frag["permissions"].(map[string]any)["deny"].([]string)

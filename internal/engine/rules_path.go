@@ -546,6 +546,7 @@ var selfConfigGlobs = []string{
 	"**/.guardrail/**",
 	// The operator's authorization must not be writable by the agent it governs.
 	"**/.config/guardrail/**", "**/guardrail/waivers.toml",
+	"**/guardrail/sessions", "**/guardrail/sessions/**",
 	"**/opencode.json",
 	"**/.agents/hooks.json",
 	"**/.gemini/config/hooks.json",
@@ -751,6 +752,7 @@ func checkOutOfRepoWrite(tc ToolCall) *policy.Verdict {
 // ~/.SSH/ID_RSA opens the real key, and a false positive from case-folding a
 // protected path is not a realistic cost.
 func matchesAnyGlob(p string, globs []string) bool {
+	p = strings.ReplaceAll(p, `\`, "/")
 	p = strings.ToLower(path.Clean(filepath.ToSlash(strings.TrimPrefix(p, "./"))))
 	for _, g := range globs {
 		if ok, _ := doublestar.Match(strings.ToLower(g), p); ok {

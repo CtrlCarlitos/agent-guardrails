@@ -93,6 +93,30 @@ func authorizeOperatorWaivers(t *testing.T, repo string, ids ...string) {
 	}
 }
 
+func configureTrackingPolicy(t *testing.T, waivers ...string) {
+	t.Helper()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	dir := filepath.Join(configHome, "guardrail")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	quoted := make([]string, len(waivers))
+	for i, waiver := range waivers {
+		quoted[i] = fmt.Sprintf("%q", waiver)
+	}
+	operator := fmt.Sprintf("[\"/tmp\"]\nwaive = [%s]\negress_allowlist = [\"api.example.com\"]\n", strings.Join(quoted, ", "))
+	if err := os.WriteFile(filepath.Join(dir, "waivers.toml"), []byte(operator), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	overlay := fmt.Sprintf("waive = [%s]\n[slots]\negress_allowlist = [\"api.example.com\"]\n", strings.Join(quoted, ", "))
+	overlayPath := filepath.Join(t.TempDir(), "guardrail.toml")
+	if err := os.WriteFile(overlayPath, []byte(overlay), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GUARDRAIL_CONFIG", overlayPath)
+}
+
 func repoWithAuthorizedWaiver(t *testing.T) (string, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -323,7 +347,15 @@ func TestHookCumulativeWarningCapPreservesSessionStartOperatorWarning(t *testing
 }
 
 func TestHookLateSessionWarningCannotExceedCumulativeCap(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	guardrailDir := filepath.Join(stateHome, "guardrail")
+	if err := os.Mkdir(guardrailDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(guardrailDir, "sessions"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	overlayPath := filepath.Join(t.TempDir(), "guardrail.toml")
 	if err := os.WriteFile(overlayPath, []byte(overlayWithWaivers(20)), 0o644); err != nil {
@@ -331,7 +363,7 @@ func TestHookLateSessionWarningCannotExceedCumulativeCap(t *testing.T) {
 	}
 	t.Setenv("GUARDRAIL_CONFIG", overlayPath)
 
-	payload := `{"session_id":"../unsafe","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`
+	payload := `{"session_id":"s1","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`
 	var out, errb bytes.Buffer
 	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
 		t.Fatalf("exit=%d stderr=%q", code, errb.String())
@@ -340,8 +372,8 @@ func TestHookLateSessionWarningCannotExceedCumulativeCap(t *testing.T) {
 	if len(lines) != 20 {
 		t.Fatalf("stderr wrote %d warning lines, want 20: %q", len(lines), errb.String())
 	}
-	if !strings.Contains(lines[0], "unsafe session id") || strings.ContainsAny(lines[0], "\r\t\x00\x7f") {
-		t.Fatalf("unsafe-session warning was not first and sanitized: %q", lines[0])
+	if !strings.Contains(lines[0], "session transaction failed") || strings.ContainsAny(lines[0], "\r\t\x00\x7f") {
+		t.Fatalf("session-transaction warning was not first and sanitized: %q", lines[0])
 	}
 	if !strings.Contains(errb.String(), "warning-19") || strings.Contains(errb.String(), "warning-20") {
 		t.Fatalf("stderr did not truncate lower-priority Merge warnings: %q", errb.String())
@@ -445,7 +477,119 @@ func TestTrifectaSilentWithoutPriorSignal(t *testing.T) {
 	}
 }
 
-func TestHookRejectsUnsafeSessionID(t *testing.T) {
+func TestTrackingUnavailableAsksForMissingSessionSignal(t *testing.T) {
+	tests := []struct {
+		name     string
+		waivers  []string
+		tool     string
+		toolJSON string
+	}{
+		{"network", nil, "Bash", `{"command":"curl https://api.example.com/x"}`},
+		{"private data", []string{"P4.secret-path"}, "Read", `{"file_path":"/tmp/.env"}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stateHome := t.TempDir()
+			t.Setenv("XDG_STATE_HOME", stateHome)
+			configureTrackingPolicy(t, test.waivers...)
+			payload := fmt.Sprintf(`{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":%q,"tool_input":%s}`, test.tool, test.toolJSON)
+			var out, errb bytes.Buffer
+			if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
+				t.Fatalf("signal without session ID: exit %d, want Ask exit 0; stderr=%s", code, errb.String())
+			}
+			if !strings.Contains(out.String(), `"permissionDecision":"ask"`) || !strings.Contains(out.String(), "session tracking") {
+				t.Fatalf("signal without session ID was not a model-visible tracking Ask: %s", out.String())
+			}
+			auditLog, err := os.ReadFile(filepath.Join(stateHome, "guardrail", "audit.jsonl"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(auditLog), `"rule_id":"P7.tracking-unavailable"`) {
+				t.Fatalf("tracking Ask audit lacks P7 rule ID: %s", auditLog)
+			}
+		})
+	}
+}
+
+func TestTrackingUnavailableAsksWhenTransactionFails(t *testing.T) {
+	tests := []struct {
+		name     string
+		waivers  []string
+		tool     string
+		toolJSON string
+	}{
+		{"network", nil, "Bash", `{"command":"curl https://api.example.com/x"}`},
+		{"private data", []string{"P4.secret-path"}, "Read", `{"file_path":"/tmp/.env"}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			configureTrackingPolicy(t, test.waivers...)
+			blocker := filepath.Join(t.TempDir(), "state-is-a-file")
+			if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("XDG_STATE_HOME", blocker)
+			payload := fmt.Sprintf(`{"session_id":"s1","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":%q,"tool_input":%s}`, test.tool, test.toolJSON)
+			var out, errb bytes.Buffer
+			if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
+				t.Fatalf("signal with failed transaction: exit %d, want Ask exit 0; stderr=%s", code, errb.String())
+			}
+			if !strings.Contains(out.String(), `"permissionDecision":"ask"`) || !strings.Contains(out.String(), "session tracking") {
+				t.Fatalf("failed transaction was not a model-visible tracking Ask: %s", out.String())
+			}
+		})
+	}
+}
+
+func TestTrackingUnavailablePreservesUnderlyingVerdicts(t *testing.T) {
+	t.Run("Ask", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		configureTrackingPolicy(t)
+		payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/tmp/cert.pem"}}`
+		var out, errb bytes.Buffer
+		if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
+			t.Fatalf("underlying Ask exit %d; stderr=%s", code, errb.String())
+		}
+		if !strings.Contains(out.String(), "credential/secret path") || strings.Contains(out.String(), "session tracking") {
+			t.Fatalf("underlying Ask changed: %s", out.String())
+		}
+	})
+
+	t.Run("Deny", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		configureTrackingPolicy(t)
+		payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/tmp/.ssh/id_rsa"}}`
+		var out, errb bytes.Buffer
+		if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 2 {
+			t.Fatalf("underlying Deny exit %d, want 2; stdout=%s stderr=%s", code, out.String(), errb.String())
+		}
+		if out.Len() != 0 || !strings.Contains(errb.String(), "credential/secret path") {
+			t.Fatalf("underlying Deny changed: stdout=%s stderr=%s", out.String(), errb.String())
+		}
+	})
+}
+
+func TestTrackingUnavailableDoesNotInterruptRoutineCall(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	configureTrackingPolicy(t)
+	payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`
+	var out, errb bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 || out.Len() != 0 {
+		t.Fatalf("routine call without session ID changed: code=%d stdout=%s stderr=%s", code, out.String(), errb.String())
+	}
+}
+
+func TestTrackingUnavailableWaiverPreservesAllow(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	configureTrackingPolicy(t, "P7.trifecta")
+	payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl https://api.example.com/x"}}`
+	var out, errb bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 || out.Len() != 0 {
+		t.Fatalf("waived tracking changed underlying Allow: code=%d stdout=%s stderr=%s", code, out.String(), errb.String())
+	}
+}
+
+func TestHookHashesNativeSessionID(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
 	authorizeOperatorWaivers(t, "/tmp", "P4.secret-path")
@@ -461,8 +605,8 @@ func TestHookRejectsUnsafeSessionID(t *testing.T) {
 	if code := run([]string{"hook", "claude"}, strings.NewReader(readPayload), &out1, &err1); code != 0 {
 		t.Fatalf("first call: exit %d, want 0; stderr=%s", code, err1.String())
 	}
-	if !strings.Contains(err1.String(), "unsafe session id") {
-		t.Errorf("first call missing unsafe-session warning: %q", err1.String())
+	if strings.Contains(err1.String(), "unsafe session id") {
+		t.Errorf("native session ID was rejected: %q", err1.String())
 	}
 
 	curlPayload := `{"session_id":"` + sid + `","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl http://localhost:9999/x"}}`
@@ -470,14 +614,14 @@ func TestHookRejectsUnsafeSessionID(t *testing.T) {
 	if code := run([]string{"hook", "claude"}, strings.NewReader(curlPayload), &out2, &err2); code != 0 {
 		t.Fatalf("second call: exit %d, want 0; stderr=%s", code, err2.String())
 	}
-	if strings.Contains(out2.String(), "trifecta") {
-		t.Errorf("unsafe session id carried heuristic state between calls: %s", out2.String())
+	if !strings.Contains(out2.String(), "trifecta") {
+		t.Errorf("hashed native session ID did not carry heuristic state: %s", out2.String())
 	}
-	if !strings.Contains(err2.String(), "unsafe session id") {
-		t.Errorf("second call missing unsafe-session warning: %q", err2.String())
+	if strings.Contains(err2.String(), "unsafe session id") {
+		t.Errorf("native session ID was rejected: %q", err2.String())
 	}
 	if _, err := os.Stat(filepath.Join(state, "guardrail", "unsafe.json")); !os.IsNotExist(err) {
-		t.Errorf("unsafe session id wrote outside the sessions dir: %v", err)
+		t.Errorf("raw native session ID wrote outside the sessions dir: %v", err)
 	}
 }
 

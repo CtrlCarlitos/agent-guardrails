@@ -169,6 +169,8 @@
       "Bash(docker system prune*)",
       "Bash(docker volume prune*)",
       "Bash(docker network prune*)",
+      "Bash(rm *guardrail/sessions/*)",
+      "Bash(rm *guardrail\\sessions\\*)",
       "Read(**/.ssh/**)",
       "Read(/root/.ssh/**)",
       "Read(**/.aws/**)",
@@ -242,10 +244,18 @@
       "Edit(**/bin/guardrail)",
       "Edit(**/.config/guardrail/**)",
       "Edit(**/guardrail/waivers.toml)",
+      "Edit(**/guardrail/sessions)",
+      "Edit(**/guardrail/sessions/**)",
+      "Edit(**\\guardrail\\sessions)",
+      "Edit(**\\guardrail\\sessions\\**)",
       "Edit(**/.git/config)",
       "Edit(**/.git/hooks/**)",
       "Edit(//**/.config/guardrail/**)",
-      "Edit(//**/guardrail/waivers.toml)"
+      "Edit(//**/guardrail/waivers.toml)",
+      "Edit(//**/guardrail/sessions)",
+      "Edit(//**/guardrail/sessions/**)",
+      "Edit(//**\\guardrail\\sessions)",
+      "Edit(//**\\guardrail\\sessions\\**)"
     ]
   }
 }
