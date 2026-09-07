@@ -1,11 +1,15 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
@@ -704,6 +708,100 @@ func TestGitConfigFilesystemIdentityFailsClosedWhenUnprovable(t *testing.T) {
 	}
 }
 
+func TestGitFilesystemMetadataReadsRejectSpecialFilesAndEnforceLimit(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("requires Linux FIFOs and procfs")
+	}
+	if mode := os.Getenv("GUARDRAIL_GIT_METADATA_HELPER"); mode != "" {
+		path := os.Getenv("GUARDRAIL_GIT_METADATA_PATH")
+		switch mode {
+		case "git-file":
+			if _, ok := discoverGitDirectory(path); ok {
+				t.Fatal("special-file .git was accepted")
+			}
+		case "commondir":
+			if got, ok := gitCommonDirectory([]string{"-C", path}, path, nil, true); ok {
+				t.Fatalf("gitCommonDirectory accepted special-file commondir as %q", got)
+			}
+		case "oversized":
+			info, err := os.Stat("/proc/self/cmdline")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !info.Mode().IsRegular() || info.Size() != 0 {
+				t.Fatalf("/proc/self/cmdline mode/size = %v/%d, want regular/0", info.Mode(), info.Size())
+			}
+			if value, ok := readSmallFile("/proc/self/cmdline"); ok {
+				t.Fatalf("readSmallFile accepted %d bytes despite the 4096-byte limit", len(value))
+			}
+		default:
+			t.Fatalf("unknown helper mode %q", mode)
+		}
+		return
+	}
+
+	for _, test := range []struct {
+		name  string
+		setup func(*testing.T) string
+		mode  string
+		arg   string
+	}{
+		{
+			name: "fifo .git",
+			setup: func(t *testing.T) string {
+				root := t.TempDir()
+				if output, err := exec.Command("mkfifo", filepath.Join(root, ".git")).CombinedOutput(); err != nil {
+					t.Fatalf("mkfifo: %v: %s", err, output)
+				}
+				return root
+			},
+			mode: "git-file",
+		},
+		{
+			name: "fifo commondir",
+			setup: func(t *testing.T) string {
+				root := t.TempDir()
+				gitDir := filepath.Join(root, ".git")
+				if err := os.Mkdir(gitDir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if output, err := exec.Command("mkfifo", filepath.Join(gitDir, "commondir")).CombinedOutput(); err != nil {
+					t.Fatalf("mkfifo: %v: %s", err, output)
+				}
+				return root
+			},
+			mode: "commondir",
+		},
+		{
+			name:  "reported size zero exceeds limit",
+			setup: func(t *testing.T) string { return "" },
+			mode:  "oversized",
+			arg:   strings.Repeat("x", 8192),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := test.setup(t)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestGitFilesystemMetadataReadsRejectSpecialFilesAndEnforceLimit$", test.arg)
+			command.Env = append(os.Environ(),
+				"GUARDRAIL_GIT_METADATA_HELPER="+test.mode,
+				"GUARDRAIL_GIT_METADATA_PATH="+path,
+			)
+			output, err := command.CombinedOutput()
+			if ctx.Err() == context.DeadlineExceeded {
+				t.Fatalf("metadata helper blocked on %s", test.name)
+			}
+			if err != nil {
+				t.Fatalf("metadata helper: %v\n%s", err, output)
+			}
+		})
+	}
+}
+
 func TestUnrelatedVariableMutationsDoNotTaintGitIdentity(t *testing.T) {
 	repo := t.TempDir()
 	initGitRepository(t, repo, false)
@@ -711,10 +809,31 @@ func TestUnrelatedVariableMutationsDoNotTaintGitIdentity(t *testing.T) {
 		`printf -v TARGET /etc; git config user.email x@y.com`,
 		`read TARGET < /repo/input; git config user.email x@y.com`,
 		`declare TARGET=/etc; git config user.email x@y.com`,
+		`mapfile -d , TARGET < /repo/input; git config user.email x@y.com`,
+		`mapfile -td, TARGET < /repo/input; git config user.email x@y.com`,
+		`mapfile -u 3 TARGET < /repo/input; git config user.email x@y.com`,
+		`mapfile -tu3 TARGET < /repo/input; git config user.email x@y.com`,
+		`readarray -d , TARGET < /repo/input; git config user.email x@y.com`,
+		`readarray -td, TARGET < /repo/input; git config user.email x@y.com`,
+		`readarray -u 3 TARGET < /repo/input; git config user.email x@y.com`,
+		`readarray -tu3 TARGET < /repo/input; git config user.email x@y.com`,
 	} {
 		tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
 		if v := checkBash(tc, bashPol()); v != nil {
 			t.Errorf("%q -> %+v, want allow", command, v)
+		}
+	}
+
+	for _, command := range []string{
+		`mapfile -d , GIT_DIR < /repo/input; git config user.email x@y.com`,
+		`mapfile -tu3 GIT_COMMON_DIR < /repo/input; git config user.email x@y.com`,
+		`readarray -td, GIT_WORK_TREE < /repo/input; git config user.email x@y.com`,
+		`readarray -u 3 GIT_DIR < /repo/input; git config user.email x@y.com`,
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+		v := checkBash(tc, bashPol())
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want ask/P3.unresolved", command, v)
 		}
 	}
 }

@@ -1856,7 +1856,7 @@ func mapfileVariableNames(argv []string) ([]string, bool) {
 		}
 		cluster := strings.TrimPrefix(arg, "-")
 		for optionIndex, option := range cluster {
-			if strings.ContainsRune("nOsCc", option) {
+			if strings.ContainsRune("dnOsuCc", option) {
 				if optionIndex+1 == len(cluster) {
 					if index+1 >= len(argv) {
 						return nil, true

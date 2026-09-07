@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -429,8 +430,11 @@ func gitCommonDirectory(globalArgs []string, cwd string, variables map[string]st
 
 	commonDir := environment["GIT_COMMON_DIR"]
 	if commonDir == "" {
-		if value, ok := readSmallFile(filepath.Join(gitDir, "commondir")); ok {
+		commonDirFile := filepath.Join(gitDir, "commondir")
+		if value, ok := readSmallFile(commonDirFile); ok {
 			commonDir = resolvePath(strings.TrimSpace(value), gitDir)
+		} else if _, err := os.Lstat(commonDirFile); err == nil || !os.IsNotExist(err) {
+			return "", false
 		} else {
 			commonDir = gitDir
 		}
@@ -499,11 +503,20 @@ func readGitDirectoryFile(path string) (string, bool) {
 
 func readSmallFile(path string) (string, bool) {
 	info, err := os.Stat(path)
-	if err != nil || info.IsDir() || info.Size() > 4096 {
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 4096 {
 		return "", false
 	}
-	contents, err := os.ReadFile(path)
-	return string(contents), err == nil
+	file, err := os.Open(path)
+	if err != nil {
+		return "", false
+	}
+	defer file.Close()
+	info, err = file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 4096 {
+		return "", false
+	}
+	contents, err := io.ReadAll(io.LimitReader(file, 4097))
+	return string(contents), err == nil && len(contents) <= 4096
 }
 
 func normalizeGitIdentityArgs(args []string) []string {

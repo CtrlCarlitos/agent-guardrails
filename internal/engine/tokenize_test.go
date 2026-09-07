@@ -236,6 +236,14 @@ func TestNormalizeScopesGitEnvironmentUncertaintyToMutatedVariables(t *testing.T
 		`printf -v TARGET /etc; git config user.email x@y.com`,
 		`read TARGET < /repo/input; git config user.email x@y.com`,
 		`declare TARGET=/etc; git config user.email x@y.com`,
+		`mapfile -d , TARGET < /repo/input; git config user.email x@y.com`,
+		`mapfile -td, TARGET < /repo/input; git config user.email x@y.com`,
+		`mapfile -u 3 TARGET < /repo/input; git config user.email x@y.com`,
+		`mapfile -tu3 TARGET < /repo/input; git config user.email x@y.com`,
+		`readarray -d , TARGET < /repo/input; git config user.email x@y.com`,
+		`readarray -td, TARGET < /repo/input; git config user.email x@y.com`,
+		`readarray -u 3 TARGET < /repo/input; git config user.email x@y.com`,
+		`readarray -tu3 TARGET < /repo/input; git config user.email x@y.com`,
 	} {
 		got, err := Normalize(command, "/repo")
 		if err != nil {
@@ -253,6 +261,10 @@ func TestNormalizeScopesGitEnvironmentUncertaintyToMutatedVariables(t *testing.T
 		`declare GIT_COMMON_DIR=/tmp/foreign/.git; git config user.email x@y.com`,
 		`printf -v "$NAME" /tmp/foreign/.git; git config user.email x@y.com`,
 		`source /repo/script; git config user.email x@y.com`,
+		`mapfile -d , GIT_DIR < /repo/input; git config user.email x@y.com`,
+		`mapfile -tu3 GIT_COMMON_DIR < /repo/input; git config user.email x@y.com`,
+		`readarray -td, GIT_WORK_TREE < /repo/input; git config user.email x@y.com`,
+		`readarray -u 3 GIT_DIR < /repo/input; git config user.email x@y.com`,
 	} {
 		got, err := Normalize(command, "/repo")
 		if err != nil {
@@ -272,6 +284,12 @@ func TestNormalizeInvalidatesImplicitAndNamerefMutationTargets(t *testing.T) {
 		`MAPFILE=/repo/safe; mapfile < /repo/input; rm -rf "$MAPFILE/guardrail-test"`,
 		`MAPFILE=/repo/safe; mapfile -C callback < /repo/input; rm -rf "$MAPFILE/guardrail-test"`,
 		`MAPFILE=/repo/safe; readarray < /repo/input; rm -rf "$MAPFILE/guardrail-test"`,
+		`MAPFILE=/repo/safe; mapfile -d , < /repo/input; rm -rf "$MAPFILE/guardrail-test"`,
+		`MAPFILE=/repo/safe; mapfile -tu3 < /repo/input; rm -rf "$MAPFILE/guardrail-test"`,
+		`MAPFILE=/repo/safe; readarray -td, < /repo/input; rm -rf "$MAPFILE/guardrail-test"`,
+		`MAPFILE=/repo/safe; readarray -u 3 < /repo/input; rm -rf "$MAPFILE/guardrail-test"`,
+		`TARGET=/repo/safe; mapfile -d < /repo/input; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; readarray -x TARGET < /repo/input; rm -rf "$TARGET/guardrail-test"`,
 		`TARGET=/repo/safe; read -a TARGET < /repo/input; rm -rf "$TARGET/guardrail-test"`,
 		`TARGET=/repo/safe; mapfile -t TARGET < /repo/input; rm -rf "$TARGET/guardrail-test"`,
 		`TARGET=/repo/safe; readarray TARGET < /repo/input; rm -rf "$TARGET/guardrail-test"`,
