@@ -154,7 +154,7 @@ func TestBashDenyGlobsP2P6(t *testing.T) {
 		"Bash(rm -fr /)", "Bash(rm -fr ~)", "Bash(rm -fr .)", "Bash(rm -fr ..)",
 		"Bash(rm -r -f /)", "Bash(rm -r -f ~)", "Bash(rm -r -f .)", "Bash(rm -r -f ..)",
 		"Bash(rm -f -r /)", "Bash(rm -f -r ~)", "Bash(rm -f -r .)", "Bash(rm -f -r ..)",
-		"Bash(git reset --hard*)", "Bash(git config *)", "Bash(pip install --index-url*)",
+		"Bash(git reset --hard*)", "Bash(git config core.hooksPath /**)", "Bash(pip install --index-url*)",
 	} {
 		if !slices.Contains(got, m) {
 			t.Errorf("missing %q", m)
@@ -164,6 +164,25 @@ func TestBashDenyGlobsP2P6(t *testing.T) {
 		if slices.Contains(got, broad) {
 			t.Errorf("broad native deny %q prevents Engine authorization", broad)
 		}
+	}
+}
+
+func TestGitConfigNativeFloorOnlyPreemptsDefiniteDangerousWrites(t *testing.T) {
+	frag := ClaudeConfig(secretPol(), "guardrail")
+	perms := frag["permissions"].(map[string]any)
+	for _, operation := range []string{
+		"Bash(git config user.email x@y.com)",
+		"Bash(git config --global --get user.name)",
+	} {
+		if got := claudeNativeDecision(perms, operation); got != "" {
+			t.Errorf("Claude permission for %q = %q, want Engine classification", operation, got)
+		}
+	}
+	if got := claudeNativeDecision(perms, "Bash(git config core.hooksPath /tmp/evil)"); got != "deny" {
+		t.Fatalf("dangerous config write native decision = %q, want deny", got)
+	}
+	if slices.Contains(perms["deny"].([]string), "Bash(git config *)") {
+		t.Fatal("broad git config native deny preempts read and approved-write classification")
 	}
 }
 

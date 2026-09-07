@@ -54,7 +54,7 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		take(checkDiskDestroyers(s))
 		take(checkDestinationWrites(s, tc, pol))
 		take(checkGit(s))
-		take(checkGitSafety(s))
+		take(checkGitSafety(s, tc))
 		take(checkDocker(s, tc.Command))
 		take(checkAskTier(s, tc, pol))
 		take(checkEgress(s, pol))

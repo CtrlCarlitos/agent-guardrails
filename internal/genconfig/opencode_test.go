@@ -335,6 +335,31 @@ func TestOpencodeConfigBashPermissions(t *testing.T) {
 	}
 }
 
+func TestOpencodeGitConfigFloorOnlyDeniesDefiniteDangerousWrites(t *testing.T) {
+	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+	raw, err := json.Marshal(frag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules := parseOpencodePermissionRules(t, raw, "bash")
+	for _, test := range []struct {
+		command string
+		want    string
+	}{
+		{`git config user.email x@y.com`, "allow"},
+		{`git config --global --get user.name`, "allow"},
+		{`git config core.hooksPath /tmp/evil`, "deny"},
+	} {
+		if got := opencodeFindLast(rules, test.command); got != test.want {
+			t.Errorf("OpenCode permission for %q = %q, want %q", test.command, got, test.want)
+		}
+	}
+	bash := frag["permission"].(map[string]any)["bash"].(orderedPermissionRules)
+	if _, ok := bash["git config *"]; ok {
+		t.Fatal("broad git config native deny preempts Engine classification")
+	}
+}
+
 func TestOpencodeConfigReadEditPermissions(t *testing.T) {
 	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
 	read := frag["permission"].(map[string]any)["read"].(orderedPermissionRules)

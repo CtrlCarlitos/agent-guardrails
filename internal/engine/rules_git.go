@@ -1,12 +1,13 @@
 package engine
 
 import (
+	"path/filepath"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
-func checkGitSafety(s Simple) *policy.Verdict {
+func checkGitSafety(s Simple, tc ToolCall) *policy.Verdict {
 	if head(s.Argv) != "git" || len(s.Argv) < 2 {
 		return nil
 	}
@@ -19,10 +20,12 @@ func checkGitSafety(s Simple) *policy.Verdict {
 				Reason: "git reset --hard/--keep discards the working tree and index irrecoverably"}
 		}
 	case "config":
-		writeFlag := hasAnyFlag(s.Argv, "", "--global", "--system", "--local", "--add", "--replace-all", "--unset", "--unset-all")
-		if writeFlag || len(nonFlagArgs(s.Argv[1:])) >= 2 {
-			return &policy.Verdict{Decision: policy.Deny, RuleID: "P2.git-config-write",
-				Reason: "git config write can redirect core.hooksPath/fsmonitor into arbitrary code execution"}
+		verdict := checkGitConfig(parseGitConfig(s.Argv, tc))
+		if verdict != nil && verdict.Decision == policy.Deny {
+			return verdict
+		}
+		if unknown == "" {
+			return verdict
 		}
 	case "checkout", "restore":
 		for _, a := range nonFlagArgs(s.Argv) {
@@ -132,6 +135,284 @@ func checkGitSafety(s Simple) *policy.Verdict {
 			Reason: "unrecognized git global option " + unknown + " before the subcommand; cannot verify what this runs"}
 	}
 	return nil
+}
+
+type parsedGitConfig struct {
+	operation string
+	scope     string
+	subjects  []string
+	localRepo bool
+	uncertain bool
+}
+
+func parseGitConfig(argv []string, tc ToolCall) parsedGitConfig {
+	parsed := parsedGitConfig{operation: "read", scope: "local", localRepo: gitConfigTargetsToolCallRepo(argv, tc)}
+	subcommand := gitSubcommandIndex(argv)
+	if subcommand < 0 || argv[subcommand] != "config" {
+		parsed.uncertain = true
+		return parsed
+	}
+
+	operation := ""
+	var operands []string
+	setOperation := func(next string) {
+		if operation != "" && operation != next {
+			parsed.uncertain = true
+		}
+		operation = next
+	}
+	setScope := func(next string) {
+		if parsed.scope != "local" && parsed.scope != next {
+			parsed.uncertain = true
+		}
+		parsed.scope = next
+	}
+
+	optionsEnded := false
+	for i := subcommand + 1; i < len(argv); i++ {
+		arg := argv[i]
+		if optionsEnded || len(operands) > 0 {
+			operands = append(operands, arg)
+			continue
+		}
+		if arg == "--" {
+			optionsEnded = true
+			continue
+		}
+		if !strings.HasPrefix(arg, "-") || arg == "-" {
+			operands = append(operands, arg)
+			continue
+		}
+
+		if strings.HasPrefix(arg, "--") {
+			name, attached, hasAttached := strings.Cut(strings.TrimPrefix(arg, "--"), "=")
+			switch name {
+			case "local", "global", "system", "worktree":
+				if hasAttached {
+					parsed.uncertain = true
+				}
+				setScope(name)
+			case "file", "blob", "type":
+				value := attached
+				if !hasAttached {
+					if i+1 >= len(argv) {
+						parsed.uncertain = true
+						continue
+					}
+					i++
+					value = argv[i]
+				}
+				if value == "" {
+					parsed.uncertain = true
+				}
+				if name == "file" || name == "blob" {
+					setScope(name)
+				}
+			case "add", "replace-all", "unset", "unset-all", "rename-section", "remove-section", "edit":
+				if hasAttached {
+					parsed.uncertain = true
+				}
+				setOperation(name)
+			case "get", "get-all", "get-regexp", "get-urlmatch", "get-color", "get-colorbool", "list":
+				if hasAttached {
+					parsed.uncertain = true
+				}
+				setOperation(name)
+			case "fixed-value", "show-origin", "show-scope", "name-only", "includes", "no-includes", "null", "bool", "int", "bool-or-int", "bool-or-str", "path", "expiry-date":
+				if hasAttached {
+					parsed.uncertain = true
+				}
+			default:
+				parsed.uncertain = true
+			}
+			continue
+		}
+
+		for j := 1; j < len(arg); j++ {
+			switch arg[j] {
+			case 'e':
+				setOperation("edit")
+			case 'l':
+				setOperation("list")
+			case 'z', 'n', 't':
+			case 'f':
+				value := arg[j+1:]
+				if value == "" {
+					if i+1 >= len(argv) {
+						parsed.uncertain = true
+						j = len(arg)
+						continue
+					}
+					i++
+					value = argv[i]
+				}
+				if value == "" {
+					parsed.uncertain = true
+				}
+				setScope("file")
+				j = len(arg)
+			default:
+				parsed.uncertain = true
+			}
+		}
+	}
+
+	if operation == "" {
+		operation = "positional"
+	}
+	parsed.operation = operation
+	valid := false
+	switch operation {
+	case "positional":
+		valid = len(operands) <= 3
+		if len(operands) >= 2 {
+			parsed.operation = "write"
+			parsed.subjects = []string{strings.ToLower(operands[0])}
+		}
+	case "add":
+		valid = len(operands) == 2
+	case "replace-all":
+		valid = len(operands) == 2 || len(operands) == 3
+	case "unset", "unset-all":
+		valid = len(operands) == 1 || len(operands) == 2
+	case "rename-section":
+		valid = len(operands) == 2
+	case "remove-section":
+		valid = len(operands) == 1
+	case "edit", "list":
+		valid = len(operands) == 0
+	case "get", "get-all", "get-regexp", "get-color", "get-colorbool":
+		valid = len(operands) == 1 || len(operands) == 2
+	case "get-urlmatch":
+		valid = len(operands) == 2
+	}
+	if !valid {
+		parsed.uncertain = true
+		return parsed
+	}
+	if operation == "add" || operation == "replace-all" || operation == "unset" || operation == "unset-all" {
+		parsed.operation = "write"
+		parsed.subjects = []string{strings.ToLower(operands[0])}
+	}
+	if operation == "rename-section" || operation == "remove-section" {
+		parsed.subjects = make([]string, len(operands))
+		for i, subject := range operands {
+			parsed.subjects[i] = strings.ToLower(subject)
+		}
+	}
+	if parsed.scope == "blob" && parsed.operation != "read" && parsed.operation != "list" && parsed.operation != "get" && parsed.operation != "get-all" && parsed.operation != "get-regexp" && parsed.operation != "get-urlmatch" {
+		parsed.uncertain = true
+	}
+	return parsed
+}
+
+func checkGitConfig(parsed parsedGitConfig) *policy.Verdict {
+	if parsed.uncertain {
+		return ask("P2.git-config-write", "git config arguments could not be classified safely")
+	}
+	switch parsed.operation {
+	case "read", "positional", "list", "get", "get-all", "get-regexp", "get-urlmatch", "get-color", "get-colorbool":
+		return nil
+	}
+	for _, subject := range parsed.subjects {
+		if dangerousGitConfigSubject(subject, parsed.operation) {
+			return &policy.Verdict{Decision: policy.Deny, RuleID: "P2.git-config-write",
+				Reason: "git config writes a protected key or section: " + subject}
+		}
+	}
+	if parsed.scope == "global" || parsed.scope == "system" || parsed.scope == "file" {
+		return &policy.Verdict{Decision: policy.Deny, RuleID: "P2.git-config-write",
+			Reason: "git config writes outside repository-local configuration"}
+	}
+	if parsed.scope == "worktree" {
+		return ask("P2.git-config-write", "git config writes worktree-specific configuration")
+	}
+	if !parsed.localRepo {
+		return ask("P2.git-config-write", "git config targets a repository other than the ToolCall repository")
+	}
+	if parsed.operation == "edit" {
+		return ask("P2.git-config-write", "git config opens repository configuration for unrestricted editing")
+	}
+	for _, subject := range parsed.subjects {
+		if !approvedGitConfigSubject(subject, parsed.operation) {
+			return ask("P2.git-config-write", "git config writes an unclassified key or section: "+subject)
+		}
+	}
+	return nil
+}
+
+func dangerousGitConfigSubject(subject, operation string) bool {
+	if operation == "rename-section" || operation == "remove-section" {
+		switch subject {
+		case "core", "credential", "include", "includeif", "alias":
+			return true
+		}
+		return false
+	}
+	switch subject {
+	case "core.hookspath", "core.fsmonitor", "core.sshcommand", "core.pager", "core.editor", "include.path":
+		return true
+	}
+	return strings.HasPrefix(subject, "credential.") || strings.HasPrefix(subject, "includeif.") || strings.HasPrefix(subject, "alias.")
+}
+
+func approvedGitConfigSubject(subject, operation string) bool {
+	if operation == "rename-section" || operation == "remove-section" {
+		return subject == "user" || subject == "advice" || subject == "color"
+	}
+	if subject == "init.defaultbranch" || subject == "commit.gpgsign" {
+		return true
+	}
+	return strings.HasPrefix(subject, "user.") || strings.HasPrefix(subject, "advice.") || strings.HasPrefix(subject, "color.")
+}
+
+func gitConfigTargetsToolCallRepo(argv []string, tc ToolCall) bool {
+	subcommand := gitSubcommandIndex(argv)
+	if subcommand < 0 || tc.CWD == "" || tc.RepoRoot == "" {
+		return false
+	}
+	cwd := tc.CWD
+	gitDir := ""
+	for i := 1; i < subcommand; i++ {
+		arg := argv[i]
+		switch {
+		case arg == "-C":
+			if i+1 >= subcommand {
+				return false
+			}
+			i++
+			cwd = resolvePath(argv[i], cwd)
+		case strings.HasPrefix(arg, "-C") && len(arg) > 2:
+			cwd = resolvePath(arg[2:], cwd)
+		case arg == "--git-dir":
+			if i+1 >= subcommand {
+				return false
+			}
+			i++
+			gitDir = resolvePath(argv[i], cwd)
+		case strings.HasPrefix(arg, "--git-dir="):
+			gitDir = resolvePath(strings.TrimPrefix(arg, "--git-dir="), cwd)
+		}
+	}
+	target := cwd
+	if gitDir != "" {
+		target = filepath.Dir(gitDir)
+	}
+	return sameGitConfigPath(target, tc.RepoRoot)
+}
+
+func sameGitConfigPath(left, right string) bool {
+	leftAbs, leftErr := filepath.Abs(left)
+	rightAbs, rightErr := filepath.Abs(right)
+	if leftErr != nil || rightErr != nil {
+		return false
+	}
+	if filepath.Clean(leftAbs) == filepath.Clean(rightAbs) {
+		return true
+	}
+	leftPhysical, leftOK := resolveExistingPath(leftAbs, "")
+	rightPhysical, rightOK := resolveExistingPath(rightAbs, "")
+	return leftOK && rightOK && filepath.Clean(leftPhysical) == filepath.Clean(rightPhysical)
 }
 
 var gitUpdateRefLongOptions = []gitPushLongOption{

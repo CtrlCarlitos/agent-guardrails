@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -394,20 +396,178 @@ func TestForceWithLeaseDenied(t *testing.T) {
 	}
 }
 
-func TestGitConfigWriteDenied(t *testing.T) {
+func TestGitConfigReadsRemainAllowed(t *testing.T) {
 	for _, c := range []string{
-		"git config user.email x@y.com",
-		"git config --global user.name bot",
-		"git config core.hooksPath /tmp/evil",
+		"git config user.email",
+		"git config --get user.name",
+		"git config --global --get user.name",
+		"git config --system --list",
+		"git config --file /tmp/config --get user.name",
+		"git config -f/tmp/config --get user.name",
+		"git config --blob HEAD:.gitmodules --get submodule.x.url",
+		"git config --list",
 	} {
-		v := evalGitSafety(t, c)
-		if v == nil || v.Decision != policy.Deny || v.RuleID != "P2.git-config-write" {
-			t.Errorf("%q -> %+v, want deny/P2.git-config-write", c, v)
-		}
-	}
-	for _, c := range []string{"git config user.email", "git config --get user.name", "git config --list"} {
 		if v := evalGitSafety(t, c); v != nil {
 			t.Errorf("%q (read) -> %+v, want nil", c, v)
+		}
+	}
+}
+
+func TestGitConfigLocalWritesClassifyEveryKey(t *testing.T) {
+	for _, command := range []string{
+		`git config user.email x@y.com`,
+		`git config USER.Name bot`,
+		`git config init.defaultBranch main`,
+		`git config commit.gpgsign true`,
+		`git config advice.detachedHead false`,
+		`git config color.ui auto`,
+		`git config user.email -hidden`,
+		`git config -- user.email x@y.com`,
+	} {
+		if v := evalGitSafety(t, command); v != nil {
+			t.Errorf("%q -> %+v, want allow", command, v)
+		}
+	}
+
+	for _, command := range []string{
+		`git config core.hooksPath /tmp/evil`,
+		`git config CORE.FSMONITOR /tmp/evil`,
+		`git config core.sshCommand evil`,
+		`git config core.pager evil`,
+		`git config core.editor evil`,
+		`git config credential.helper evil`,
+		`git config include.path /tmp/evil`,
+		`git config includeIf.gitdir:/repo.path /tmp/evil`,
+		`git config alias.status !evil`,
+	} {
+		v := evalGitSafety(t, command)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P2.git-config-write" {
+			t.Errorf("%q -> %+v, want deny/P2.git-config-write", command, v)
+		}
+	}
+
+	v := evalGitSafety(t, `git config merge.tool custom`)
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P2.git-config-write" {
+		t.Fatalf("unclassified local key -> %+v, want ask/P2.git-config-write", v)
+	}
+}
+
+func TestGitConfigWriteScopesDoNotChangeReadsAndFailClosed(t *testing.T) {
+	for _, command := range []string{
+		`git config --global user.email x@y.com`,
+		`git config --system color.ui auto`,
+		`git config --file /tmp/config user.email x@y.com`,
+		`git config --file=/tmp/config user.email x@y.com`,
+		`git config -f /tmp/config user.email x@y.com`,
+		`git config -f/tmp/config user.email x@y.com`,
+		`git config --global --edit`,
+	} {
+		v := evalGitSafety(t, command)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P2.git-config-write" {
+			t.Errorf("%q -> %+v, want deny/P2.git-config-write", command, v)
+		}
+	}
+
+	for _, command := range []string{
+		`git config --worktree user.email x@y.com`,
+		`git config --worktree merge.tool custom`,
+		`git config --edit`,
+	} {
+		v := evalGitSafety(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P2.git-config-write" {
+			t.Errorf("%q -> %+v, want ask/P2.git-config-write", command, v)
+		}
+	}
+
+	v := evalGitSafety(t, `git config --worktree core.hooksPath /tmp/evil`)
+	if v == nil || v.Decision != policy.Deny || v.RuleID != "P2.git-config-write" {
+		t.Fatalf("dangerous worktree key -> %+v, want deny/P2.git-config-write", v)
+	}
+}
+
+func TestGitConfigMutationOperationsAndSections(t *testing.T) {
+	for _, command := range []string{
+		`git config --add user.email x@y.com`,
+		`git config --add user.email -hidden`,
+		`git config --replace-all color.ui auto`,
+		`git config --unset advice.detachedHead`,
+		`git config --unset-all user.email`,
+		`git config --rename-section user color`,
+		`git config --remove-section advice`,
+	} {
+		if v := evalGitSafety(t, command); v != nil {
+			t.Errorf("%q -> %+v, want allow", command, v)
+		}
+	}
+
+	for _, command := range []string{
+		`git config --remove-section core`,
+		`git config --rename-section core user`,
+		`git config --rename-section user core`,
+		`git config --rename-section credential color`,
+		`git config --remove-section alias`,
+	} {
+		v := evalGitSafety(t, command)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P2.git-config-write" {
+			t.Errorf("%q -> %+v, want deny/P2.git-config-write", command, v)
+		}
+	}
+
+	for _, command := range []string{
+		`git config --rename-section user merge`,
+		`git config --remove-section merge`,
+	} {
+		v := evalGitSafety(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P2.git-config-write" {
+			t.Errorf("%q -> %+v, want ask/P2.git-config-write", command, v)
+		}
+	}
+}
+
+func TestGitConfigMalformedAndUnknownOptionsAsk(t *testing.T) {
+	for _, command := range []string{
+		`git config --add user.email`,
+		`git config --replace-all user.email`,
+		`git config --rename-section user`,
+		`git config --remove-section`,
+		`git config --get`,
+		`git config --future-option user.email x@y.com`,
+		`git config -Z user.email x@y.com`,
+		`git config user.email x@y.com extra extra`,
+	} {
+		v := evalGitSafety(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P2.git-config-write" {
+			t.Errorf("%q -> %+v, want ask/P2.git-config-write", command, v)
+		}
+	}
+}
+
+func TestGitConfigLocalWritesRequireTheToolCallRepository(t *testing.T) {
+	repo := t.TempDir()
+	other := t.TempDir()
+	approved := `config user.email x@y.com`
+	for _, command := range []string{
+		`git ` + approved,
+		`git -C . ` + approved,
+		fmt.Sprintf(`git -C %q %s`, repo, approved),
+		fmt.Sprintf(`git -C%q %s`, repo, approved),
+		fmt.Sprintf(`git --git-dir %q %s`, filepath.Join(repo, ".git"), approved),
+		fmt.Sprintf(`git --git-dir=%q %s`, filepath.Join(repo, ".git"), approved),
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+		if v := checkBash(tc, bashPol()); v != nil {
+			t.Errorf("%q -> %+v, want allow in ToolCall repository", command, v)
+		}
+	}
+
+	for _, command := range []string{
+		fmt.Sprintf(`git -C %q %s`, other, approved),
+		fmt.Sprintf(`git --git-dir %q %s`, filepath.Join(other, ".git"), approved),
+	} {
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+		v := checkBash(tc, bashPol())
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P2.git-config-write" {
+			t.Errorf("%q -> %+v, want ask/P2.git-config-write for another repository", command, v)
 		}
 	}
 }
@@ -421,7 +581,8 @@ func TestGitRulesSurvivePrefixes(t *testing.T) {
 		"git push --force origin main":    {policy.Deny, "P1.git-push-force"},
 		"git clean -fd":                   {policy.Deny, "P1.git-clean"},
 		"git reset --hard":                {policy.Deny, "P2.git-reset-hard"},
-		"git config user.email x@y.com":   {policy.Deny, "P2.git-config-write"},
+		"git config core.hooksPath /evil": {policy.Deny, "P2.git-config-write"},
+		"git config user.email x@y.com":   {policy.Allow, ""},
 		"git checkout .":                  {policy.Ask, "P2.git-checkout-restore"},
 		"git branch -D feature/x":         {policy.Ask, "P2.git-branch-delete"},
 		"git commit --amend":              {policy.Ask, "P2.git-history-rewrite"},
@@ -433,6 +594,12 @@ func TestGitRulesSurvivePrefixes(t *testing.T) {
 		for _, pfx := range prefixes {
 			full := "git " + pfx + cmd[len("git "):]
 			v := evalGitSafety(t, full)
+			if want.decision == policy.Allow {
+				if v != nil {
+					t.Errorf("%q -> %+v, want allow", full, v)
+				}
+				continue
+			}
 			if v == nil {
 				t.Errorf("%q -> nil, want %s/%s", full, want.decision, want.ruleID)
 				continue
