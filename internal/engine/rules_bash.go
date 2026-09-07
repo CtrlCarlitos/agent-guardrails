@@ -798,6 +798,13 @@ func checkAskTier(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		if candidate.cwdUnknown && !filepath.IsAbs(r) {
 			continue // Preserve P3 without resolving against the guardrail process cwd.
 		}
+		redirectPath, err := filepath.Abs(resolvePath(r, candidate.cwd))
+		if err == nil {
+			switch filepath.Clean(redirectPath) {
+			case "/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty":
+				continue
+			}
+		}
 		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, false); !authorized {
 			return ask("P1.redirect", "output redirection onto a path outside the repo/safe roots: "+r)
 		}

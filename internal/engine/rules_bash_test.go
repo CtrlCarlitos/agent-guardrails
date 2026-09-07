@@ -401,6 +401,48 @@ func TestRedirectOnlyStatements(t *testing.T) {
 	}
 }
 
+func TestStandardOutputDeviceRedirectsAreAllowed(t *testing.T) {
+	for _, command := range []string{
+		`ls x 2>/dev/null`,
+		`echo x >/dev/stdout`,
+		`echo x >/dev/stderr`,
+		`echo x >/dev/tty`,
+		`echo x >/dev/./null`,
+	} {
+		if v := evalBash(t, command); v != nil {
+			t.Errorf("%q -> %+v, want allow", command, v)
+		}
+	}
+}
+
+func TestStandardOutputDeviceExemptionIsRedirectOnlyAndExact(t *testing.T) {
+	cases := []struct {
+		command  string
+		decision policy.Decision
+		ruleID   string
+	}{
+		{`echo x >/dev/sda`, policy.Ask, "P1.redirect"},
+		{`echo x >/proc/self/fd/1`, policy.Ask, "P1.redirect"},
+		{`cp /repo/x /dev/null`, policy.Ask, "P1.out-of-repo-write"},
+		{`tee /dev/null`, policy.Ask, "P1.out-of-repo-write"},
+		{`echo x >/dev/null/child`, policy.Ask, "P1.redirect"},
+		{`dd if=/repo/x of=/dev/null`, policy.Deny, "P1.dd"},
+		{`sh -c 'echo x >/dev/stdout' >/etc/passwd`, policy.Ask, "P1.redirect"},
+	}
+	for _, test := range cases {
+		v := evalBash(t, test.command)
+		if v == nil || v.Decision != test.decision || v.RuleID != test.ruleID {
+			t.Errorf("%q -> %+v, want %s/%s", test.command, v, test.decision, test.ruleID)
+		}
+	}
+
+	tc := ToolCall{Tool: "Write", Paths: []string{"/dev/null"}, CWD: "/repo", RepoRoot: "/repo"}
+	v := Evaluate(tc, bashPol())
+	if v.Decision != policy.Ask || v.RuleID != "P5.out-of-repo" {
+		t.Fatalf("Write /dev/null -> %+v, want ask/P5.out-of-repo", v)
+	}
+}
+
 func TestRedirectOnlyStatementDoesNotMaskSiblingDeny(t *testing.T) {
 	for _, c := range []string{`rm -rf /; > /etc/passwd`, `> /etc/passwd; rm -rf /`} {
 		v := evalBash(t, c)

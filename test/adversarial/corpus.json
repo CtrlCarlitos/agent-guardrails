@@ -2521,5 +2521,29 @@
     "fixture_symlinks": [{"path": "notes.md", "target": "CLAUDE.md"}],
     "want": "deny",
     "rewrite_logical_repo_paths": true
+  },
+  {
+    "name": "standard output device redirect",
+    "tool": "Bash",
+    "command": "echo x >/dev/null",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "standard output device remains protected as mutator destination",
+    "tool": "Bash",
+    "command": "cp /repo/x /dev/null",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask"
+  },
+  {
+    "name": "standard output device child redirect remains protected",
+    "tool": "Bash",
+    "command": "echo x >/dev/null/child",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask"
   }
 ]
