@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -166,18 +167,20 @@ func TestConcurrentTransactionsPreserveMonotonicSignals(t *testing.T) {
 	}
 }
 
-func TestTransactionCrashRecovery(t *testing.T) {
-	if os.Getenv("GUARDRAIL_TEST_CRASH_TRANSACTION") == "1" {
-		marker := os.Getenv("GUARDRAIL_TEST_CRASH_MARKER")
-		err := Transaction("crash-session", func(s *State) error {
+func TestTransactionSerializesAcrossProcessesAndRecoversAfterCrash(t *testing.T) {
+	const sessionID = "cross-process-session"
+	if os.Getenv("GUARDRAIL_TEST_HOLD_TRANSACTION") == "1" {
+		err := Transaction(sessionID, func(s *State) error {
 			s.SawNetworkCall = true
-			if err := os.WriteFile(marker, []byte("locked"), 0o600); err != nil {
+			if err := os.WriteFile(os.Getenv("GUARDRAIL_TEST_LOCK_MARKER"), []byte("locked"), 0o600); err != nil {
 				return err
 			}
-			os.Exit(0)
-			return nil
+			var release [1]byte
+			_, err := os.Stdin.Read(release[:])
+			return err
 		})
 		if err != nil {
+			os.Stderr.WriteString(err.Error())
 			os.Exit(3)
 		}
 		os.Exit(4)
@@ -185,82 +188,101 @@ func TestTransactionCrashRecovery(t *testing.T) {
 
 	stateHome := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", stateHome)
-	if err := Transaction("crash-session", func(s *State) error {
+	if err := Transaction(sessionID, func(s *State) error {
 		s.SawPrivateRead = true
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	marker := filepath.Join(t.TempDir(), "callback-entered")
-	cmd := exec.Command(os.Args[0], "-test.run=^TestTransactionCrashRecovery$")
-	cmd.Env = append(os.Environ(),
-		"GUARDRAIL_TEST_CRASH_TRANSACTION=1",
-		"GUARDRAIL_TEST_CRASH_MARKER="+marker,
-		"XDG_STATE_HOME="+stateHome,
-	)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("crashing transaction subprocess: %v\n%s", err, output)
-	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("subprocess did not exit while holding the transaction: %v", err)
-	}
-
-	if err := Transaction("crash-session", func(s *State) error {
-		if !s.SawPrivateRead || s.SawNetworkCall {
-			t.Fatalf("post-crash state = %+v, want prior durable state only", s)
-		}
-		s.SawNetworkCall = true
-		return nil
-	}); err != nil {
-		t.Fatalf("transaction after crashed lock holder: %v", err)
-	}
-	if err := Transaction("crash-session", func(s *State) error {
-		if !s.SawPrivateRead || !s.SawNetworkCall {
-			t.Fatalf("post-recovery update was not durable: %+v", s)
-		}
-		return nil
-	}); err != nil {
+	marker := filepath.Join(t.TempDir(), "lock-acquired")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestTransactionSerializesAcrossProcessesAndRecoversAfterCrash$")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
 		t.Fatal(err)
 	}
-}
+	var childErr strings.Builder
+	cmd.Stderr = &childErr
+	cmd.Env = append(os.Environ(),
+		"GUARDRAIL_TEST_HOLD_TRANSACTION=1",
+		"GUARDRAIL_TEST_LOCK_MARKER="+marker,
+		"XDG_STATE_HOME="+stateHome,
+	)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waited := false
+	t.Cleanup(func() {
+		stdin.Close()
+		if !waited {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+	})
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(marker); err == nil {
+			break
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("subprocess did not acquire transaction lock; stderr=%s", childErr.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
-func TestBoundedTransactionAcquisitionFailureDoesNotOverwrite(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	acquired := make(chan struct{})
-	release := make(chan struct{})
-	done := make(chan error, 1)
-	go func() {
-		done <- Transaction("bounded-session", func(s *State) error {
-			close(acquired)
-			<-release
-			s.SawPrivateRead = true
-			return nil
-		})
-	}()
-	<-acquired
-
+	callbackCalled := false
 	started := time.Now()
-	err := Transaction("bounded-session", func(s *State) error {
+	err = Transaction(sessionID, func(s *State) error {
+		callbackCalled = true
 		s.SawNetworkCall = true
 		return nil
 	})
+	if callbackCalled {
+		t.Error("contending cross-process Transaction invoked its callback")
+	}
 	if err == nil {
-		t.Fatal("contending Transaction returned nil, want bounded acquisition error")
+		t.Error("contending cross-process Transaction returned nil, want bounded acquisition error")
 	}
 	if elapsed := time.Since(started); elapsed > 4*time.Second {
-		t.Fatalf("contending Transaction blocked for %s, want bounded failure", elapsed)
+		t.Errorf("contending cross-process Transaction blocked for %s, want bounded failure", elapsed)
 	}
-	close(release)
-	if err := <-done; err != nil {
-		t.Fatalf("lock holder Transaction: %v", err)
+	state := readDurableState(t, sessionID)
+	if !state.SawPrivateRead || state.SawNetworkCall {
+		t.Errorf("failed contender changed durable state while subprocess held lock: %+v", state)
 	}
 
-	if err := Transaction("bounded-session", func(s *State) error {
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatalf("crash lock-holder subprocess: %v", err)
+	}
+	if err := cmd.Wait(); err == nil {
+		t.Fatal("lock-holder subprocess exited successfully, want forced crash")
+	}
+	waited = true
+	if err := Transaction(sessionID, func(s *State) error {
 		if !s.SawPrivateRead || s.SawNetworkCall {
-			t.Fatalf("failed contender overwrote state: %+v", s)
+			t.Fatalf("state after lock-holder crash = %+v, want preseeded durable state", s)
 		}
+		s.SawNetworkCall = true
 		return nil
 	}); err != nil {
+		t.Fatalf("transaction after lock-holder crash: %v", err)
+	}
+	state = readDurableState(t, sessionID)
+	if !state.SawPrivateRead || !state.SawNetworkCall {
+		t.Fatalf("post-crash recovery update was not durable: %+v", state)
+	}
+}
+
+func readDurableState(t *testing.T, sessionID string) State {
+	t.Helper()
+	raw, err := os.ReadFile(Path(sessionID))
+	if err != nil {
 		t.Fatal(err)
 	}
+	var state State
+	if err := json.Unmarshal(raw, &state); err != nil {
+		t.Fatal(err)
+	}
+	return state
 }
