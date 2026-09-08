@@ -98,28 +98,22 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	v := engine.Evaluate(tc, merged)
 
-	if tc.Event == "pre" && !merged.Waived["P7.trifecta"] {
-		isPrivate := engine.IsPrivateDataAccess(tc, merged)
-		isNet := engine.IsNetworkAttempt(tc)
+	if tc.Event == "pre" {
 		trackingUnavailable := tc.SessionID == ""
 		if tc.SessionID != "" {
 			if err := session.Transaction(tc.SessionID, func(st *session.State) error {
-				if esc := engine.TrifectaVerdict(v, isPrivate, isNet, st); esc != nil {
+				if esc := engine.ApplyTrifecta(v, tc, st, merged); esc != nil {
 					v = *esc
 				}
-				st.SawPrivateRead = st.SawPrivateRead || isPrivate
-				st.SawNetworkCall = st.SawNetworkCall || isNet
 				return nil
 			}); err != nil {
 				trackingUnavailable = true
 				highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: session transaction failed (%v)", err))
 			}
 		}
-		if trackingUnavailable && v.Decision == policy.Allow && (isPrivate || isNet) {
-			v = policy.Verdict{
-				Decision: policy.Ask,
-				RuleID:   "P7.tracking-unavailable",
-				Reason:   "session tracking is unavailable; approval is required because P7 cannot retain this private-data or network signal",
+		if trackingUnavailable {
+			if esc := engine.ApplyTrifecta(v, tc, nil, merged); esc != nil {
+				v = *esc
 			}
 		}
 	}

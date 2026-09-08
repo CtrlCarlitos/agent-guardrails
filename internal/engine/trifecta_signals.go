@@ -36,11 +36,29 @@ func IsNetworkAttempt(tc ToolCall) bool {
 	return false
 }
 
-func TrifectaVerdict(v policy.Verdict, isPrivate, isNet bool, st *session.State) *policy.Verdict {
-	if v.Decision != policy.Allow {
+// ApplyTrifecta evaluates and records the P7 signals for one tool call. A nil
+// state reports that the plane adapter could not make session tracking available.
+func ApplyTrifecta(v policy.Verdict, tc ToolCall, st *session.State, pol *policy.Policy) *policy.Verdict {
+	if pol.Waived["P7.trifecta"] {
 		return nil
 	}
-	if (isPrivate && st.SawNetworkCall) || (isNet && st.SawPrivateRead) {
+	isPrivate := IsPrivateDataAccess(tc, pol)
+	isNet := IsNetworkAttempt(tc)
+	if st == nil {
+		if v.Decision == policy.Allow && (isPrivate || isNet) {
+			return &policy.Verdict{
+				Decision: policy.Ask,
+				RuleID:   "P7.tracking-unavailable",
+				Reason:   "session tracking is unavailable; approval is required because P7 cannot retain this private-data or network signal",
+			}
+		}
+		return nil
+	}
+
+	secondLeg := (isPrivate && st.SawNetworkCall) || (isNet && st.SawPrivateRead)
+	st.SawPrivateRead = st.SawPrivateRead || isPrivate
+	st.SawNetworkCall = st.SawNetworkCall || isNet
+	if v.Decision == policy.Allow && secondLeg {
 		return &policy.Verdict{Decision: policy.Ask, RuleID: "P7.trifecta",
 			Reason: "this session already touched both private data and network egress — pausing on the second leg of the lethal trifecta pattern"}
 	}

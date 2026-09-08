@@ -64,29 +64,107 @@ func TestIsNetworkAttempt(t *testing.T) {
 	}
 }
 
-func TestTrifectaVerdictEscalatesSecondLeg(t *testing.T) {
-	v := TrifectaVerdict(policy.Verdict{Decision: policy.Allow}, true, false, &session.State{SawNetworkCall: true})
+func TestApplyTrifectaEscalatesSecondLegAndRecordsSignals(t *testing.T) {
+	pol := pathPol()
+	privateState := &session.State{SawNetworkCall: true}
+	v := ApplyTrifecta(
+		policy.Verdict{Decision: policy.Allow},
+		ToolCall{Tool: "Read", Paths: []string{"/h/.ssh/id_rsa"}},
+		privateState,
+		pol,
+	)
 	if v == nil || v.Decision != policy.Ask || v.RuleID != "P7.trifecta" {
 		t.Fatalf("private read after a network call -> %+v, want ask/P7.trifecta", v)
 	}
-	v = TrifectaVerdict(policy.Verdict{Decision: policy.Allow}, false, true, &session.State{SawPrivateRead: true})
+	if !privateState.SawPrivateRead || !privateState.SawNetworkCall {
+		t.Fatalf("private signal was not recorded: %+v", privateState)
+	}
+
+	networkState := &session.State{SawPrivateRead: true}
+	v = ApplyTrifecta(
+		policy.Verdict{Decision: policy.Allow},
+		ToolCall{Tool: "Bash", Command: "curl https://example.com"},
+		networkState,
+		pol,
+	)
 	if v == nil || v.RuleID != "P7.trifecta" {
 		t.Fatalf("network call after a private read -> %+v, want ask/P7.trifecta", v)
 	}
+	if !networkState.SawPrivateRead || !networkState.SawNetworkCall {
+		t.Fatalf("network signal was not recorded: %+v", networkState)
+	}
 }
 
-func TestTrifectaVerdictNoEscalationWithoutBothLegs(t *testing.T) {
-	if v := TrifectaVerdict(policy.Verdict{Decision: policy.Allow}, true, false, &session.State{}); v != nil {
+func TestApplyTrifectaNoEscalationWithoutBothLegs(t *testing.T) {
+	pol := pathPol()
+	state := &session.State{}
+	if v := ApplyTrifecta(policy.Verdict{Decision: policy.Allow}, ToolCall{Tool: "Read", Paths: []string{"/h/.ssh/id_rsa"}}, state, pol); v != nil {
 		t.Fatalf("private read with no prior signal -> %+v, want nil", v)
 	}
-	if v := TrifectaVerdict(policy.Verdict{Decision: policy.Allow}, false, false, &session.State{SawPrivateRead: true, SawNetworkCall: true}); v != nil {
+	if !state.SawPrivateRead || state.SawNetworkCall {
+		t.Fatalf("first private signal was not recorded: %+v", state)
+	}
+	if v := ApplyTrifecta(policy.Verdict{Decision: policy.Allow}, ToolCall{Tool: "Bash", Command: "ls"}, &session.State{SawPrivateRead: true, SawNetworkCall: true}, pol); v != nil {
 		t.Fatalf("neither leg this call -> %+v, want nil", v)
 	}
 }
 
-func TestTrifectaVerdictNeverOverridesNonAllow(t *testing.T) {
+func TestApplyTrifectaNeverOverridesNonAllow(t *testing.T) {
 	existing := policy.Verdict{Decision: policy.Ask, RuleID: "P1.chmod", Reason: "other reason"}
-	if v := TrifectaVerdict(existing, true, true, &session.State{SawPrivateRead: true, SawNetworkCall: true}); v != nil {
+	state := &session.State{SawNetworkCall: true}
+	if v := ApplyTrifecta(existing, ToolCall{Tool: "Read", Paths: []string{"/h/.ssh/id_rsa"}}, state, pathPol()); v != nil {
 		t.Fatalf("should not override an existing non-allow verdict, got %+v", v)
+	}
+	if !state.SawPrivateRead || !state.SawNetworkCall {
+		t.Fatalf("signal under existing Ask was not recorded: %+v", state)
+	}
+}
+
+func TestApplyTrifectaEscalatesUnavailableTrackingSignals(t *testing.T) {
+	const wantReason = "session tracking is unavailable; approval is required because P7 cannot retain this private-data or network signal"
+	for _, test := range []struct {
+		name string
+		tc   ToolCall
+	}{
+		{"private data", ToolCall{Tool: "Read", Paths: []string{"/h/.ssh/id_rsa"}}},
+		{"network", ToolCall{Tool: "Bash", Command: "curl https://example.com"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			v := ApplyTrifecta(policy.Verdict{Decision: policy.Allow}, test.tc, nil, pathPol())
+			if v == nil || v.Decision != policy.Ask || v.RuleID != "P7.tracking-unavailable" || v.Reason != wantReason {
+				t.Fatalf("unavailable tracking -> %+v, want ask/P7.tracking-unavailable", v)
+			}
+		})
+	}
+}
+
+func TestApplyTrifectaUnavailableTrackingPreservesUnderlyingVerdict(t *testing.T) {
+	private := ToolCall{Tool: "Read", Paths: []string{"/h/.ssh/id_rsa"}}
+	for _, existing := range []policy.Verdict{
+		{Decision: policy.Ask, RuleID: "P1.chmod", Reason: "existing ask"},
+		{Decision: policy.Deny, RuleID: "P4.secret-path", Reason: "existing deny"},
+	} {
+		if v := ApplyTrifecta(existing, private, nil, pathPol()); v != nil {
+			t.Errorf("existing %s -> %+v, want no override", existing.Decision, v)
+		}
+	}
+	if v := ApplyTrifecta(policy.Verdict{Decision: policy.Allow}, ToolCall{Tool: "Bash", Command: "ls"}, nil, pathPol()); v != nil {
+		t.Fatalf("routine call with unavailable tracking -> %+v, want nil", v)
+	}
+}
+
+func TestApplyTrifectaWaiverDisablesPolicyOperation(t *testing.T) {
+	pol := pathPol()
+	pol.Waived = map[string]bool{"P7.trifecta": true}
+	state := &session.State{SawNetworkCall: true}
+	private := ToolCall{Tool: "Read", Paths: []string{"/h/.ssh/id_rsa"}}
+	if v := ApplyTrifecta(policy.Verdict{Decision: policy.Allow}, private, state, pol); v != nil {
+		t.Fatalf("waived available tracking -> %+v, want nil", v)
+	}
+	if state.SawPrivateRead || !state.SawNetworkCall {
+		t.Fatalf("waived policy operation mutated state: %+v", state)
+	}
+	if v := ApplyTrifecta(policy.Verdict{Decision: policy.Allow}, private, nil, pol); v != nil {
+		t.Fatalf("waived unavailable tracking -> %+v, want nil", v)
 	}
 }
