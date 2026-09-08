@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/adapter"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
@@ -96,22 +97,32 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return adapter.EmitClaudeSessionStart(text, stdout)
 	}
 
-	v := engine.Evaluate(tc, merged)
-
-	if tc.Event == "pre" && engine.TrifectaTrackingEnabled(merged) {
-		trackingUnavailable := tc.SessionID == ""
-		if tc.SessionID != "" {
-			if err := session.Transaction(tc.SessionID, func(st *session.State) error {
+	approvalKey, approvalEnabled := engine.OpenCodeApprovalKey(tc)
+	needsP7 := tc.Event == "pre" && engine.TrifectaTrackingEnabled(merged)
+	needsState := tc.SessionID != "" && (needsP7 || approvalEnabled)
+	var v policy.Verdict
+	stateApplied := false
+	if tc.Event == "pre" && needsState {
+		if err := session.Transaction(tc.SessionID, func(st *session.State) error {
+			v = engine.Evaluate(tc, merged)
+			if needsP7 {
 				if esc := engine.ApplyTrifecta(v, tc, st, merged); esc != nil {
 					v = *esc
 				}
-				return nil
-			}); err != nil {
-				trackingUnavailable = true
-				highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: session transaction failed (%v)", err))
 			}
+			if approvalEnabled {
+				v = engine.ApplyOpenCodeApproval(v, approvalKey, st, time.Now().UTC())
+			}
+			return nil
+		}); err == nil {
+			stateApplied = true
+		} else {
+			highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: session transaction failed (%v)", err))
 		}
-		if trackingUnavailable {
+	}
+	if !stateApplied {
+		v = engine.Evaluate(tc, merged)
+		if needsP7 {
 			if esc := engine.ApplyTrifecta(v, tc, nil, merged); esc != nil {
 				v = *esc
 			}
@@ -125,16 +136,17 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	rec := audit.Record{
-		SessionID: tc.SessionID,
-		Plane:     tc.Plane,
-		Tool:      tc.Tool,
-		Event:     tc.Event,
-		Command:   tc.Command,
-		Paths:     tc.Paths,
-		Decision:  string(v.Decision),
-		RuleID:    v.RuleID,
-		Reason:    v.Reason,
-		Waivers:   policy.SortedWaivers(merged),
+		SessionID:    tc.SessionID,
+		Plane:        tc.Plane,
+		Tool:         tc.Tool,
+		Event:        tc.Event,
+		Command:      tc.Command,
+		Paths:        tc.Paths,
+		Decision:     string(v.Decision),
+		RuleID:       v.RuleID,
+		OriginRuleID: v.OriginRuleID,
+		Reason:       v.Reason,
+		Waivers:      policy.SortedWaivers(merged),
 	}
 	if err := audit.Write(rec, audit.DefaultPath(merged.Slots.AuditLog)); err != nil {
 		highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: audit write failed (%v)", err))

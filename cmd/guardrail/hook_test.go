@@ -2,14 +2,19 @@ package main
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/session"
 )
 
 type failingReader struct {
@@ -694,6 +699,516 @@ func TestHookOpencodeAllow(t *testing.T) {
 	code := run([]string{"hook", "opencode"}, strings.NewReader(payload), &out, &errb)
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
+	}
+}
+
+type openCodeApprovalResult struct {
+	Code     int
+	Decision string
+	Stdout   string
+	Stderr   string
+}
+
+type approvalAuditRecord struct {
+	Decision     string `json:"decision"`
+	RuleID       string `json:"rule_id"`
+	OriginRuleID string `json:"origin_rule_id"`
+}
+
+func TestOpenCodeApprovalHelperProcess(t *testing.T) {
+	if os.Getenv("GUARDRAIL_TEST_OPENCODE_APPROVAL_HELPER") != "1" {
+		return
+	}
+	if gate := os.Getenv("GUARDRAIL_TEST_OPENCODE_APPROVAL_GATE"); gate != "" {
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			if _, err := os.Stat(gate); err == nil {
+				break
+			} else if !os.IsNotExist(err) {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(3)
+			}
+			if time.Now().After(deadline) {
+				fmt.Fprintln(os.Stderr, "approval test gate timed out")
+				os.Exit(3)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	code := run(
+		[]string{"hook", "opencode"},
+		strings.NewReader(os.Getenv("GUARDRAIL_TEST_OPENCODE_APPROVAL_PAYLOAD")),
+		os.Stdout,
+		os.Stderr,
+	)
+	os.Exit(code)
+}
+
+func openCodeApprovalCommand(payload, gate string, stdout, stderr io.Writer) *exec.Cmd {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestOpenCodeApprovalHelperProcess$")
+	cmd.Env = append(os.Environ(),
+		"GUARDRAIL_TEST_OPENCODE_APPROVAL_HELPER=1",
+		"GUARDRAIL_TEST_OPENCODE_APPROVAL_PAYLOAD="+payload,
+		"GUARDRAIL_TEST_OPENCODE_APPROVAL_GATE="+gate,
+	)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	return cmd
+}
+
+func runOpenCodeApprovalProcess(t *testing.T, payload string) openCodeApprovalResult {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	cmd := openCodeApprovalCommand(payload, "", &stdout, &stderr)
+	err := cmd.Run()
+	code := 0
+	if err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("run OpenCode approval helper: %v", err)
+		}
+		code = exitErr.ExitCode()
+	}
+	var response struct {
+		Decision string `json:"decision"`
+	}
+	if decodeErr := json.Unmarshal(stdout.Bytes(), &response); decodeErr != nil {
+		t.Fatalf("decode OpenCode approval helper output: %v; code=%d stdout=%q stderr=%q", decodeErr, code, stdout.String(), stderr.String())
+	}
+	return openCodeApprovalResult{Code: code, Decision: response.Decision, Stdout: stdout.String(), Stderr: stderr.String()}
+}
+
+func runOpenCodeApprovalHook(t *testing.T, payload string) openCodeApprovalResult {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"hook", "opencode"}, strings.NewReader(payload), &stdout, &stderr)
+	var response struct {
+		Decision string `json:"decision"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("decode OpenCode hook output: %v; code=%d stdout=%q stderr=%q", err, code, stdout.String(), stderr.String())
+	}
+	return openCodeApprovalResult{Code: code, Decision: response.Decision, Stdout: stdout.String(), Stderr: stderr.String()}
+}
+
+func openCodeApprovalPayload(sessionID, event, tool, command, cwd, arguments string) string {
+	return fmt.Sprintf(
+		`{"session_id":%q,"event":%q,"tool":%q,"command":%q,"cwd":%q,"arguments":%s}`,
+		sessionID, event, tool, command, cwd, arguments,
+	)
+}
+
+func configureApprovalTest(t *testing.T, overlay string) (string, string) {
+	t.Helper()
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	overlayPath := filepath.Join(t.TempDir(), "guardrail.toml")
+	if err := os.WriteFile(overlayPath, []byte(overlay), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GUARDRAIL_CONFIG", overlayPath)
+	return stateHome, overlayPath
+}
+
+func approvalAskOverlay(extra string) string {
+	return extra + `[[rules]]
+id = "project.approval-ask"
+pattern = "approval-test"
+decision = "ask"
+reason = "approval test requires confirmation"
+`
+}
+
+func readApprovalState(t *testing.T, sessionID string) (session.State, []byte) {
+	t.Helper()
+	raw, err := os.ReadFile(session.Path(sessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state session.State
+	if err := json.Unmarshal(raw, &state); err != nil {
+		t.Fatal(err)
+	}
+	return state, raw
+}
+
+func readApprovalAudit(t *testing.T, stateHome string) []approvalAuditRecord {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(stateHome, "guardrail", "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	records := make([]approvalAuditRecord, len(lines))
+	for i, line := range lines {
+		if err := json.Unmarshal([]byte(line), &records[i]); err != nil {
+			t.Fatalf("decode audit line %d: %v", i+1, err)
+		}
+	}
+	return records
+}
+
+func assertApprovalDecision(t *testing.T, got openCodeApprovalResult, decision string) {
+	t.Helper()
+	if got.Decision != decision {
+		t.Fatalf("decision=%q, want %q; code=%d stdout=%q stderr=%q", got.Decision, decision, got.Code, got.Stdout, got.Stderr)
+	}
+}
+
+func TestOpenCodeApprovalMemoryPersistsOneShotAcrossProcesses(t *testing.T) {
+	stateHome, _ := configureApprovalTest(t, "")
+	const sessionID = "approval-one-shot"
+	payload := openCodeApprovalPayload(sessionID, "pre", "bash", "git checkout .", "/tmp", `{"command":"git checkout ."}`)
+
+	first := runOpenCodeApprovalProcess(t, payload)
+	second := runOpenCodeApprovalProcess(t, payload)
+	third := runOpenCodeApprovalProcess(t, payload)
+	assertApprovalDecision(t, first, "ask")
+	assertApprovalDecision(t, second, "allow")
+	assertApprovalDecision(t, third, "ask")
+
+	records := readApprovalAudit(t, stateHome)
+	if len(records) != 3 {
+		t.Fatalf("audit records=%d, want 3", len(records))
+	}
+	if records[0].RuleID != "P2.git-checkout-restore" || records[1].RuleID != "ask-approved-by-retry" || records[2].RuleID != "P2.git-checkout-restore" {
+		t.Fatalf("audit Rule IDs=%q, %q, %q", records[0].RuleID, records[1].RuleID, records[2].RuleID)
+	}
+	if records[0].OriginRuleID != "" || records[1].OriginRuleID != "P2.git-checkout-restore" || records[2].OriginRuleID != "" {
+		t.Fatalf("audit origin Rule IDs=%q, %q, %q", records[0].OriginRuleID, records[1].OriginRuleID, records[2].OriginRuleID)
+	}
+	auditRaw, err := os.ReadFile(filepath.Join(stateHome, "guardrail", "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(auditRaw, []byte(`"arguments"`)) {
+		t.Fatalf("audit exposed native arguments: %s", auditRaw)
+	}
+	state, raw := readApprovalState(t, sessionID)
+	if len(state.PendingApprovals) != 1 {
+		t.Fatalf("pending approvals=%d, want one fresh entry: %s", len(state.PendingApprovals), raw)
+	}
+	for digest, pending := range state.PendingApprovals {
+		if len(digest) != 64 || pending.OriginRuleID != "P2.git-checkout-restore" || pending.ExpiresAt.IsZero() {
+			t.Fatalf("persisted approval entry is not digest/rule/expiry only: %q %+v", digest, pending)
+		}
+	}
+	if strings.Contains(string(raw), sessionID) || strings.Contains(string(raw), "git checkout") {
+		t.Fatalf("session state exposed native identity or arguments: %s", raw)
+	}
+	base := filepath.Base(session.Path(sessionID))
+	if digest, err := hex.DecodeString(strings.TrimSuffix(base, ".json")); err != nil || len(digest) != 32 || !strings.HasSuffix(base, ".json") {
+		t.Fatalf("session filename %q is not an M-7 v2 digest", base)
+	}
+}
+
+func TestOpenCodeApprovalMemoryRequiresExactIdentity(t *testing.T) {
+	tests := []struct {
+		name            string
+		changedSession  string
+		changedCWD      string
+		changedTool     string
+		changedArgument string
+	}{
+		{name: "session", changedSession: "approval-other-session"},
+		{name: "CWD bytes", changedCWD: "/tmp/"},
+		{name: "normalized tool", changedTool: "read"},
+		{name: "arguments", changedArgument: `{"value":"changed"}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, _ = configureApprovalTest(t, approvalAskOverlay(""))
+			const sessionID = "approval-exact-identity"
+			original := openCodeApprovalPayload(sessionID, "pre", "bash", "approval-test", "/tmp", `{"value":"original"}`)
+			assertApprovalDecision(t, runOpenCodeApprovalHook(t, original), "ask")
+
+			changedSession, changedCWD, changedTool, changedArguments := sessionID, "/tmp", "bash", `{"value":"original"}`
+			if test.changedSession != "" {
+				changedSession = test.changedSession
+			}
+			if test.changedCWD != "" {
+				changedCWD = test.changedCWD
+			}
+			if test.changedTool != "" {
+				changedTool = test.changedTool
+			}
+			if test.changedArgument != "" {
+				changedArguments = test.changedArgument
+			}
+			changed := openCodeApprovalPayload(changedSession, "pre", changedTool, "approval-test", changedCWD, changedArguments)
+			assertApprovalDecision(t, runOpenCodeApprovalHook(t, changed), "ask")
+			assertApprovalDecision(t, runOpenCodeApprovalHook(t, original), "allow")
+		})
+	}
+}
+
+func TestOpenCodeApprovalMemoryCanonicalizesObjectKeyOrder(t *testing.T) {
+	_, _ = configureApprovalTest(t, approvalAskOverlay(""))
+	first := openCodeApprovalPayload("approval-object-order", "pre", "bash", "approval-test", "/tmp", `{"outer":{"z":2,"a":1},"first":true}`)
+	reordered := openCodeApprovalPayload("approval-object-order", "pre", "bash", "approval-test", "/tmp", `{"first":true,"outer":{"a":1,"z":2}}`)
+	assertApprovalDecision(t, runOpenCodeApprovalHook(t, first), "ask")
+	assertApprovalDecision(t, runOpenCodeApprovalHook(t, reordered), "allow")
+}
+
+func TestOpenCodeApprovalMemoryRejectsIncompleteIdentity(t *testing.T) {
+	tests := []struct {
+		name      string
+		sessionID string
+		payload   string
+	}{
+		{name: "session", payload: `{"event":"pre","tool":"bash","command":"approval-test","cwd":"/tmp","arguments":{"value":1}}`},
+		{name: "CWD", sessionID: "missing-cwd", payload: `{"session_id":"missing-cwd","event":"pre","tool":"bash","command":"approval-test","arguments":{"value":1}}`},
+		{name: "tool", sessionID: "missing-tool", payload: `{"session_id":"missing-tool","event":"pre","command":"approval-test","cwd":"/tmp","arguments":{"value":1}}`},
+		{name: "arguments", sessionID: "missing-arguments", payload: `{"session_id":"missing-arguments","event":"pre","tool":"bash","command":"approval-test","cwd":"/tmp"}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stateHome, _ := configureApprovalTest(t, approvalAskOverlay(""))
+			assertApprovalDecision(t, runOpenCodeApprovalHook(t, test.payload), "ask")
+			if test.sessionID != "" {
+				state, _ := readApprovalState(t, test.sessionID)
+				if len(state.PendingApprovals) != 0 {
+					t.Fatalf("incomplete identity wrote pending approval: %+v", state.PendingApprovals)
+				}
+				return
+			}
+			matches, err := filepath.Glob(filepath.Join(stateHome, "guardrail", "sessions", "v2", "*.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(matches) != 0 {
+				t.Fatalf("missing session identity wrote session files: %v", matches)
+			}
+		})
+	}
+}
+
+func TestOpenCodeApprovalMemoryTransactionFailurePreservesAsk(t *testing.T) {
+	stateRoot := filepath.Join(t.TempDir(), "state\nforged\twarning\x7f")
+	if err := os.WriteFile(stateRoot, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_STATE_HOME", stateRoot)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	payload := openCodeApprovalPayload("approval-failed-transaction", "pre", "bash", "git checkout .", "/tmp", `{"command":"git checkout ."}`)
+	result := runOpenCodeApprovalHook(t, payload)
+	assertApprovalDecision(t, result, "ask")
+	if !strings.Contains(result.Stderr, "session transaction failed") || strings.ContainsAny(result.Stderr, "\r\t\x00\x7f") {
+		t.Fatalf("transaction warning missing or unsanitized: %q", result.Stderr)
+	}
+}
+
+func TestOpenCodeApprovalMemoryWorksWithP7Waiver(t *testing.T) {
+	repo := t.TempDir()
+	gitInitSync(t, repo)
+	_, overlayPath := configureApprovalTest(t, approvalAskOverlay(`waive = ["P7.trifecta"]
+`))
+	configHome := os.Getenv("XDG_CONFIG_HOME")
+	operatorDir := filepath.Join(configHome, "guardrail")
+	if err := os.MkdirAll(operatorDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	operator := fmt.Sprintf("[%q]\nwaive = [\"P7.trifecta\"]\n", repo)
+	if err := os.WriteFile(filepath.Join(operatorDir, "waivers.toml"), []byte(operator), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GUARDRAIL_CONFIG", overlayPath)
+	payload := openCodeApprovalPayload("approval-p7-waived", "pre", "bash", "approval-test", repo, `{"value":1}`)
+	first := runOpenCodeApprovalHook(t, payload)
+	assertApprovalDecision(t, first, "ask")
+	if !strings.Contains(first.Stderr, "P7.trifecta is WAIVED") {
+		t.Fatalf("test did not activate the P7 waiver: %q", first.Stderr)
+	}
+	assertApprovalDecision(t, runOpenCodeApprovalHook(t, payload), "allow")
+}
+
+func TestOpenCodeApprovalMemoryIncludesP7GeneratedAsk(t *testing.T) {
+	repo := t.TempDir()
+	gitInitSync(t, repo)
+	_, overlayPath := configureApprovalTest(t, `waive = ["P4.secret-path"]
+[slots]
+egress_allowlist = ["api.example.com"]
+`)
+	configHome := os.Getenv("XDG_CONFIG_HOME")
+	operatorDir := filepath.Join(configHome, "guardrail")
+	if err := os.MkdirAll(operatorDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	operator := fmt.Sprintf("[%q]\nwaive = [\"P4.secret-path\"]\negress_allowlist = [\"api.example.com\"]\n", repo)
+	if err := os.WriteFile(filepath.Join(operatorDir, "waivers.toml"), []byte(operator), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GUARDRAIL_CONFIG", overlayPath)
+	const sessionID = "approval-p7-generated"
+	private := openCodeApprovalPayload(sessionID, "pre", "read", "", repo, fmt.Sprintf(`{"filePath":%q}`, filepath.Join(repo, ".env")))
+	private = strings.Replace(private, `"command":""`, fmt.Sprintf(`"command":"","paths":[%q]`, filepath.Join(repo, ".env")), 1)
+	assertApprovalDecision(t, runOpenCodeApprovalHook(t, private), "allow")
+	network := openCodeApprovalPayload(sessionID, "pre", "bash", "curl https://api.example.com/x", repo, `{"command":"curl https://api.example.com/x"}`)
+	assertApprovalDecision(t, runOpenCodeApprovalHook(t, network), "ask")
+	assertApprovalDecision(t, runOpenCodeApprovalHook(t, network), "allow")
+}
+
+func TestApprovalMemoryDoesNotCrossPlaneOrPostBoundary(t *testing.T) {
+	t.Run("Claude", func(t *testing.T) {
+		_, _ = configureApprovalTest(t, "")
+		payload := `{"session_id":"approval-claude","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git checkout ."}}`
+		for i := 0; i < 2; i++ {
+			var stdout, stderr bytes.Buffer
+			if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), `"permissionDecision":"ask"`) {
+				t.Fatalf("Claude call %d did not remain Ask: code=%d stdout=%q stderr=%q", i+1, code, stdout.String(), stderr.String())
+			}
+		}
+		state, _ := readApprovalState(t, "approval-claude")
+		if len(state.PendingApprovals) != 0 {
+			t.Fatalf("Claude wrote approval memory: %+v", state.PendingApprovals)
+		}
+	})
+
+	t.Run("OpenCode post", func(t *testing.T) {
+		stateHome, _ := configureApprovalTest(t, "")
+		payload := openCodeApprovalPayload("approval-post", "post", "bash", "git checkout .", "/tmp", `{"command":"git checkout ."}`)
+		assertApprovalDecision(t, runOpenCodeApprovalHook(t, payload), "ask")
+		assertApprovalDecision(t, runOpenCodeApprovalHook(t, payload), "ask")
+		matches, err := filepath.Glob(filepath.Join(stateHome, "guardrail", "sessions", "v2", "*.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(matches) != 0 {
+			t.Fatalf("OpenCode post wrote session approval state: %v", matches)
+		}
+	})
+}
+
+func TestOpenCodeApprovalMemoryCurrentDenyConsumesPending(t *testing.T) {
+	stateHome, overlayPath := configureApprovalTest(t, "")
+	const sessionID = "approval-current-deny"
+	payload := openCodeApprovalPayload(sessionID, "pre", "bash", "git checkout .", "/tmp", `{"command":"git checkout ."}`)
+	assertApprovalDecision(t, runOpenCodeApprovalHook(t, payload), "ask")
+	denyOverlay := `[[rules]]
+id = "project.tightened-deny"
+tool = "Bash"
+pattern = "git checkout ."
+decision = "deny"
+reason = "policy was tightened"
+`
+	if err := os.WriteFile(overlayPath, []byte(denyOverlay), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertApprovalDecision(t, runOpenCodeApprovalHook(t, payload), "deny")
+	if err := os.WriteFile(overlayPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertApprovalDecision(t, runOpenCodeApprovalHook(t, payload), "ask")
+	state, _ := readApprovalState(t, sessionID)
+	if len(state.PendingApprovals) != 1 {
+		t.Fatalf("Deny did not consume stale approval before later Ask: %+v", state.PendingApprovals)
+	}
+	records := readApprovalAudit(t, stateHome)
+	if len(records) != 3 || records[1].Decision != "deny" || records[1].RuleID != "project.tightened-deny" || records[1].OriginRuleID != "" {
+		t.Fatalf("current Deny audit was downgraded or attributed as approval: %+v", records)
+	}
+}
+
+func TestOpenCodeApprovalMemoryCurrentAllowConsumesPending(t *testing.T) {
+	stateHome, overlayPath := configureApprovalTest(t, approvalAskOverlay(""))
+	const sessionID = "approval-current-allow"
+	payload := openCodeApprovalPayload(sessionID, "pre", "bash", "approval-test", "/tmp", `{"value":1}`)
+	assertApprovalDecision(t, runOpenCodeApprovalHook(t, payload), "ask")
+	seeded, _ := readApprovalState(t, sessionID)
+	if len(seeded.PendingApprovals) != 1 {
+		t.Fatalf("seeded pending approvals=%d, want 1", len(seeded.PendingApprovals))
+	}
+	if err := os.WriteFile(overlayPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertApprovalDecision(t, runOpenCodeApprovalHook(t, payload), "allow")
+	consumed, _ := readApprovalState(t, sessionID)
+	if len(consumed.PendingApprovals) != 0 {
+		t.Fatalf("current Allow did not consume pending approval: %+v", consumed.PendingApprovals)
+	}
+	if err := os.WriteFile(overlayPath, []byte(approvalAskOverlay("")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertApprovalDecision(t, runOpenCodeApprovalHook(t, payload), "ask")
+	records := readApprovalAudit(t, stateHome)
+	if len(records) != 3 || records[1].Decision != "allow" || records[1].RuleID != "" || records[1].OriginRuleID != "" {
+		t.Fatalf("current Allow audit changed during consume: %+v", records)
+	}
+}
+
+func TestOpenCodeApprovalMemoryConcurrentRetriesHaveOneConsumer(t *testing.T) {
+	_, _ = configureApprovalTest(t, approvalAskOverlay(""))
+	const sessionID = "approval-concurrent"
+	payload := openCodeApprovalPayload(sessionID, "pre", "bash", "approval-test", "/tmp", `{"value":1}`)
+	assertApprovalDecision(t, runOpenCodeApprovalHook(t, payload), "ask")
+	seeded, _ := readApprovalState(t, sessionID)
+	if len(seeded.PendingApprovals) != 1 {
+		t.Fatalf("seeded pending approvals=%d, want 1", len(seeded.PendingApprovals))
+	}
+	var seededDigest string
+	var seededExpiry time.Time
+	for digest := range seeded.PendingApprovals {
+		seededDigest = digest
+		seededExpiry = seeded.PendingApprovals[digest].ExpiresAt
+	}
+
+	gate := filepath.Join(t.TempDir(), "start")
+	var stdout1, stderr1, stdout2, stderr2 bytes.Buffer
+	cmd1 := openCodeApprovalCommand(payload, gate, &stdout1, &stderr1)
+	cmd2 := openCodeApprovalCommand(payload, gate, &stdout2, &stderr2)
+	if err := cmd1.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd2.Start(); err != nil {
+		_ = cmd1.Process.Kill()
+		_ = cmd1.Wait()
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(gate, []byte("start"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err1 := cmd1.Wait()
+	err2 := cmd2.Wait()
+	if err1 != nil || err2 != nil {
+		t.Fatalf("concurrent retries failed: err1=%v stdout1=%q stderr1=%q err2=%v stdout2=%q stderr2=%q", err1, stdout1.String(), stderr1.String(), err2, stdout2.String(), stderr2.String())
+	}
+	decisions := map[string]int{}
+	for i, raw := range [][]byte{stdout1.Bytes(), stdout2.Bytes()} {
+		var response struct {
+			Decision string `json:"decision"`
+		}
+		if err := json.Unmarshal(raw, &response); err != nil {
+			t.Fatalf("decode concurrent response %d: %v; output=%q", i+1, err, raw)
+		}
+		decisions[response.Decision]++
+	}
+	if decisions["allow"] != 1 || decisions["ask"] != 1 {
+		t.Fatalf("concurrent decisions=%v, want one synthetic Allow and one Ask", decisions)
+	}
+	final, _ := readApprovalState(t, sessionID)
+	if len(final.PendingApprovals) != 1 {
+		t.Fatalf("final pending approvals=%d, want one fresh entry: %+v", len(final.PendingApprovals), final.PendingApprovals)
+	}
+	if _, ok := final.PendingApprovals[seededDigest]; !ok {
+		t.Fatalf("fresh pending entry digest changed: seeded=%q final=%+v", seededDigest, final.PendingApprovals)
+	}
+	if !final.PendingApprovals[seededDigest].ExpiresAt.After(seededExpiry) {
+		t.Fatalf("concurrent Ask did not replace the consumed approval with a fresh expiry: seeded=%s final=%s", seededExpiry, final.PendingApprovals[seededDigest].ExpiresAt)
+	}
+	records := readApprovalAudit(t, os.Getenv("XDG_STATE_HOME"))
+	var syntheticAllows, originalAsks int
+	for _, record := range records {
+		if record.Decision == "allow" && record.RuleID == "ask-approved-by-retry" {
+			syntheticAllows++
+		}
+		if record.Decision == "ask" && record.RuleID == "project.approval-ask" {
+			originalAsks++
+		}
+	}
+	if len(records) != 3 || syntheticAllows != 1 || originalAsks != 2 {
+		t.Fatalf("concurrent audit records=%+v, want seed Ask plus one synthetic Allow and one fresh Ask", records)
 	}
 }
 

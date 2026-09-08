@@ -212,9 +212,10 @@ func TestAdversarialCorpus(t *testing.T) {
 
 func TestClassifyClaudeResult(t *testing.T) {
 	const (
-		denyAudit  = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"deny"}` + "\n"
-		askAudit   = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"ask"}` + "\n"
-		allowAudit = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"allow"}` + "\n"
+		denyAudit   = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"deny"}` + "\n"
+		askAudit    = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"ask"}` + "\n"
+		allowAudit  = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"allow"}` + "\n"
+		originAudit = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"allow","rule_id":"ask-approved-by-retry","origin_rule_id":"P2.git-checkout-restore"}` + "\n"
 	)
 	tests := []struct {
 		name   string
@@ -226,6 +227,7 @@ func TestClassifyClaudeResult(t *testing.T) {
 		fail   bool
 	}{
 		{name: "allow", code: 0, audit: allowAudit, want: "allow"},
+		{name: "allow with origin attribution", code: 0, audit: originAudit, want: "allow"},
 		{name: "ask", code: 0, stdout: `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"confirm"}}` + "\n", audit: askAudit, want: "ask"},
 		{name: "deny", code: 2, stderr: "guardrail: blocked by policy\n", audit: denyAudit, want: "deny"},
 		{name: "deny reason contains runtime marker", code: 2, stderr: "guardrail: target contains runtime: metadata\n", audit: denyAudit, want: "deny"},
@@ -247,6 +249,7 @@ func TestClassifyClaudeResult(t *testing.T) {
 		{name: "audit plane mismatch", code: 0, audit: strings.Replace(allowAudit, `"plane":"claude"`, `"plane":"opencode"`, 1), fail: true},
 		{name: "audit missing timestamp", code: 0, audit: strings.Replace(allowAudit, `"ts":"2026-09-04T00:00:00Z",`, "", 1), fail: true},
 		{name: "audit has unknown field", code: 0, audit: strings.Replace(allowAudit, `"decision":"allow"`, `"decision":"allow","unexpected":true`, 1), fail: true},
+		{name: "audit has raw arguments", code: 0, audit: strings.Replace(allowAudit, `"decision":"allow"`, `"decision":"allow","arguments":{"command":"secret"}`, 1), fail: true},
 	}
 	expectation := auditExpectation{SessionID: "adv-test", Tool: "Bash", Event: "pre"}
 	for _, test := range tests {
@@ -268,6 +271,26 @@ func TestClassifyClaudeResult(t *testing.T) {
 				t.Fatalf("classifyClaudeResult(%d, %q, %q) = %q, %v; want %q, nil", test.code, test.stdout, test.stderr, got, err, test.want)
 			}
 		})
+	}
+}
+
+func TestAuditContractAcceptsOriginRuleAndRejectsArguments(t *testing.T) {
+	writeAndRead := func(t *testing.T, raw string) error {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "audit.jsonl")
+		if err := os.WriteFile(path, []byte(raw+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := readSingleAuditRecord(path)
+		return err
+	}
+	const attributed = `{"ts":"2026-09-04T00:00:00Z","plane":"opencode","tool":"Bash","decision":"allow","rule_id":"ask-approved-by-retry","origin_rule_id":"P2.git-checkout-restore"}`
+	if err := writeAndRead(t, attributed); err != nil {
+		t.Fatalf("declared origin_rule_id was rejected: %v", err)
+	}
+	const leakedArguments = `{"ts":"2026-09-04T00:00:00Z","plane":"opencode","tool":"Bash","decision":"allow","arguments":{"command":"secret"}}`
+	if err := writeAndRead(t, leakedArguments); err == nil {
+		t.Fatal("raw arguments were accepted by the strict audit contract")
 	}
 }
 

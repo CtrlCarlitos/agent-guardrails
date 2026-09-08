@@ -39,6 +39,47 @@ func TestWriteAppendsJSONL(t *testing.T) {
 	}
 }
 
+func TestWriteIncludesOriginRuleIDOnlyWhenPresent(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "audit.jsonl")
+	approved := Record{
+		Plane:        "opencode",
+		Tool:         "Bash",
+		Decision:     "allow",
+		RuleID:       "ask-approved-by-retry",
+		OriginRuleID: "P2.git-checkout-restore",
+	}
+	if err := Write(approved, p); err != nil {
+		t.Fatal(err)
+	}
+	if err := Write(Record{Plane: "opencode", Tool: "Bash", Decision: "ask", RuleID: "P2.git-checkout-restore"}, p); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("audit lines=%d, want 2", len(lines))
+	}
+	if !strings.Contains(lines[0], `"rule_id":"ask-approved-by-retry"`) || !strings.Contains(lines[0], `"origin_rule_id":"P2.git-checkout-restore"`) {
+		t.Fatalf("synthetic approval audit omitted attribution: %s", lines[0])
+	}
+	if strings.Contains(lines[1], `"origin_rule_id"`) {
+		t.Fatalf("ordinary audit did not omit empty origin_rule_id: %s", lines[1])
+	}
+}
+
+func TestRecordDecodesLegacyJSONWithoutOriginRuleID(t *testing.T) {
+	var record Record
+	if err := json.Unmarshal([]byte(`{"plane":"opencode","tool":"Bash","decision":"ask","rule_id":"P2.git-checkout-restore"}`), &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.RuleID != "P2.git-checkout-restore" || record.OriginRuleID != "" {
+		t.Fatalf("legacy audit decoded incorrectly: %+v", record)
+	}
+}
+
 func TestRedact(t *testing.T) {
 	in := `curl -H "Authorization: Bearer sk-abcdef123456" https://x --data AWS_SECRET=AKIAIOSFODNN7EXAMPLE`
 	out := redact(in)
