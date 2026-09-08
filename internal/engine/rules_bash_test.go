@@ -1463,6 +1463,7 @@ func TestFindScopedDeleteAllowsTrailingStatements(t *testing.T) {
 	commands := []string{
 		`mkdir -p /tmp/guard-check/t && echo hi > /tmp/guard-check/t/a.txt && find /tmp/guard-check/t -delete && rm -rf /tmp/guard-check && echo cleaned`,
 		`mkdir -p /tmp/guard-check/t && find /tmp/guard-check/t -delete && echo done`,
+		`mkdir -p /tmp/guard-check/t && find /tmp/guard-check/t -delete && bash -c 'echo done'`,
 	}
 	for _, command := range commands {
 		if v := evalBash(t, command); v != nil {
@@ -1476,11 +1477,20 @@ func TestFindScopedDeleteAllowsBoundedSemicolonList(t *testing.T) {
 	commands := []string{
 		`mkdir -p /tmp/guard-check/t; find /tmp/guard-check/t -delete`,
 		`mkdir -p /tmp/guard-check/t; echo hi > /tmp/guard-check/t/a; find /tmp/guard-check/t -delete`,
+		`mkdir -p /tmp/guard-check/t && touch /tmp/guard-check/t/a; find /tmp/guard-check/t -delete`,
 	}
 	for _, command := range commands {
 		if v := evalBash(t, command); v != nil {
 			t.Errorf("%q -> %+v, want allow", command, v)
 		}
+	}
+}
+
+func TestFindScopedDeletePreservesTrailingVerdict(t *testing.T) {
+	command := `mkdir -p /tmp/guard-check/t && find /tmp/guard-check/t -delete && chmod 777 /tmp/guard-check/t`
+	v := evalBash(t, command)
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.chmod" {
+		t.Fatalf("%q -> %+v, want ask/P1.chmod", command, v)
 	}
 }
 
@@ -1610,16 +1620,17 @@ func TestFindWriteChainRejectsCompoundWrappersAndOtherControlOperators(t *testin
 	root := filepath.Join(t.TempDir(), "root")
 	target := filepath.Join(root, "a")
 	commands := map[string]string{
-		"subshell":     fmt.Sprintf(`(touch %q) && find %q -delete`, target, root),
-		"block":        fmt.Sprintf(`{ touch %q; } && find %q -delete`, target, root),
-		"function":     fmt.Sprintf(`write() { touch %q; }; write && find %q -delete`, target, root),
-		"eval":         fmt.Sprintf(`eval 'touch %s' && find %q -delete`, target, root),
-		"shell -c":     fmt.Sprintf(`bash -c 'touch %s' && find %q -delete`, target, root),
-		"pipeline":     fmt.Sprintf(`touch %q | true && find %q -delete`, target, root),
-		"tee pipeline": fmt.Sprintf(`echo x | tee %q && find %q -delete`, target, root),
-		"background":   fmt.Sprintf(`touch %q & wait && find %q -delete`, target, root),
-		"or":           fmt.Sprintf(`touch %q || true && find %q -delete`, target, root),
-		"newline":      fmt.Sprintf("touch %q\nfind %q -delete", target, root),
+		"subshell":          fmt.Sprintf(`(touch %q) && find %q -delete`, target, root),
+		"block":             fmt.Sprintf(`{ touch %q; } && find %q -delete`, target, root),
+		"function":          fmt.Sprintf(`write() { touch %q; }; write && find %q -delete`, target, root),
+		"eval":              fmt.Sprintf(`eval 'touch %s' && find %q -delete`, target, root),
+		"shell -c":          fmt.Sprintf(`bash -c 'touch %s' && find %q -delete`, target, root),
+		"pipeline":          fmt.Sprintf(`touch %q | true && find %q -delete`, target, root),
+		"tee pipeline":      fmt.Sprintf(`echo x | tee %q && find %q -delete`, target, root),
+		"semicolon symlink": fmt.Sprintf(`ln -s /etc %q; find %q -delete`, target, root),
+		"background":        fmt.Sprintf(`touch %q & wait && find %q -delete`, target, root),
+		"or":                fmt.Sprintf(`touch %q || true && find %q -delete`, target, root),
+		"newline":           fmt.Sprintf("touch %q\nfind %q -delete", target, root),
 	}
 	for name, command := range commands {
 		t.Run(name, func(t *testing.T) { requireFindDeleteAsk(t, command) })

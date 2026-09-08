@@ -80,11 +80,14 @@ func literalWriteFindExemptions(command string, simples []Simple, tc ToolCall) [
 		return exemptions
 	}
 	chain, ok := literalCommandList(file.Stmts)
-	if !ok || len(chain) < 2 || len(chain) != len(simples) {
+	if !ok || len(chain) < 2 {
 		return exemptions
 	}
 
 	for findIndex, stmt := range chain {
+		if findIndex >= len(simples) {
+			break
+		}
 		findArgv, ok := literalDirectCall(stmt)
 		if !ok || len(findArgv) == 0 || findArgv[0] != "find" || len(stmt.Redirs) != 0 || !sameStrings(findArgv, simples[findIndex].Argv) {
 			continue
