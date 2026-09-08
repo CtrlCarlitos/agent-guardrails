@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -12,6 +13,8 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/recipe"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/session"
 )
+
+var sessionTransaction = session.Transaction
 
 func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -103,7 +106,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var v policy.Verdict
 	stateApplied := false
 	if tc.Event == "pre" && needsState {
-		if err := session.Transaction(tc.SessionID, func(st *session.State) error {
+		err := sessionTransaction(tc.SessionID, func(st *session.State) error {
 			v = engine.Evaluate(tc, merged)
 			if needsP7 {
 				if esc := engine.ApplyTrifecta(v, tc, st, merged); esc != nil {
@@ -114,8 +117,12 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				v = engine.ApplyOpenCodeApproval(v, approvalKey, st, time.Now().UTC())
 			}
 			return nil
-		}); err == nil {
+		})
+		if err == nil {
 			stateApplied = true
+		} else if errors.Is(err, session.ErrTransactionCommitted) {
+			stateApplied = true
+			highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: session transaction committed but lock release failed (%v)", err))
 		} else {
 			highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: session transaction failed (%v)", err))
 		}

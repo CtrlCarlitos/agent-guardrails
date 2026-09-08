@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gofrs/flock"
 )
 
 func TestTransactionMissingIsZeroState(t *testing.T) {
@@ -43,6 +45,60 @@ func TestTransactionRoundTrip(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTransactionClassifiesReleaseFailureAfterPersistence(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	injected := errors.New("injected release failure")
+	realUnlock := unlockTransaction
+	unlockTransaction = func(lock *flock.Flock) error {
+		if err := realUnlock(lock); err != nil {
+			return err
+		}
+		return injected
+	}
+	t.Cleanup(func() { unlockTransaction = realUnlock })
+
+	err := Transaction("committed-release-failure", func(state *State) error {
+		state.SawPrivateRead = true
+		return nil
+	})
+	if !errors.Is(err, ErrTransactionCommitted) {
+		t.Fatalf("Transaction error = %v, want committed classification", err)
+	}
+	if !errors.Is(err, injected) {
+		t.Fatalf("Transaction error = %v, want injected release cause", err)
+	}
+	if state := readDurableState(t, "committed-release-failure"); !state.SawPrivateRead {
+		t.Fatalf("state did not persist before release failure: %+v", state)
+	}
+}
+
+func TestTransactionReleaseFailurePreservesPreCommitCallbackError(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	injected := errors.New("injected release failure")
+	realUnlock := unlockTransaction
+	unlockTransaction = func(lock *flock.Flock) error {
+		if err := realUnlock(lock); err != nil {
+			return err
+		}
+		return injected
+	}
+	t.Cleanup(func() { unlockTransaction = realUnlock })
+	callbackErr := errors.New("callback failed")
+
+	err := Transaction("pre-commit-release-failure", func(*State) error {
+		return callbackErr
+	})
+	if !errors.Is(err, callbackErr) || !errors.Is(err, injected) {
+		t.Fatalf("Transaction error = %v, want callback and release causes", err)
+	}
+	if errors.Is(err, ErrTransactionCommitted) {
+		t.Fatalf("pre-commit Transaction error was classified committed: %v", err)
+	}
+	if _, statErr := os.Stat(Path("pre-commit-release-failure")); !os.IsNotExist(statErr) {
+		t.Fatalf("pre-commit callback failure persisted state: %v", statErr)
 	}
 }
 

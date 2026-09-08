@@ -23,7 +23,27 @@ const (
 	lockRetryDelay = time.Millisecond
 )
 
-var errEmptySessionID = errors.New("session ID is empty")
+var (
+	errEmptySessionID = errors.New("session ID is empty")
+
+	// ErrTransactionCommitted classifies an error reported after session state
+	// was atomically persisted. The error still wraps the underlying cause.
+	ErrTransactionCommitted = errors.New("session transaction committed")
+
+	unlockTransaction = (*flock.Flock).Unlock
+)
+
+type committedTransactionError struct {
+	cause error
+}
+
+func (e *committedTransactionError) Error() string {
+	return e.cause.Error()
+}
+
+func (e *committedTransactionError) Unwrap() []error {
+	return []error{ErrTransactionCommitted, e.cause}
+}
 
 type PendingApproval struct {
 	OriginRuleID string    `json:"origin_rule_id"`
@@ -59,6 +79,8 @@ func Path(sessionID string) string {
 
 // Transaction exclusively loads, updates, and atomically persists one session.
 // Its store-wide OS lock is released automatically if the process exits.
+// An error matching ErrTransactionCommitted means persistence succeeded but
+// releasing the lock reported an error.
 func Transaction(sessionID string, update func(*State) error) (err error) {
 	path := Path(sessionID)
 	if path == "" {
@@ -82,9 +104,19 @@ func Transaction(sessionID string, update func(*State) error) (err error) {
 	if !locked {
 		return fmt.Errorf("acquire session transaction lock: %w", ctx.Err())
 	}
+	committed := false
 	defer func() {
-		if unlockErr := lock.Unlock(); err == nil && unlockErr != nil {
-			err = fmt.Errorf("release session transaction lock: %w", unlockErr)
+		unlockErr := unlockTransaction(lock)
+		if unlockErr == nil {
+			return
+		}
+		releaseErr := fmt.Errorf("release session transaction lock: %w", unlockErr)
+		if committed {
+			err = &committedTransactionError{cause: releaseErr}
+		} else if err == nil {
+			err = releaseErr
+		} else {
+			err = errors.Join(err, releaseErr)
 		}
 	}()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -118,6 +150,7 @@ func Transaction(sessionID string, update func(*State) error) (err error) {
 	if err := atomicWrite(path, raw); err != nil {
 		return fmt.Errorf("persist session state: %w", err)
 	}
+	committed = true
 	prune(d, legacyStatePath)
 	return nil
 }

@@ -1000,6 +1000,94 @@ func TestOpenCodeApprovalMemoryTransactionFailurePreservesAsk(t *testing.T) {
 	}
 }
 
+func injectPostCommitReleaseFailure(t *testing.T, message string) {
+	t.Helper()
+	realTransaction := sessionTransaction
+	sessionTransaction = func(sessionID string, update func(*session.State) error) error {
+		if err := realTransaction(sessionID, update); err != nil {
+			return err
+		}
+		return fmt.Errorf("release session transaction lock: %s: %w", message, session.ErrTransactionCommitted)
+	}
+	t.Cleanup(func() { sessionTransaction = realTransaction })
+}
+
+func assertSanitizedCommittedReleaseWarning(t *testing.T, stderr string) {
+	t.Helper()
+	if !strings.Contains(stderr, "session transaction committed but lock release failed") ||
+		!strings.Contains(stderr, "injected release forged claim") {
+		t.Fatalf("committed release warning missing context: %q", stderr)
+	}
+	if strings.ContainsAny(stderr, "\r\t\x00\x7f") || strings.Count(stderr, "\n") != 1 {
+		t.Fatalf("committed release warning was not one sanitized line: %q", stderr)
+	}
+}
+
+func TestOpenCodeApprovalMemoryPostCommitReleaseFailurePreservesFirstAsk(t *testing.T) {
+	stateHome, _ := configureApprovalTest(t, approvalAskOverlay(""))
+	const sessionID = "approval-committed-first-ask"
+	payload := openCodeApprovalPayload(sessionID, "pre", "bash", "approval-test", "/tmp", `{"value":1}`)
+	injectPostCommitReleaseFailure(t, "injected release\nforged\tclaim\x7f")
+
+	result := runOpenCodeApprovalHook(t, payload)
+	assertApprovalDecision(t, result, "ask")
+	assertSanitizedCommittedReleaseWarning(t, result.Stderr)
+	state, _ := readApprovalState(t, sessionID)
+	if len(state.PendingApprovals) != 1 {
+		t.Fatalf("committed first Ask did not preserve pending state: %+v", state.PendingApprovals)
+	}
+	records := readApprovalAudit(t, stateHome)
+	if len(records) != 1 || records[0].Decision != "ask" || records[0].RuleID != "project.approval-ask" || records[0].OriginRuleID != "" {
+		t.Fatalf("committed first Ask audit changed: %+v", records)
+	}
+}
+
+func TestOpenCodeApprovalMemoryPostCommitReleaseFailurePreservesConsumedAllow(t *testing.T) {
+	stateHome, _ := configureApprovalTest(t, approvalAskOverlay(""))
+	const sessionID = "approval-committed-consume"
+	payload := openCodeApprovalPayload(sessionID, "pre", "bash", "approval-test", "/tmp", `{"value":1}`)
+	assertApprovalDecision(t, runOpenCodeApprovalHook(t, payload), "ask")
+	injectPostCommitReleaseFailure(t, "injected release\nforged\tclaim\x7f")
+
+	result := runOpenCodeApprovalHook(t, payload)
+	assertApprovalDecision(t, result, "allow")
+	assertSanitizedCommittedReleaseWarning(t, result.Stderr)
+	state, _ := readApprovalState(t, sessionID)
+	if len(state.PendingApprovals) != 0 {
+		t.Fatalf("committed retry did not preserve consumed state: %+v", state.PendingApprovals)
+	}
+	records := readApprovalAudit(t, stateHome)
+	if len(records) != 2 || records[1].Decision != "allow" || records[1].RuleID != "ask-approved-by-retry" || records[1].OriginRuleID != "project.approval-ask" {
+		t.Fatalf("committed retry lost synthetic attribution: %+v", records)
+	}
+}
+
+func TestOpenCodeApprovalMemoryPreCommitFailureStillFallsBack(t *testing.T) {
+	_, _ = configureApprovalTest(t, approvalAskOverlay(""))
+	const sessionID = "approval-pre-commit-control"
+	payload := openCodeApprovalPayload(sessionID, "pre", "bash", "approval-test", "/tmp", `{"value":1}`)
+	assertApprovalDecision(t, runOpenCodeApprovalHook(t, payload), "ask")
+	seeded, _ := readApprovalState(t, sessionID)
+	if len(seeded.PendingApprovals) != 1 {
+		t.Fatalf("seeded pending approvals=%d, want 1", len(seeded.PendingApprovals))
+	}
+
+	realTransaction := sessionTransaction
+	sessionTransaction = func(string, func(*session.State) error) error {
+		return errors.New("injected pre-commit failure")
+	}
+	t.Cleanup(func() { sessionTransaction = realTransaction })
+	result := runOpenCodeApprovalHook(t, payload)
+	assertApprovalDecision(t, result, "ask")
+	if !strings.Contains(result.Stderr, "session transaction failed") {
+		t.Fatalf("pre-commit failure warning missing: %q", result.Stderr)
+	}
+	remaining, _ := readApprovalState(t, sessionID)
+	if len(remaining.PendingApprovals) != 1 {
+		t.Fatalf("pre-commit fallback recorded or consumed approval: %+v", remaining.PendingApprovals)
+	}
+}
+
 func TestOpenCodeApprovalMemoryWorksWithP7Waiver(t *testing.T) {
 	repo := t.TempDir()
 	gitInitSync(t, repo)
