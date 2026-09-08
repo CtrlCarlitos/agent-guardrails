@@ -3,11 +3,34 @@ package adapter
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
+
+type countingReader struct {
+	io.Reader
+	bytesRead int
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	r.bytesRead += n
+	return n, err
+}
+
+func opencodeEnvelopeOfSize(t *testing.T, size int) string {
+	t.Helper()
+	prefix := `{"tool":"custom","arguments":"`
+	suffix := `"}`
+	padding := size - len(prefix) - len(suffix)
+	if padding < 0 {
+		t.Fatalf("size %d is too small for test envelope", size)
+	}
+	return prefix + strings.Repeat("x", padding) + suffix
+}
 
 func TestParseOpencodeBash(t *testing.T) {
 	raw := `{"session_id":"s1","event":"pre","tool":"bash","command":"rm -rf /","cwd":"/tmp"}`
@@ -49,6 +72,33 @@ func TestParseOpencodeDistinguishesMissingArguments(t *testing.T) {
 	}
 	if tc.Arguments != nil {
 		t.Fatalf("Arguments = %s, want missing", tc.Arguments)
+	}
+}
+
+func TestParseOpencodeAcceptsEnvelopeAtSizeLimit(t *testing.T) {
+	raw := opencodeEnvelopeOfSize(t, maxOpencodeHookEnvelopeBytes)
+	tc, err := ParseOpencode(strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tc.Raw) != maxOpencodeHookEnvelopeBytes {
+		t.Fatalf("raw envelope length = %d, want %d", len(tc.Raw), maxOpencodeHookEnvelopeBytes)
+	}
+}
+
+func TestParseOpencodeRejectsEnvelopeAboveSizeLimitWithoutDrainingReader(t *testing.T) {
+	const wantErr = "OpenCode hook envelope exceeds 8 MiB"
+	tooLarge := opencodeEnvelopeOfSize(t, maxOpencodeHookEnvelopeBytes+1)
+	if _, err := ParseOpencode(strings.NewReader(tooLarge)); err == nil || err.Error() != wantErr {
+		t.Fatalf("limit+1 error = %v, want %q", err, wantErr)
+	}
+
+	r := &countingReader{Reader: strings.NewReader(tooLarge + strings.Repeat("z", 1024))}
+	if _, err := ParseOpencode(r); err == nil || err.Error() != wantErr {
+		t.Fatalf("oversize stream error = %v, want %q", err, wantErr)
+	}
+	if r.bytesRead != maxOpencodeHookEnvelopeBytes+1 {
+		t.Fatalf("reader consumed %d bytes, want exactly %d", r.bytesRead, maxOpencodeHookEnvelopeBytes+1)
 	}
 }
 

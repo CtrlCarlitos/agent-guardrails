@@ -2,12 +2,18 @@ package adapter
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
+
+// Adapter contract mirrored by MAX_OPENCODE_HOOK_ENVELOPE_BYTES in opencode_plugin.js.
+const maxOpencodeHookEnvelopeBytes = 8 << 20
+
+var errOpencodeHookEnvelopeTooLarge = errors.New("OpenCode hook envelope exceeds 8 MiB")
 
 type opencodePayload struct {
 	SessionID string          `json:"session_id"`
@@ -20,9 +26,12 @@ type opencodePayload struct {
 }
 
 func ParseOpencode(r io.Reader) (engine.ToolCall, error) {
-	raw, err := io.ReadAll(r)
+	raw, err := io.ReadAll(io.LimitReader(r, maxOpencodeHookEnvelopeBytes+1))
 	if err != nil {
 		return engine.ToolCall{}, err
+	}
+	if len(raw) > maxOpencodeHookEnvelopeBytes {
+		return engine.ToolCall{}, errOpencodeHookEnvelopeTooLarge
 	}
 	var p opencodePayload
 	if err := json.Unmarshal(raw, &p); err != nil {

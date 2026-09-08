@@ -408,6 +408,133 @@ try {
 	}
 }
 
+func TestOpencodePluginForwardsHookWarnings(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is required to exercise the embedded OpenCode plugin")
+	}
+
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "guardrail")
+	fakeGuardrail := `#!/bin/sh
+IFS= read -r _ || :
+printf '%s\n' 'guardrail: session transaction committed but lock release failed (injected release forged claim)' >&2
+case "$GUARDRAIL_TEST_RESPONSE" in
+	allow) printf '%s' '{"decision":"allow","reason":"accepted"}' ;;
+	ask) printf '%s' '{"decision":"ask","reason":"confirm it"}' ;;
+esac
+`
+	if err := os.WriteFile(binary, []byte(fakeGuardrail), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pluginPath := filepath.Join(dir, "guardrail.mjs")
+	if err := os.WriteFile(pluginPath, OpencodePluginFor(binary), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := `
+import { pathToFileURL } from "node:url";
+const loaded = await import(pathToFileURL(process.argv[1]).href);
+const plugin = await loaded.default({ directory: process.cwd() });
+try {
+	await plugin["tool.execute.before"](
+		{ tool: "bash", sessionID: "test-session" },
+		{ args: { command: "true" } },
+	);
+	process.stdout.write("allowed");
+} catch (error) {
+	process.stdout.write(error instanceof Error ? error.message : String(error));
+	process.exitCode = 42;
+}
+`
+	warning := "guardrail: session transaction committed but lock release failed (injected release forged claim)\n"
+	wantAsk := "guardrail needs confirmation \u2014 confirm it. Ask the user; if they approve, re-run this exact tool call."
+	for _, tt := range []struct {
+		response string
+		wantOut  string
+		wantCode int
+	}{
+		{response: "allow", wantOut: "allowed"},
+		{response: "ask", wantOut: wantAsk, wantCode: 42},
+	} {
+		t.Run(tt.response, func(t *testing.T) {
+			cmd := exec.Command(node, "--input-type=module", "--eval", runner, pluginPath)
+			cmd.Env = append(os.Environ(), "GUARDRAIL_TEST_RESPONSE="+tt.response)
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+			err := cmd.Run()
+			if tt.wantCode == 0 && err != nil {
+				t.Fatalf("explicit allow was blocked: %v", err)
+			}
+			if tt.wantCode != 0 {
+				exitErr, ok := err.(*exec.ExitError)
+				if !ok || exitErr.ExitCode() != tt.wantCode {
+					t.Fatalf("exit error = %v, want code %d", err, tt.wantCode)
+				}
+			}
+			if stdout.String() != tt.wantOut {
+				t.Errorf("stdout = %q, want exactly %q", stdout.String(), tt.wantOut)
+			}
+			if stderr.String() != warning {
+				t.Errorf("stderr = %q, want forwarded warning %q", stderr.String(), warning)
+			}
+		})
+	}
+}
+
+func TestOpencodePluginRejectsOversizeEnvelopeBeforeSpawningEngine(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is required to exercise the embedded OpenCode plugin")
+	}
+
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "guardrail")
+	invoked := filepath.Join(dir, "invoked")
+	fakeGuardrail := `#!/bin/sh
+printf '%s' invoked > "$GUARDRAIL_TEST_INVOKED"
+printf '%s' '{"decision":"allow","reason":"accepted"}'
+`
+	if err := os.WriteFile(binary, []byte(fakeGuardrail), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pluginPath := filepath.Join(dir, "guardrail.mjs")
+	if err := os.WriteFile(pluginPath, OpencodePluginFor(binary), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := `
+import { pathToFileURL } from "node:url";
+const loaded = await import(pathToFileURL(process.argv[1]).href);
+const plugin = await loaded.default({ directory: "/repo" });
+try {
+	await plugin["tool.execute.before"](
+		{ tool: "write", sessionID: "test-session" },
+		{ args: { filePath: "/repo/large.txt", content: "do-not-leak-" + "x".repeat(8 * 1024 * 1024) } },
+	);
+	process.stdout.write("allowed");
+} catch (error) {
+	process.stdout.write(error instanceof Error ? error.message : String(error));
+	process.exitCode = 42;
+}
+`
+	cmd := exec.Command(node, "--input-type=module", "--eval", runner, pluginPath)
+	cmd.Env = append(os.Environ(), "GUARDRAIL_TEST_INVOKED="+invoked)
+	output, err := cmd.CombinedOutput()
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok || exitErr.ExitCode() != 42 {
+		t.Fatalf("oversize call error = %v, output = %q; want exit 42", err, output)
+	}
+	want := "guardrail: OpenCode hook envelope exceeds 8 MiB; failing closed"
+	if string(output) != want {
+		t.Fatalf("oversize error = %q, want exactly %q", output, want)
+	}
+	if _, err := os.Stat(invoked); !os.IsNotExist(err) {
+		t.Fatalf("fake Engine was invoked for oversize envelope: %v", err)
+	}
+}
+
 func TestOpencodeConfigBashPermissions(t *testing.T) {
 	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
 	bash := frag["permission"].(map[string]any)["bash"].(orderedPermissionRules)

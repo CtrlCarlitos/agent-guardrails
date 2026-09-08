@@ -10,9 +10,16 @@ import { spawnSync } from "node:child_process";
 // GUARDRAIL_BIN could otherwise point the enforcer at /bin/true.
 const GUARDRAIL_BIN = "__GUARDRAIL_BIN__";
 
+// Adapter contract mirrored by maxOpencodeHookEnvelopeBytes in internal/adapter/opencode.go.
+const MAX_OPENCODE_HOOK_ENVELOPE_BYTES = 8 * 1024 * 1024;
+
 function callGuardrail(envelope) {
+	const serializedEnvelope = JSON.stringify(envelope);
+	if (Buffer.byteLength(serializedEnvelope, "utf8") > MAX_OPENCODE_HOOK_ENVELOPE_BYTES) {
+		throw new Error("guardrail: OpenCode hook envelope exceeds 8 MiB; failing closed");
+	}
 	const res = spawnSync(GUARDRAIL_BIN, ["hook", "opencode"], {
-		input: JSON.stringify(envelope),
+		input: serializedEnvelope,
 		encoding: "utf8",
 		timeout: 15000,
 	});
@@ -27,6 +34,9 @@ function callGuardrail(envelope) {
 		decision = JSON.parse(res.stdout || "{}");
 	} catch {
 		throw new Error(`guardrail: unparseable response; failing closed. stderr: ${res.stderr}`);
+	}
+	if (res.stderr) {
+		process.stderr.write(res.stderr);
 	}
 	if (decision.decision !== "allow") {
 		const reason = decision.reason || "no decision returned";
