@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -71,6 +72,29 @@ func TestTransactionMigratesLegacyStateAfterSuccessfulHashedPersistence(t *testi
 	}
 }
 
+func TestTransactionMigratesDigestShapedLegacySessionID(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	sessionID := strings.Repeat("a", 64)
+	legacyPath := filepath.Join(dir(), sessionID+".json")
+	writeStateFixture(t, legacyPath, State{SawPrivateRead: true})
+
+	if err := Transaction(sessionID, func(s *State) error {
+		if !s.SawPrivateRead || s.SawNetworkCall {
+			t.Fatalf("callback state = %+v, want digest-shaped legacy state", s)
+		}
+		s.SawNetworkCall = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readDurableState(t, sessionID); !got.SawPrivateRead || !got.SawNetworkCall {
+		t.Fatalf("migrated state = %+v, want both signals", got)
+	}
+	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
+		t.Fatalf("digest-shaped legacy state remains after migration: %v", err)
+	}
+}
+
 func TestTransactionPrefersHashedStateOverLegacyState(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	const sessionID = "state-precedence"
@@ -89,6 +113,150 @@ func TestTransactionPrefersHashedStateOverLegacyState(t *testing.T) {
 	if _, err := os.Stat(legacyPath); err != nil {
 		t.Fatalf("unused legacy state was removed: %v", err)
 	}
+}
+
+func TestTransactionDoesNotFallbackFromCorruptV2State(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	const sessionID = "corrupt-v2"
+	legacyPath := filepath.Join(dir(), sessionID+".json")
+	writeStateFixture(t, legacyPath, State{SawPrivateRead: true})
+	if err := os.MkdirAll(filepath.Dir(Path(sessionID)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(Path(sessionID), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	called := false
+	if err := Transaction(sessionID, func(*State) error {
+		called = true
+		return nil
+	}); err == nil {
+		t.Fatal("corrupt v2 state returned nil, want decode error")
+	}
+	if called {
+		t.Fatal("corrupt v2 state reached callback")
+	}
+	if _, err := os.Stat(legacyPath); err != nil {
+		t.Fatalf("legacy state was touched after corrupt v2 state: %v", err)
+	}
+	if raw, err := os.ReadFile(Path(sessionID)); err != nil || string(raw) != "{" {
+		t.Fatalf("corrupt v2 state changed: raw=%q err=%v", raw, err)
+	}
+}
+
+func TestV2NamespaceDoesNotCollideWithLegacySessionID(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	const originalID = "original-session"
+	if err := Transaction(originalID, func(s *State) error {
+		s.SawPrivateRead = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	digestID := strings.TrimSuffix(filepath.Base(Path(originalID)), ".json")
+	if err := Transaction(digestID, func(s *State) error {
+		if s.SawPrivateRead || s.SawNetworkCall {
+			t.Fatalf("digest-shaped session ID read another session's state: %+v", s)
+		}
+		s.SawNetworkCall = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	original := readDurableState(t, originalID)
+	if !original.SawPrivateRead || original.SawNetworkCall {
+		t.Fatalf("original state changed during digest-shaped transaction: %+v", original)
+	}
+	digest := readDurableState(t, digestID)
+	if digest.SawPrivateRead || !digest.SawNetworkCall {
+		t.Fatalf("digest-shaped session state = %+v, want isolated network signal", digest)
+	}
+}
+
+func TestTransactionUsesV2ForEveryNonemptyNativeID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+	}{
+		{name: "nul", id: "native\x00id"},
+		{name: "controls", id: "native\nid\t"},
+		{name: "colon", id: "native:id"},
+		{name: "slash", id: "nested/session"},
+		{name: "backslash", id: `nested\session`},
+		{name: "traversal", id: "../session"},
+		{name: "long", id: strings.Repeat("x", 4<<10)},
+		{name: "windows reserved", id: "CON"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			if err := Transaction(tt.id, func(s *State) error {
+				if s.SawPrivateRead || s.SawNetworkCall {
+					t.Fatalf("first transaction state = %+v, want zero state", s)
+				}
+				s.SawPrivateRead = true
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := Transaction(tt.id, func(s *State) error {
+				if !s.SawPrivateRead || s.SawNetworkCall {
+					t.Fatalf("second transaction state = %+v, want durable private signal", s)
+				}
+				s.SawNetworkCall = true
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if got := readDurableState(t, tt.id); !got.SawPrivateRead || !got.SawNetworkCall {
+				t.Fatalf("durable state = %+v, want both signals", got)
+			}
+			if got, want := filepath.Dir(Path(tt.id)), filepath.Join(dir(), "v2"); got != want {
+				t.Fatalf("state directory = %q, want %q", got, want)
+			}
+			entries, err := os.ReadDir(dir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range entries {
+				if strings.HasSuffix(entry.Name(), ".json") {
+					t.Errorf("new transaction wrote root-level state %q", entry.Name())
+				}
+			}
+		})
+	}
+}
+
+func TestTransactionRejectsLegacySymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating symlinks requires privileges not guaranteed on Windows")
+	}
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	const sessionID = "linked-legacy"
+	externalPath := filepath.Join(t.TempDir(), "external.json")
+	writeStateFixture(t, externalPath, State{SawPrivateRead: true})
+	if err := os.MkdirAll(dir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := filepath.Join(dir(), sessionID+".json")
+	if err := os.Symlink(externalPath, legacyPath); err != nil {
+		t.Fatal(err)
+	}
+
+	called := false
+	if err := Transaction(sessionID, func(*State) error {
+		called = true
+		return nil
+	}); err == nil {
+		t.Fatal("Transaction returned nil for legacy symlink")
+	}
+	if called {
+		t.Fatal("legacy symlink state reached callback")
+	}
+	assertLegacyOnly(t, sessionID, legacyPath)
 }
 
 func TestTransactionNeverReadsFormerlyRejectedLegacyIDs(t *testing.T) {
@@ -169,7 +337,7 @@ func TestTransactionKeepsLegacyStateOnFailure(t *testing.T) {
 			if !s.SawPrivateRead {
 				t.Fatal("callback did not receive legacy state")
 			}
-			return os.Mkdir(Path(sessionID), 0o700)
+			return os.MkdirAll(Path(sessionID), 0o700)
 		})
 		if err == nil {
 			t.Fatal("Transaction returned nil, want hashed persistence error")
@@ -198,7 +366,7 @@ func TestTransactionRejectsEmptySessionID(t *testing.T) {
 func TestPortableSessionStorageKeys(t *testing.T) {
 	base := filepath.Join(t.TempDir(), "state", "nested")
 	t.Setenv("XDG_STATE_HOME", base)
-	sessionsDir := filepath.Join(base, "guardrail", "sessions")
+	sessionsDir := filepath.Join(base, "guardrail", "sessions", "v2")
 	if got := Path(""); got != "" {
 		t.Fatalf("Path(empty) = %q, want invalid", got)
 	}
@@ -249,16 +417,42 @@ func TestPruneRemovesOldSessions(t *testing.T) {
 	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
 		t.Fatal(err)
 	}
+	legacyPath := filepath.Join(dir(), "old-legacy.json")
+	writeStateFixture(t, legacyPath, State{})
+	if err := os.Chtimes(legacyPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	rootTemp := filepath.Join(dir(), ".session-root.tmp")
+	v2Temp := filepath.Join(dir(), "v2", ".session-v2.tmp")
+	for _, path := range []string{rootTemp, v2Temp} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("temporary"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, oldTime, oldTime); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	if err := Transaction("new", func(*State) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 
 	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
-		t.Error("old session file should have been pruned")
+		t.Errorf("old v2 session file should have been pruned: %v", err)
+	}
+	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
+		t.Errorf("old legacy session file should have been pruned: %v", err)
 	}
 	if _, err := os.Stat(Path("new")); err != nil {
-		t.Error("new session file should still exist")
+		t.Errorf("new session file should still exist: %v", err)
+	}
+	for _, path := range []string{filepath.Join(dir(), ".lock"), rootTemp, v2Temp} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("non-state file %q was pruned: %v", path, err)
+		}
 	}
 }
 

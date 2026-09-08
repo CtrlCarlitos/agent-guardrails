@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -47,7 +48,7 @@ func Path(sessionID string) string {
 		return ""
 	}
 	digest := sha256.Sum256([]byte(sessionID))
-	return filepath.Join(dir(), hex.EncodeToString(digest[:])+".json")
+	return filepath.Join(dir(), "v2", hex.EncodeToString(digest[:])+".json")
 }
 
 // Transaction exclusively loads, updates, and atomically persists one session.
@@ -80,22 +81,22 @@ func Transaction(sessionID string, update func(*State) error) (err error) {
 			err = fmt.Errorf("release session transaction lock: %w", unlockErr)
 		}
 	}()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create session state directory: %w", err)
+	}
 
 	var state State
 	legacyStatePath := ""
 	raw, readErr := os.ReadFile(path)
+	stateFound := readErr == nil
 	if os.IsNotExist(readErr) {
-		if candidate, ok := legacyPath(sessionID); ok {
-			raw, readErr = os.ReadFile(candidate)
-			if readErr == nil {
-				legacyStatePath = candidate
-			}
-		}
+		raw, legacyStatePath, readErr = readLegacyState(d, sessionID)
+		stateFound = legacyStatePath != "" && readErr == nil
 	}
 	if readErr != nil && !os.IsNotExist(readErr) {
 		return fmt.Errorf("read session state: %w", readErr)
 	}
-	if readErr == nil {
+	if stateFound {
 		if err := json.Unmarshal(raw, &state); err != nil {
 			return fmt.Errorf("decode session state: %w", err)
 		}
@@ -121,14 +122,63 @@ func Transaction(sessionID string, update func(*State) error) (err error) {
 	return nil
 }
 
-func legacyPath(sessionID string) (string, bool) {
+func legacyFilename(sessionID string) (string, bool) {
 	if sessionID == "" || sessionID == "." || sessionID == ".." {
 		return "", false
 	}
 	if strings.ContainsAny(sessionID, `/\`) || strings.Contains(sessionID, "..") {
 		return "", false
 	}
-	return filepath.Join(dir(), sessionID+".json"), true
+	return sessionID + ".json", true
+}
+
+func readLegacyState(d, sessionID string) ([]byte, string, error) {
+	name, ok := legacyFilename(sessionID)
+	if !ok {
+		return nil, "", nil
+	}
+	entries, err := os.ReadDir(d)
+	if err != nil {
+		return nil, "", err
+	}
+	for _, entry := range entries {
+		if entry.Name() != name {
+			continue
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return nil, "", errors.New("legacy session state is a symlink")
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return nil, "", err
+		}
+		if !info.Mode().IsRegular() {
+			return nil, "", errors.New("legacy session state is not a regular file")
+		}
+		path := filepath.Join(d, entry.Name())
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, "", err
+		}
+		openedInfo, statErr := file.Stat()
+		currentInfo, lstatErr := os.Lstat(path)
+		if statErr != nil || lstatErr != nil || !openedInfo.Mode().IsRegular() ||
+			!currentInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) ||
+			!os.SameFile(info, currentInfo) {
+			file.Close()
+			return nil, "", errors.New("legacy session state changed during migration")
+		}
+		raw, err := io.ReadAll(file)
+		closeErr := file.Close()
+		if err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			return nil, "", err
+		}
+		return raw, path, nil
+	}
+	return nil, "", nil
 }
 
 func atomicWrite(path string, raw []byte) error {
@@ -155,11 +205,16 @@ func atomicWrite(path string, raw []byte) error {
 // prune removes session files whose mtime is older than 24h. Best-effort:
 // any error here is silently swallowed, never returned to the caller.
 func prune(d string) {
+	cutoff := time.Now().Add(-24 * time.Hour)
+	pruneDir(d, cutoff)
+	pruneDir(filepath.Join(d, "v2"), cutoff)
+}
+
+func pruneDir(d string, cutoff time.Time) {
 	entries, err := os.ReadDir(d)
 	if err != nil {
 		return
 	}
-	cutoff := time.Now().Add(-24 * time.Hour)
 	for _, e := range entries {
 		if !strings.HasSuffix(e.Name(), ".json") {
 			continue
