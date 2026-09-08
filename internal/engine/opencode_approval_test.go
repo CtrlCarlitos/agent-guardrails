@@ -141,6 +141,38 @@ func TestOpenCodeApprovalKeyRejectsMalformedOrTrailingJSON(t *testing.T) {
 	}
 }
 
+func TestOpenCodeApprovalKeyRejectsNonExactJSON(t *testing.T) {
+	tests := []struct {
+		name      string
+		arguments string
+	}{
+		{name: "invalid UTF-8", arguments: "{\"value\":\"\xff\"}"},
+		{name: "duplicate top-level name", arguments: `{"a":1,"a":2}`},
+		{name: "duplicate nested name", arguments: `{"outer":{"a":1,"a":2}}`},
+		{name: "duplicate name nested in array", arguments: `{"outer":[{"a":1,"a":2}]}`},
+		{name: "duplicate escape-equivalent name", arguments: `{"a":1,"\u0061":2}`},
+		{name: "lone high surrogate", arguments: `{"value":"\uD83D"}`},
+		{name: "lone low surrogate", arguments: `{"value":"\uDE00"}`},
+		{name: "improperly paired high surrogate", arguments: `{"value":"\uD83D\u0041"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if key, ok := OpenCodeApprovalKey(openCodeToolCall(tt.arguments)); ok {
+				t.Fatalf("OpenCodeApprovalKey = %q, true, want non-exact JSON ineligible", key)
+			}
+		})
+	}
+}
+
+func TestOpenCodeApprovalKeyCanonicalizesValidSurrogatePair(t *testing.T) {
+	escaped := mustOpenCodeApprovalKey(t, openCodeToolCall(`{"value":"\uD83D\uDE00"}`))
+	scalar := mustOpenCodeApprovalKey(t, openCodeToolCall("{\"value\":\"\U0001F600\"}"))
+	if escaped != scalar {
+		t.Fatalf("surrogate pair and corresponding scalar produced %q and %q, want one key", escaped, scalar)
+	}
+}
+
 func TestOpenCodeApprovalKeyKnownVector(t *testing.T) {
 	tc := ToolCall{
 		Plane: "opencode", Event: "pre", SessionID: "session-1",
@@ -253,6 +285,20 @@ func TestApplyOpenCodeApprovalTransitions(t *testing.T) {
 			now:         now,
 			wantVerdict: policy.Verdict{Decision: policy.Ask, Reason: "unspecified confirmation"},
 			wantPending: nil,
+		},
+		{
+			name:    "empty Rule ID Ask clears matching stale entry only",
+			verdict: policy.Verdict{Decision: policy.Ask, Reason: "unspecified confirmation"},
+			now:     now,
+			pending: map[string]session.PendingApproval{
+				"digest":    {OriginRuleID: ask.RuleID, ExpiresAt: expiresAt},
+				"unrelated": {OriginRuleID: "P6.package-install", ExpiresAt: now.Add(time.Hour)},
+				"expired":   {OriginRuleID: "P5.out-of-repo", ExpiresAt: now},
+			},
+			wantVerdict: policy.Verdict{Decision: policy.Ask, Reason: "unspecified confirmation"},
+			wantPending: map[string]session.PendingApproval{
+				"unrelated": {OriginRuleID: "P6.package-install", ExpiresAt: now.Add(time.Hour)},
+			},
 		},
 		{
 			name:    "unrelated entries remain and expired entries are pruned",
