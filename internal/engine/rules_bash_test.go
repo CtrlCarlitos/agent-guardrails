@@ -1458,6 +1458,32 @@ func TestFindScopedDeleteAllowsBoundedLiteralWriteChain(t *testing.T) {
 	}
 }
 
+// Mutation caught: considering statements after find retroactively blocks a safely scoped deletion.
+func TestFindScopedDeleteAllowsTrailingStatements(t *testing.T) {
+	commands := []string{
+		`mkdir -p /tmp/guard-check/t && echo hi > /tmp/guard-check/t/a.txt && find /tmp/guard-check/t -delete && rm -rf /tmp/guard-check && echo cleaned`,
+		`mkdir -p /tmp/guard-check/t && find /tmp/guard-check/t -delete && echo done`,
+	}
+	for _, command := range commands {
+		if v := evalBash(t, command); v != nil {
+			t.Errorf("%q -> %+v, want allow", command, v)
+		}
+	}
+}
+
+// Mutation caught: treating an explicit list separator as an uncertainty boundary loses prior bounded-write facts.
+func TestFindScopedDeleteAllowsBoundedSemicolonList(t *testing.T) {
+	commands := []string{
+		`mkdir -p /tmp/guard-check/t; find /tmp/guard-check/t -delete`,
+		`mkdir -p /tmp/guard-check/t; echo hi > /tmp/guard-check/t/a; find /tmp/guard-check/t -delete`,
+	}
+	for _, command := range commands {
+		if v := evalBash(t, command); v != nil {
+			t.Errorf("%q -> %+v, want allow", command, v)
+		}
+	}
+}
+
 func requireFindDeleteAsk(t *testing.T, command string) {
 	t.Helper()
 	tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
@@ -1584,16 +1610,16 @@ func TestFindWriteChainRejectsCompoundWrappersAndOtherControlOperators(t *testin
 	root := filepath.Join(t.TempDir(), "root")
 	target := filepath.Join(root, "a")
 	commands := map[string]string{
-		"subshell":   fmt.Sprintf(`(touch %q) && find %q -delete`, target, root),
-		"block":      fmt.Sprintf(`{ touch %q; } && find %q -delete`, target, root),
-		"function":   fmt.Sprintf(`write() { touch %q; }; write && find %q -delete`, target, root),
-		"eval":       fmt.Sprintf(`eval 'touch %s' && find %q -delete`, target, root),
-		"shell -c":   fmt.Sprintf(`bash -c 'touch %s' && find %q -delete`, target, root),
-		"pipeline":   fmt.Sprintf(`touch %q | true && find %q -delete`, target, root),
-		"background": fmt.Sprintf(`touch %q & wait && find %q -delete`, target, root),
-		"or":         fmt.Sprintf(`touch %q || true && find %q -delete`, target, root),
-		"semicolon":  fmt.Sprintf(`touch %q; find %q -delete`, target, root),
-		"newline":    fmt.Sprintf("touch %q\nfind %q -delete", target, root),
+		"subshell":     fmt.Sprintf(`(touch %q) && find %q -delete`, target, root),
+		"block":        fmt.Sprintf(`{ touch %q; } && find %q -delete`, target, root),
+		"function":     fmt.Sprintf(`write() { touch %q; }; write && find %q -delete`, target, root),
+		"eval":         fmt.Sprintf(`eval 'touch %s' && find %q -delete`, target, root),
+		"shell -c":     fmt.Sprintf(`bash -c 'touch %s' && find %q -delete`, target, root),
+		"pipeline":     fmt.Sprintf(`touch %q | true && find %q -delete`, target, root),
+		"tee pipeline": fmt.Sprintf(`echo x | tee %q && find %q -delete`, target, root),
+		"background":   fmt.Sprintf(`touch %q & wait && find %q -delete`, target, root),
+		"or":           fmt.Sprintf(`touch %q || true && find %q -delete`, target, root),
+		"newline":      fmt.Sprintf("touch %q\nfind %q -delete", target, root),
 	}
 	for name, command := range commands {
 		t.Run(name, func(t *testing.T) { requireFindDeleteAsk(t, command) })
@@ -1638,7 +1664,6 @@ func TestFindWriteChainRejectsUncoupledTargetsAndAmbiguousFinds(t *testing.T) {
 		"repository target":     fmt.Sprintf(`touch /repo/generated && find %q -delete`, root),
 		"multiple roots":        fmt.Sprintf(`touch %q && find %q %q -delete`, target, root, sibling),
 		"multiple finds":        fmt.Sprintf(`touch %q && find %q -delete && find %q -delete`, target, root, root),
-		"non-final find":        fmt.Sprintf(`touch %q && find %q -delete && true`, target, root),
 		"unsupported action":    fmt.Sprintf(`touch %q && find %q -print`, target, root),
 		"unsupported find mode": fmt.Sprintf(`touch %q && find %q -follow -delete`, target, root),
 		"mkdir flag":            fmt.Sprintf(`mkdir -m 700 %q && find %q -delete`, root, root),

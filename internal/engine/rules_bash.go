@@ -43,7 +43,7 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		}
 	}
 	take(checkDownloadPipeShell(simples))
-	findFSExemption := literalWriteFindExemption(tc.Command, simples, tc)
+	findFSExemptions := literalWriteFindExemptions(tc.Command, simples, tc)
 	for index, s := range simples {
 		if !s.cwdUnknown {
 			s.gitInitExpected = initializedGitDir != "" && initializedGitDir == filepath.Clean(s.Cwd)
@@ -66,52 +66,77 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		take(checkGit(s))
 		take(checkGitSafety(s, tc))
 		take(checkDocker(s, tc.Command))
-		take(checkAskTierWithFindFSExemption(s, tc, pol, index == findFSExemption))
+		take(checkAskTierWithFindFSExemption(s, tc, pol, findFSExemptions[index]))
 		take(checkEgress(s, pol))
 		take(checkPackageInstall(s))
 	}
 	return worst
 }
 
-func literalWriteFindExemption(command string, simples []Simple, tc ToolCall) int {
+func literalWriteFindExemptions(command string, simples []Simple, tc ToolCall) []bool {
+	exemptions := make([]bool, len(simples))
 	file, err := syntax.NewParser().Parse(strings.NewReader(command), "")
-	if err != nil || len(file.Stmts) != 1 {
-		return -1
+	if err != nil {
+		return exemptions
 	}
-	chain, ok := literalAndChain(file.Stmts[0])
+	chain, ok := literalCommandList(file.Stmts)
 	if !ok || len(chain) < 2 || len(chain) != len(simples) {
-		return -1
+		return exemptions
 	}
 
-	findArgv, ok := literalDirectCall(chain[len(chain)-1])
-	if !ok || len(findArgv) == 0 || findArgv[0] != "find" || len(chain[len(chain)-1].Redirs) != 0 || !sameStrings(findArgv, simples[len(simples)-1].Argv) {
-		return -1
-	}
-	root, bulkAction, exact := scopedFindDelete(findArgv)
-	if !bulkAction || !exact || hasRawDotDot(root) {
-		return -1
-	}
-	cwd := simpleCwd(simples[len(simples)-1], tc)
-	if cwd == "" || pathHasExistingSymlink(root, cwd) {
-		return -1
-	}
-
-	for index, stmt := range chain[:len(chain)-1] {
-		targets, ok := literalNonLinkWriteTargets(stmt)
-		if !ok || !literalStatementMatchesSimple(stmt, simples[index]) {
-			return -1
+	for findIndex, stmt := range chain {
+		findArgv, ok := literalDirectCall(stmt)
+		if !ok || len(findArgv) == 0 || findArgv[0] != "find" || len(stmt.Redirs) != 0 || !sameStrings(findArgv, simples[findIndex].Argv) {
+			continue
 		}
-		for _, target := range targets {
-			if !literalPathConfinedTo(target, root, cwd) {
-				return -1
+		root, bulkAction, exact := scopedFindDelete(findArgv)
+		if !bulkAction || !exact || hasRawDotDot(root) {
+			continue
+		}
+		cwd := simpleCwd(simples[findIndex], tc)
+		if cwd == "" || pathHasExistingSymlink(root, cwd) {
+			continue
+		}
+
+		exempt := findIndex > 0
+		for priorIndex, prior := range chain[:findIndex] {
+			targets, ok := literalNonLinkWriteTargets(prior)
+			if !ok || !literalStatementMatchesSimple(prior, simples[priorIndex]) {
+				exempt = false
+				break
+			}
+			for _, target := range targets {
+				if !literalPathConfinedTo(target, root, cwd) {
+					exempt = false
+					break
+				}
+			}
+			if !exempt {
+				break
 			}
 		}
+		exemptions[findIndex] = exempt
 	}
-	return len(simples) - 1
+	return exemptions
 }
 
-func literalAndChain(stmt *syntax.Stmt) ([]*syntax.Stmt, bool) {
-	if stmt == nil || stmt.Negated || stmt.Background || stmt.Coprocess || stmt.Semicolon.IsValid() {
+func literalCommandList(stmts []*syntax.Stmt) ([]*syntax.Stmt, bool) {
+	var list []*syntax.Stmt
+	for index, stmt := range stmts {
+		if index < len(stmts)-1 && !stmt.Semicolon.IsValid() {
+			return nil, false
+		}
+		chain, ok := literalAndChain(stmt, true)
+		if !ok {
+			return nil, false
+		}
+		list = append(list, chain...)
+	}
+	return list, true
+}
+
+func literalAndChain(stmt *syntax.Stmt, allowTerminatingSemicolon bool) ([]*syntax.Stmt, bool) {
+	if stmt == nil || stmt.Negated || stmt.Background || stmt.Coprocess || stmt.Semicolon.IsValid() && !allowTerminatingSemicolon {
 		return nil, false
 	}
 	binary, ok := stmt.Cmd.(*syntax.BinaryCmd)
@@ -121,11 +146,11 @@ func literalAndChain(stmt *syntax.Stmt) ([]*syntax.Stmt, bool) {
 	if binary.Op != syntax.AndStmt || len(stmt.Redirs) != 0 {
 		return nil, false
 	}
-	left, ok := literalAndChain(binary.X)
+	left, ok := literalAndChain(binary.X, false)
 	if !ok {
 		return nil, false
 	}
-	right, ok := literalAndChain(binary.Y)
+	right, ok := literalAndChain(binary.Y, false)
 	if !ok {
 		return nil, false
 	}
