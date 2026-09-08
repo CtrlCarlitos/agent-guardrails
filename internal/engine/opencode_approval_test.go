@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -349,6 +350,92 @@ func TestApplyOpenCodeApprovalIgnoresEmptyKeyOrNilState(t *testing.T) {
 	if !reflect.DeepEqual(state.PendingApprovals, wantPending) {
 		t.Fatalf("empty key changed pending approvals to %+v, want %+v", state.PendingApprovals, wantPending)
 	}
+}
+
+func TestApplyOpenCodeApprovalBoundsPendingEntries(t *testing.T) {
+	now := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
+	freshExpiry := time.Date(2026, 9, 7, 12, 10, 0, 0, time.UTC)
+	liveExpiry := now.Add(time.Hour)
+	ask := policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-checkout-restore", Reason: "restore files?"}
+
+	t.Run("127 entries permits the 128th", func(t *testing.T) {
+		state := &session.State{PendingApprovals: seededPendingApprovals(127, liveExpiry)}
+		want := seededPendingApprovals(127, liveExpiry)
+		want["new"] = session.PendingApproval{OriginRuleID: ask.RuleID, ExpiresAt: freshExpiry}
+
+		if got := ApplyOpenCodeApproval(ask, "new", state, now); got != ask {
+			t.Fatalf("verdict = %+v, want unchanged %+v", got, ask)
+		}
+		if !reflect.DeepEqual(state.PendingApprovals, want) {
+			t.Fatalf("pending approvals = %+v, want 128 entries including fresh Ask", state.PendingApprovals)
+		}
+	})
+
+	t.Run("128 entries rejects absent key without mutation", func(t *testing.T) {
+		state := &session.State{PendingApprovals: seededPendingApprovals(128, liveExpiry)}
+		want := seededPendingApprovals(128, liveExpiry)
+
+		if got := ApplyOpenCodeApproval(ask, "new", state, now); got != ask {
+			t.Fatalf("verdict = %+v, want unchanged %+v", got, ask)
+		}
+		if !reflect.DeepEqual(state.PendingApprovals, want) {
+			t.Fatalf("capacity rejection mutated pending approvals: got %d entries, want exact original 128", len(state.PendingApprovals))
+		}
+	})
+
+	t.Run("different Rule ID replaces existing key at capacity", func(t *testing.T) {
+		state := &session.State{PendingApprovals: seededPendingApprovals(128, liveExpiry)}
+		want := seededPendingApprovals(128, liveExpiry)
+		want["pending-000"] = session.PendingApproval{OriginRuleID: ask.RuleID, ExpiresAt: freshExpiry}
+
+		if got := ApplyOpenCodeApproval(ask, "pending-000", state, now); got != ask {
+			t.Fatalf("verdict = %+v, want unchanged %+v", got, ask)
+		}
+		if !reflect.DeepEqual(state.PendingApprovals, want) {
+			t.Fatalf("replacement at capacity = %+v, want same 128 keys with matching entry refreshed", state.PendingApprovals)
+		}
+	})
+
+	t.Run("expiry pruning at capacity permits new key", func(t *testing.T) {
+		state := &session.State{PendingApprovals: seededPendingApprovals(128, liveExpiry)}
+		state.PendingApprovals["pending-000"] = session.PendingApproval{OriginRuleID: "P5.out-of-repo", ExpiresAt: now}
+		want := seededPendingApprovals(128, liveExpiry)
+		delete(want, "pending-000")
+		want["new"] = session.PendingApproval{OriginRuleID: ask.RuleID, ExpiresAt: freshExpiry}
+
+		if got := ApplyOpenCodeApproval(ask, "new", state, now); got != ask {
+			t.Fatalf("verdict = %+v, want unchanged %+v", got, ask)
+		}
+		if !reflect.DeepEqual(state.PendingApprovals, want) {
+			t.Fatalf("pending approvals = %+v, want expired entry replaced by fresh Ask", state.PendingApprovals)
+		}
+		if len(state.PendingApprovals) != 128 {
+			t.Fatalf("live pending approvals = %d, want 128", len(state.PendingApprovals))
+		}
+	})
+
+	t.Run("oversized preseeded map cannot grow", func(t *testing.T) {
+		state := &session.State{PendingApprovals: seededPendingApprovals(129, liveExpiry)}
+		want := seededPendingApprovals(129, liveExpiry)
+
+		if got := ApplyOpenCodeApproval(ask, "new", state, now); got != ask {
+			t.Fatalf("verdict = %+v, want unchanged %+v", got, ask)
+		}
+		if !reflect.DeepEqual(state.PendingApprovals, want) {
+			t.Fatalf("oversized state mutated or grew: got %d entries, want exact original 129", len(state.PendingApprovals))
+		}
+	})
+}
+
+func seededPendingApprovals(count int, expiresAt time.Time) map[string]session.PendingApproval {
+	pending := make(map[string]session.PendingApproval, count)
+	for i := 0; i < count; i++ {
+		pending[fmt.Sprintf("pending-%03d", i)] = session.PendingApproval{
+			OriginRuleID: "P6.package-install",
+			ExpiresAt:    expiresAt,
+		}
+	}
+	return pending
 }
 
 func openCodeToolCall(arguments string) ToolCall {

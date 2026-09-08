@@ -18,6 +18,9 @@ import (
 const openCodeApprovalDomain = "agent-guardrails/opencode-approval/v1"
 const openCodeApprovalTTL = 10 * time.Minute
 
+// maxPendingOpenCodeApprovals bounds attacker-controlled work under the store-wide session lock.
+const maxPendingOpenCodeApprovals = 128
+
 func OpenCodeApprovalKey(tc ToolCall) (string, bool) {
 	if tc.Plane != "opencode" || tc.Event != "pre" || tc.SessionID == "" || tc.CWD == "" || tc.Tool == "" || len(tc.Arguments) == 0 {
 		return "", false
@@ -193,6 +196,9 @@ func ApplyOpenCodeApproval(v policy.Verdict, key string, st *session.State, now 
 				OriginRuleID: pending.OriginRuleID,
 				Reason:       "approved by exact OpenCode retry after user confirmation",
 			}
+		}
+		if !exists && len(st.PendingApprovals) >= maxPendingOpenCodeApprovals {
+			return v
 		}
 		if st.PendingApprovals == nil {
 			st.PendingApprovals = make(map[string]session.PendingApproval)
