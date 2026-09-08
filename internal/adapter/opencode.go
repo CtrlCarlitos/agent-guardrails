@@ -10,12 +10,13 @@ import (
 )
 
 type opencodePayload struct {
-	SessionID string   `json:"session_id"`
-	Event     string   `json:"event"`
-	Tool      string   `json:"tool"`
-	Command   string   `json:"command"`
-	Paths     []string `json:"paths"`
-	CWD       string   `json:"cwd"`
+	SessionID string          `json:"session_id"`
+	Event     string          `json:"event"`
+	Tool      string          `json:"tool"`
+	Command   string          `json:"command"`
+	Paths     []string        `json:"paths"`
+	CWD       string          `json:"cwd"`
+	Arguments json.RawMessage `json:"arguments"`
 }
 
 func ParseOpencode(r io.Reader) (engine.ToolCall, error) {
@@ -37,6 +38,7 @@ func ParseOpencode(r io.Reader) (engine.ToolCall, error) {
 		Tool:      normalizeOpencodeTool(p.Tool),
 		Command:   p.Command,
 		Paths:     p.Paths,
+		Arguments: p.Arguments,
 		SessionID: p.SessionID,
 		CWD:       p.CWD,
 		Raw:       raw,

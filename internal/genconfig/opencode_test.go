@@ -233,6 +233,100 @@ process.stdout.write("allowed");
 	}
 }
 
+func TestOpencodePluginCarriesCompleteArguments(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is required to exercise the embedded OpenCode plugin")
+	}
+
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "guardrail")
+	capture := filepath.Join(dir, "stdin.jsonl")
+	fakeGuardrail := `#!/bin/sh
+IFS= read -r line || :
+printf '%s\n' "$line" >> "$GUARDRAIL_TEST_CAPTURE"
+printf '%s' '{"decision":"allow","reason":"accepted"}'
+`
+	if err := os.WriteFile(binary, []byte(fakeGuardrail), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pluginPath := filepath.Join(dir, "guardrail.mjs")
+	if err := os.WriteFile(pluginPath, OpencodePluginFor(binary), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := `
+import { pathToFileURL } from "node:url";
+const loaded = await import(pathToFileURL(process.argv[1]).href);
+const plugin = await loaded.default({ directory: "/repo" });
+const before = plugin["tool.execute.before"];
+for (const [tool, args] of [
+	["bash", { command: "printf '%s\\n' hi", timeout: 30 }],
+	["read", { filePath: "/repo/a.txt", offset: 2, limit: 4 }],
+	["edit", { filePath: "/repo/a.txt", oldString: "a", newString: "b" }],
+	["write", { filePath: "/repo/new.txt", content: "body" }],
+	["list", { directory: "/repo", depth: 2 }],
+	["custom", { nested: { z: 1, a: true }, items: ["x", "y"] }],
+]) {
+	await before({ tool, sessionID: "test-session" }, { args });
+}
+`
+	cmd := exec.Command(node, "--input-type=module", "--eval", runner, pluginPath)
+	cmd.Env = append(os.Environ(), "GUARDRAIL_TEST_CAPTURE="+capture)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generated plugin blocked an allowed tool call: %v\n%s", err, output)
+	}
+
+	raw, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := bytes.Split(bytes.TrimSpace(raw), []byte("\n"))
+	wantArguments := []map[string]any{
+		{"command": "printf '%s\\n' hi", "timeout": float64(30)},
+		{"filePath": "/repo/a.txt", "offset": float64(2), "limit": float64(4)},
+		{"filePath": "/repo/a.txt", "oldString": "a", "newString": "b"},
+		{"filePath": "/repo/new.txt", "content": "body"},
+		{"directory": "/repo", "depth": float64(2)},
+		{"nested": map[string]any{"z": float64(1), "a": true}, "items": []any{"x", "y"}},
+	}
+	if len(lines) != len(wantArguments) {
+		t.Fatalf("captured %d envelopes, want %d\n%s", len(lines), len(wantArguments), raw)
+	}
+	wantTools := []string{"bash", "read", "edit", "write", "list", "custom"}
+	envelopes := make([]map[string]any, len(lines))
+	for i, line := range lines {
+		if err := json.Unmarshal(line, &envelopes[i]); err != nil {
+			t.Fatalf("envelope %d is invalid JSON: %v\n%s", i, err, line)
+		}
+		envelope := envelopes[i]
+		if envelope["session_id"] != "test-session" || envelope["event"] != "pre" || envelope["cwd"] != "/repo" {
+			t.Errorf("envelope %d lost common facts: %#v", i, envelope)
+		}
+		if envelope["tool"] != wantTools[i] {
+			t.Errorf("envelope %d tool = %#v, want %q", i, envelope["tool"], wantTools[i])
+		}
+		if !reflect.DeepEqual(envelope["arguments"], wantArguments[i]) {
+			t.Errorf("envelope %d arguments = %#v, want %#v", i, envelope["arguments"], wantArguments[i])
+		}
+	}
+
+	if got := envelopes[0]["command"]; got != "printf '%s\\n' hi" {
+		t.Errorf("Bash command projection = %q", got)
+	}
+	wantPaths := []string{"/repo/a.txt", "/repo/a.txt", "/repo/new.txt", "/repo"}
+	for i, want := range wantPaths {
+		envelope := envelopes[i+1]
+		if !reflect.DeepEqual(envelope["paths"], []any{want}) {
+			t.Errorf("envelope %d paths projection = %#v, want [%q]", i+1, envelope["paths"], want)
+		}
+	}
+	custom := envelopes[5]
+	if _, ok := custom["paths"]; ok {
+		t.Errorf("custom arguments were broadened into a paths projection: %#v", custom)
+	}
+}
+
 func TestOpencodePluginRequiresExplicitAllow(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -278,9 +372,10 @@ try {
 	tests := []struct {
 		response string
 		wantErr  string
+		exact    bool
 	}{
 		{response: "allow"},
-		{response: "ask", wantErr: "needs confirmation - confirm it"},
+		{response: "ask", wantErr: "guardrail needs confirmation \u2014 confirm it. Ask the user; if they approve, re-run this exact tool call.", exact: true},
 		{response: "deny", wantErr: "guardrail: blocked it"},
 		{response: "unknown", wantErr: "guardrail: bad verdict"},
 		{response: "empty", wantErr: "guardrail: no decision returned"},
@@ -302,6 +397,9 @@ try {
 			}
 			if err == nil {
 				t.Fatalf("%s response was allowed", tt.response)
+			}
+			if tt.exact && string(output) != tt.wantErr {
+				t.Fatalf("error = %q, want exactly %q", output, tt.wantErr)
 			}
 			if !strings.Contains(string(output), tt.wantErr) {
 				t.Fatalf("error = %q, want it to contain %q", output, tt.wantErr)

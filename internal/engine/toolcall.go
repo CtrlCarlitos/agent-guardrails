@@ -13,6 +13,7 @@ type ToolCall struct {
 	Tool      string // normalized tool name, e.g. "Bash", "Read", "Edit", "Write"
 	Command   string // shell command, when the tool is a shell
 	Paths     []string
+	Arguments json.RawMessage // complete native argument payload when the plane exposes it
 	SessionID string
 	CWD       string
 	RepoRoot  string // git top-level for CWD, or CWD if not a repo

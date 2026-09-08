@@ -31,6 +31,27 @@ func TestParseOpencodeFileTool(t *testing.T) {
 	}
 }
 
+func TestParseOpencodeCarriesCompleteNativeArguments(t *testing.T) {
+	raw := `{"session_id":"s1","event":"pre","tool":"custom","cwd":"/repo","arguments":{"z":1,"nested":{"b":true,"a":null},"items":[2,1]}}`
+	tc, err := ParseOpencode(strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc.Tool != "custom" || string(tc.Arguments) != `{"z":1,"nested":{"b":true,"a":null},"items":[2,1]}` {
+		t.Fatalf("ToolCall arguments were not preserved: %+v args=%s", tc, tc.Arguments)
+	}
+}
+
+func TestParseOpencodeDistinguishesMissingArguments(t *testing.T) {
+	tc, err := ParseOpencode(strings.NewReader(`{"session_id":"s1","event":"pre","tool":"read","cwd":"/repo"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc.Arguments != nil {
+		t.Fatalf("Arguments = %s, want missing", tc.Arguments)
+	}
+}
+
 func TestParseOpencodeUnknownEventDefaultsPre(t *testing.T) {
 	tc, err := ParseOpencode(strings.NewReader(`{"session_id":"s1","tool":"bash","command":"ls"}`))
 	if err != nil {

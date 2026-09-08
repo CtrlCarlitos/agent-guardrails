@@ -31,7 +31,7 @@ function callGuardrail(envelope) {
 	if (decision.decision !== "allow") {
 		const reason = decision.reason || "no decision returned";
 		if (decision.decision === "ask") {
-			throw new Error(`guardrail: needs confirmation - ${reason}. Ask the user directly, then retry if they approve.`);
+			throw new Error(`guardrail needs confirmation \u2014 ${reason}. Ask the user; if they approve, re-run this exact tool call.`);
 		}
 		throw new Error(`guardrail: ${reason}`);
 	}
@@ -44,8 +44,14 @@ export const GuardrailPlugin = async ({ directory }) => {
 	return {
 		"tool.execute.before": async (input, output) => {
 			const tool = input.tool;
-			const args = output.args || {};
-			const envelope = { session_id: input.sessionID ?? input.session_id, event: "pre", tool, cwd: directory };
+			const args = output.args ?? {};
+			const envelope = {
+				session_id: input.sessionID ?? input.session_id,
+				event: "pre",
+				tool,
+				cwd: directory,
+				arguments: args,
+			};
 			if (tool === "bash") {
 				envelope.command = args.command;
 			} else {
