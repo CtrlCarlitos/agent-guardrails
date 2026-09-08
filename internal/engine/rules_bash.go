@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
+	"mvdan.cc/sh/v3/syntax"
 )
 
 func head(argv []string) string {
@@ -42,7 +43,8 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		}
 	}
 	take(checkDownloadPipeShell(simples))
-	for _, s := range simples {
+	findFSExemption := literalWriteFindExemption(tc.Command, simples, tc)
+	for index, s := range simples {
 		if !s.cwdUnknown {
 			s.gitInitExpected = initializedGitDir != "" && initializedGitDir == filepath.Clean(s.Cwd)
 		}
@@ -64,11 +66,276 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		take(checkGit(s))
 		take(checkGitSafety(s, tc))
 		take(checkDocker(s, tc.Command))
-		take(checkAskTier(s, tc, pol))
+		take(checkAskTierWithFindFSExemption(s, tc, pol, index == findFSExemption))
 		take(checkEgress(s, pol))
 		take(checkPackageInstall(s))
 	}
 	return worst
+}
+
+func literalWriteFindExemption(command string, simples []Simple, tc ToolCall) int {
+	file, err := syntax.NewParser().Parse(strings.NewReader(command), "")
+	if err != nil || len(file.Stmts) != 1 {
+		return -1
+	}
+	chain, ok := literalAndChain(file.Stmts[0])
+	if !ok || len(chain) < 2 || len(chain) != len(simples) {
+		return -1
+	}
+
+	findArgv, ok := literalDirectCall(chain[len(chain)-1])
+	if !ok || len(findArgv) == 0 || findArgv[0] != "find" || len(chain[len(chain)-1].Redirs) != 0 || !sameStrings(findArgv, simples[len(simples)-1].Argv) {
+		return -1
+	}
+	root, bulkAction, exact := scopedFindDelete(findArgv)
+	if !bulkAction || !exact || hasRawDotDot(root) {
+		return -1
+	}
+	cwd := simpleCwd(simples[len(simples)-1], tc)
+	if cwd == "" || pathHasExistingSymlink(root, cwd) {
+		return -1
+	}
+
+	for index, stmt := range chain[:len(chain)-1] {
+		targets, ok := literalNonLinkWriteTargets(stmt)
+		if !ok || !literalStatementMatchesSimple(stmt, simples[index]) {
+			return -1
+		}
+		for _, target := range targets {
+			if !literalPathConfinedTo(target, root, cwd) {
+				return -1
+			}
+		}
+	}
+	return len(simples) - 1
+}
+
+func literalAndChain(stmt *syntax.Stmt) ([]*syntax.Stmt, bool) {
+	if stmt == nil || stmt.Negated || stmt.Background || stmt.Coprocess || stmt.Semicolon.IsValid() {
+		return nil, false
+	}
+	binary, ok := stmt.Cmd.(*syntax.BinaryCmd)
+	if !ok {
+		return []*syntax.Stmt{stmt}, true
+	}
+	if binary.Op != syntax.AndStmt || len(stmt.Redirs) != 0 {
+		return nil, false
+	}
+	left, ok := literalAndChain(binary.X)
+	if !ok {
+		return nil, false
+	}
+	right, ok := literalAndChain(binary.Y)
+	if !ok {
+		return nil, false
+	}
+	return append(left, right...), true
+}
+
+func literalDirectCall(stmt *syntax.Stmt) ([]string, bool) {
+	if stmt.Cmd == nil {
+		return []string{}, true
+	}
+	call, ok := stmt.Cmd.(*syntax.CallExpr)
+	if !ok || len(call.Assigns) != 0 {
+		return nil, false
+	}
+	argv := make([]string, 0, len(call.Args))
+	for _, word := range call.Args {
+		value, literal := staticWord(word, false)
+		if !literal {
+			return nil, false
+		}
+		argv = append(argv, value)
+	}
+	return argv, true
+}
+
+func literalNonLinkWriteTargets(stmt *syntax.Stmt) ([]string, bool) {
+	argv, direct := literalDirectCall(stmt)
+	if !direct {
+		return nil, false
+	}
+	if len(argv) == 0 {
+		return literalOutputRedirectTargets(stmt)
+	}
+
+	switch argv[0] {
+	case "mkdir":
+		if len(stmt.Redirs) != 0 {
+			return nil, false
+		}
+		return literalOperands(argv, "-p", "")
+	case "touch":
+		if len(stmt.Redirs) != 0 {
+			return nil, false
+		}
+		return literalOperands(argv, "", "")
+	case "tee":
+		if !literalHarmlessTeeInput(stmt.Redirs) {
+			return nil, false
+		}
+		return literalOperands(argv, "-a", "--append")
+	case ":", "true", "echo", "printf":
+		if argv[0] == "printf" && len(argv) > 1 && strings.HasPrefix(argv[1], "-v") {
+			return nil, false
+		}
+		return literalOutputRedirectTargets(stmt)
+	default:
+		return nil, false
+	}
+}
+
+func literalOperands(argv []string, shortOption, longOption string) ([]string, bool) {
+	var operands []string
+	optionSeen := false
+	terminated := false
+	for _, arg := range argv[1:] {
+		if !terminated && arg == "--" {
+			terminated = true
+			continue
+		}
+		if !terminated && (arg == shortOption && shortOption != "" || arg == longOption && longOption != "") {
+			if optionSeen {
+				return nil, false
+			}
+			optionSeen = true
+			continue
+		}
+		if !terminated && strings.HasPrefix(arg, "-") {
+			return nil, false
+		}
+		operands = append(operands, arg)
+	}
+	return operands, len(operands) > 0
+}
+
+func literalOutputRedirectTargets(stmt *syntax.Stmt) ([]string, bool) {
+	if len(stmt.Redirs) == 0 {
+		return nil, false
+	}
+	targets := make([]string, 0, len(stmt.Redirs))
+	for _, redirect := range stmt.Redirs {
+		if redirect.N != nil || redirect.Op != syntax.RdrOut && redirect.Op != syntax.AppOut {
+			return nil, false
+		}
+		target, literal := staticWord(redirect.Word, false)
+		if !literal {
+			return nil, false
+		}
+		targets = append(targets, target)
+	}
+	return targets, true
+}
+
+func literalHarmlessTeeInput(redirs []*syntax.Redirect) bool {
+	for _, redirect := range redirs {
+		if redirect.N != nil || redirect.Op != syntax.RdrIn {
+			return false
+		}
+		target, literal := staticWord(redirect.Word, false)
+		if !literal || filepath.Clean(target) != filepath.Clean("/dev/null") {
+			return false
+		}
+	}
+	return true
+}
+
+func literalStatementMatchesSimple(stmt *syntax.Stmt, simple Simple) bool {
+	argv, ok := literalDirectCall(stmt)
+	if !ok || !sameStrings(argv, simple.Argv) {
+		return false
+	}
+	var output, input []string
+	for _, redirect := range stmt.Redirs {
+		target, literal := staticWord(redirect.Word, false)
+		if !literal {
+			return false
+		}
+		switch redirect.Op {
+		case syntax.RdrOut, syntax.AppOut:
+			output = append(output, target)
+		case syntax.RdrIn:
+			input = append(input, target)
+		}
+	}
+	return sameStrings(output, simple.Redirects) && sameStrings(input, simple.ReadRedirects)
+}
+
+func sameStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func literalPathConfinedTo(target, root, cwd string) bool {
+	if hasRawDotDot(target) || pathHasExistingSymlink(target, cwd) {
+		return false
+	}
+	targetAbs, err := filepath.Abs(resolvePath(target, cwd))
+	if err != nil {
+		return false
+	}
+	rootAbs, err := filepath.Abs(resolvePath(root, cwd))
+	if err != nil || !pathWithinOrEqual(targetAbs, rootAbs) {
+		return false
+	}
+	physicalTarget, targetOK := resolveExistingPath(targetAbs, "")
+	physicalRoot, rootOK := resolveExistingPath(rootAbs, "")
+	return targetOK && rootOK && pathWithinOrEqual(physicalTarget, physicalRoot)
+}
+
+func pathWithinOrEqual(target, root string) bool {
+	target, root = filepath.Clean(target), filepath.Clean(root)
+	if runtime.GOOS == "windows" {
+		target, root = strings.ToLower(target), strings.ToLower(root)
+	}
+	return target == root || withinSafe(target, root, nil)
+}
+
+func hasRawDotDot(candidate string) bool {
+	for _, component := range strings.FieldsFunc(candidate, pathSeparator) {
+		if component == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+func pathHasExistingSymlink(candidate, cwd string) bool {
+	if candidate == "~" || strings.HasPrefix(candidate, "~/") {
+		return true
+	}
+	absolute, err := filepath.Abs(resolvePath(candidate, cwd))
+	if err != nil {
+		return true
+	}
+	volume := filepath.VolumeName(absolute)
+	current := volume + string(filepath.Separator)
+	for _, component := range strings.FieldsFunc(absolute[len(volume):], pathSeparator) {
+		if component == "." {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			return false
+		}
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func pathSeparator(r rune) bool {
+	return r == '/' || runtime.GOOS == "windows" && r == '\\'
 }
 
 func unresolvedPolicyPosition(s Simple) bool {
@@ -867,6 +1134,10 @@ func checkDiskDestroyers(s Simple) *policy.Verdict {
 }
 
 func checkAskTier(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
+	return checkAskTierWithFindFSExemption(s, tc, pol, false)
+}
+
+func checkAskTierWithFindFSExemption(s Simple, tc ToolCall, pol *policy.Policy, findFSExemption bool) *policy.Verdict {
 	switch head(s.Argv) {
 	case "sudo", "su", "doas", "pkexec", "run0", "systemd-run", "flatpak-spawn", "toolbox", "distrobox-host-exec", "parallel":
 		return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.privesc",
@@ -890,7 +1161,7 @@ func checkAskTier(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 			if !exact {
 				return ask("P1.find-delete", "find action is not an exact scoped deletion")
 			}
-			if s.fsUncertain {
+			if s.fsUncertain && !findFSExemption {
 				return ask("P1.find-delete", "find deletion scope may have changed before execution")
 			}
 			cwd := simpleCwd(s, tc)

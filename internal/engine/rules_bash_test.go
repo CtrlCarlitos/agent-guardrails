@@ -1426,6 +1426,313 @@ func TestFindScopedDeleteRejectsSymlinkFollowing(t *testing.T) {
 	}
 }
 
+// Mutation caught: retaining command-wide filesystem uncertainty blocks bounded literal writes before find.
+func TestFindScopedDeleteAllowsBoundedLiteralWriteChain(t *testing.T) {
+	scratch := t.TempDir()
+	existing := filepath.Join(scratch, "existing")
+	if err := os.Mkdir(existing, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	created := filepath.Join(scratch, "created")
+	tests := []struct {
+		name    string
+		command string
+	}{
+		{"mkdir -p", fmt.Sprintf(`mkdir -p %q && find %q -delete`, created, created)},
+		{"mkdir then touch", fmt.Sprintf(`mkdir -p %q && touch %q && find %q -delete`, created, filepath.Join(created, "a"), created)},
+		{"echo truncate redirect", fmt.Sprintf(`echo hi > %q && find %q -type f -delete`, filepath.Join(existing, "a"), existing)},
+		{"printf append redirect", fmt.Sprintf(`printf hi >> %q && find %q -type f -delete`, filepath.Join(existing, "a"), existing)},
+		{"redirect only", fmt.Sprintf(`> %q && find %q -delete`, filepath.Join(existing, "a"), existing)},
+		{"tee append terminator and null input", fmt.Sprintf(`tee -a -- %q < /dev/null && find %q -delete`, filepath.Join(existing, "a"), existing)},
+		{"all four writer categories", fmt.Sprintf(`mkdir -p %q && touch %q && tee -- %q < /dev/null && > %q && find %q -delete`, created, filepath.Join(created, "a"), filepath.Join(created, "b"), filepath.Join(created, "c"), created)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tc := ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}
+			if v := checkBash(tc, bashPol()); v != nil {
+				t.Fatalf("%q -> %+v, want allow", test.command, v)
+			}
+		})
+	}
+}
+
+func requireFindDeleteAsk(t *testing.T, command string) {
+	t.Helper()
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+	v := checkBash(tc, bashPol())
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+		t.Fatalf("%q -> %+v, want ask/P1.find-delete", command, v)
+	}
+}
+
+// Mutation caught: trusting topology-changing or opaque writers lets an earlier command redirect traversal.
+func TestFindWriteChainRejectsTopologyAndUnknownWriters(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "root")
+	tests := []struct {
+		name   string
+		writer string
+		ruleID string
+	}{
+		{"symlink", fmt.Sprintf(`ln -s /etc %q`, filepath.Join(root, "link")), "P1.find-delete"},
+		{"recursive copy", fmt.Sprintf(`cp -a /repo/source %q`, root), "P1.find-delete"},
+		{"move", fmt.Sprintf(`mv /repo/source %q`, root), "P1.find-delete"},
+		{"rsync", fmt.Sprintf(`rsync -a /repo/source/ %q/`, root), "P1.find-delete"},
+		{"tar extraction", fmt.Sprintf(`tar -xf /repo/source.tar -C %q`, root), "P1.find-delete"},
+		{"zip extraction", fmt.Sprintf(`unzip /repo/source.zip -d %q`, root), "P1.find-delete"},
+		{"git checkout", fmt.Sprintf(`git -C %q checkout -- .`, root), "P2.git-checkout-restore"},
+		{"git clone", fmt.Sprintf(`git clone /repo/source %q`, root), "P1.find-delete"},
+		{"opaque executor", fmt.Sprintf(`python3 -c 'open(%q, "w").close()'`, filepath.Join(root, "a")), "P1.find-delete"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			command := fmt.Sprintf(`%s && find %q -delete`, test.writer, root)
+			v := checkBash(ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, bashPol())
+			if v == nil || v.Decision != policy.Ask || v.RuleID != test.ruleID {
+				t.Fatalf("%q -> %+v, want ask/%s", command, v, test.ruleID)
+			}
+		})
+	}
+}
+
+// Mutation caught: canonicalizing executable names grants the exemption to wrappers or substituted binaries.
+func TestFindWriteChainRejectsNonDirectCommandIdentity(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "root")
+	target := filepath.Join(root, "a")
+	commands := map[string]string{
+		"path-qualified writer": fmt.Sprintf(`/usr/bin/touch %q && find %q -delete`, target, root),
+		"path-qualified find":   fmt.Sprintf(`touch %q && /usr/bin/find %q -delete`, target, root),
+		"env":                   fmt.Sprintf(`env touch %q && find %q -delete`, target, root),
+		"command":               fmt.Sprintf(`command touch %q && find %q -delete`, target, root),
+		"exec":                  fmt.Sprintf(`exec touch %q && find %q -delete`, target, root),
+		"timeout":               fmt.Sprintf(`timeout 1 touch %q && find %q -delete`, target, root),
+		"nice":                  fmt.Sprintf(`nice touch %q && find %q -delete`, target, root),
+		"time":                  fmt.Sprintf(`time touch %q && find %q -delete`, target, root),
+		"busybox writer":        fmt.Sprintf(`busybox touch %q && find %q -delete`, target, root),
+		"busybox find":          fmt.Sprintf(`touch %q && busybox find %q -delete`, target, root),
+	}
+	for name, command := range commands {
+		t.Run(name, func(t *testing.T) { requireFindDeleteAsk(t, command) })
+	}
+}
+
+// Mutation caught: accepting resolved normalization output hides assignments and runtime substitutions in policy positions.
+func TestFindWriteChainRejectsAssignmentsVariablesAndSubstitutions(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "root")
+	target := filepath.Join(root, "a")
+	commands := map[string]struct {
+		command string
+		ruleID  string
+	}{
+		"assigned command name":          {fmt.Sprintf(`WRITER=touch; $WRITER %q && find %q -delete`, target, root), "P3.unresolved"},
+		"variable target":                {fmt.Sprintf(`TARGET=%q; touch "$TARGET" && find %q -delete`, target, root), "P1.find-delete"},
+		"variable root":                  {fmt.Sprintf(`ROOT=%q; touch %q && find "$ROOT" -delete`, root, target), "P1.find-delete"},
+		"PATH prefix":                    {fmt.Sprintf(`PATH=/tmp/evil touch %q && find %q -delete`, target, root), "P1.find-delete"},
+		"LD_PRELOAD prefix":              {fmt.Sprintf(`LD_PRELOAD=/tmp/evil.so touch %q && find %q -delete`, target, root), "P1.find-delete"},
+		"harmless assignment":            {fmt.Sprintf(`MODE=plain touch %q && find %q -delete`, target, root), "P1.find-delete"},
+		"command substitution":           {fmt.Sprintf(`touch "$(printf %q)" && find %q -delete`, target, root), "P3.unresolved"},
+		"standalone PATH change":         {fmt.Sprintf(`PATH=/tmp/evil; touch %q && find %q -delete`, target, root), "P1.find-delete"},
+		"printf variable write":          {fmt.Sprintf(`printf -v PATH /tmp/evil > %q && find %q -delete`, target, root), "P1.find-delete"},
+		"printf attached variable write": {fmt.Sprintf(`printf -vPATH /tmp/evil > %q && find %q -delete`, target, root), "P1.find-delete"},
+	}
+	for name, test := range commands {
+		t.Run(name, func(t *testing.T) {
+			v := checkBash(ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}, bashPol())
+			if v == nil || v.Decision != policy.Ask || v.RuleID != test.ruleID {
+				t.Fatalf("%q -> %+v, want ask/%s", test.command, v, test.ruleID)
+			}
+		})
+	}
+}
+
+// Mutation caught: recognizing normalized children instead of the top-level AST admits non-literal control flow.
+func TestFindWriteChainRejectsCompoundWrappersAndOtherControlOperators(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "root")
+	target := filepath.Join(root, "a")
+	commands := map[string]string{
+		"subshell":   fmt.Sprintf(`(touch %q) && find %q -delete`, target, root),
+		"block":      fmt.Sprintf(`{ touch %q; } && find %q -delete`, target, root),
+		"function":   fmt.Sprintf(`write() { touch %q; }; write && find %q -delete`, target, root),
+		"eval":       fmt.Sprintf(`eval 'touch %s' && find %q -delete`, target, root),
+		"shell -c":   fmt.Sprintf(`bash -c 'touch %s' && find %q -delete`, target, root),
+		"pipeline":   fmt.Sprintf(`touch %q | true && find %q -delete`, target, root),
+		"background": fmt.Sprintf(`touch %q & wait && find %q -delete`, target, root),
+		"or":         fmt.Sprintf(`touch %q || true && find %q -delete`, target, root),
+		"semicolon":  fmt.Sprintf(`touch %q; find %q -delete`, target, root),
+		"newline":    fmt.Sprintf("touch %q\nfind %q -delete", target, root),
+	}
+	for name, command := range commands {
+		t.Run(name, func(t *testing.T) { requireFindDeleteAsk(t, command) })
+	}
+}
+
+// Mutation caught: checking only normalized redirect targets admits redirect modes with extra shell semantics.
+func TestFindWriteChainRejectsUnsupportedRedirectModes(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "root")
+	target := filepath.Join(root, "a")
+	commands := map[string]struct {
+		command string
+		ruleID  string
+	}{
+		"clobber":              {fmt.Sprintf(`echo hi >| %q && find %q -delete`, target, root), "P1.find-delete"},
+		"all output":           {fmt.Sprintf(`echo hi &> %q && find %q -delete`, target, root), "P1.find-delete"},
+		"append all output":    {fmt.Sprintf(`echo hi &>> %q && find %q -delete`, target, root), "P1.find-delete"},
+		"read write":           {fmt.Sprintf(`: <> %q && find %q -delete`, target, root), "P1.find-delete"},
+		"descriptor duplicate": {fmt.Sprintf(`echo hi > %q 2>&1 && find %q -delete`, target, root), "P1.find-delete"},
+		"process substitution": {fmt.Sprintf(`tee %q < <(printf hi) && find %q -delete`, target, root), "P3.unresolved"},
+		"heredoc":              {fmt.Sprintf("tee %q <<'EOF' && find %q -delete\nhi\nEOF", target, root), "P1.find-delete"},
+	}
+	for name, test := range commands {
+		t.Run(name, func(t *testing.T) {
+			v := checkBash(ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}, bashPol())
+			if v == nil || v.Decision != policy.Ask || v.RuleID != test.ruleID {
+				t.Fatalf("%q -> %+v, want ask/%s", test.command, v, test.ruleID)
+			}
+		})
+	}
+}
+
+// Mutation caught: validating writers independently of the final root permits unrelated writes and ambiguous finds.
+func TestFindWriteChainRejectsUncoupledTargetsAndAmbiguousFinds(t *testing.T) {
+	scratch := t.TempDir()
+	root := filepath.Join(scratch, "root")
+	sibling := filepath.Join(scratch, "sibling")
+	target := filepath.Join(root, "a")
+	commands := map[string]string{
+		"sibling target":        fmt.Sprintf(`touch %q && find %q -delete`, sibling, root),
+		"outside target":        fmt.Sprintf(`touch /etc/guardrail-nf14 && find %q -delete`, root),
+		"repository target":     fmt.Sprintf(`touch /repo/generated && find %q -delete`, root),
+		"multiple roots":        fmt.Sprintf(`touch %q && find %q %q -delete`, target, root, sibling),
+		"multiple finds":        fmt.Sprintf(`touch %q && find %q -delete && find %q -delete`, target, root, root),
+		"non-final find":        fmt.Sprintf(`touch %q && find %q -delete && true`, target, root),
+		"unsupported action":    fmt.Sprintf(`touch %q && find %q -print`, target, root),
+		"unsupported find mode": fmt.Sprintf(`touch %q && find %q -follow -delete`, target, root),
+		"mkdir flag":            fmt.Sprintf(`mkdir -m 700 %q && find %q -delete`, root, root),
+		"touch flag":            fmt.Sprintf(`touch -d now %q && find %q -delete`, target, root),
+		"tee flag":              fmt.Sprintf(`tee --output-error=warn %q < /dev/null && find %q -delete`, target, root),
+	}
+	for name, command := range commands {
+		t.Run(name, func(t *testing.T) { requireFindDeleteAsk(t, command) })
+	}
+}
+
+// Mutation caught: lexical containment alone trusts temp roots and targets whose physical path crosses symlinks or dot-dot.
+func TestFindWriteChainRejectsUnsafeRootAndTargetPaths(t *testing.T) {
+	t.Run("temp root equality", func(t *testing.T) {
+		root := t.TempDir()
+		t.Setenv("TMPDIR", root)
+		requireFindDeleteAsk(t, fmt.Sprintf(`touch %q && find %q -delete`, filepath.Join(root, "a"), root))
+	})
+
+	t.Run("repository overlap", func(t *testing.T) {
+		repo := t.TempDir()
+		root := filepath.Join(repo, "root")
+		command := fmt.Sprintf(`mkdir -p %q && find %q -delete`, root, root)
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+		v := checkBash(tc, bashPol())
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+			t.Fatalf("%q -> %+v, want ask/P1.find-delete", command, v)
+		}
+	})
+
+	t.Run("repository ancestor", func(t *testing.T) {
+		root := t.TempDir()
+		repo := filepath.Join(root, "repo")
+		if err := os.Mkdir(repo, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		command := fmt.Sprintf(`touch %q && find %q -delete`, filepath.Join(root, "a"), root)
+		tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+		v := checkBash(tc, bashPol())
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
+			t.Fatalf("%q -> %+v, want ask/P1.find-delete", command, v)
+		}
+	})
+
+	t.Run("symlinked root", func(t *testing.T) {
+		physical := filepath.Join(t.TempDir(), "physical")
+		if err := os.Mkdir(physical, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		root := filepath.Join(t.TempDir(), "root")
+		if err := os.Symlink(physical, root); err != nil {
+			t.Skipf("create root symlink: %v", err)
+		}
+		requireFindDeleteAsk(t, fmt.Sprintf(`touch %q && find %q -delete`, filepath.Join(root, "a"), root))
+	})
+
+	t.Run("symlinked root intermediate", func(t *testing.T) {
+		scratch := t.TempDir()
+		physical := filepath.Join(scratch, "physical")
+		if err := os.MkdirAll(filepath.Join(physical, "root"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		alias := filepath.Join(scratch, "alias")
+		if err := os.Symlink(physical, alias); err != nil {
+			t.Skipf("create intermediate symlink: %v", err)
+		}
+		root := filepath.Join(alias, "root")
+		requireFindDeleteAsk(t, fmt.Sprintf(`touch %q && find %q -delete`, filepath.Join(root, "a"), root))
+	})
+
+	t.Run("symlinked target intermediate", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "root")
+		physical := filepath.Join(root, "physical")
+		if err := os.MkdirAll(physical, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(root, "link")
+		if err := os.Symlink(physical, link); err != nil {
+			t.Skipf("create target symlink: %v", err)
+		}
+		requireFindDeleteAsk(t, fmt.Sprintf(`touch %q && find %q -delete`, filepath.Join(link, "a"), root))
+	})
+
+	t.Run("raw dot-dot escape", func(t *testing.T) {
+		scratch := t.TempDir()
+		root := filepath.Join(scratch, "root")
+		target := root + string(filepath.Separator) + ".." + string(filepath.Separator) + "sibling"
+		requireFindDeleteAsk(t, fmt.Sprintf(`touch %q && find %q -delete`, target, root))
+	})
+
+	t.Run("raw dot-dot root", func(t *testing.T) {
+		scratch := t.TempDir()
+		root := scratch + string(filepath.Separator) + "parent" + string(filepath.Separator) + ".." + string(filepath.Separator) + "root"
+		requireFindDeleteAsk(t, fmt.Sprintf(`mkdir -p %q && find %q -delete`, filepath.Clean(root), root))
+	})
+}
+
+// Mutation caught: returning allow for the find exemption must not suppress stronger path-policy Denies.
+func TestFindWriteChainPreservesIndependentPathDenies(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "root")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		target string
+		ruleID string
+	}{
+		{"secret", filepath.Join(root, ".ssh", "id_rsa"), "P4.secret-path"},
+		{"self config", filepath.Join(root, ".envrc"), "P5.self-config"},
+		{"git protected", filepath.Join(root, ".git", "config"), "P2.git-protected-path"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			command := fmt.Sprintf(`mkdir -p %q && touch %q && find %q -delete`, filepath.Dir(test.target), test.target, root)
+			pol := bashPol()
+			pol.Slots.SecretDirs = []string{"**/.ssh/**"}
+			tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+			if v := checkBash(tc, pol); v != nil {
+				t.Fatalf("checkBash(%q) -> %+v, want the bounded find exemption", command, v)
+			}
+			v := Evaluate(tc, pol)
+			if v.Decision != policy.Deny || v.RuleID != test.ruleID {
+				t.Fatalf("%q -> %+v, want deny/%s", command, v, test.ruleID)
+			}
+		})
+	}
+}
+
 // Mutation caught: pre-execution path resolution misses a symlink created by an earlier command.
 func TestFindScopedDeleteRejectsPriorFilesystemMutation(t *testing.T) {
 	scratch := t.TempDir()
