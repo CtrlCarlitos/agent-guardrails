@@ -142,13 +142,26 @@ func literalDirectCall(stmt *syntax.Stmt) ([]string, bool) {
 	}
 	argv := make([]string, 0, len(call.Args))
 	for _, word := range call.Args {
-		value, literal := staticWord(word, false)
+		value, literal := literalNF14Word(word)
 		if !literal {
 			return nil, false
 		}
 		argv = append(argv, value)
 	}
 	return argv, true
+}
+
+func literalNF14Word(word *syntax.Word) (string, bool) {
+	value, literal := staticWord(word, false)
+	if !literal {
+		return "", false
+	}
+	for _, part := range word.Parts {
+		if unquoted, ok := part.(*syntax.Lit); ok && strings.ContainsAny(unquoted.Value, "*?[") {
+			return "", false
+		}
+	}
+	return value, true
 }
 
 func literalNonLinkWriteTargets(stmt *syntax.Stmt) ([]string, bool) {
@@ -219,7 +232,7 @@ func literalOutputRedirectTargets(stmt *syntax.Stmt) ([]string, bool) {
 		if redirect.N != nil || redirect.Op != syntax.RdrOut && redirect.Op != syntax.AppOut {
 			return nil, false
 		}
-		target, literal := staticWord(redirect.Word, false)
+		target, literal := literalNF14Word(redirect.Word)
 		if !literal {
 			return nil, false
 		}
@@ -233,7 +246,7 @@ func literalHarmlessTeeInput(redirs []*syntax.Redirect) bool {
 		if redirect.N != nil || redirect.Op != syntax.RdrIn {
 			return false
 		}
-		target, literal := staticWord(redirect.Word, false)
+		target, literal := literalNF14Word(redirect.Word)
 		if !literal || filepath.Clean(target) != filepath.Clean("/dev/null") {
 			return false
 		}
@@ -248,7 +261,7 @@ func literalStatementMatchesSimple(stmt *syntax.Stmt, simple Simple) bool {
 	}
 	var output, input []string
 	for _, redirect := range stmt.Redirs {
-		target, literal := staticWord(redirect.Word, false)
+		target, literal := literalNF14Word(redirect.Word)
 		if !literal {
 			return false
 		}

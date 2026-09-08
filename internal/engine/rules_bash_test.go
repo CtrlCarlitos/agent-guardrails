@@ -1443,6 +1443,8 @@ func TestFindScopedDeleteAllowsBoundedLiteralWriteChain(t *testing.T) {
 		{"echo truncate redirect", fmt.Sprintf(`echo hi > %q && find %q -type f -delete`, filepath.Join(existing, "a"), existing)},
 		{"printf append redirect", fmt.Sprintf(`printf hi >> %q && find %q -type f -delete`, filepath.Join(existing, "a"), existing)},
 		{"redirect only", fmt.Sprintf(`> %q && find %q -delete`, filepath.Join(existing, "a"), existing)},
+		{"colon truncate redirect", fmt.Sprintf(`: > %q && find %q -delete`, filepath.Join(existing, "a"), existing)},
+		{"true append redirect", fmt.Sprintf(`true >> %q && find %q -delete`, filepath.Join(existing, "a"), existing)},
 		{"tee append terminator and null input", fmt.Sprintf(`tee -a -- %q < /dev/null && find %q -delete`, filepath.Join(existing, "a"), existing)},
 		{"all four writer categories", fmt.Sprintf(`mkdir -p %q && touch %q && tee -- %q < /dev/null && > %q && find %q -delete`, created, filepath.Join(created, "a"), filepath.Join(created, "b"), filepath.Join(created, "c"), created)},
 	}
@@ -1462,6 +1464,39 @@ func requireFindDeleteAsk(t *testing.T, command string) {
 	v := checkBash(tc, bashPol())
 	if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
 		t.Fatalf("%q -> %+v, want ask/P1.find-delete", command, v)
+	}
+}
+
+// Mutation caught: treating an unquoted glob as one literal target lets tee follow a matched symlink outside the find root.
+func TestFindWriteChainRejectsUnquotedPathnameExpansion(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "root")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	external := filepath.Join(t.TempDir(), "victim")
+	if err := os.WriteFile(external, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, filepath.Join(root, "matched")); err != nil {
+		t.Skipf("create wildcard-matched symlink: %v", err)
+	}
+	target := filepath.Join(root, "out")
+	commands := map[string]string{
+		"tee wildcard matched symlink": fmt.Sprintf(`tee %q/* < /dev/null && find %q -delete`, root, root),
+		"touch star operand":           fmt.Sprintf(`touch %q/* && find %q -delete`, root, root),
+		"mkdir question operand":       fmt.Sprintf(`mkdir -p %q/? && find %q -delete`, root, root),
+		"redirect bracket target":      fmt.Sprintf(`echo hi > %q/[ab] && find %q -delete`, root, root),
+		"echo wildcard argument":       fmt.Sprintf(`echo %q/* > %q && find %q -delete`, root, target, root),
+		"find wildcard argument":       fmt.Sprintf(`touch %q && find %q -name * -delete`, target, root),
+	}
+	for name, command := range commands {
+		t.Run(name, func(t *testing.T) {
+			tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
+			v := checkBash(tc, bashPol())
+			if v == nil || v.Decision == policy.Allow {
+				t.Fatalf("%q -> %+v, want ask/P1.find-delete or stronger", command, v)
+			}
+		})
 	}
 }
 
