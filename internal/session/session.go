@@ -82,7 +82,16 @@ func Transaction(sessionID string, update func(*State) error) (err error) {
 	}()
 
 	var state State
+	legacyStatePath := ""
 	raw, readErr := os.ReadFile(path)
+	if os.IsNotExist(readErr) {
+		if candidate, ok := legacyPath(sessionID); ok {
+			raw, readErr = os.ReadFile(candidate)
+			if readErr == nil {
+				legacyStatePath = candidate
+			}
+		}
+	}
 	if readErr != nil && !os.IsNotExist(readErr) {
 		return fmt.Errorf("read session state: %w", readErr)
 	}
@@ -102,9 +111,24 @@ func Transaction(sessionID string, update func(*State) error) (err error) {
 	if err := atomicWrite(path, raw); err != nil {
 		return fmt.Errorf("persist session state: %w", err)
 	}
+	if legacyStatePath != "" {
+		if err := os.Remove(legacyStatePath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove migrated legacy session state: %w", err)
+		}
+	}
 
 	prune(d)
 	return nil
+}
+
+func legacyPath(sessionID string) (string, bool) {
+	if sessionID == "" || sessionID == "." || sessionID == ".." {
+		return "", false
+	}
+	if strings.ContainsAny(sessionID, `/\`) || strings.Contains(sessionID, "..") {
+		return "", false
+	}
+	return filepath.Join(dir(), sessionID+".json"), true
 }
 
 func atomicWrite(path string, raw []byte) error {

@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,6 +43,141 @@ func TestTransactionRoundTrip(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestTransactionMigratesLegacyStateAfterSuccessfulHashedPersistence(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	const sessionID = "legacy-session"
+	legacyPath := filepath.Join(dir(), sessionID+".json")
+	writeStateFixture(t, legacyPath, State{SawPrivateRead: true, UpdatedAt: "legacy"})
+
+	observedPrivate := false
+	if err := Transaction(sessionID, func(s *State) error {
+		observedPrivate = s.SawPrivateRead
+		s.SawNetworkCall = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !observedPrivate {
+		t.Fatal("transaction callback did not observe the legacy private-data signal")
+	}
+	state := readDurableState(t, sessionID)
+	if !state.SawPrivateRead || !state.SawNetworkCall {
+		t.Fatalf("migrated hashed state = %+v, want both monotonic signals", state)
+	}
+	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
+		t.Fatalf("legacy state remains after successful migration: %v", err)
+	}
+}
+
+func TestTransactionPrefersHashedStateOverLegacyState(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	const sessionID = "state-precedence"
+	legacyPath := filepath.Join(dir(), sessionID+".json")
+	writeStateFixture(t, legacyPath, State{SawPrivateRead: true})
+	writeStateFixture(t, Path(sessionID), State{SawNetworkCall: true})
+
+	if err := Transaction(sessionID, func(s *State) error {
+		if s.SawPrivateRead || !s.SawNetworkCall {
+			t.Fatalf("callback state = %+v, want hashed state to take precedence", s)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(legacyPath); err != nil {
+		t.Fatalf("unused legacy state was removed: %v", err)
+	}
+}
+
+func TestTransactionNeverReadsFormerlyRejectedLegacyIDs(t *testing.T) {
+	for _, sessionID := range []string{".", "..", "legacy..session", "nested/session", `nested\session`} {
+		t.Run(sessionID, func(t *testing.T) {
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			legacyPath := filepath.Join(dir(), sessionID+".json")
+			writeStateFixture(t, legacyPath, State{SawPrivateRead: true})
+
+			if err := Transaction(sessionID, func(s *State) error {
+				if s.SawPrivateRead || s.SawNetworkCall {
+					t.Fatalf("callback read rejected legacy path %q: %+v", legacyPath, s)
+				}
+				s.SawNetworkCall = true
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			state := readDurableState(t, sessionID)
+			if state.SawPrivateRead || !state.SawNetworkCall {
+				t.Fatalf("hashed state for rejected legacy ID = %+v", state)
+			}
+			if _, err := os.Stat(legacyPath); err != nil {
+				t.Fatalf("rejected legacy path was touched: %v", err)
+			}
+		})
+	}
+}
+
+func TestTransactionKeepsLegacyStateOnFailure(t *testing.T) {
+	t.Run("decode", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		const sessionID = "corrupt-legacy"
+		legacyPath := filepath.Join(dir(), sessionID+".json")
+		if err := os.MkdirAll(dir(), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(legacyPath, []byte("{"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		called := false
+		if err := Transaction(sessionID, func(*State) error {
+			called = true
+			return nil
+		}); err == nil {
+			t.Fatal("corrupt legacy state returned nil, want decode error")
+		}
+		if called {
+			t.Fatal("corrupt legacy state reached callback")
+		}
+		assertLegacyOnly(t, sessionID, legacyPath)
+	})
+
+	t.Run("callback", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		const sessionID = "callback-failure"
+		legacyPath := filepath.Join(dir(), sessionID+".json")
+		writeStateFixture(t, legacyPath, State{SawPrivateRead: true})
+		callbackErr := errors.New("callback failed")
+		err := Transaction(sessionID, func(s *State) error {
+			if !s.SawPrivateRead {
+				t.Fatal("callback did not receive legacy state")
+			}
+			return callbackErr
+		})
+		if !errors.Is(err, callbackErr) {
+			t.Fatalf("Transaction error = %v, want callback error", err)
+		}
+		assertLegacyOnly(t, sessionID, legacyPath)
+	})
+
+	t.Run("hashed write", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		const sessionID = "write-failure"
+		legacyPath := filepath.Join(dir(), sessionID+".json")
+		writeStateFixture(t, legacyPath, State{SawPrivateRead: true})
+		err := Transaction(sessionID, func(s *State) error {
+			if !s.SawPrivateRead {
+				t.Fatal("callback did not receive legacy state")
+			}
+			return os.Mkdir(Path(sessionID), 0o700)
+		})
+		if err == nil {
+			t.Fatal("Transaction returned nil, want hashed persistence error")
+		}
+		if _, err := os.Stat(legacyPath); err != nil {
+			t.Fatalf("legacy state was removed after hashed write failure: %v", err)
+		}
+	})
 }
 
 func TestTransactionRejectsEmptySessionID(t *testing.T) {
@@ -285,4 +421,28 @@ func readDurableState(t *testing.T, sessionID string) State {
 		t.Fatal(err)
 	}
 	return state
+}
+
+func writeStateFixture(t *testing.T, path string, state State) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(&state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertLegacyOnly(t *testing.T, sessionID, legacyPath string) {
+	t.Helper()
+	if _, err := os.Stat(legacyPath); err != nil {
+		t.Fatalf("legacy state was removed after failed migration: %v", err)
+	}
+	if _, err := os.Stat(Path(sessionID)); !os.IsNotExist(err) {
+		t.Fatalf("hashed state exists after failed migration: %v", err)
+	}
 }
