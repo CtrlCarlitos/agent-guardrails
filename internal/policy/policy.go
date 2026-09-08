@@ -29,9 +29,10 @@ func (d Decision) Blocks() bool { return d == Deny }
 
 // Verdict is the outcome of evaluating one attempted tool call.
 type Verdict struct {
-	Decision Decision
-	RuleID   string
-	Reason   string
+	Decision     Decision
+	RuleID       string
+	OriginRuleID string
+	Reason       string
 }
 
 func (v Verdict) IsZero() bool { return v.Decision == "" }

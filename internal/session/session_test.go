@@ -46,6 +46,74 @@ func TestTransactionRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAdditiveStatePreservesExistingM7JSON(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	const sessionID = "existing-m7-state"
+	path := Path(sessionID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"saw_private_read":true,"saw_network_call":true,"updated_at":"2026-09-07T11:00:00Z"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Transaction(sessionID, func(s *State) error {
+		if !s.SawPrivateRead || !s.SawNetworkCall {
+			t.Fatalf("existing M-7 signals = %+v, want both preserved", s)
+		}
+		if s.PendingApprovals != nil {
+			t.Fatalf("missing additive field decoded as %+v, want nil", s.PendingApprovals)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := readDurableState(t, sessionID)
+	if !got.SawPrivateRead || !got.SawNetworkCall {
+		t.Fatalf("persisted M-7 signals = %+v, want both preserved", got)
+	}
+}
+
+func TestPendingApprovalRoundTripOmitsRawIdentity(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	const (
+		sessionID   = "distinctive-raw-session-id"
+		rawArgument = "distinctive raw argument text"
+	)
+	expiresAt := time.Date(2026, 9, 7, 12, 10, 0, 0, time.UTC)
+	want := PendingApproval{
+		OriginRuleID: "P2.git-checkout-restore",
+		ExpiresAt:    expiresAt,
+	}
+
+	if err := Transaction(sessionID, func(s *State) error {
+		s.PendingApprovals = map[string]PendingApproval{"digest": want}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := readDurableState(t, sessionID)
+	if approval, ok := got.PendingApprovals["digest"]; !ok || approval != want {
+		t.Fatalf("pending approval = %+v, present=%v, want %+v", approval, ok, want)
+	}
+	raw, err := os.ReadFile(Path(sessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, wantText := range []string{"digest", "P2.git-checkout-restore", "2026-09-07T12:10:00Z"} {
+		if !strings.Contains(string(raw), wantText) {
+			t.Errorf("persisted state %q does not contain %q", raw, wantText)
+		}
+	}
+	for _, secret := range []string{sessionID, rawArgument} {
+		if strings.Contains(string(raw), secret) {
+			t.Errorf("persisted state contains raw identity %q: %s", secret, raw)
+		}
+	}
+}
+
 func TestTransactionMigratesLegacyStateAfterSuccessfulHashedPersistence(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	const sessionID = "legacy-session"

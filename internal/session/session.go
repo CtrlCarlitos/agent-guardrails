@@ -25,10 +25,16 @@ const (
 
 var errEmptySessionID = errors.New("session ID is empty")
 
+type PendingApproval struct {
+	OriginRuleID string    `json:"origin_rule_id"`
+	ExpiresAt    time.Time `json:"expires_at"`
+}
+
 type State struct {
-	SawPrivateRead bool   `json:"saw_private_read"`
-	SawNetworkCall bool   `json:"saw_network_call"`
-	UpdatedAt      string `json:"updated_at"`
+	SawPrivateRead   bool                       `json:"saw_private_read"`
+	SawNetworkCall   bool                       `json:"saw_network_call"`
+	PendingApprovals map[string]PendingApproval `json:"pending_approvals,omitempty"`
+	UpdatedAt        string                     `json:"updated_at"`
 }
 
 func dir() string {
