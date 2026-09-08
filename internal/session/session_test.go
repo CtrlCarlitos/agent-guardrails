@@ -67,8 +67,42 @@ func TestTransactionMigratesLegacyStateAfterSuccessfulHashedPersistence(t *testi
 	if !state.SawPrivateRead || !state.SawNetworkCall {
 		t.Fatalf("migrated hashed state = %+v, want both monotonic signals", state)
 	}
-	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
-		t.Fatalf("legacy state remains after successful migration: %v", err)
+	if _, err := os.Stat(legacyPath); err != nil {
+		t.Fatalf("legacy state was removed after successful migration: %v", err)
+	}
+}
+
+func TestTransactionPreservesLegacyPathReplacement(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	const sessionID = "replaced-legacy"
+	legacyPath := filepath.Join(dir(), sessionID+".json")
+	writeStateFixture(t, legacyPath, State{SawPrivateRead: true})
+	replacement := []byte(`{"replacement":true}`)
+
+	if err := Transaction(sessionID, func(s *State) error {
+		if !s.SawPrivateRead || s.SawNetworkCall {
+			t.Fatalf("callback state = %+v, want legacy private signal", s)
+		}
+		if err := os.Remove(legacyPath); err != nil {
+			return err
+		}
+		if err := os.WriteFile(legacyPath, replacement, 0o600); err != nil {
+			return err
+		}
+		oldTime := time.Now().Add(-48 * time.Hour)
+		if err := os.Chtimes(legacyPath, oldTime, oldTime); err != nil {
+			return err
+		}
+		s.SawNetworkCall = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readDurableState(t, sessionID); !got.SawPrivateRead || !got.SawNetworkCall {
+		t.Fatalf("migrated v2 state = %+v, want both signals", got)
+	}
+	if raw, err := os.ReadFile(legacyPath); err != nil || string(raw) != string(replacement) {
+		t.Fatalf("replacement legacy entry changed: raw=%q err=%v", raw, err)
 	}
 }
 
@@ -90,8 +124,8 @@ func TestTransactionMigratesDigestShapedLegacySessionID(t *testing.T) {
 	if got := readDurableState(t, sessionID); !got.SawPrivateRead || !got.SawNetworkCall {
 		t.Fatalf("migrated state = %+v, want both signals", got)
 	}
-	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
-		t.Fatalf("digest-shaped legacy state remains after migration: %v", err)
+	if _, err := os.Stat(legacyPath); err != nil {
+		t.Fatalf("digest-shaped legacy state was removed after migration: %v", err)
 	}
 }
 
@@ -497,10 +531,11 @@ func TestConcurrentTransactionsPreserveMonotonicSignals(t *testing.T) {
 	}
 }
 
-func TestTransactionSerializesAcrossProcessesAndRecoversAfterCrash(t *testing.T) {
-	const sessionID = "cross-process-session"
+func TestStoreWideTransactionSerializesDifferentSessionsAcrossProcesses(t *testing.T) {
+	const holderSessionID = "cross-process-holder"
+	const migratingSessionID = "cross-process-migration"
 	if os.Getenv("GUARDRAIL_TEST_HOLD_TRANSACTION") == "1" {
-		err := Transaction(sessionID, func(s *State) error {
+		err := Transaction(holderSessionID, func(s *State) error {
 			s.SawNetworkCall = true
 			if err := os.WriteFile(os.Getenv("GUARDRAIL_TEST_LOCK_MARKER"), []byte("locked"), 0o600); err != nil {
 				return err
@@ -518,14 +553,20 @@ func TestTransactionSerializesAcrossProcessesAndRecoversAfterCrash(t *testing.T)
 
 	stateHome := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", stateHome)
-	if err := Transaction(sessionID, func(s *State) error {
+	if err := Transaction(holderSessionID, func(s *State) error {
 		s.SawPrivateRead = true
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
+	legacyPath := filepath.Join(dir(), migratingSessionID+".json")
+	writeStateFixture(t, legacyPath, State{SawPrivateRead: true})
+	legacyBefore, err := os.ReadFile(legacyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	marker := filepath.Join(t.TempDir(), "lock-acquired")
-	cmd := exec.Command(os.Args[0], "-test.run=^TestTransactionSerializesAcrossProcessesAndRecoversAfterCrash$")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestStoreWideTransactionSerializesDifferentSessionsAcrossProcesses$")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -563,7 +604,7 @@ func TestTransactionSerializesAcrossProcessesAndRecoversAfterCrash(t *testing.T)
 
 	callbackCalled := false
 	started := time.Now()
-	err = Transaction(sessionID, func(s *State) error {
+	err = Transaction(migratingSessionID, func(s *State) error {
 		callbackCalled = true
 		s.SawNetworkCall = true
 		return nil
@@ -577,9 +618,15 @@ func TestTransactionSerializesAcrossProcessesAndRecoversAfterCrash(t *testing.T)
 	if elapsed := time.Since(started); elapsed > 4*time.Second {
 		t.Errorf("contending cross-process Transaction blocked for %s, want bounded failure", elapsed)
 	}
-	state := readDurableState(t, sessionID)
-	if !state.SawPrivateRead || state.SawNetworkCall {
-		t.Errorf("failed contender changed durable state while subprocess held lock: %+v", state)
+	holderState := readDurableState(t, holderSessionID)
+	if !holderState.SawPrivateRead || holderState.SawNetworkCall {
+		t.Errorf("failed cross-session contender changed holder state: %+v", holderState)
+	}
+	if legacyAfter, readErr := os.ReadFile(legacyPath); readErr != nil || string(legacyAfter) != string(legacyBefore) {
+		t.Errorf("failed cross-session contender changed legacy state: raw=%q err=%v", legacyAfter, readErr)
+	}
+	if _, statErr := os.Stat(Path(migratingSessionID)); !os.IsNotExist(statErr) {
+		t.Errorf("failed cross-session contender created v2 state: %v", statErr)
 	}
 
 	if err := cmd.Process.Kill(); err != nil {
@@ -589,18 +636,25 @@ func TestTransactionSerializesAcrossProcessesAndRecoversAfterCrash(t *testing.T)
 		t.Fatal("lock-holder subprocess exited successfully, want forced crash")
 	}
 	waited = true
-	if err := Transaction(sessionID, func(s *State) error {
+	if err := Transaction(migratingSessionID, func(s *State) error {
 		if !s.SawPrivateRead || s.SawNetworkCall {
-			t.Fatalf("state after lock-holder crash = %+v, want preseeded durable state", s)
+			t.Fatalf("state after lock-holder crash = %+v, want migrating session's legacy state", s)
 		}
 		s.SawNetworkCall = true
 		return nil
 	}); err != nil {
 		t.Fatalf("transaction after lock-holder crash: %v", err)
 	}
-	state = readDurableState(t, sessionID)
-	if !state.SawPrivateRead || !state.SawNetworkCall {
-		t.Fatalf("post-crash recovery update was not durable: %+v", state)
+	migratedState := readDurableState(t, migratingSessionID)
+	if !migratedState.SawPrivateRead || !migratedState.SawNetworkCall {
+		t.Fatalf("post-crash legacy migration was not durable: %+v", migratedState)
+	}
+	if legacyAfter, readErr := os.ReadFile(legacyPath); readErr != nil || string(legacyAfter) != string(legacyBefore) {
+		t.Fatalf("successful migration changed retained legacy state: raw=%q err=%v", legacyAfter, readErr)
+	}
+	holderState = readDurableState(t, holderSessionID)
+	if !holderState.SawPrivateRead || holderState.SawNetworkCall {
+		t.Fatalf("crashed holder changed its durable state: %+v", holderState)
 	}
 }
 

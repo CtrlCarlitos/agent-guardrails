@@ -155,7 +155,13 @@ func TestApplyTrifectaUnavailableTrackingPreservesUnderlyingVerdict(t *testing.T
 
 func TestApplyTrifectaWaiverDisablesPolicyOperation(t *testing.T) {
 	pol := pathPol()
+	if !TrifectaTrackingEnabled(pol) {
+		t.Fatal("unwaived P7 tracking reported disabled")
+	}
 	pol.Waived = map[string]bool{"P7.trifecta": true}
+	if TrifectaTrackingEnabled(pol) {
+		t.Fatal("waived P7 tracking reported enabled")
+	}
 	state := &session.State{SawNetworkCall: true}
 	private := ToolCall{Tool: "Read", Paths: []string{"/h/.ssh/id_rsa"}}
 	if v := ApplyTrifecta(policy.Verdict{Decision: policy.Allow}, private, state, pol); v != nil {

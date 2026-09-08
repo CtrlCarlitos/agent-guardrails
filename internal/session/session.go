@@ -112,13 +112,7 @@ func Transaction(sessionID string, update func(*State) error) (err error) {
 	if err := atomicWrite(path, raw); err != nil {
 		return fmt.Errorf("persist session state: %w", err)
 	}
-	if legacyStatePath != "" {
-		if err := os.Remove(legacyStatePath); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("remove migrated legacy session state: %w", err)
-		}
-	}
-
-	prune(d)
+	prune(d, legacyStatePath)
 	return nil
 }
 
@@ -204,13 +198,13 @@ func atomicWrite(path string, raw []byte) error {
 
 // prune removes session files whose mtime is older than 24h. Best-effort:
 // any error here is silently swallowed, never returned to the caller.
-func prune(d string) {
+func prune(d, preservePath string) {
 	cutoff := time.Now().Add(-24 * time.Hour)
-	pruneDir(d, cutoff)
-	pruneDir(filepath.Join(d, "v2"), cutoff)
+	pruneDir(d, cutoff, preservePath)
+	pruneDir(filepath.Join(d, "v2"), cutoff, "")
 }
 
-func pruneDir(d string, cutoff time.Time) {
+func pruneDir(d string, cutoff time.Time, preservePath string) {
 	entries, err := os.ReadDir(d)
 	if err != nil {
 		return
@@ -219,10 +213,14 @@ func pruneDir(d string, cutoff time.Time) {
 		if !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
+		path := filepath.Join(d, e.Name())
+		if path == preservePath {
+			continue
+		}
 		info, err := e.Info()
 		if err != nil || info.ModTime().After(cutoff) {
 			continue
 		}
-		os.Remove(filepath.Join(d, e.Name()))
+		os.Remove(path)
 	}
 }

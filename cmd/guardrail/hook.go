@@ -98,7 +98,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	v := engine.Evaluate(tc, merged)
 
-	if tc.Event == "pre" {
+	if tc.Event == "pre" && engine.TrifectaTrackingEnabled(merged) {
 		trackingUnavailable := tc.SessionID == ""
 		if tc.SessionID != "" {
 			if err := session.Transaction(tc.SessionID, func(st *session.State) error {

@@ -36,10 +36,16 @@ func IsNetworkAttempt(tc ToolCall) bool {
 	return false
 }
 
+// TrifectaTrackingEnabled reports whether plane orchestration should provide
+// session state for the P7 heuristic under the active policy.
+func TrifectaTrackingEnabled(pol *policy.Policy) bool {
+	return !pol.Waived["P7.trifecta"]
+}
+
 // ApplyTrifecta evaluates and records the P7 signals for one tool call. A nil
 // state reports that the plane adapter could not make session tracking available.
 func ApplyTrifecta(v policy.Verdict, tc ToolCall, st *session.State, pol *policy.Policy) *policy.Verdict {
-	if pol.Waived["P7.trifecta"] {
+	if !TrifectaTrackingEnabled(pol) {
 		return nil
 	}
 	isPrivate := IsPrivateDataAccess(tc, pol)

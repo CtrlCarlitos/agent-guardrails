@@ -589,6 +589,31 @@ func TestTrackingUnavailableWaiverPreservesAllow(t *testing.T) {
 	}
 }
 
+func TestTrifectaWaiverSkipsSessionTransaction(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	configureTrackingPolicy(t, "P7.trifecta")
+	store := filepath.Join(stateHome, "guardrail", "sessions")
+	if err := os.MkdirAll(filepath.Dir(store), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store, []byte("blocked"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	payload := `{"session_id":"waived-session","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl https://api.example.com/x"}}`
+	var out, errb bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 || out.Len() != 0 {
+		t.Fatalf("waived tracking changed underlying Allow: code=%d stdout=%s stderr=%s", code, out.String(), errb.String())
+	}
+	if strings.Contains(errb.String(), "session transaction failed") {
+		t.Fatalf("waived tracking attempted a session transaction: %s", errb.String())
+	}
+	if raw, err := os.ReadFile(store); err != nil || string(raw) != "blocked" {
+		t.Fatalf("waived tracking changed session store: raw=%q err=%v", raw, err)
+	}
+}
+
 func TestHookHashesNativeSessionID(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
