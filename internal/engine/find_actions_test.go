@@ -313,18 +313,8 @@ func TestFindOpaqueCallbacksRetainSelfConfigDeny(t *testing.T) {
 
 // Mutation caught: locating derived argv by value can copy provenance from an earlier equal find argument.
 func TestFindCallbackDerivationUsesExactSourceOffset(t *testing.T) {
-	simples, err := Normalize(`CMD="git"; find git -exec "$CMD" \;`, "/repo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(simples) != 1 {
-		t.Fatalf("Normalize returned %+v, want one find command", simples)
-	}
-	parsed := parseFindActions(simples[0].Argv)
-	callbacks := adaptFindCallbacks(&parsed, simples[0], ToolCall{Tool: "Bash", CWD: "/repo", RepoRoot: "/repo"})
-	if len(callbacks) != 1 || len(callbacks[0].Argv) != 1 || callbacks[0].Argv[0] != "git" || !callbacks[0].resolvedArgs[0] {
-		t.Fatalf("adaptFindCallbacks = %+v, want callback executable provenance from the exact callback word", callbacks)
-	}
+	command := `CMD=cat; find cat -exec "$CMD" \;`
+	requireFindVerdict(t, ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, bashPol(), findVerdictExpectation{policy.Ask, "P1.find-delete"})
 }
 
 // Mutation caught: resolved command words must not acquire literal bare-rm scoped-deletion ownership.
