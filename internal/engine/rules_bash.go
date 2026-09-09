@@ -348,6 +348,45 @@ func samePlatformPath(left, right string) bool {
 	return left == right
 }
 
+type pathRelation struct {
+	relative     string
+	equal        bool
+	within       bool
+	sameSpelling bool
+}
+
+func pathRelationBetween(target, root string) pathRelation {
+	target, root = filepath.Clean(target), filepath.Clean(root)
+	rootInfo, rootErr := os.Stat(root)
+	if rootErr == nil {
+		current := target
+		var suffix []string
+		for {
+			if currentInfo, err := os.Stat(current); err == nil && os.SameFile(currentInfo, rootInfo) {
+				sameSpelling := samePlatformPath(current, root) || strings.EqualFold(current, root)
+				if len(suffix) == 0 {
+					return pathRelation{relative: ".", equal: true, sameSpelling: sameSpelling}
+				}
+				return pathRelation{relative: filepath.Join(suffix...), within: true, sameSpelling: sameSpelling}
+			}
+			parent := filepath.Dir(current)
+			if parent == current {
+				break
+			}
+			suffix = append([]string{filepath.Base(current)}, suffix...)
+			current = parent
+		}
+	}
+	if samePlatformPath(target, root) {
+		return pathRelation{relative: ".", equal: true, sameSpelling: true}
+	}
+	relative, err := filepath.Rel(root, target)
+	if err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return pathRelation{relative: relative, within: true, sameSpelling: true}
+	}
+	return pathRelation{}
+}
+
 func hasRawDotDot(candidate string) bool {
 	for _, component := range strings.FieldsFunc(candidate, pathSeparator) {
 		if component == ".." {
@@ -524,7 +563,8 @@ func authorizedPath(candidate pathCandidate, repoRoot string, safeRoots, strictR
 			return
 		}
 		physical, ok := resolveExistingPath(root, "")
-		if !ok || rejectSymlink && filepath.Clean(physical) != filepath.Clean(root) {
+		physicalVolumeRoot := filepath.VolumeName(physical) + string(filepath.Separator)
+		if !ok || pathRelationBetween(physical, physicalVolumeRoot).equal || rejectSymlink && !pathRelationBetween(physical, root).sameSpelling {
 			return
 		}
 		roots = append(roots, authorizedRoot{lexical: root, physical: physical, strict: strict})
@@ -543,15 +583,18 @@ func authorizedPath(candidate pathCandidate, repoRoot string, safeRoots, strictR
 		if !root.strict {
 			continue
 		}
-		lexicalEquality := samePlatformPath(target, root.lexical)
-		if lexicalEquality || samePlatformPath(physicalTarget, root.physical) {
-			return false, lexicalEquality
+		lexicalRelation := pathRelationBetween(target, root.lexical)
+		physicalRelation := pathRelationBetween(physicalTarget, root.physical)
+		if lexicalRelation.equal || physicalRelation.equal {
+			return false, lexicalRelation.sameSpelling
 		}
 	}
 	withinRoot := func(root authorizedRoot) bool {
-		if withinSafe(target, root.lexical, nil) {
+		lexicalRelation := pathRelationBetween(target, root.lexical)
+		if lexicalRelation.sameSpelling && (lexicalRelation.equal || lexicalRelation.within) {
 			lexical = true
-			if withinSafe(physicalTarget, root.physical, nil) {
+			physicalRelation := pathRelationBetween(physicalTarget, root.physical)
+			if physicalRelation.sameSpelling && (physicalRelation.equal || physicalRelation.within) {
 				return true
 			}
 		}

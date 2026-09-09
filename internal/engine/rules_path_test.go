@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -2147,10 +2148,98 @@ func TestNF17ClaudeMemoryAllowsSymlinkedActualHome(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Remove(alias) })
 	nf17SetHome(t, alias)
+	memoryRoot := filepath.Join(alias, ".claude", "projects", "project-key", "memory")
+	if err := os.MkdirAll(memoryRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	target := filepath.Join(alias, ".claude", "projects", "project-key", "memory", "note.md")
 	call := ToolCall{Plane: "claude", Tool: "Write", Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"}
 	if v := Evaluate(call, pathPol()); v.Decision != policy.Allow || v.RuleID != "" {
 		t.Fatalf("Evaluate(Write under symlinked actual home) = %+v, want allow", v)
+	}
+	call = ToolCall{Plane: "claude", Tool: "Bash", Command: fmt.Sprintf("rm -rf %q", memoryRoot), CWD: alias, RepoRoot: memoryRoot}
+	if v := Evaluate(call, pathPol()); v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+		t.Fatalf("Evaluate(rm memory root under symlinked actual home) = %+v, want deny/P1.rm-rf", v)
+	}
+}
+
+// Mutation caught: lexical-only HOME containment omits the strict memory root when the filesystem accepts case-only spellings.
+func TestNF17ClaudeMemoryCaseSpellingFollowsFilesystemIdentity(t *testing.T) {
+	home, err := os.MkdirTemp(".", ".NF17-CaseHome-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err = filepath.Abs(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	nf17SetHome(t, home)
+	memoryRoot := filepath.Join(home, ".claude", "projects", "project-key", "memory")
+	if err := os.MkdirAll(memoryRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	caseHome := filepath.Join(filepath.Dir(home), strings.ToLower(filepath.Base(home)))
+	caseMemoryRoot := filepath.Join(caseHome, ".claude", "projects", "project-key", "memory")
+	homeInfo, err := os.Stat(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseInfo, caseErr := os.Stat(caseHome)
+	if caseErr == nil && os.SameFile(homeInfo, caseInfo) {
+		call := ToolCall{Plane: "claude", Tool: "Bash", Command: fmt.Sprintf("rm -rf %q", caseMemoryRoot), CWD: caseHome, RepoRoot: caseMemoryRoot}
+		if v := Evaluate(call, pathPol()); v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Fatalf("Evaluate(rm case-only memory root) = %+v, want deny/P1.rm-rf", v)
+		}
+		return
+	}
+
+	if err := os.MkdirAll(caseMemoryRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(caseHome) })
+	target := filepath.Join(caseMemoryRoot, "note.md")
+	call := ToolCall{Plane: "claude", Tool: "Write", Paths: []string{target}, CWD: caseHome, RepoRoot: "/repo"}
+	if v := Evaluate(call, pathPol()); v.Decision != policy.Ask || v.RuleID != "P5.out-of-repo" {
+		t.Fatalf("Evaluate(Write under distinct case-sensitive home) = %+v, want ask/P5.out-of-repo", v)
+	}
+}
+
+// Mutation caught: filesystem identity alone must not grant memory authority through an unconfigured symlink spelling.
+func TestNF17ClaudeMemoryRejectsUnconfiguredHomeSymlinkAlias(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	home, err := os.MkdirTemp(".", ".nf17-configured-home-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err = filepath.Abs(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	nf17SetHome(t, home)
+	if err := os.MkdirAll(filepath.Join(home, ".claude", "projects", "project-key", "memory"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	alias := filepath.Join(filepath.Dir(home), filepath.Base(home)+"-alias")
+	if err := os.Symlink(home, alias); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(alias) })
+	aliasMemoryRoot := filepath.Join(alias, ".claude", "projects", "project-key", "memory")
+	rmCall := ToolCall{Plane: "claude", Tool: "Bash", Command: fmt.Sprintf("rm -rf %q", aliasMemoryRoot), CWD: alias, RepoRoot: aliasMemoryRoot}
+	if v := Evaluate(rmCall, pathPol()); v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+		t.Fatalf("Evaluate(rm memory root through unconfigured HOME alias) = %+v, want deny/P1.rm-rf", v)
+	}
+
+	target := filepath.Join(aliasMemoryRoot, "note.md")
+	call := ToolCall{Plane: "claude", Tool: "Write", Paths: []string{target}, CWD: alias, RepoRoot: "/repo"}
+	if v := Evaluate(call, pathPol()); v.Decision != policy.Ask || v.RuleID != "P5.out-of-repo" {
+		t.Fatalf("Evaluate(Write through unconfigured HOME alias) = %+v, want ask/P5.out-of-repo", v)
 	}
 }
 

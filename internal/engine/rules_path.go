@@ -5,7 +5,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"unicode"
 
@@ -754,32 +753,44 @@ func claudeMemoryRoot(candidate pathCandidate) string {
 	if err != nil {
 		return ""
 	}
-	relative, err := filepath.Rel(home, target)
-	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+	homeRelation := pathRelationBetween(target, home)
+	if homeRelation.equal || !homeRelation.within {
 		return ""
 	}
-	components := strings.Split(relative, string(filepath.Separator))
+	components := strings.Split(homeRelation.relative, string(filepath.Separator))
 	if len(components) < 4 {
 		return ""
 	}
-	equalComponent := func(got, want string) bool {
-		if runtime.GOOS == "windows" {
-			return strings.EqualFold(got, want)
-		}
-		return got == want
+	candidateHome := target
+	for range components {
+		candidateHome = filepath.Dir(candidateHome)
 	}
-	if !equalComponent(components[0], ".claude") || !equalComponent(components[1], "projects") || components[2] == "" || !equalComponent(components[3], "memory") {
+	if components[2] == "" {
 		return ""
 	}
-	memoryRoot := filepath.Join(home, components[0], components[1], components[2], components[3])
+	candidatePrefix, expectedPrefix := candidateHome, home
+	expectedComponents := []string{".claude", "projects", components[2], "memory"}
+	for index, component := range components[:4] {
+		candidatePrefix = filepath.Join(candidatePrefix, component)
+		expectedPrefix = filepath.Join(expectedPrefix, expectedComponents[index])
+		if !pathRelationBetween(candidatePrefix, expectedPrefix).equal {
+			return ""
+		}
+		if info, err := os.Lstat(candidatePrefix); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return ""
+		} else if err != nil && !os.IsNotExist(err) {
+			return ""
+		}
+	}
+	memoryRoot := expectedPrefix
 	physicalHome, homeOK := resolveExistingPath(home, "")
 	physicalMemory, memoryOK := resolveExistingPath(memoryRoot, "")
 	if !homeOK || !memoryOK {
 		return ""
 	}
 	physicalVolumeRoot := filepath.VolumeName(physicalHome) + string(filepath.Separator)
-	expectedPhysicalMemory := filepath.Join(physicalHome, components[0], components[1], components[2], components[3])
-	if samePlatformPath(physicalHome, physicalVolumeRoot) || !samePlatformPath(physicalMemory, expectedPhysicalMemory) {
+	physicalRelation := pathRelationBetween(physicalMemory, physicalHome)
+	if pathRelationBetween(physicalHome, physicalVolumeRoot).equal || !physicalRelation.within {
 		return ""
 	}
 	return memoryRoot
