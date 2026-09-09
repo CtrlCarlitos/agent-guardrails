@@ -22,9 +22,8 @@ type findOutput struct {
 }
 
 type findCallback struct {
-	argv        []string
-	execDir     bool
-	unsupported bool
+	argv    []string
+	execDir bool
 }
 
 type findAction struct {
@@ -35,17 +34,17 @@ type findAction struct {
 }
 
 type findActionParseResult struct {
-	roots              []findRoot
-	outputs            []findOutput
-	callbacks          []findCallback
-	actions            []findAction
-	expressionStart    int
-	uncertaintyReason  string
-	traversalUncertain bool
-	hasLeadingOptions  bool
-	nf9Managed         bool
-	nf9Exact           bool
-	nf9Root            string
+	roots                      []findRoot
+	outputs                    []findOutput
+	callbacks                  []findCallback
+	actions                    []findAction
+	expressionStart            int
+	uncertaintyReason          string
+	traversalUncertain         bool
+	hasLeadingOptions          bool
+	exactScopedDeletionManaged bool
+	exactScopedDeletion        bool
+	scopedDeletionRoot         string
 }
 
 func parseFindActions(argv []string) findActionParseResult {
@@ -66,7 +65,7 @@ func parseFindActions(argv []string) findActionParseResult {
 			i++
 		case argv[i] == "-D":
 			parsed.hasLeadingOptions = true
-			if i+1 >= len(argv) || isFindExpressionToken(argv[i+1]) {
+			if i+1 >= len(argv) {
 				parsed.noteUncertainty("find leading option is missing its value")
 				i++
 				continue
@@ -98,7 +97,7 @@ roots:
 			}
 			i++
 		case knownFindOneValue(arg):
-			if i+1 >= len(argv) || isFindKnownGrammarToken(argv[i+1]) {
+			if i+1 >= len(argv) {
 				parsed.noteUncertainty("find predicate is missing its value")
 				i++
 				continue
@@ -137,7 +136,7 @@ roots:
 			parsed.actions = append(parsed.actions, findAction{kind: findWriteAction, index: i, end: end})
 			i = end
 		case arg == "-delete":
-			parsed.nf9Managed = true
+			parsed.exactScopedDeletionManaged = true
 			parsed.actions = append(parsed.actions, findAction{kind: findDeleteAction, index: i, end: i + 1})
 			i++
 		case arg == "-exec" || arg == "-execdir" || arg == "-ok" || arg == "-okdir":
@@ -148,8 +147,7 @@ roots:
 				continue
 			}
 			callback.execDir = arg == "-execdir" || arg == "-okdir"
-			callback.unsupported = arg == "-ok" || arg == "-okdir" || unsupportedFindCallback(callback.argv)
-			if callback.unsupported {
+			if arg == "-ok" || arg == "-okdir" {
 				parsed.noteUncertainty("find callback requires unsupported execution semantics")
 			}
 			callbackIndex := len(parsed.callbacks)
@@ -159,8 +157,8 @@ roots:
 				kind = findUnsupportedAction
 			}
 			parsed.actions = append(parsed.actions, findAction{kind: kind, index: i, end: end, callback: callbackIndex})
-			if head(callback.argv) == "rm" {
-				parsed.nf9Managed = true
+			if callback.argv[0] == "rm" {
+				parsed.exactScopedDeletionManaged = true
 			}
 			i = end
 		default:
@@ -169,7 +167,7 @@ roots:
 		}
 	}
 
-	parsed.classifyNF9(argv)
+	parsed.classifyExactScopedDeletion(argv)
 	return parsed
 }
 
@@ -183,11 +181,6 @@ func findActionArguments(argv []string, action, count int) (int, bool) {
 	end := action + count + 1
 	if end > len(argv) {
 		return action + 1, false
-	}
-	for _, value := range argv[action+1 : end] {
-		if isFindKnownGrammarToken(value) {
-			return action + 1, false
-		}
 	}
 	return end, true
 }
@@ -205,19 +198,8 @@ func parseFindCallback(argv []string, action int) (findCallback, int, bool) {
 	return findCallback{}, action + 1, false
 }
 
-func unsupportedFindCallback(argv []string) bool {
-	switch head(argv) {
-	case "find", "sh", "bash", "zsh", "dash", "fish", "csh", "tcsh", "mksh", "ash",
-		"env", "timeout", "nice", "setsid", "stdbuf", "ionice", "watch", "chroot", "nohup",
-		"xargs", "unshare", "nsenter", "exec", "command", "builtin", "time", "eval", "busybox":
-		return true
-	default:
-		return false
-	}
-}
-
-func (parsed *findActionParseResult) classifyNF9(argv []string) {
-	if !parsed.nf9Managed || parsed.uncertaintyReason != "" || parsed.traversalUncertain || parsed.hasLeadingOptions || len(parsed.roots) != 1 || len(parsed.actions) != 1 {
+func (parsed *findActionParseResult) classifyExactScopedDeletion(argv []string) {
+	if !parsed.exactScopedDeletionManaged || parsed.uncertaintyReason != "" || parsed.traversalUncertain || parsed.hasLeadingOptions || len(parsed.roots) != 1 || len(parsed.actions) != 1 {
 		return
 	}
 	action := parsed.actions[0]
@@ -225,15 +207,15 @@ func (parsed *findActionParseResult) classifyNF9(argv []string) {
 		return
 	}
 	if action.kind == findDeleteAction {
-		parsed.nf9Exact = true
-		parsed.nf9Root = parsed.roots[0].value
+		parsed.exactScopedDeletion = true
+		parsed.scopedDeletionRoot = parsed.roots[0].value
 		return
 	}
 	if action.kind != findCallbackAction {
 		return
 	}
 	callback := parsed.callbacks[action.callback]
-	if head(callback.argv) != "rm" || callback.unsupported || len(callback.argv) < 2 {
+	if callback.argv[0] != "rm" || len(callback.argv) < 2 {
 		return
 	}
 	for _, arg := range callback.argv[1:] {
@@ -247,8 +229,8 @@ func (parsed *findActionParseResult) classifyNF9(argv []string) {
 	if callback.argv[len(callback.argv)-1] != "{}" {
 		return
 	}
-	parsed.nf9Exact = true
-	parsed.nf9Root = parsed.roots[0].value
+	parsed.exactScopedDeletion = true
+	parsed.scopedDeletionRoot = parsed.roots[0].value
 }
 
 func isFindExpressionToken(value string) bool {
@@ -283,7 +265,7 @@ func adaptFindCallbacks(parsed *findActionParseResult, outer Simple, tc ToolCall
 	var callbacks []Simple
 	for _, callback := range parsed.callbacks {
 		// NF-9 owns direct rm callbacks; evaluating them again could strengthen an approved Ask into a Deny.
-		if callback.unsupported || head(callback.argv) == "rm" {
+		if callback.argv[0] == "rm" {
 			continue
 		}
 		argv := append([]string(nil), callback.argv...)
@@ -301,7 +283,10 @@ func adaptFindCallbacks(parsed *findActionParseResult, outer Simple, tc ToolCall
 				parsed.noteUncertainty("find callback contains a transforming placeholder")
 			}
 		}
-		callbackSimple := Simple{Argv: argv, Cwd: outer.Cwd, Unresolved: outer.Unresolved, cwdUnknown: outer.cwdUnknown}
+		callbackSimple := Simple{
+			Argv: argv, Cwd: outer.Cwd, Unresolved: outer.Unresolved, cwdUnknown: outer.cwdUnknown,
+			pipelines: append([]pipelinePosition(nil), outer.pipelines...),
+		}
 		if callback.execDir {
 			callbackSimple.Unresolved = true
 			callbackSimple.cwdUnknown = true

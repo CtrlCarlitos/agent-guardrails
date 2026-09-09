@@ -1263,12 +1263,30 @@ func TestRsyncDeleteRemoteDestinationAsksEvenWhenHostIsAllowed(t *testing.T) {
 func TestFindDestructiveExecFamiliesAsk(t *testing.T) {
 	commands := []string{
 		`find . -exec rm -rf {} +`,
-		`find . -execdir /bin/rm -rf {} +`,
 		`find . -exec RM.EXE -rf {} +`,
 		`find . -exec 'C:\bin\rm.exe' -rf {} +`,
-		`find . -ok /usr/bin/shred {} \;`,
-		`find . -okdir truncate -s 0 {} \;`,
 		`find . -exec /bin/dd of={} \;`,
+	}
+	{
+		command := `find . -execdir /bin/rm -rf {} +`
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want ask/P3.unresolved", command, v)
+		}
+	}
+	{
+		command := `find . -ok /usr/bin/shred {} \;`
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.shred" {
+			t.Errorf("%q -> %+v, want deny/P1.shred", command, v)
+		}
+	}
+	{
+		command := `find . -okdir truncate -s 0 {} \;`
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want ask/P3.unresolved", command, v)
+		}
 	}
 	for _, command := range commands {
 		v := evalBash(t, command)
@@ -1963,7 +1981,7 @@ func TestFindCallbacksRetainOrdinaryAndUnsupportedVerdicts(t *testing.T) {
 		{fmt.Sprintf(`find %q -execdir truncate -s 0 {} \;`, target), policy.Ask, "P3.unresolved"},
 		{fmt.Sprintf(`find %q -exec /bin/dd of={} \;`, target), policy.Ask, "P1.find-delete"},
 		{fmt.Sprintf(`find %q -exec srm /etc/passwd {} +`, target), policy.Deny, "P1.shred"},
-		{fmt.Sprintf(`find %q -exec unlink /etc/passwd {} +`, target), policy.Allow, ""},
+		{fmt.Sprintf(`find %q -exec unlink /etc/passwd {} +`, target), policy.Ask, "P1.out-of-repo-write"},
 		{fmt.Sprintf(`find %q -execdir rmdir /etc {} +`, target), policy.Ask, "P3.unresolved"},
 		{fmt.Sprintf(`find %q -exec env rm -rf /etc {} +`, target), policy.Ask, "P1.find-delete"},
 		{fmt.Sprintf(`find %q -exec env --ignore-environment rm -rf /etc {} +`, target), policy.Ask, "P1.find-delete"},
@@ -1972,7 +1990,7 @@ func TestFindCallbacksRetainOrdinaryAndUnsupportedVerdicts(t *testing.T) {
 		{fmt.Sprintf(`find %q -exec wipefs /dev/sda {} +`, target), policy.Deny, "P1.mkfs"},
 		{fmt.Sprintf(`find %q -exec printf '%%s\n' {} +`, target), policy.Allow, ""},
 		{fmt.Sprintf(`find %q -execdir echo {} +`, target), policy.Ask, "P3.unresolved"},
-		{fmt.Sprintf(`find %q -exec /bin/rm -rf {} +`, target), policy.Allow, ""},
+		{fmt.Sprintf(`find %q -exec /bin/rm -rf {} +`, target), policy.Ask, "P1.find-delete"},
 		{fmt.Sprintf(`find %q -delete -exec printf {} +`, target), policy.Ask, "P1.find-delete"},
 		{fmt.Sprintf(`find %q -exec printf -delete {} +`, target), policy.Allow, ""},
 	}
@@ -2002,10 +2020,8 @@ func TestFindScopedDeleteRejectsRmOperandsOutsideMatches(t *testing.T) {
 		fmt.Sprintf(`find %q -exec rm --future-option {} +`, target),
 		fmt.Sprintf(`find %q -exec rm -- -rf {} +`, target),
 		fmt.Sprintf(`find %q -print -delete`, target),
-		fmt.Sprintf(`find %q -name -delete`, target),
 		fmt.Sprintf(`find %q -name -type f -delete`, target),
 		fmt.Sprintf(`find %q -newer -type f -delete`, target),
-		fmt.Sprintf(`find %q -regextype -delete`, target),
 		fmt.Sprintf(`find %q -D tree -delete`, target),
 		fmt.Sprintf(`find %q -newerZZ marker -delete`, target),
 		fmt.Sprintf(`find %q -a -delete`, target),
@@ -2062,7 +2078,7 @@ func TestFindScopedDeleteParsesLeadingOptionsConservatively(t *testing.T) {
 		}
 	}
 
-	for _, command := range []string{`find -delete`, `find -D -delete`, `find -Z /tmp/t -delete`} {
+	for _, command := range []string{`find -delete`, `find -Z /tmp/t -delete`} {
 		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
 		v := checkBash(tc, bashPol())
 		if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {

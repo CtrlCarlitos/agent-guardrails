@@ -292,7 +292,7 @@ var mutatingDestinationCommands = map[string]destinationCommandSpec{
 
 var mutatingAllArgs = map[string]bool{
 	"rm": true, "truncate": true, "chmod": true, "chown": true,
-	"mkdir": true, "touch": true, "shred": true,
+	"mkdir": true, "touch": true, "shred": true, "unlink": true, "rmdir": true,
 }
 
 type destinationArgs struct {
