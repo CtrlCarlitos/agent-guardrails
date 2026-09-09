@@ -15,9 +15,15 @@ func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 		}
 	}()
 
+	var bash *bashAnalysis
+	var bashVerdict *policy.Verdict
+	if tc.IsBash() {
+		bash = analyzeBash(tc)
+		bashVerdict = checkBashAnalysis(tc, pol, bash)
+	}
 	hits := []*policy.Verdict{
-		checkPaths(tc, pol),
-		checkBash(tc, pol),
+		checkPathsAnalysis(tc, pol, bash),
+		bashVerdict,
 		matchOverlayRules(tc, pol),
 	}
 	var worst *policy.Verdict

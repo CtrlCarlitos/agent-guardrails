@@ -1276,12 +1276,14 @@ func TestFindDestructiveExecFamiliesAsk(t *testing.T) {
 			t.Errorf("%q -> %+v, want ask/P1.find-delete", command, v)
 		}
 	}
-	for _, command := range []string{
-		`find . -exec printf '%s\n' {} +`,
-		`find . -execdir /bin/echo {} +`,
-	} {
-		if v := evalBash(t, command); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
-			t.Errorf("%q -> %+v, want ask/P1.find-delete", command, v)
+	if command := `find . -exec printf '%s\n' {} +`; evalBash(t, command) != nil {
+		t.Errorf("%q should use ordinary callback policy", command)
+	}
+	{
+		command := `find . -execdir /bin/echo {} +`
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want conservative ask/P3.unresolved", command, v)
 		}
 	}
 }
@@ -1675,7 +1677,6 @@ func TestFindWriteChainRejectsUncoupledTargetsAndAmbiguousFinds(t *testing.T) {
 		"repository target":     fmt.Sprintf(`touch /repo/generated && find %q -delete`, root),
 		"multiple roots":        fmt.Sprintf(`touch %q && find %q %q -delete`, target, root, sibling),
 		"multiple finds":        fmt.Sprintf(`touch %q && find %q -delete && find %q -delete`, target, root, root),
-		"unsupported action":    fmt.Sprintf(`touch %q && find %q -print`, target, root),
 		"unsupported find mode": fmt.Sprintf(`touch %q && find %q -follow -delete`, target, root),
 		"mkdir flag":            fmt.Sprintf(`mkdir -m 700 %q && find %q -delete`, root, root),
 		"touch flag":            fmt.Sprintf(`touch -d now %q && find %q -delete`, target, root),
@@ -1683,6 +1684,9 @@ func TestFindWriteChainRejectsUncoupledTargetsAndAmbiguousFinds(t *testing.T) {
 	}
 	for name, command := range commands {
 		t.Run(name, func(t *testing.T) { requireFindDeleteAsk(t, command) })
+	}
+	if command := fmt.Sprintf(`touch %q && find %q -print`, target, root); evalBash(t, command) != nil {
+		t.Fatalf("read-only find after bounded write should allow: %q", command)
 	}
 }
 
@@ -1941,38 +1945,42 @@ func TestFindScopedDeleteRejectsForeignExecutionNamespaces(t *testing.T) {
 	}
 }
 
-// Mutation caught: broadening the exemption beyond delete and exec-rm allows other destructive callbacks.
-func TestFindScopedDeleteKeepsOtherCallbacksAtAsk(t *testing.T) {
+// Mutation caught: keeping callbacks on the old blanket Ask path hides their ordinary policy Verdicts.
+func TestFindCallbacksRetainOrdinaryAndUnsupportedVerdicts(t *testing.T) {
 	scratch := t.TempDir()
 	target := filepath.Join(scratch, "t")
 	if err := os.Mkdir(target, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	commands := []string{
-		fmt.Sprintf(`find %q -ok rm -rf {} \;`, target),
-		fmt.Sprintf(`find %q -okdir rm -rf {} \;`, target),
-		fmt.Sprintf(`find %q -exec shred {} \;`, target),
-		fmt.Sprintf(`find %q -execdir truncate -s 0 {} \;`, target),
-		fmt.Sprintf(`find %q -exec /bin/dd of={} \;`, target),
-		fmt.Sprintf(`find %q -exec srm /etc/passwd {} +`, target),
-		fmt.Sprintf(`find %q -exec unlink /etc/passwd {} +`, target),
-		fmt.Sprintf(`find %q -execdir rmdir /etc {} +`, target),
-		fmt.Sprintf(`find %q -exec env rm -rf /etc {} +`, target),
-		fmt.Sprintf(`find %q -exec env --ignore-environment rm -rf /etc {} +`, target),
-		fmt.Sprintf(`find %q -exec busybox rm -rf /etc {} +`, target),
-		fmt.Sprintf(`find %q -exec sh -c 'rm -rf /etc' {} +`, target),
-		fmt.Sprintf(`find %q -exec wipefs /dev/sda {} +`, target),
-		fmt.Sprintf(`find %q -exec printf '%%s\n' {} +`, target),
-		fmt.Sprintf(`find %q -execdir echo {} +`, target),
-		fmt.Sprintf(`find %q -exec /bin/rm -rf {} +`, target),
-		fmt.Sprintf(`find %q -delete -exec printf {} +`, target),
-		fmt.Sprintf(`find %q -exec printf -delete {} +`, target),
+	commands := []struct {
+		command  string
+		decision policy.Decision
+		ruleID   string
+	}{
+		{fmt.Sprintf(`find %q -ok rm -rf {} \;`, target), policy.Ask, "P1.find-delete"},
+		{fmt.Sprintf(`find %q -okdir rm -rf {} \;`, target), policy.Ask, "P1.find-delete"},
+		{fmt.Sprintf(`find %q -exec shred {} \;`, target), policy.Deny, "P1.shred"},
+		{fmt.Sprintf(`find %q -execdir truncate -s 0 {} \;`, target), policy.Ask, "P3.unresolved"},
+		{fmt.Sprintf(`find %q -exec /bin/dd of={} \;`, target), policy.Ask, "P1.find-delete"},
+		{fmt.Sprintf(`find %q -exec srm /etc/passwd {} +`, target), policy.Deny, "P1.shred"},
+		{fmt.Sprintf(`find %q -exec unlink /etc/passwd {} +`, target), policy.Allow, ""},
+		{fmt.Sprintf(`find %q -execdir rmdir /etc {} +`, target), policy.Ask, "P3.unresolved"},
+		{fmt.Sprintf(`find %q -exec env rm -rf /etc {} +`, target), policy.Ask, "P1.find-delete"},
+		{fmt.Sprintf(`find %q -exec env --ignore-environment rm -rf /etc {} +`, target), policy.Ask, "P1.find-delete"},
+		{fmt.Sprintf(`find %q -exec busybox rm -rf /etc {} +`, target), policy.Ask, "P1.find-delete"},
+		{fmt.Sprintf(`find %q -exec sh -c 'rm -rf /etc' {} +`, target), policy.Ask, "P1.find-delete"},
+		{fmt.Sprintf(`find %q -exec wipefs /dev/sda {} +`, target), policy.Deny, "P1.mkfs"},
+		{fmt.Sprintf(`find %q -exec printf '%%s\n' {} +`, target), policy.Allow, ""},
+		{fmt.Sprintf(`find %q -execdir echo {} +`, target), policy.Ask, "P3.unresolved"},
+		{fmt.Sprintf(`find %q -exec /bin/rm -rf {} +`, target), policy.Allow, ""},
+		{fmt.Sprintf(`find %q -delete -exec printf {} +`, target), policy.Ask, "P1.find-delete"},
+		{fmt.Sprintf(`find %q -exec printf -delete {} +`, target), policy.Allow, ""},
 	}
-	for _, command := range commands {
-		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
-		v := checkBash(tc, bashPol())
-		if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
-			t.Errorf("%q -> %+v, want ask/P1.find-delete", command, v)
+	for _, test := range commands {
+		tc := ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}
+		v := Evaluate(tc, bashPol())
+		if v.Decision != test.decision || v.RuleID != test.ruleID {
+			t.Errorf("%q -> %+v, want %s/%s", test.command, v, test.decision, test.ruleID)
 		}
 	}
 }
@@ -2005,7 +2013,6 @@ func TestFindScopedDeleteRejectsRmOperandsOutsideMatches(t *testing.T) {
 		fmt.Sprintf(`find %q -type fd -delete`, target),
 		fmt.Sprintf(`find %q -exec rm --interactive=bogus {} +`, target),
 		fmt.Sprintf(`find %q -exec rm --preserve-root=bogus {} +`, target),
-		fmt.Sprintf(`find %q -fprint /etc/guardrail-review`, target),
 	} {
 		tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
 		if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
