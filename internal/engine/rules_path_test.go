@@ -1910,13 +1910,15 @@ func TestNF17FileToolsAuthorizeStrictSystemTempDescendants(t *testing.T) {
 	tmpdir := t.TempDir()
 	t.Setenv("TMPDIR", tmpdir)
 	target := filepath.Join(tmpdir, "session", "scratchpad", "note.md")
-	for _, tool := range []string{"Write", "Edit", "MultiEdit"} {
-		t.Run(tool, func(t *testing.T) {
-			call := ToolCall{Tool: tool, Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"}
-			if v := Evaluate(call, pathPol()); v.Decision != policy.Allow || v.RuleID != "" {
-				t.Fatalf("Evaluate(%s %q) = %+v, want allow", tool, target, v)
-			}
-		})
+	for _, plane := range []string{"claude", "opencode", "antigravity", ""} {
+		for _, tool := range []string{"Write", "Edit", "MultiEdit"} {
+			t.Run(plane+"/"+tool, func(t *testing.T) {
+				call := ToolCall{Plane: plane, Tool: tool, Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"}
+				if v := Evaluate(call, pathPol()); v.Decision != policy.Allow || v.RuleID != "" {
+					t.Fatalf("Evaluate(%s %s %q) = %+v, want allow", plane, tool, target, v)
+				}
+			})
+		}
 	}
 }
 
@@ -1954,11 +1956,11 @@ func TestNF17ActualHomeClaudeMemoryAllowsApprovedOperations(t *testing.T) {
 	nf17SetHome(t, home)
 	target := filepath.Join(home, ".claude", "projects", "project-key", "memory", "notes", "note.md")
 	tests := []ToolCall{
-		{Tool: "Write", Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"},
-		{Tool: "Edit", Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"},
-		{Tool: "MultiEdit", Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"},
-		{Tool: "Bash", Command: "printf x > " + target, CWD: "/repo", RepoRoot: "/repo"},
-		{Tool: "Bash", Command: "rm -rf " + target, CWD: "/repo", RepoRoot: "/repo"},
+		{Plane: "claude", Tool: "Write", Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"},
+		{Plane: "claude", Tool: "Edit", Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"},
+		{Plane: "claude", Tool: "MultiEdit", Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"},
+		{Plane: "claude", Tool: "Bash", Command: "printf x > " + target, CWD: "/repo", RepoRoot: "/repo"},
+		{Plane: "claude", Tool: "Bash", Command: "rm -rf " + target, CWD: "/repo", RepoRoot: "/repo"},
 	}
 	for _, call := range tests {
 		if v := Evaluate(call, pathPol()); v.Decision != policy.Allow || v.RuleID != "" {
@@ -1978,11 +1980,11 @@ func TestNF17ClaudeMemoryRootRemainsProtected(t *testing.T) {
 		decision policy.Decision
 		ruleID   string
 	}{
-		{"Write", ToolCall{Tool: "Write", Paths: []string{root}, CWD: "/repo", RepoRoot: "/repo"}, policy.Ask, "P5.out-of-repo"},
-		{"Edit", ToolCall{Tool: "Edit", Paths: []string{root}, CWD: "/repo", RepoRoot: "/repo"}, policy.Ask, "P5.out-of-repo"},
-		{"MultiEdit", ToolCall{Tool: "MultiEdit", Paths: []string{root}, CWD: "/repo", RepoRoot: "/repo"}, policy.Ask, "P5.out-of-repo"},
-		{"redirect", ToolCall{Tool: "Bash", Command: "printf x > " + root, CWD: "/repo", RepoRoot: "/repo"}, policy.Ask, "P1.redirect"},
-		{"recursive rm", ToolCall{Tool: "Bash", Command: "rm -rf " + root, CWD: "/repo", RepoRoot: "/repo"}, policy.Deny, "P1.rm-rf"},
+		{"Write", ToolCall{Plane: "claude", Tool: "Write", Paths: []string{root}, CWD: "/repo", RepoRoot: "/repo"}, policy.Ask, "P5.out-of-repo"},
+		{"Edit", ToolCall{Plane: "claude", Tool: "Edit", Paths: []string{root}, CWD: "/repo", RepoRoot: "/repo"}, policy.Ask, "P5.out-of-repo"},
+		{"MultiEdit", ToolCall{Plane: "claude", Tool: "MultiEdit", Paths: []string{root}, CWD: "/repo", RepoRoot: "/repo"}, policy.Ask, "P5.out-of-repo"},
+		{"redirect", ToolCall{Plane: "claude", Tool: "Bash", Command: "printf x > " + root, CWD: "/repo", RepoRoot: "/repo"}, policy.Ask, "P1.redirect"},
+		{"recursive rm", ToolCall{Plane: "claude", Tool: "Bash", Command: "rm -rf " + root, CWD: "/repo", RepoRoot: "/repo"}, policy.Deny, "P1.rm-rf"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -2013,7 +2015,7 @@ func TestNF17ClaudeMemoryRejectsFalseShapesAndTraversal(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			call := ToolCall{Tool: "Write", Paths: []string{test.path}, CWD: "/repo", RepoRoot: "/repo"}
+			call := ToolCall{Plane: "claude", Tool: "Write", Paths: []string{test.path}, CWD: "/repo", RepoRoot: "/repo"}
 			v := Evaluate(call, pathPol())
 			if v.Decision != policy.Ask || v.RuleID != "P5.out-of-repo" {
 				t.Fatalf("Evaluate(Write %q) = %+v, want ask/P5.out-of-repo", test.path, v)
@@ -2040,7 +2042,7 @@ func TestNF17ClaudeMemoryDoesNotAuthorizeOtherBashMutators(t *testing.T) {
 		{"find " + filepath.Dir(target) + " -delete", "P1.find-delete"},
 	}
 	for _, test := range tests {
-		call := ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}
+		call := ToolCall{Plane: "claude", Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}
 		if v := Evaluate(call, pathPol()); v.Decision != policy.Ask || v.RuleID != test.ruleID {
 			t.Errorf("Evaluate(%q) = %+v, want ask/%s", test.command, v, test.ruleID)
 		}
@@ -2068,7 +2070,7 @@ func TestNF17ClaudeMemoryRetainsStrongerVerdictsAndAggregation(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			call := ToolCall{Tool: "Write", Paths: test.paths, CWD: "/repo", RepoRoot: "/repo"}
+			call := ToolCall{Plane: "claude", Tool: "Write", Paths: test.paths, CWD: "/repo", RepoRoot: "/repo"}
 			v := Evaluate(call, pathPol())
 			if v.Decision != test.decision || v.RuleID != test.ruleID {
 				t.Fatalf("Evaluate(Write %q) = %+v, want %s/%s", test.paths, v, test.decision, test.ruleID)
@@ -2115,7 +2117,7 @@ func TestNF17ClaudeMemoryRequiresPhysicalContainmentUnderActualHome(t *testing.T
 		filepath.Join(projectAlias, "memory", "note.md"),
 		filepath.Join(memoryAlias, "note.md"),
 	} {
-		call := ToolCall{Tool: "Write", Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"}
+		call := ToolCall{Plane: "claude", Tool: "Write", Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"}
 		v := Evaluate(call, pathPol())
 		if v.Decision != policy.Ask || v.RuleID != "P5.out-of-repo" {
 			t.Errorf("Evaluate(Write symlink escape %q) = %+v, want ask/P5.out-of-repo", target, v)
@@ -2146,7 +2148,7 @@ func TestNF17ClaudeMemoryAllowsSymlinkedActualHome(t *testing.T) {
 	t.Cleanup(func() { _ = os.Remove(alias) })
 	nf17SetHome(t, alias)
 	target := filepath.Join(alias, ".claude", "projects", "project-key", "memory", "note.md")
-	call := ToolCall{Tool: "Write", Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"}
+	call := ToolCall{Plane: "claude", Tool: "Write", Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"}
 	if v := Evaluate(call, pathPol()); v.Decision != policy.Allow || v.RuleID != "" {
 		t.Fatalf("Evaluate(Write under symlinked actual home) = %+v, want allow", v)
 	}
@@ -2169,7 +2171,7 @@ func TestNF17ClaudeMemoryRejectsUnsetRelativeAndRootHome(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			nf17SetHome(t, test.home)
-			call := ToolCall{Tool: "Write", Paths: []string{test.path}, CWD: "/repo", RepoRoot: "/repo"}
+			call := ToolCall{Plane: "claude", Tool: "Write", Paths: []string{test.path}, CWD: "/repo", RepoRoot: "/repo"}
 			v := Evaluate(call, pathPol())
 			if v.Decision != policy.Ask || v.RuleID != "P5.out-of-repo" {
 				t.Fatalf("Evaluate(Write with HOME=%q) = %+v, want ask/P5.out-of-repo", test.home, v)
@@ -2197,11 +2199,166 @@ func TestNF17ClaudeMemoryUsesPlatformSeparatorAndCaseSemantics(t *testing.T) {
 		wantRule = ""
 	}
 	for _, candidate := range []string{separatorVariant, caseVariant} {
-		call := ToolCall{Tool: "Write", Paths: []string{candidate}, CWD: filepath.Dir(home), RepoRoot: "/repo"}
+		call := ToolCall{Plane: "claude", Tool: "Write", Paths: []string{candidate}, CWD: filepath.Dir(home), RepoRoot: "/repo"}
 		v := Evaluate(call, pathPol())
 		if v.Decision != want || v.RuleID != wantRule {
 			t.Errorf("Evaluate(Write platform variant %q) = %+v, want %s/%s", candidate, v, want, wantRule)
 		}
+	}
+}
+
+// Mutation caught: adding Claude memory roots without checking the normalized plane grants other planes the same authority.
+func TestNF17ReviewClaudeMemoryRequiresExactNormalizedClaudePlane(t *testing.T) {
+	home := nf17NonTempHome(t)
+	nf17SetHome(t, home)
+	target := filepath.Join(home, ".claude", "projects", "project-key", "memory", "note.md")
+	tests := []struct {
+		name             string
+		plane            string
+		fileDecision     policy.Decision
+		fileRule         string
+		redirectDecision policy.Decision
+		redirectRule     string
+		rmDecision       policy.Decision
+		rmRule           string
+	}{
+		{"claude", "claude", policy.Allow, "", policy.Allow, "", policy.Allow, ""},
+		{"opencode", "opencode", policy.Ask, "P5.out-of-repo", policy.Ask, "P1.redirect", policy.Deny, "P1.rm-rf"},
+		{"antigravity", "antigravity", policy.Ask, "P5.out-of-repo", policy.Ask, "P1.redirect", policy.Deny, "P1.rm-rf"},
+		{"empty", "", policy.Ask, "P5.out-of-repo", policy.Ask, "P1.redirect", policy.Deny, "P1.rm-rf"},
+		{"non-normalized case", "Claude", policy.Ask, "P5.out-of-repo", policy.Ask, "P1.redirect", policy.Deny, "P1.rm-rf"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			calls := []struct {
+				name     string
+				call     ToolCall
+				decision policy.Decision
+				ruleID   string
+			}{
+				{"file tool", ToolCall{Plane: test.plane, Tool: "Write", Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"}, test.fileDecision, test.fileRule},
+				{"redirect", ToolCall{Plane: test.plane, Tool: "Bash", Command: "printf x > " + target, CWD: "/repo", RepoRoot: "/repo"}, test.redirectDecision, test.redirectRule},
+				{"recursive rm", ToolCall{Plane: test.plane, Tool: "Bash", Command: "rm -rf " + target, CWD: "/repo", RepoRoot: "/repo"}, test.rmDecision, test.rmRule},
+			}
+			for _, operation := range calls {
+				t.Run(operation.name, func(t *testing.T) {
+					v := Evaluate(operation.call, pathPol())
+					if v.Decision != operation.decision || v.RuleID != operation.ruleID {
+						t.Fatalf("Evaluate(%s %s) = %+v, want %s/%s", test.plane, operation.name, v, operation.decision, operation.ruleID)
+					}
+				})
+			}
+		})
+	}
+}
+
+// Mutation caught: accepting any physical memory root beneath HOME permits symlink aliases in the protected suffix.
+func TestNF17ReviewClaudeMemoryRejectsSymlinksWithinHomeSuffix(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	components := []string{".claude", "projects", "project-key", "memory"}
+	for linkIndex, linkedComponent := range components {
+		t.Run(linkedComponent, func(t *testing.T) {
+			home, err := os.MkdirTemp(".", ".nf17-review-home-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			home, err = filepath.Abs(home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.RemoveAll(home) })
+			nf17SetHome(t, home)
+
+			unrelated := filepath.Join(home, "unrelated-"+strings.TrimPrefix(linkedComponent, "."))
+			if err := os.Mkdir(unrelated, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			current := home
+			for index, component := range components {
+				current = filepath.Join(current, component)
+				if index == linkIndex {
+					if err := os.Symlink(unrelated, current); err != nil {
+						t.Fatal(err)
+					}
+					continue
+				}
+				if err := os.Mkdir(current, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			target := filepath.Join(current, "note.md")
+			call := ToolCall{Plane: "claude", Tool: "Write", Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"}
+			v := Evaluate(call, pathPol())
+			if v.Decision != policy.Ask || v.RuleID != "P5.out-of-repo" {
+				t.Fatalf("Evaluate(Write through symlinked %s) = %+v, want ask/P5.out-of-repo", linkedComponent, v)
+			}
+		})
+	}
+}
+
+// Mutation caught: checking non-strict roots first allows a protected strict root through an overlapping repo or safe root.
+func TestNF17ReviewStrictRootEqualityPrecedesOverlappingNonStrictRoots(t *testing.T) {
+	tmpdir := t.TempDir()
+	t.Setenv("TMPDIR", tmpdir)
+	home := nf17NonTempHome(t)
+	nf17SetHome(t, home)
+	memoryRoot := filepath.Join(home, ".claude", "projects", "project-key", "memory")
+
+	safeTemp := pathPol()
+	safeTemp.Slots.SafeRoots = []string{filepath.Dir(tmpdir)}
+	safeHome := pathPol()
+	safeHome.Slots.SafeRoots = []string{home}
+	tests := []struct {
+		name     string
+		call     ToolCall
+		pol      *policy.Policy
+		decision policy.Decision
+		ruleID   string
+	}{
+		{"temp root equals repo", ToolCall{Plane: "opencode", Tool: "Write", Paths: []string{tmpdir}, CWD: tmpdir, RepoRoot: tmpdir}, pathPol(), policy.Ask, "P5.out-of-repo"},
+		{"temp root inside safe root", ToolCall{Plane: "opencode", Tool: "Bash", Command: "printf x > " + tmpdir, CWD: "/repo", RepoRoot: "/repo"}, safeTemp, policy.Ask, "P1.redirect"},
+		{"memory root inside repo", ToolCall{Plane: "claude", Tool: "Write", Paths: []string{memoryRoot}, CWD: home, RepoRoot: home}, pathPol(), policy.Ask, "P5.out-of-repo"},
+		{"memory root inside safe root redirect", ToolCall{Plane: "claude", Tool: "Bash", Command: "printf x > " + memoryRoot, CWD: "/repo", RepoRoot: "/repo"}, safeHome, policy.Ask, "P1.redirect"},
+		{"memory root inside safe root rm", ToolCall{Plane: "claude", Tool: "Bash", Command: "rm -rf " + memoryRoot, CWD: "/repo", RepoRoot: "/repo"}, safeHome, policy.Deny, "P1.rm-rf"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			v := Evaluate(test.call, test.pol)
+			if v.Decision != test.decision || v.RuleID != test.ruleID {
+				t.Fatalf("Evaluate(%s) = %+v, want %s/%s", test.name, v, test.decision, test.ruleID)
+			}
+		})
+	}
+}
+
+// Mutation caught: rejecting an overlapping strict root wholesale also rejects its approved strict descendants.
+func TestNF17ReviewOverlappingStrictRootDescendantsRemainAuthorized(t *testing.T) {
+	tmpdir := t.TempDir()
+	t.Setenv("TMPDIR", tmpdir)
+	home := nf17NonTempHome(t)
+	nf17SetHome(t, home)
+	memoryRoot := filepath.Join(home, ".claude", "projects", "project-key", "memory")
+	tests := []struct {
+		name string
+		call ToolCall
+		pol  *policy.Policy
+	}{
+		{"temp descendant in repo", ToolCall{Plane: "opencode", Tool: "Write", Paths: []string{filepath.Join(tmpdir, "note.md")}, CWD: tmpdir, RepoRoot: tmpdir}, pathPol()},
+		{"memory descendant in repo", ToolCall{Plane: "claude", Tool: "Write", Paths: []string{filepath.Join(memoryRoot, "note.md")}, CWD: home, RepoRoot: home}, pathPol()},
+		{"memory descendant in safe root", ToolCall{Plane: "claude", Tool: "Bash", Command: "printf x > " + filepath.Join(memoryRoot, "note.md"), CWD: "/repo", RepoRoot: "/repo"}, func() *policy.Policy {
+			pol := pathPol()
+			pol.Slots.SafeRoots = []string{home}
+			return pol
+		}()},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if v := Evaluate(test.call, test.pol); v.Decision != policy.Allow || v.RuleID != "" {
+				t.Fatalf("Evaluate(%s) = %+v, want allow", test.name, v)
+			}
+		})
 	}
 }
 

@@ -340,6 +340,14 @@ func pathWithinOrEqual(target, root string) bool {
 	return target == root || withinSafe(target, root, nil)
 }
 
+func samePlatformPath(left, right string) bool {
+	left, right = filepath.Clean(left), filepath.Clean(right)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
+}
+
 func hasRawDotDot(candidate string) bool {
 	for _, component := range strings.FieldsFunc(candidate, pathSeparator) {
 		if component == ".." {
@@ -531,6 +539,15 @@ func authorizedPath(candidate pathCandidate, repoRoot string, safeRoots, strictR
 	for _, root := range strictRoots {
 		addRoot(root, false, true)
 	}
+	for _, root := range roots {
+		if !root.strict {
+			continue
+		}
+		lexicalEquality := samePlatformPath(target, root.lexical)
+		if lexicalEquality || samePlatformPath(physicalTarget, root.physical) {
+			return false, lexicalEquality
+		}
+	}
 	withinRoot := func(root authorizedRoot) bool {
 		if withinSafe(target, root.lexical, nil) {
 			lexical = true
@@ -546,11 +563,6 @@ func authorizedPath(candidate pathCandidate, repoRoot string, safeRoots, strictR
 		}
 	}
 	for _, root := range roots {
-		if root.strict && (filepath.Clean(target) == filepath.Clean(root.lexical) || filepath.Clean(physicalTarget) == filepath.Clean(root.physical)) {
-			return false, lexical
-		}
-	}
-	for _, root := range roots {
 		if root.strict && withinRoot(root) {
 			return true, true
 		}
@@ -558,10 +570,12 @@ func authorizedPath(candidate pathCandidate, repoRoot string, safeRoots, strictR
 	return false, lexical
 }
 
-func planeOwnedWriteRoots(candidate pathCandidate) []string {
+func planeOwnedWriteRoots(plane string, candidate pathCandidate) []string {
 	roots := systemTempRoots()
-	if memoryRoot := claudeMemoryRoot(candidate); memoryRoot != "" {
-		roots = append(roots, memoryRoot)
+	if plane == "claude" {
+		if memoryRoot := claudeMemoryRoot(candidate); memoryRoot != "" {
+			roots = append(roots, memoryRoot)
+		}
 	}
 	return roots
 }
@@ -588,7 +602,7 @@ func claudeMemoryRoot(candidate pathCandidate) string {
 		return ""
 	}
 	components := strings.Split(relative, string(filepath.Separator))
-	if len(components) < 5 {
+	if len(components) < 4 {
 		return ""
 	}
 	equalComponent := func(got, want string) bool {
@@ -603,7 +617,12 @@ func claudeMemoryRoot(candidate pathCandidate) string {
 	memoryRoot := filepath.Join(home, components[0], components[1], components[2], components[3])
 	physicalHome, homeOK := resolveExistingPath(home, "")
 	physicalMemory, memoryOK := resolveExistingPath(memoryRoot, "")
-	if !homeOK || !memoryOK || filepath.Clean(physicalMemory) == filepath.Clean(physicalHome) || !withinSafe(physicalMemory, physicalHome, nil) {
+	if !homeOK || !memoryOK {
+		return ""
+	}
+	physicalVolumeRoot := filepath.VolumeName(physicalHome) + string(filepath.Separator)
+	expectedPhysicalMemory := filepath.Join(physicalHome, components[0], components[1], components[2], components[3])
+	if samePlatformPath(physicalHome, physicalVolumeRoot) || !samePlatformPath(physicalMemory, expectedPhysicalMemory) {
 		return ""
 	}
 	return memoryRoot
@@ -755,7 +774,7 @@ func checkRmRf(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		if candidate.cwdUnknown && !filepath.IsAbs(raw) {
 			continue // P3 owns runtime-relative targets whose cwd is unknowable.
 		}
-		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, planeOwnedWriteRoots(candidate), false); !authorized {
+		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, planeOwnedWriteRoots(tc.Plane, candidate), false); !authorized {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.rm-rf",
 				Reason: "recursive/forced rm of a path outside the repo and configured safe roots: " + raw}
 		}
@@ -1286,7 +1305,7 @@ func checkAskTierWithFindFSExemption(s Simple, tc ToolCall, pol *policy.Policy, 
 				continue
 			}
 		}
-		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, planeOwnedWriteRoots(candidate), false); !authorized {
+		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, planeOwnedWriteRoots(tc.Plane, candidate), false); !authorized {
 			return ask("P1.redirect", "output redirection onto a path outside the repo/safe roots: "+r)
 		}
 	}

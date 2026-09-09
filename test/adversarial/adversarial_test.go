@@ -196,7 +196,7 @@ func TestAdversarialCorpus(t *testing.T) {
 				"GUARDRAIL_CONFIG="+config,
 			)
 			if actualHome != "" {
-				cmd.Env = append(cmd.Env, "HOME="+actualHome)
+				cmd.Env = append(cmd.Env, actualHomeEnvironment(runtime.GOOS, actualHome))
 			}
 			var stdout, stderr bytes.Buffer
 			cmd.Stdout = &stdout
@@ -829,6 +829,30 @@ func rewriteActualHomePaths(e entry, actualHome string) entry {
 	}
 	e.Paths = paths
 	return e
+}
+
+func actualHomeEnvironment(goos string, actualHome string) string {
+	if goos == "windows" {
+		return "USERPROFILE=" + actualHome
+	}
+	return "HOME=" + actualHome
+}
+
+// Mutation caught: always setting HOME leaves Windows os.UserHomeDir reading the inherited USERPROFILE.
+func TestNF17ReviewActualHomeEnvironmentUsesPlatformConvention(t *testing.T) {
+	tests := []struct {
+		goos string
+		want string
+	}{
+		{"linux", "HOME=/actual/home"},
+		{"darwin", "HOME=/actual/home"},
+		{"windows", "USERPROFILE=/actual/home"},
+	}
+	for _, test := range tests {
+		if got := actualHomeEnvironment(test.goos, "/actual/home"); got != test.want {
+			t.Errorf("actualHomeEnvironment(%q) = %q, want %q", test.goos, got, test.want)
+		}
+	}
 }
 
 // Mutation caught: an implicit or prefix-only home rewrite makes corpus expectations machine-specific.
