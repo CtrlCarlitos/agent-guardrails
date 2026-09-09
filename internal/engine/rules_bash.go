@@ -570,64 +570,6 @@ func authorizedPath(candidate pathCandidate, repoRoot string, safeRoots, strictR
 	return false, lexical
 }
 
-func planeOwnedWriteRoots(plane string, candidate pathCandidate) []string {
-	roots := systemTempRoots()
-	if plane == "claude" {
-		if memoryRoot := claudeMemoryRoot(candidate); memoryRoot != "" {
-			roots = append(roots, memoryRoot)
-		}
-	}
-	return roots
-}
-
-func claudeMemoryRoot(candidate pathCandidate) string {
-	if candidate.path == "~" || strings.HasPrefix(candidate.path, "~/") || hasRawDotDot(candidate.path) || candidate.cwdUnknown && !filepath.IsAbs(candidate.path) {
-		return ""
-	}
-	home, err := os.UserHomeDir()
-	if err != nil || !filepath.IsAbs(home) {
-		return ""
-	}
-	home = filepath.Clean(home)
-	volumeRoot := filepath.VolumeName(home) + string(filepath.Separator)
-	if home == volumeRoot {
-		return ""
-	}
-	target, err := filepath.Abs(resolvePath(candidate.path, candidate.cwd))
-	if err != nil {
-		return ""
-	}
-	relative, err := filepath.Rel(home, target)
-	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return ""
-	}
-	components := strings.Split(relative, string(filepath.Separator))
-	if len(components) < 4 {
-		return ""
-	}
-	equalComponent := func(got, want string) bool {
-		if runtime.GOOS == "windows" {
-			return strings.EqualFold(got, want)
-		}
-		return got == want
-	}
-	if !equalComponent(components[0], ".claude") || !equalComponent(components[1], "projects") || components[2] == "" || !equalComponent(components[3], "memory") {
-		return ""
-	}
-	memoryRoot := filepath.Join(home, components[0], components[1], components[2], components[3])
-	physicalHome, homeOK := resolveExistingPath(home, "")
-	physicalMemory, memoryOK := resolveExistingPath(memoryRoot, "")
-	if !homeOK || !memoryOK {
-		return ""
-	}
-	physicalVolumeRoot := filepath.VolumeName(physicalHome) + string(filepath.Separator)
-	expectedPhysicalMemory := filepath.Join(physicalHome, components[0], components[1], components[2], components[3])
-	if samePlatformPath(physicalHome, physicalVolumeRoot) || !samePlatformPath(physicalMemory, expectedPhysicalMemory) {
-		return ""
-	}
-	return memoryRoot
-}
-
 func systemTempRoots() []string {
 	candidates := []string{os.TempDir()}
 	if runtime.GOOS != "windows" {
@@ -774,7 +716,7 @@ func checkRmRf(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		if candidate.cwdUnknown && !filepath.IsAbs(raw) {
 			continue // P3 owns runtime-relative targets whose cwd is unknowable.
 		}
-		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, planeOwnedWriteRoots(tc.Plane, candidate), false); !authorized {
+		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, strictWriteRoots(tc.Plane, candidate), false); !authorized {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.rm-rf",
 				Reason: "recursive/forced rm of a path outside the repo and configured safe roots: " + raw}
 		}
@@ -1305,7 +1247,7 @@ func checkAskTierWithFindFSExemption(s Simple, tc ToolCall, pol *policy.Policy, 
 				continue
 			}
 		}
-		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, planeOwnedWriteRoots(tc.Plane, candidate), false); !authorized {
+		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, strictWriteRoots(tc.Plane, candidate), false); !authorized {
 			return ask("P1.redirect", "output redirection onto a path outside the repo/safe roots: "+r)
 		}
 	}

@@ -2333,6 +2333,36 @@ func TestNF17ReviewStrictRootEqualityPrecedesOverlappingNonStrictRoots(t *testin
 	}
 }
 
+// Mutation caught: dropping strict physical equality lets a lexical repository alias authorize deletion of the protected temp root.
+func TestNF17ReviewStrictPhysicalEqualityPrecedesRepositoryAlias(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	strictRoot := t.TempDir()
+	t.Setenv("TMPDIR", strictRoot)
+	alias, err := os.MkdirTemp(".", ".nf17-temp-alias-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias, err = filepath.Abs(alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(strictRoot, alias); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(alias) })
+
+	call := ToolCall{Tool: "Bash", Command: "rm -rf " + alias, CWD: alias, RepoRoot: alias}
+	v := Evaluate(call, pathPol())
+	if v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+		t.Fatalf("Evaluate(rm protected temp root through repository alias) = %+v, want deny/P1.rm-rf", v)
+	}
+}
+
 // Mutation caught: rejecting an overlapping strict root wholesale also rejects its approved strict descendants.
 func TestNF17ReviewOverlappingStrictRootDescendantsRemainAuthorized(t *testing.T) {
 	tmpdir := t.TempDir()
