@@ -1926,12 +1926,13 @@
     "rewrite_logical_repo_paths": true
   },
   {
-    "name": "outside repository agent memory write",
+    "name": "NF-17 actual-home agent memory write",
     "tool": "Write",
     "paths": ["/home/u/.claude/projects/x/memory/note.md"],
     "cwd": "/repo",
     "repo_root": "/repo",
-    "want": "ask"
+    "want": "allow",
+    "rewrite_actual_home_paths": true
   },
   {
     "name": "user claude local settings write",

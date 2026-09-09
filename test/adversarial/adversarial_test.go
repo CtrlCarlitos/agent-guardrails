@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"sort"
 	"strings"
@@ -40,6 +41,7 @@ type entry struct {
 	Waive                   []string         `json:"waive,omitempty"`
 	Want                    string           `json:"want"`
 	RewriteLogicalRepoPaths bool             `json:"rewrite_logical_repo_paths,omitempty"`
+	RewriteActualHomePaths  bool             `json:"rewrite_actual_home_paths,omitempty"`
 }
 
 type fixtureSymlink struct {
@@ -131,6 +133,15 @@ func TestAdversarialCorpus(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			var actualHome string
+			if callEntry.RewriteActualHomePaths {
+				workingDirectory, err := os.Getwd()
+				if err != nil {
+					t.Fatal(err)
+				}
+				actualHome = filepath.Join(workingDirectory, ".adversarial-home", fmt.Sprintf("entry-%03d", i))
+				callEntry = rewriteActualHomePaths(callEntry, actualHome)
+			}
 			sessionID := fmt.Sprintf("adv-%03d", i)
 			in := map[string]any{
 				"session_id":      sessionID,
@@ -184,6 +195,9 @@ func TestAdversarialCorpus(t *testing.T) {
 				"XDG_CONFIG_HOME="+configHome,
 				"GUARDRAIL_CONFIG="+config,
 			)
+			if actualHome != "" {
+				cmd.Env = append(cmd.Env, "HOME="+actualHome)
+			}
 			var stdout, stderr bytes.Buffer
 			cmd.Stdout = &stdout
 			cmd.Stderr = &stderr
@@ -799,6 +813,36 @@ func rewriteLogicalRepoPaths(e entry, physicalRoot string) (entry, error) {
 		e.Paths = paths
 	}
 	return e, nil
+}
+
+func rewriteActualHomePaths(e entry, actualHome string) entry {
+	if !e.RewriteActualHomePaths {
+		return e
+	}
+	paths := append([]string(nil), e.Paths...)
+	for i, candidate := range paths {
+		if candidate == "/home/u" {
+			paths[i] = actualHome
+		} else if strings.HasPrefix(candidate, "/home/u/") {
+			paths[i] = actualHome + strings.TrimPrefix(candidate, "/home/u")
+		}
+	}
+	e.Paths = paths
+	return e
+}
+
+// Mutation caught: an implicit or prefix-only home rewrite makes corpus expectations machine-specific.
+func TestNF17RewriteActualHomePathsIsExplicitAndExact(t *testing.T) {
+	original := entry{Paths: []string{"/home/u/.claude/projects/p/memory/note.md", "/home/user/adjacent"}}
+	if got := rewriteActualHomePaths(original, "/actual/home"); !reflect.DeepEqual(got.Paths, original.Paths) {
+		t.Fatalf("disabled actual-home rewrite changed paths to %q", got.Paths)
+	}
+	original.RewriteActualHomePaths = true
+	got := rewriteActualHomePaths(original, "/actual/home")
+	want := []string{"/actual/home/.claude/projects/p/memory/note.md", "/home/user/adjacent"}
+	if !reflect.DeepEqual(got.Paths, want) {
+		t.Fatalf("enabled actual-home rewrite paths = %q, want %q", got.Paths, want)
+	}
 }
 
 func TestRewriteLogicalRepoPathsIsExplicitAndTokenAware(t *testing.T) {

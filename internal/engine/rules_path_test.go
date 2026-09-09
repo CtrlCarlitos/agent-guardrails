@@ -1887,6 +1887,324 @@ func TestOutOfRepoWriteAsk(t *testing.T) {
 	}
 }
 
+func nf17SetHome(t *testing.T, home string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", home)
+		return
+	}
+	t.Setenv("HOME", home)
+}
+
+func nf17NonTempHome(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(wd, ".nf17-home", strings.ReplaceAll(t.Name(), "/", "-"))
+}
+
+// Mutation caught: omitting Base temp roots from native file-tool authorization makes scratch writes ask.
+func TestNF17FileToolsAuthorizeStrictSystemTempDescendants(t *testing.T) {
+	tmpdir := t.TempDir()
+	t.Setenv("TMPDIR", tmpdir)
+	target := filepath.Join(tmpdir, "session", "scratchpad", "note.md")
+	for _, tool := range []string{"Write", "Edit", "MultiEdit"} {
+		t.Run(tool, func(t *testing.T) {
+			call := ToolCall{Tool: tool, Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"}
+			if v := Evaluate(call, pathPol()); v.Decision != policy.Allow || v.RuleID != "" {
+				t.Fatalf("Evaluate(%s %q) = %+v, want allow", tool, target, v)
+			}
+		})
+	}
+}
+
+// Mutation caught: treating temp roots as ordinary prefix roots authorizes equality, traversal, and symlink escapes.
+func TestNF17FileToolTempAuthorizationKeepsStrictPhysicalBoundary(t *testing.T) {
+	tmpdir := t.TempDir()
+	t.Setenv("TMPDIR", tmpdir)
+	escape := filepath.Join(tmpdir, "escape")
+	if err := os.Symlink("/etc", escape); err != nil {
+		t.Skipf("create symlink escape: %v", err)
+	}
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"temp root equality", tmpdir},
+		{"adjacent prefix", "/tmpish/note.md"},
+		{"cleaned parent escape", tmpdir + string(filepath.Separator) + ".." + string(filepath.Separator) + ".." + string(filepath.Separator) + ".." + string(filepath.Separator) + "etc" + string(filepath.Separator) + "nf17-note.md"},
+		{"existing symlink escape", filepath.Join(escape, "nf17-note.md")},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			call := ToolCall{Tool: "Write", Paths: []string{test.path}, CWD: "/repo", RepoRoot: "/repo"}
+			v := Evaluate(call, pathPol())
+			if v.Decision != policy.Ask || v.RuleID != "P5.out-of-repo" {
+				t.Fatalf("Evaluate(Write %q) = %+v, want ask/P5.out-of-repo", test.path, v)
+			}
+		})
+	}
+}
+
+// Mutation caught: omitting the exact actual-home memory root makes routine plane memory writes ask.
+func TestNF17ActualHomeClaudeMemoryAllowsApprovedOperations(t *testing.T) {
+	home := nf17NonTempHome(t)
+	nf17SetHome(t, home)
+	target := filepath.Join(home, ".claude", "projects", "project-key", "memory", "notes", "note.md")
+	tests := []ToolCall{
+		{Tool: "Write", Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"},
+		{Tool: "Edit", Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"},
+		{Tool: "MultiEdit", Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"},
+		{Tool: "Bash", Command: "printf x > " + target, CWD: "/repo", RepoRoot: "/repo"},
+		{Tool: "Bash", Command: "rm -rf " + target, CWD: "/repo", RepoRoot: "/repo"},
+	}
+	for _, call := range tests {
+		if v := Evaluate(call, pathPol()); v.Decision != policy.Allow || v.RuleID != "" {
+			t.Errorf("Evaluate(%s %q) = %+v, want allow", call.Tool, target, v)
+		}
+	}
+}
+
+// Mutation caught: authorizing the memory directory itself permits replacing or deleting the bounded root.
+func TestNF17ClaudeMemoryRootRemainsProtected(t *testing.T) {
+	home := nf17NonTempHome(t)
+	nf17SetHome(t, home)
+	root := filepath.Join(home, ".claude", "projects", "project-key", "memory")
+	tests := []struct {
+		name     string
+		call     ToolCall
+		decision policy.Decision
+		ruleID   string
+	}{
+		{"Write", ToolCall{Tool: "Write", Paths: []string{root}, CWD: "/repo", RepoRoot: "/repo"}, policy.Ask, "P5.out-of-repo"},
+		{"Edit", ToolCall{Tool: "Edit", Paths: []string{root}, CWD: "/repo", RepoRoot: "/repo"}, policy.Ask, "P5.out-of-repo"},
+		{"MultiEdit", ToolCall{Tool: "MultiEdit", Paths: []string{root}, CWD: "/repo", RepoRoot: "/repo"}, policy.Ask, "P5.out-of-repo"},
+		{"redirect", ToolCall{Tool: "Bash", Command: "printf x > " + root, CWD: "/repo", RepoRoot: "/repo"}, policy.Ask, "P1.redirect"},
+		{"recursive rm", ToolCall{Tool: "Bash", Command: "rm -rf " + root, CWD: "/repo", RepoRoot: "/repo"}, policy.Deny, "P1.rm-rf"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			v := Evaluate(test.call, pathPol())
+			if v.Decision != test.decision || v.RuleID != test.ruleID {
+				t.Fatalf("Evaluate(%s memory root) = %+v, want %s/%s", test.call.Tool, v, test.decision, test.ruleID)
+			}
+		})
+	}
+}
+
+// Mutation caught: broad home or projects-prefix matching admits paths outside the exact memory shape.
+func TestNF17ClaudeMemoryRejectsFalseShapesAndTraversal(t *testing.T) {
+	home := nf17NonTempHome(t)
+	nf17SetHome(t, home)
+	otherHome := filepath.Join(filepath.Dir(home), "other-home")
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"no project segment", filepath.Join(home, ".claude", "projects", "memory", "note.md")},
+		{"extra segment before memory", filepath.Join(home, ".claude", "projects", "project-key", "extra", "memory", "note.md")},
+		{"memory adjacent name", filepath.Join(home, ".claude", "projects", "project-key", "memoryish", "note.md")},
+		{"different home", filepath.Join(otherHome, ".claude", "projects", "project-key", "memory", "note.md")},
+		{"literal tilde", filepath.Join("~", ".claude", "projects", "project-key", "memory", "note.md")},
+		{"traversal outside memory", filepath.Join(home, ".claude", "projects", "project-key", "memory") + string(filepath.Separator) + ".." + string(filepath.Separator) + "outside.md"},
+		{"traversal exits and reenters memory", filepath.Join(home, ".claude", "projects", "project-key", "memory") + string(filepath.Separator) + ".." + string(filepath.Separator) + "memory" + string(filepath.Separator) + "note.md"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			call := ToolCall{Tool: "Write", Paths: []string{test.path}, CWD: "/repo", RepoRoot: "/repo"}
+			v := Evaluate(call, pathPol())
+			if v.Decision != policy.Ask || v.RuleID != "P5.out-of-repo" {
+				t.Fatalf("Evaluate(Write %q) = %+v, want ask/P5.out-of-repo", test.path, v)
+			}
+		})
+	}
+}
+
+// Mutation caught: sharing memory authorization with general Bash mutators broadens it beyond the approved seams.
+func TestNF17ClaudeMemoryDoesNotAuthorizeOtherBashMutators(t *testing.T) {
+	home := nf17NonTempHome(t)
+	nf17SetHome(t, home)
+	target := filepath.Join(home, ".claude", "projects", "project-key", "memory", "note.md")
+	tests := []struct {
+		command string
+		ruleID  string
+	}{
+		{"cp /repo/source " + target, "P1.out-of-repo-write"},
+		{"mv /repo/source " + target, "P1.out-of-repo-write"},
+		{"ln -s /repo/source " + target, "P1.out-of-repo-write"},
+		{"tee " + target, "P1.out-of-repo-write"},
+		{"install /repo/source " + target, "P1.out-of-repo-write"},
+		{"rsync --delete /repo/source/ " + target, "P1.out-of-repo-write"},
+		{"find " + filepath.Dir(target) + " -delete", "P1.find-delete"},
+	}
+	for _, test := range tests {
+		call := ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}
+		if v := Evaluate(call, pathPol()); v.Decision != policy.Ask || v.RuleID != test.ruleID {
+			t.Errorf("Evaluate(%q) = %+v, want ask/%s", test.command, v, test.ruleID)
+		}
+	}
+}
+
+// Mutation caught: returning early on memory authorization suppresses stronger path protections or later candidates.
+func TestNF17ClaudeMemoryRetainsStrongerVerdictsAndAggregation(t *testing.T) {
+	home := nf17NonTempHome(t)
+	nf17SetHome(t, home)
+	memory := filepath.Join(home, ".claude", "projects", "project-key", "memory")
+	tests := []struct {
+		name     string
+		paths    []string
+		decision policy.Decision
+		ruleID   string
+	}{
+		{"secret", []string{filepath.Join(memory, "id_rsa")}, policy.Deny, "P4.secret-path"},
+		{"git protected", []string{filepath.Join(memory, ".git", "config")}, policy.Deny, "P2.git-protected-path"},
+		{"self config", []string{filepath.Join(memory, "guardrail.toml")}, policy.Deny, "P5.self-config"},
+		{"CI workflow", []string{filepath.Join(memory, ".github", "workflows", "ci.yml")}, policy.Ask, "P5.ci-infra-lockfile"},
+		{"safe then secret", []string{filepath.Join(memory, "note.md"), filepath.Join(memory, "id_rsa")}, policy.Deny, "P4.secret-path"},
+		{"secret then safe", []string{filepath.Join(memory, "id_rsa"), filepath.Join(memory, "note.md")}, policy.Deny, "P4.secret-path"},
+		{"safe then arbitrary outside", []string{filepath.Join(memory, "note.md"), "/etc/nf17-note.md"}, policy.Ask, "P5.out-of-repo"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			call := ToolCall{Tool: "Write", Paths: test.paths, CWD: "/repo", RepoRoot: "/repo"}
+			v := Evaluate(call, pathPol())
+			if v.Decision != test.decision || v.RuleID != test.ruleID {
+				t.Fatalf("Evaluate(Write %q) = %+v, want %s/%s", test.paths, v, test.decision, test.ruleID)
+			}
+		})
+	}
+}
+
+// Mutation caught: trusting a lexical memory shape lets project or memory symlinks escape the actual home.
+func TestNF17ClaudeMemoryRequiresPhysicalContainmentUnderActualHome(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	home, err := os.MkdirTemp(".", ".nf17-home-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err = filepath.Abs(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	nf17SetHome(t, home)
+	projects := filepath.Join(home, ".claude", "projects")
+	if err := os.MkdirAll(projects, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	outsideProject := t.TempDir()
+	projectAlias := filepath.Join(projects, "project-alias")
+	if err := os.Symlink(outsideProject, projectAlias); err != nil {
+		t.Fatal(err)
+	}
+	realProject := filepath.Join(projects, "real-project")
+	if err := os.Mkdir(realProject, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	memoryAlias := filepath.Join(realProject, "memory")
+	if err := os.Symlink(t.TempDir(), memoryAlias); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, target := range []string{
+		filepath.Join(projectAlias, "memory", "note.md"),
+		filepath.Join(memoryAlias, "note.md"),
+	} {
+		call := ToolCall{Tool: "Write", Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"}
+		v := Evaluate(call, pathPol())
+		if v.Decision != policy.Ask || v.RuleID != "P5.out-of-repo" {
+			t.Errorf("Evaluate(Write symlink escape %q) = %+v, want ask/P5.out-of-repo", target, v)
+		}
+	}
+}
+
+// Mutation caught: rejecting a symlinked actual home breaks valid homes whose physical memory remains beneath it.
+func TestNF17ClaudeMemoryAllowsSymlinkedActualHome(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	physicalHome := t.TempDir()
+	alias, err := os.MkdirTemp(".", ".nf17-home-link-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias, err = filepath.Abs(alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(physicalHome, alias); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(alias) })
+	nf17SetHome(t, alias)
+	target := filepath.Join(alias, ".claude", "projects", "project-key", "memory", "note.md")
+	call := ToolCall{Tool: "Write", Paths: []string{target}, CWD: "/repo", RepoRoot: "/repo"}
+	if v := Evaluate(call, pathPol()); v.Decision != policy.Allow || v.RuleID != "" {
+		t.Fatalf("Evaluate(Write under symlinked actual home) = %+v, want allow", v)
+	}
+}
+
+// Mutation caught: accepting an unusable home value can turn a relative path or filesystem root into writable memory.
+func TestNF17ClaudeMemoryRejectsUnsetRelativeAndRootHome(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix HOME edge cases")
+	}
+	tests := []struct {
+		name string
+		home string
+		path string
+	}{
+		{"unset", "", filepath.Join(nf17NonTempHome(t), ".claude", "projects", "p", "memory", "note.md")},
+		{"relative", "relative-home", filepath.Join(nf17NonTempHome(t), ".claude", "projects", "p", "memory", "note.md")},
+		{"filesystem root", "/", filepath.Join("/", ".claude", "projects", "p", "memory", "note.md")},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			nf17SetHome(t, test.home)
+			call := ToolCall{Tool: "Write", Paths: []string{test.path}, CWD: "/repo", RepoRoot: "/repo"}
+			v := Evaluate(call, pathPol())
+			if v.Decision != policy.Ask || v.RuleID != "P5.out-of-repo" {
+				t.Fatalf("Evaluate(Write with HOME=%q) = %+v, want ask/P5.out-of-repo", test.home, v)
+			}
+		})
+	}
+}
+
+// Mutation caught: applying Unix spelling rules on Windows rejects native separators/case, while folding on Unix broadens the shape.
+func TestNF17ClaudeMemoryUsesPlatformSeparatorAndCaseSemantics(t *testing.T) {
+	home := nf17NonTempHome(t)
+	nf17SetHome(t, home)
+	target := filepath.Join(home, ".claude", "projects", "project-key", "memory", "note.md")
+	separatorVariant := strings.ReplaceAll(target, string(filepath.Separator), func() string {
+		if filepath.Separator == '/' {
+			return `\`
+		}
+		return "/"
+	}())
+	caseVariant := strings.Replace(target, ".claude", ".CLAUDE", 1)
+	want := policy.Ask
+	wantRule := "P5.out-of-repo"
+	if runtime.GOOS == "windows" {
+		want = policy.Allow
+		wantRule = ""
+	}
+	for _, candidate := range []string{separatorVariant, caseVariant} {
+		call := ToolCall{Tool: "Write", Paths: []string{candidate}, CWD: filepath.Dir(home), RepoRoot: "/repo"}
+		v := Evaluate(call, pathPol())
+		if v.Decision != want || v.RuleID != wantRule {
+			t.Errorf("Evaluate(Write platform variant %q) = %+v, want %s/%s", candidate, v, want, wantRule)
+		}
+	}
+}
+
 func TestCheckPathsSecretWaivedStillChecksSymlinkEscape(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink creation is privileged on Windows")

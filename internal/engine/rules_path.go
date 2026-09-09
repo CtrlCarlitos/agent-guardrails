@@ -733,8 +733,8 @@ func checkOutOfRepoWrite(tc ToolCall) *policy.Verdict {
 		return nil
 	}
 	for _, p := range tc.Paths {
-		abs := resolvePath(p, tc.CWD)
-		if !withinSafe(abs, tc.RepoRoot, nil) {
+		candidate := pathCandidate{path: p, cwd: tc.CWD, repoRoot: tc.RepoRoot}
+		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, nil, planeOwnedWriteRoots(candidate), false); !authorized {
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P5.out-of-repo",
 				Reason: "write target is outside the repo/worktree root: " + p}
 		}
