@@ -2473,24 +2473,29 @@ func replacementWithOuterMetadata(outer Simple, replacement []Simple) []Simple {
 }
 
 func commandDerivedFrom(outer Simple, argv []string) Simple {
+	return commandDerivedFromAt(outer, argv, argvSubsliceOffset(outer.Argv, argv))
+}
+
+func commandDerivedFromAt(outer Simple, argv []string, sourceArg int) Simple {
 	derived := Simple{
 		Argv:                  argv,
 		Cwd:                   outer.Cwd,
-		Unresolved:            outer.Unresolved,
+		Unresolved:            outer.Unresolved || outer.gitEnvironmentUnknown && head(argv) == "git",
 		literalOut:            outer.literalOut,
 		literalIn:             outer.literalIn,
 		resolvedOut:           outer.resolvedOut,
 		resolvedIn:            outer.resolvedIn,
 		gitEnvironment:        outer.gitEnvironment,
 		gitEnvironmentUnknown: outer.gitEnvironmentUnknown,
+		gitInitExpected:       outer.gitInitExpected,
 		pipelines:             outer.pipelines,
 		cwdUnknown:            outer.cwdUnknown,
-		fsUncertain:           head(argv) == "find" && (outer.shellState.fsUncertain || len(outer.pipelines) > 0),
+		fsUncertain:           outer.fsUncertain || head(argv) == "find" && (outer.shellState.fsUncertain || len(outer.pipelines) > 0),
 		shellState:            outer.shellState,
 	}
-	if offset := argvSubsliceOffset(outer.Argv, argv); offset >= 0 {
-		derived.literalArgs = remapProvenance(outer.literalArgs, offset, len(argv))
-		derived.resolvedArgs = remapProvenance(outer.resolvedArgs, offset, len(argv))
+	if sourceArg >= 0 && sourceArg+len(argv) <= len(outer.Argv) {
+		derived.literalArgs = remapProvenance(outer.literalArgs, sourceArg, len(argv))
+		derived.resolvedArgs = remapProvenance(outer.resolvedArgs, sourceArg, len(argv))
 	}
 	return derived
 }

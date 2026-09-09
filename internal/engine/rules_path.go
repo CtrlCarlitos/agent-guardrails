@@ -65,7 +65,7 @@ func checkPathsAnalysis(tc ToolCall, pol *policy.Policy, bash *bashAnalysis) *po
 		takeWaivable(&policy.Verdict{Decision: policy.Ask, RuleID: "P4.path-parse-uncertain", Reason: parsed.uncertaintyReason})
 	}
 	takeWaivable(checkGitProtectedPathCandidates(writes))
-	takeWaivable(checkSelfConfigCandidates(tc, writes))
+	takeWaivable(checkSelfConfigCandidatesAnalysis(tc, writes, bash))
 	takeWaivable(checkCIInfraLockfileCandidates(tc, writes))
 	takeWaivable(checkOutOfRepoWrite(tc))
 	return worst
@@ -141,6 +141,7 @@ func parsePrivatePathsAnalysis(tc ToolCall, bash *bashAnalysis) privatePathParse
 			}
 			candidates = append(candidates, findRootCandidates(find.parsed, s, tc)...)
 			candidates = append(candidates, findOutputCandidates(find.parsed, s, tc)...)
+			candidates = append(candidates, findReadPathCandidates(find.parsed, s, tc)...)
 			for _, path := range append(append([]string{}, s.Redirects...), s.ReadRedirects...) {
 				candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
 			}
@@ -608,23 +609,29 @@ func checkSelfConfig(tc ToolCall) *policy.Verdict {
 }
 
 func checkSelfConfigCandidates(tc ToolCall, candidates []pathCandidate) *policy.Verdict {
+	var bash *bashAnalysis
+	if tc.IsBash() {
+		bash = analyzeBash(tc)
+	}
+	return checkSelfConfigCandidatesAnalysis(tc, candidates, bash)
+}
+
+func checkSelfConfigCandidatesAnalysis(tc ToolCall, candidates []pathCandidate, bash *bashAnalysis) *policy.Verdict {
 	for _, candidate := range candidates {
 		if matchesScoped(candidate, selfConfigGlobs, selfConfigRootOnly) {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
 				Reason: "write to the agent's own guardrail/shell config: " + candidate.path}
 		}
 	}
-	if tc.IsBash() {
-		if simples, err := Normalize(tc.Command, tc.CWD); err == nil {
-			for _, s := range simples {
-				if !isOpaqueExecutor(head(s.Argv)) {
-					continue
-				}
-				for _, arg := range s.Argv[1:] {
-					if containsOperatorConfigPath(arg) {
-						return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
-							Reason: "opaque command names the Operator config: " + head(s.Argv)}
-					}
+	if bash != nil && bash.err == nil {
+		for _, s := range bash.orderedSimples {
+			if !isOpaqueExecutor(head(s.Argv)) {
+				continue
+			}
+			for _, arg := range s.Argv[1:] {
+				if containsOperatorConfigPath(arg) {
+					return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
+						Reason: "opaque command names the Operator config: " + head(s.Argv)}
 				}
 			}
 		}

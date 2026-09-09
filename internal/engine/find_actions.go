@@ -21,9 +21,22 @@ type findOutput struct {
 	value string
 }
 
+type findReadPath struct {
+	value string
+}
+
+type findCallbackTerminator uint8
+
+const (
+	findCallbackSemicolon findCallbackTerminator = iota
+	findCallbackBatch
+)
+
 type findCallback struct {
-	argv    []string
-	execDir bool
+	argv       []string
+	sourceArg  int
+	execDir    bool
+	terminator findCallbackTerminator
 }
 
 type findAction struct {
@@ -36,6 +49,7 @@ type findAction struct {
 type findActionParseResult struct {
 	roots                      []findRoot
 	outputs                    []findOutput
+	readPaths                  []findReadPath
 	callbacks                  []findCallback
 	actions                    []findAction
 	expressionStart            int
@@ -44,6 +58,7 @@ type findActionParseResult struct {
 	hasLeadingOptions          bool
 	exactScopedDeletionManaged bool
 	exactScopedDeletion        bool
+	exactDeletionExecutableArg int
 	scopedDeletionRoot         string
 }
 
@@ -85,28 +100,35 @@ roots:
 		i++
 	}
 	parsed.expressionStart = i
+	expression := newFindExpressionValidator()
 
 	for i < len(argv) {
 		arg := argv[i]
+		predicate, knownPredicate := describeFindPredicate(arg)
 		switch {
 		case isFindOperator(arg):
+			expression.operator(arg)
 			i++
-		case knownFindNoValue(arg):
+		case knownPredicate:
+			expression.operand()
 			if arg == "-follow" {
 				parsed.traversalUncertain = true
 			}
-			i++
-		case knownFindOneValue(arg):
-			if i+1 >= len(argv) {
+			if i+predicate.arity >= len(argv) {
 				parsed.noteUncertainty("find predicate is missing its value")
 				i++
 				continue
 			}
-			i += 2
+			if predicate.operandRole == findPredicateReadPath {
+				parsed.readPaths = append(parsed.readPaths, findReadPath{value: argv[i+1]})
+			}
+			i += predicate.arity + 1
 		case arg == "-print" || arg == "-print0" || arg == "-ls" || arg == "-prune" || arg == "-quit":
+			expression.operand()
 			parsed.actions = append(parsed.actions, findAction{kind: findReadAction, index: i, end: i + 1})
 			i++
 		case arg == "-printf":
+			expression.operand()
 			end, ok := findActionArguments(argv, i, 1)
 			if !ok {
 				parsed.noteUncertainty("find -printf is missing its format")
@@ -116,6 +138,7 @@ roots:
 			parsed.actions = append(parsed.actions, findAction{kind: findReadAction, index: i, end: end})
 			i = end
 		case arg == "-fprint" || arg == "-fprint0" || arg == "-fls":
+			expression.operand()
 			end, ok := findActionArguments(argv, i, 1)
 			if !ok {
 				parsed.noteUncertainty("find file-output action is missing its destination")
@@ -126,6 +149,7 @@ roots:
 			parsed.actions = append(parsed.actions, findAction{kind: findWriteAction, index: i, end: end})
 			i = end
 		case arg == "-fprintf":
+			expression.operand()
 			end, ok := findActionArguments(argv, i, 2)
 			if !ok {
 				parsed.noteUncertainty("find -fprintf is missing its destination or format")
@@ -136,10 +160,12 @@ roots:
 			parsed.actions = append(parsed.actions, findAction{kind: findWriteAction, index: i, end: end})
 			i = end
 		case arg == "-delete":
+			expression.operand()
 			parsed.exactScopedDeletionManaged = true
 			parsed.actions = append(parsed.actions, findAction{kind: findDeleteAction, index: i, end: i + 1})
 			i++
 		case arg == "-exec" || arg == "-execdir" || arg == "-ok" || arg == "-okdir":
+			expression.operand()
 			callback, end, ok := parseFindCallback(argv, i)
 			if !ok {
 				parsed.noteUncertainty("find callback is empty or unterminated")
@@ -147,6 +173,9 @@ roots:
 				continue
 			}
 			callback.execDir = arg == "-execdir" || arg == "-okdir"
+			if callback.terminator == findCallbackBatch && !validFindBatchCallback(callback.argv) {
+				parsed.noteUncertainty("find batch callback requires exactly one final placeholder")
+			}
 			if arg == "-ok" || arg == "-okdir" {
 				parsed.noteUncertainty("find callback requires unsupported execution semantics")
 			}
@@ -162,9 +191,13 @@ roots:
 			}
 			i = end
 		default:
+			expression.operand()
 			parsed.noteUncertainty("find expression contains unknown grammar")
 			i++
 		}
+	}
+	if !expression.valid() {
+		parsed.noteUncertainty("find expression structure is invalid")
 	}
 
 	parsed.classifyExactScopedDeletion(argv)
@@ -193,9 +226,23 @@ func parseFindCallback(argv []string, action int) (findCallback, int, bool) {
 		if end == action+1 {
 			return findCallback{}, end + 1, false
 		}
-		return findCallback{argv: append([]string(nil), argv[action+1:end]...)}, end + 1, true
+		terminator := findCallbackSemicolon
+		if argv[end] == "+" {
+			terminator = findCallbackBatch
+		}
+		return findCallback{argv: append([]string(nil), argv[action+1:end]...), sourceArg: action + 1, terminator: terminator}, end + 1, true
 	}
 	return findCallback{}, action + 1, false
+}
+
+func validFindBatchCallback(argv []string) bool {
+	placeholders := 0
+	for _, arg := range argv {
+		if arg == "{}" {
+			placeholders++
+		}
+	}
+	return placeholders == 1 && argv[len(argv)-1] == "{}"
 }
 
 func (parsed *findActionParseResult) classifyExactScopedDeletion(argv []string) {
@@ -215,7 +262,7 @@ func (parsed *findActionParseResult) classifyExactScopedDeletion(argv []string) 
 		return
 	}
 	callback := parsed.callbacks[action.callback]
-	if callback.argv[0] != "rm" || len(callback.argv) < 2 {
+	if callback.argv[0] != "rm" || len(callback.argv) < 2 || callback.sourceArg >= len(argv) || argv[callback.sourceArg] != "rm" {
 		return
 	}
 	for _, arg := range callback.argv[1:] {
@@ -230,7 +277,17 @@ func (parsed *findActionParseResult) classifyExactScopedDeletion(argv []string) 
 		return
 	}
 	parsed.exactScopedDeletion = true
+	parsed.exactDeletionExecutableArg = callback.sourceArg
 	parsed.scopedDeletionRoot = parsed.roots[0].value
+}
+
+func (parsed *findActionParseResult) applySourceProvenance(outer Simple) {
+	if !parsed.exactScopedDeletion || parsed.exactDeletionExecutableArg == 0 {
+		return
+	}
+	if outer.resolvedArgs[parsed.exactDeletionExecutableArg] || outer.wordUnresolved(parsed.exactDeletionExecutableArg) {
+		parsed.exactScopedDeletion = false
+	}
 }
 
 func isFindExpressionToken(value string) bool {
@@ -246,19 +303,94 @@ func isFindOperator(value string) bool {
 	}
 }
 
-func isFindKnownGrammarToken(value string) bool {
-	return isFindOperator(value) || knownFindNoValue(value) || knownFindOneValue(value) || strings.Contains(" -print -print0 -printf -fprintf -fprint -fprint0 -ls -fls -prune -quit -delete -exec -execdir -ok -okdir ", " "+value+" ")
+type findPredicateOperandRole uint8
+
+const (
+	findPredicateInert findPredicateOperandRole = iota
+	findPredicateReadPath
+)
+
+type findPredicateDescriptor struct {
+	arity       int
+	operandRole findPredicateOperandRole
 }
 
-func knownFindNoValue(value string) bool {
-	return strings.Contains(" -true -false -empty -readable -writable -executable -nouser -nogroup -xdev -mount -depth -daystart -ignore_readdir_race -noignore_readdir_race -follow ", " "+value+" ")
-}
-
-func knownFindOneValue(value string) bool {
-	if strings.Contains(" -amin -anewer -atime -cmin -cnewer -context -ctime -fstype -gid -group -ilname -iname -inum -ipath -iregex -links -lname -maxdepth -mindepth -mmin -mtime -name -newer -path -perm -regex -regextype -samefile -size -type -uid -used -user -wholename -xattrname -xtype ", " "+value+" ") {
-		return true
+func describeFindPredicate(value string) (findPredicateDescriptor, bool) {
+	if strings.Contains(" -true -false -empty -readable -writable -executable -nouser -nogroup -xdev -mount -depth -daystart -ignore_readdir_race -noignore_readdir_race -follow ", " "+value+" ") {
+		return findPredicateDescriptor{}, true
 	}
-	return len(value) == 8 && strings.HasPrefix(value, "-newer") && strings.ContainsRune("aBcm", rune(value[6])) && strings.ContainsRune("aBcmt", rune(value[7]))
+	if strings.Contains(" -amin -anewer -atime -cmin -cnewer -context -ctime -fstype -gid -group -ilname -iname -inum -ipath -iregex -links -lname -maxdepth -mindepth -mmin -mtime -name -newer -path -perm -regex -regextype -samefile -size -type -uid -used -user -wholename -xattrname -xtype ", " "+value+" ") {
+		role := findPredicateInert
+		switch value {
+		case "-newer", "-anewer", "-cnewer", "-samefile":
+			role = findPredicateReadPath
+		}
+		return findPredicateDescriptor{arity: 1, operandRole: role}, true
+	}
+	if len(value) == 8 && strings.HasPrefix(value, "-newer") && strings.ContainsRune("aBcm", rune(value[6])) && strings.ContainsRune("aBcmt", rune(value[7])) {
+		role := findPredicateInert
+		if value[7] != 't' {
+			role = findPredicateReadPath
+		}
+		return findPredicateDescriptor{arity: 1, operandRole: role}, true
+	}
+	return findPredicateDescriptor{}, false
+}
+
+type findExpressionFrame struct {
+	hasOperand   bool
+	needsOperand bool
+}
+
+type findExpressionValidator struct {
+	frames   []findExpressionFrame
+	sawToken bool
+	invalid  bool
+}
+
+func newFindExpressionValidator() *findExpressionValidator {
+	return &findExpressionValidator{frames: []findExpressionFrame{{needsOperand: true}}}
+}
+
+func (validator *findExpressionValidator) operator(value string) {
+	validator.sawToken = true
+	frame := &validator.frames[len(validator.frames)-1]
+	switch value {
+	case "!", "-not":
+		frame.needsOperand = true
+	case "(", `\(`:
+		validator.frames = append(validator.frames, findExpressionFrame{needsOperand: true})
+	case ")", `\)`:
+		if len(validator.frames) == 1 || !frame.hasOperand || frame.needsOperand {
+			validator.invalid = true
+			return
+		}
+		validator.frames = validator.frames[:len(validator.frames)-1]
+		parent := &validator.frames[len(validator.frames)-1]
+		parent.hasOperand = true
+		parent.needsOperand = false
+	default:
+		if !frame.hasOperand || frame.needsOperand {
+			validator.invalid = true
+			return
+		}
+		frame.needsOperand = true
+	}
+}
+
+func (validator *findExpressionValidator) operand() {
+	validator.sawToken = true
+	frame := &validator.frames[len(validator.frames)-1]
+	frame.hasOperand = true
+	frame.needsOperand = false
+}
+
+func (validator *findExpressionValidator) valid() bool {
+	if validator.invalid || len(validator.frames) != 1 {
+		return false
+	}
+	frame := validator.frames[0]
+	return !validator.sawToken || frame.hasOperand && !frame.needsOperand
 }
 
 func adaptFindCallbacks(parsed *findActionParseResult, outer Simple, tc ToolCall) []Simple {
@@ -283,10 +415,7 @@ func adaptFindCallbacks(parsed *findActionParseResult, outer Simple, tc ToolCall
 				parsed.noteUncertainty("find callback contains a transforming placeholder")
 			}
 		}
-		callbackSimple := Simple{
-			Argv: argv, Cwd: outer.Cwd, Unresolved: outer.Unresolved, cwdUnknown: outer.cwdUnknown,
-			pipelines: append([]pipelinePosition(nil), outer.pipelines...),
-		}
+		callbackSimple := commandDerivedFromAt(outer, argv, callback.sourceArg)
 		if callback.execDir {
 			callbackSimple.Unresolved = true
 			callbackSimple.cwdUnknown = true
@@ -310,6 +439,14 @@ func findOutputCandidates(parsed findActionParseResult, outer Simple, tc ToolCal
 	candidates := make([]pathCandidate, 0, len(parsed.outputs))
 	for _, output := range parsed.outputs {
 		candidates = append(candidates, pathCandidate{path: output.value, cwd: outer.Cwd, cwdUnknown: outer.cwdUnknown, repoRoot: tc.RepoRoot})
+	}
+	return candidates
+}
+
+func findReadPathCandidates(parsed findActionParseResult, outer Simple, tc ToolCall) []pathCandidate {
+	candidates := make([]pathCandidate, 0, len(parsed.readPaths))
+	for _, input := range parsed.readPaths {
+		candidates = append(candidates, pathCandidate{path: input.value, cwd: outer.Cwd, cwdUnknown: outer.cwdUnknown, repoRoot: tc.RepoRoot})
 	}
 	return candidates
 }

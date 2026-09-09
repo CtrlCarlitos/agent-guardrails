@@ -44,6 +44,7 @@ func analyzeBash(tc ToolCall) *bashAnalysis {
 			continue
 		}
 		parsed := parseFindActions(simple.Argv)
+		parsed.applySourceProvenance(simple)
 		callbacks := adaptFindCallbacks(&parsed, simple, tc)
 		if analysis.finds == nil {
 			analysis.finds = make(map[int]*findEvaluation)
@@ -127,7 +128,9 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 		if find == nil {
 			continue
 		}
-		for _, callback := range find.callbacks {
+		for callbackIndex, callback := range find.callbacks {
+			callback.gitInitExpected = s.gitInitExpected
+			find.callbacks[callbackIndex] = callback
 			callbackVerdict := evaluateSimple(callback, false)
 			if callbackVerdict == nil && (callback.Argv[0] != head(callback.Argv) || !knownInertOperandGrammar(callback.Argv[0])) {
 				take(ask("P1.find-delete", "find callback requires unsupported execution semantics"))
@@ -1349,11 +1352,12 @@ func knownFindRmOption(arg string) bool {
 
 func knownFindTests(argv []string) bool {
 	for len(argv) > 0 {
-		if knownFindNoValue(argv[0]) && argv[0] != "-follow" {
+		predicate, known := describeFindPredicate(argv[0])
+		if known && predicate.arity == 0 && argv[0] != "-follow" {
 			argv = argv[1:]
 			continue
 		}
-		if !knownFindOneValue(argv[0]) || len(argv) < 2 || (argv[0] == "-type" || argv[0] == "-xtype") && (strings.Trim(argv[1], "bcdflpsD,") != "" || len(argv[1]) != 2*strings.Count(argv[1], ",")+1) || (argv[0] == "-maxdepth" || argv[0] == "-mindepth") && !allDigits(argv[1]) {
+		if !known || predicate.arity != 1 || len(argv) < 2 || (argv[0] == "-type" || argv[0] == "-xtype") && (strings.Trim(argv[1], "bcdflpsD,") != "" || len(argv[1]) != 2*strings.Count(argv[1], ",")+1) || (argv[0] == "-maxdepth" || argv[0] == "-mindepth") && !allDigits(argv[1]) {
 			return false
 		}
 		argv = argv[2:]
