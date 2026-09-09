@@ -131,8 +131,12 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 		for callbackIndex, callback := range find.callbacks {
 			callback.gitInitExpected = s.gitInitExpected
 			find.callbacks[callbackIndex] = callback
+			// NF-9 owns normalized rm callback semantics; the adapted Simple still supplies shared path and pipeline evidence.
+			if callback.Argv[0] == "rm" {
+				continue
+			}
 			callbackVerdict := evaluateSimple(callback, false)
-			if callbackVerdict == nil && (callback.Argv[0] != head(callback.Argv) || !knownInertOperandGrammar(callback.Argv[0])) {
+			if callbackVerdict == nil && (callback.Argv[0] != head(callback.Argv) || callback.resolvedArgs[0] || callback.wordUnresolved(0) || !knownInertOperandGrammar(callback.Argv[0])) {
 				take(ask("P1.find-delete", "find callback requires unsupported execution semantics"))
 			}
 		}

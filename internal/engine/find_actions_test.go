@@ -177,10 +177,7 @@ func TestFindUnknownCallbacksFailClosed(t *testing.T) {
 	for _, executable := range []string{"strace", "valgrind", "taskset"} {
 		t.Run(executable, func(t *testing.T) {
 			command := fmt.Sprintf(`find . -exec %s printf ok {} +`, executable)
-			got := Evaluate(ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, bashPol())
-			if got.Decision != policy.Ask {
-				t.Fatalf("Evaluate(%q) = %s/%s, want ask", command, got.Decision, got.RuleID)
-			}
+			requireFindVerdict(t, ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, bashPol(), findVerdictExpectation{policy.Ask, "P1.find-delete"})
 		})
 	}
 }
@@ -203,10 +200,7 @@ func TestFindFixedArityArgumentsConsumeTokenShapedValues(t *testing.T) {
 
 	for _, command := range []string{`find -D`, `find . -name`, `find . -printf`, `find . -fprint`, `find . -fprintf out`} {
 		t.Run("missing "+command, func(t *testing.T) {
-			got := Evaluate(ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, bashPol())
-			if got.Decision != policy.Ask {
-				t.Fatalf("Evaluate(%q) = %s/%s, want ask", command, got.Decision, got.RuleID)
-			}
+			requireFindVerdict(t, ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, bashPol(), findVerdictExpectation{policy.Ask, "P1.find-delete"})
 		})
 	}
 }
@@ -243,45 +237,45 @@ func TestUnlinkAndRmdirUseOrdinaryMutationPolicy(t *testing.T) {
 
 // Mutation caught: adapting anything except an exact placeholder invents a callback path.
 func TestFindCallbackPlaceholderBoundariesFailClosed(t *testing.T) {
-	tests := map[string]string{
-		"implicit root":            `find -exec cat {} +`,
-		"multiple roots":           `find . /tmp -exec cat {} +`,
-		"embedded placeholder":     `find . -exec cat ./{} +`,
-		"suffix placeholder":       `find . -exec cat {}.bak +`,
-		"unterminated callback":    `find . -exec cat {}`,
-		"empty callback":           `find . -exec +`,
-		"execdir relative operand": `find . -execdir cat sibling +`,
+	tests := map[string]struct {
+		command string
+		ruleID  string
+	}{
+		"implicit root":            {`find -exec cat {} +`, "P1.find-delete"},
+		"multiple roots":           {`find . /tmp -exec cat {} +`, "P1.find-delete"},
+		"embedded placeholder":     {`find . -exec cat ./{} +`, "P1.find-delete"},
+		"suffix placeholder":       {`find . -exec cat {}.bak +`, "P1.find-delete"},
+		"unterminated callback":    {`find . -exec cat {}`, "P1.find-delete"},
+		"empty callback":           {`find . -exec +`, "P1.find-delete"},
+		"execdir relative operand": {`find . -execdir cat sibling +`, "P3.unresolved"},
 	}
-	for name, command := range tests {
+	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := Evaluate(ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, bashPol())
-			if got.Decision != policy.Ask {
-				t.Fatalf("Evaluate(%q) = %s/%s, want ask", command, got.Decision, got.RuleID)
-			}
+			requireFindVerdict(t, ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}, bashPol(), findVerdictExpectation{policy.Ask, test.ruleID})
 		})
 	}
 }
 
 // Mutation caught: parsing interactive or nested callbacks as direct argv can bypass unsupported execution semantics.
 func TestFindUnsupportedActionGrammarFailsClosed(t *testing.T) {
-	tests := map[string]string{
-		"ok":                     `find . -ok cat {} \;`,
-		"okdir":                  `find . -okdir cat {} \;`,
-		"shell callback":         `find . -exec sh -c 'cat "$1"' sh {} \;`,
-		"wrapper callback":       `find . -exec env cat {} +`,
-		"nested find callback":   `find . -exec find {} -print \;`,
-		"unknown action":         `find . -future-action value`,
-		"missing fprint target":  `find . -fprint`,
-		"missing fprintf format": `find . -fprintf out`,
-		"missing printf format":  `find . -printf`,
-		"unknown leading option": `find -Z . -print`,
+	tests := map[string]struct {
+		command string
+		ruleID  string
+	}{
+		"ok":                     {`find . -ok cat {} \;`, "P1.find-delete"},
+		"okdir":                  {`find . -okdir cat {} \;`, "P3.unresolved"},
+		"shell callback":         {`find . -exec sh -c 'cat "$1"' sh {} \;`, "P1.find-delete"},
+		"wrapper callback":       {`find . -exec env cat {} +`, "P1.find-delete"},
+		"nested find callback":   {`find . -exec find {} -print \;`, "P1.find-delete"},
+		"unknown action":         {`find . -future-action value`, "P1.find-delete"},
+		"missing fprint target":  {`find . -fprint`, "P1.find-delete"},
+		"missing fprintf format": {`find . -fprintf out`, "P1.find-delete"},
+		"missing printf format":  {`find . -printf`, "P1.find-delete"},
+		"unknown leading option": {`find -Z . -print`, "P1.find-delete"},
 	}
-	for name, command := range tests {
+	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := Evaluate(ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, bashPol())
-			if got.Decision != policy.Ask {
-				t.Fatalf("Evaluate(%q) = %s/%s, want ask", command, got.Decision, got.RuleID)
-			}
+			requireFindVerdict(t, ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}, bashPol(), findVerdictExpectation{policy.Ask, test.ruleID})
 		})
 	}
 }
@@ -462,6 +456,69 @@ func TestFindWellFormedExpressionsRemainAllowed(t *testing.T) {
 	} {
 		t.Run(command, func(t *testing.T) {
 			requireFindVerdict(t, ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, bashPol(), findVerdictExpectation{policy.Allow, ""})
+		})
+	}
+}
+
+// Mutation caught: filtering rm before shared analysis hides concrete protected callback paths behind NF-9's generic Ask.
+func TestFindRmCallbacksRetainSharedPathEvidence(t *testing.T) {
+	repo := t.TempDir()
+	target := filepath.Join(t.TempDir(), "target")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	pol := bashPol()
+	pol.Slots.SecretDirs = []string{"**/.ssh/**"}
+	tests := map[string]struct {
+		operand string
+		want    findVerdictExpectation
+	}{
+		"secret":        {filepath.Join(repo, ".ssh", "id_rsa"), findVerdictExpectation{policy.Deny, "P4.secret-path"}},
+		"git protected": {filepath.Join(repo, ".git", "config"), findVerdictExpectation{policy.Deny, "P2.git-protected-path"}},
+		"self config":   {filepath.Join(repo, ".envrc"), findVerdictExpectation{policy.Deny, "P5.self-config"}},
+		"CI":            {filepath.Join(repo, ".github", "workflows", "nf18.yml"), findVerdictExpectation{policy.Ask, "P5.ci-infra-lockfile"}},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			command := fmt.Sprintf(`find %q -exec rm -rf %q {} +`, target, test.operand)
+			requireFindVerdict(t, ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, pol, test.want)
+		})
+	}
+	t.Run("symlink escape", func(t *testing.T) {
+		external := t.TempDir()
+		if err := os.WriteFile(filepath.Join(external, "victim"), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		escape := filepath.Join(repo, "escape")
+		if err := os.Symlink(external, escape); err != nil {
+			t.Skipf("create symlink: %v", err)
+		}
+		command := fmt.Sprintf(`find %q -exec rm -rf %q {} +`, target, filepath.Join(escape, "victim"))
+		requireFindVerdict(t, ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, pol, findVerdictExpectation{policy.Deny, "P4.symlink-escape"})
+	})
+
+	command := fmt.Sprintf(`find %q -exec rm -rf {} +`, target)
+	requireFindVerdict(t, ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, pol, findVerdictExpectation{policy.Allow, ""})
+}
+
+// Mutation caught: normalized executable spelling alone cannot prove that a callback command was source-literal.
+func TestFindResolvedKnownCallbacksFailClosed(t *testing.T) {
+	tests := map[string]struct {
+		command string
+		want    findVerdictExpectation
+	}{
+		"resolved grep":      {`CMD="grep"; find . -exec "$CMD" -l foo {} +`, findVerdictExpectation{policy.Ask, "P1.find-delete"}},
+		"resolved printf":    {`CMD="printf"; find . -exec "$CMD" '%s' {} +`, findVerdictExpectation{policy.Ask, "P1.find-delete"}},
+		"resolved cat":       {`CMD="cat"; find . -exec "$CMD" {} +`, findVerdictExpectation{policy.Ask, "P1.find-delete"}},
+		"literal grep":       {`find . -exec grep -l foo {} +`, findVerdictExpectation{policy.Allow, ""}},
+		"literal printf":     {`find . -exec printf '%s' {} +`, findVerdictExpectation{policy.Allow, ""}},
+		"literal cat":        {`find . -exec cat {} +`, findVerdictExpectation{policy.Allow, ""}},
+		"concrete ask wins":  {`CMD="truncate"; find . -exec "$CMD" -s 0 {} +`, findVerdictExpectation{policy.Ask, "P1.truncate"}},
+		"concrete deny wins": {`CMD="shred"; find . -exec "$CMD" {} +`, findVerdictExpectation{policy.Deny, "P1.shred"}},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			requireFindVerdict(t, ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}, bashPol(), test.want)
 		})
 	}
 }

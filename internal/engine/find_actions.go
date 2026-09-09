@@ -396,10 +396,6 @@ func (validator *findExpressionValidator) valid() bool {
 func adaptFindCallbacks(parsed *findActionParseResult, outer Simple, tc ToolCall) []Simple {
 	var callbacks []Simple
 	for _, callback := range parsed.callbacks {
-		// NF-9 owns direct rm callbacks; evaluating them again could strengthen an approved Ask into a Deny.
-		if callback.argv[0] == "rm" {
-			continue
-		}
 		argv := append([]string(nil), callback.argv...)
 		for index, arg := range argv {
 			if arg == "{}" {
