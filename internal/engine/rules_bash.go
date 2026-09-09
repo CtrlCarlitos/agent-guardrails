@@ -357,13 +357,35 @@ type pathRelation struct {
 
 func pathRelationBetween(target, root string) pathRelation {
 	target, root = filepath.Clean(target), filepath.Clean(root)
+	caseOnlySpelling := func(candidate string) bool {
+		if !strings.EqualFold(candidate, root) {
+			return false
+		}
+		targetParts := strings.FieldsFunc(candidate[len(filepath.VolumeName(candidate)):], pathSeparator)
+		rootParts := strings.FieldsFunc(root[len(filepath.VolumeName(root)):], pathSeparator)
+		if len(targetParts) != len(rootParts) {
+			return false
+		}
+		current := filepath.VolumeName(candidate) + string(filepath.Separator)
+		for index, component := range targetParts {
+			current = filepath.Join(current, component)
+			if component == rootParts[index] {
+				continue
+			}
+			info, err := os.Lstat(current)
+			if err != nil || info.Mode()&os.ModeSymlink != 0 {
+				return false
+			}
+		}
+		return true
+	}
 	rootInfo, rootErr := os.Stat(root)
 	if rootErr == nil {
 		current := target
 		var suffix []string
 		for {
 			if currentInfo, err := os.Stat(current); err == nil && os.SameFile(currentInfo, rootInfo) {
-				sameSpelling := samePlatformPath(current, root) || strings.EqualFold(current, root)
+				sameSpelling := current == root || caseOnlySpelling(current)
 				if len(suffix) == 0 {
 					return pathRelation{relative: ".", equal: true, sameSpelling: sameSpelling}
 				}

@@ -2243,6 +2243,45 @@ func TestNF17ClaudeMemoryRejectsUnconfiguredHomeSymlinkAlias(t *testing.T) {
 	}
 }
 
+// Mutation caught: case-only spelling is not filesystem evidence when the alternate spelling is itself a symlink.
+func TestNF17ClaudeMemoryRejectsCaseOnlySymlinkHomeAlias(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is privileged on Windows")
+	}
+	parent, err := os.MkdirTemp(".", ".nf17-case-alias-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err = filepath.Abs(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(parent) })
+	home := filepath.Join(parent, "Home")
+	alias := filepath.Join(parent, "home")
+	if err := os.Mkdir(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(alias); err == nil {
+		t.Skip("test requires distinct case-only spellings")
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(home, alias); err != nil {
+		t.Fatal(err)
+	}
+	nf17SetHome(t, home)
+	if err := os.MkdirAll(filepath.Join(home, ".claude", "projects", "p", "memory"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	target := filepath.Join(alias, ".claude", "projects", "p", "memory", "note.md")
+	call := ToolCall{Plane: "claude", Tool: "Write", Paths: []string{target}, CWD: alias, RepoRoot: "/repo"}
+	if v := Evaluate(call, pathPol()); v.Decision != policy.Ask || v.RuleID != "P5.out-of-repo" {
+		t.Fatalf("Evaluate(Write through case-only HOME symlink) = %+v, want ask/P5.out-of-repo", v)
+	}
+}
+
 // Mutation caught: accepting an unusable home value can turn a relative path or filesystem root into writable memory.
 func TestNF17ClaudeMemoryRejectsUnsetRelativeAndRootHome(t *testing.T) {
 	if runtime.GOOS == "windows" {
