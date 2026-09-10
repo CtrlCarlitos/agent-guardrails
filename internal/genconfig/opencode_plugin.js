@@ -48,9 +48,10 @@ function callGuardrail(envelope) {
 	if (res.status !== 0) {
 		throw new Error(`guardrail: exited ${res.status}; failing closed`);
 	}
+	return decision;
 }
 
-export const GuardrailPlugin = async ({ directory }) => {
+export const GuardrailPlugin = async ({ directory, client }) => {
 	return {
 		"tool.execute.before": async (input, output) => {
 			const tool = input.tool;
@@ -68,7 +69,21 @@ export const GuardrailPlugin = async ({ directory }) => {
 				const p = args.filePath ?? args.path ?? args.dirPath ?? args.directory;
 				if (p) envelope.paths = [p];
 			}
-			callGuardrail(envelope);
+			const decision = callGuardrail(envelope);
+			if (decision.reason?.startsWith("NIGHT MODE until ")) {
+				const message = decision.reason.split(";", 1)[0];
+				if (client?.tui?.showToast) {
+					try {
+						await client.tui.showToast({
+							body: { title: "Guardrail Night Mode", message, variant: "warning", duration: 7000 },
+						});
+					} catch {
+						process.stderr.write(`${message}\n`);
+					}
+				} else {
+					process.stderr.write(`${message}\n`);
+				}
+			}
 		},
 	};
 };

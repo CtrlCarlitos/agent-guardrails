@@ -287,8 +287,10 @@ func TestClaudeConfigProtectsOperatorConfig(t *testing.T) {
 	want := []string{
 		"Edit(**/.config/guardrail/**)",
 		"Edit(**/guardrail/waivers.toml)",
+		"Edit(**/guardrail/night.toml)",
 		"Edit(//**/.config/guardrail/**)",
 		"Edit(//**/guardrail/waivers.toml)",
+		"Edit(//**/guardrail/night.toml)",
 	}
 	for _, entry := range want {
 		if !slices.Contains(deny, entry) {
@@ -299,7 +301,7 @@ func TestClaudeConfigProtectsOperatorConfig(t *testing.T) {
 	validAbsolute := want[2:]
 	for _, entry := range deny {
 		isOperatorAbsolute := strings.HasPrefix(entry, "Edit(//") &&
-			(strings.Contains(entry, ".config/guardrail/") || strings.Contains(entry, "guardrail/waivers.toml"))
+			(strings.Contains(entry, ".config/guardrail/") || strings.Contains(entry, "guardrail/waivers.toml") || strings.Contains(entry, "guardrail/night.toml"))
 		if isOperatorAbsolute && !slices.Contains(validAbsolute, entry) {
 			t.Errorf("Claude deny contains malformed absolute operator pattern %q", entry)
 		}

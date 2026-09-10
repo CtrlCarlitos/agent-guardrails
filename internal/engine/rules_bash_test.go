@@ -40,6 +40,8 @@ func TestGuardrailNightInvocationIsSelfConfigDeny(t *testing.T) {
 		"guardrail night on --for 8h",
 		"/home/operator/.local/bin/guardrail night off",
 		"guardrail.exe night status",
+		`"$(command -v guardrail)" night off`,
+		`python3 -c "import subprocess; subprocess.run(['guardrail', 'night', 'off'])"`,
 	}
 	for _, command := range commands {
 		v := evalBash(t, command)

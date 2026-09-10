@@ -159,6 +159,7 @@
       "**/.zshrc": "deny",
       "**/bin/guardrail": "deny",
       "**/guardrail.toml": "deny",
+      "**/guardrail/night.toml": "deny",
       "**/guardrail/sessions": "deny",
       "**/guardrail/sessions/**": "deny",
       "**/guardrail/waivers.toml": "deny",

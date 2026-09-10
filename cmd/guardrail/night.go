@@ -58,6 +58,10 @@ func cmdNight(args []string, stdout, stderr io.Writer) int {
 }
 
 func cmdNightOn(path string, args []string, stdout, stderr io.Writer) int {
+	if repeatedNightFlag(args, "for") || repeatedNightFlag(args, "until") {
+		fmt.Fprintln(stderr, "guardrail: night on accepts each expiry flag at most once")
+		return 2
+	}
 	fs := flag.NewFlagSet("night on", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {}
@@ -67,18 +71,24 @@ func cmdNightOn(path string, args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
+	set := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 	if fs.NArg() != 0 {
 		fmt.Fprintln(stderr, "guardrail: night on takes only --for or --until")
 		return 2
 	}
-	if durationText != "" && untilText != "" {
+	if set["for"] && set["until"] {
 		fmt.Fprintln(stderr, "guardrail: night on accepts only one of --for and --until")
+		return 2
+	}
+	if set["for"] && durationText == "" || set["until"] && untilText == "" {
+		fmt.Fprintln(stderr, "guardrail: night expiry flag cannot be empty")
 		return 2
 	}
 
 	now := time.Now()
 	until := now.Add(defaultNightDuration)
-	if durationText != "" {
+	if set["for"] {
 		duration, err := time.ParseDuration(durationText)
 		if err != nil || duration <= 0 {
 			fmt.Fprintln(stderr, "guardrail: --for must be a positive duration")
@@ -86,7 +96,7 @@ func cmdNightOn(path string, args []string, stdout, stderr io.Writer) int {
 		}
 		until = now.Add(duration)
 	}
-	if untilText != "" {
+	if set["until"] {
 		clock, err := time.ParseInLocation("15:04", untilText, now.Location())
 		if err != nil {
 			fmt.Fprintln(stderr, "guardrail: --until must be a local time in HH:MM format")
@@ -111,6 +121,17 @@ func cmdNightOn(path string, args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stdout, (night.State{Marker: marker, Active: true}).Banner())
 	return 0
+}
+
+func repeatedNightFlag(args []string, name string) bool {
+	prefix := "--" + name
+	count := 0
+	for _, arg := range args {
+		if arg == prefix || len(arg) > len(prefix) && arg[:len(prefix)+1] == prefix+"=" {
+			count++
+		}
+	}
+	return count > 1
 }
 
 func nightError(err error, stderr io.Writer) int {

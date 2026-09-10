@@ -115,7 +115,7 @@ func collidesWithAllow(glob string, allow []string) bool {
 // `.github/workflows/**`) because native permission matchers treat them project-relative.
 // Claude additionally needs `//`-anchored forms for operator config outside the worktree.
 var operatorConfigGlobsFloor = []string{
-	"**/.config/guardrail/**", "**/guardrail/waivers.toml",
+	"**/.config/guardrail/**", "**/guardrail/waivers.toml", "**/guardrail/night.toml",
 }
 
 var sessionStoreGlobsFloor = []string{

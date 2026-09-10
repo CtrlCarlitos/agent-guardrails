@@ -39,7 +39,9 @@ type entry struct {
 	FixtureFiles            []string         `json:"fixture_files,omitempty"`
 	FixtureSymlinks         []fixtureSymlink `json:"fixture_symlinks,omitempty"`
 	Waive                   []string         `json:"waive,omitempty"`
+	Night                   bool             `json:"night,omitempty"`
 	Want                    string           `json:"want"`
+	WantRuleID              string           `json:"want_rule_id,omitempty"`
 	RewriteLogicalRepoPaths bool             `json:"rewrite_logical_repo_paths,omitempty"`
 	RewriteActualHomePaths  bool             `json:"rewrite_actual_home_paths,omitempty"`
 }
@@ -187,6 +189,16 @@ func TestAdversarialCorpus(t *testing.T) {
 					t.Fatalf("write Operator config: %v", err)
 				}
 			}
+			if e.Night {
+				operatorDir := filepath.Join(configHome, "guardrail")
+				if err := os.MkdirAll(operatorDir, 0o700); err != nil {
+					t.Fatalf("create Operator config directory: %v", err)
+				}
+				marker := "until = 2999-01-01T00:00:00Z\nset_by = \"adversarial-test:1\"\n"
+				if err := os.WriteFile(filepath.Join(operatorDir, "night.toml"), []byte(marker), 0o600); err != nil {
+					t.Fatalf("write night marker: %v", err)
+				}
+			}
 			if err := os.WriteFile(config, overlay, 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -201,6 +213,7 @@ func TestAdversarialCorpus(t *testing.T) {
 				"HOME="+processHome,
 				"XDG_STATE_HOME="+stateHome,
 				"XDG_CONFIG_HOME="+configHome,
+				"APPDATA="+configHome,
 				"GUARDRAIL_CONFIG="+config,
 			)
 			if actualHome != "" {
@@ -221,7 +234,7 @@ func TestAdversarialCorpus(t *testing.T) {
 
 			got, err := classifyClaudeResult(code, stdout.String(), stderr.String(),
 				filepath.Join(stateHome, "guardrail", "audit.jsonl"),
-				auditExpectation{SessionID: sessionID, Tool: e.Tool, Event: "pre"})
+				auditExpectation{SessionID: sessionID, Tool: e.Tool, Event: "pre", RuleID: e.WantRuleID})
 			if err != nil {
 				t.Fatalf("invalid Claude hook result: %v (exit=%d stdout=%s stderr=%s)", err, code, stdout.String(), stderr.String())
 			}
@@ -364,6 +377,7 @@ type auditExpectation struct {
 	SessionID string
 	Tool      string
 	Event     string
+	RuleID    string
 }
 
 func classifyClaudeResult(code int, stdout, stderr, auditPath string, expected auditExpectation) (string, error) {
@@ -382,6 +396,9 @@ func classifyClaudeResult(code int, stdout, stderr, auditPath string, expected a
 	}
 	if record.Decision != decision {
 		return "", fmt.Errorf("audit decision %q disagrees with Claude process decision %q", record.Decision, decision)
+	}
+	if expected.RuleID != "" && record.RuleID != expected.RuleID {
+		return "", fmt.Errorf("audit rule ID %q, want %q", record.RuleID, expected.RuleID)
 	}
 	return decision, nil
 }

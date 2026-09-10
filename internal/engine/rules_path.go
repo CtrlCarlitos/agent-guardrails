@@ -592,7 +592,7 @@ var selfConfigGlobs = []string{
 	"**/guardrail.toml",
 	"**/.guardrail/**",
 	// The operator's authorization must not be writable by the agent it governs.
-	"**/.config/guardrail/**", "**/guardrail/waivers.toml",
+	"**/.config/guardrail/**", "**/guardrail/waivers.toml", "**/guardrail/night.toml",
 	"**/guardrail/sessions", "**/guardrail/sessions/**",
 	"**/opencode.json",
 	"**/.agents/hooks.json",
@@ -720,7 +720,7 @@ func isASCIILetter(c byte) bool {
 
 func matchesNormalizedOperatorConfigPath(candidate string) bool {
 	cleaned := strings.ToLower(path.Clean(strings.ReplaceAll(candidate, `\`, "/")))
-	return strings.Contains(cleaned, "/.config/guardrail/") || strings.Contains(cleaned, "/guardrail/waivers.toml")
+	return strings.Contains(cleaned, "/.config/guardrail/") || strings.Contains(cleaned, "/guardrail/waivers.toml") || strings.Contains(cleaned, "/guardrail/night.toml")
 }
 
 func isOpaqueExecutor(executable string) bool {

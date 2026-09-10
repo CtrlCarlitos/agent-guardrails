@@ -77,7 +77,18 @@ func Write(path string, marker Marker) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("creating night marker directory: %w", err)
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".night-*.tmp")
+	dir := filepath.Dir(path)
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return fmt.Errorf("inspecting night marker directory: %w", err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("inspecting night marker directory: path is not a real directory")
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return fmt.Errorf("securing night marker directory: %w", err)
+	}
+	tmp, err := os.CreateTemp(dir, ".night-*.tmp")
 	if err != nil {
 		return fmt.Errorf("creating night marker: %w", err)
 	}

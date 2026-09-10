@@ -50,6 +50,46 @@ func TestWriteAndLoadActiveMarker(t *testing.T) {
 	}
 }
 
+func TestWriteSecuresExistingMarkerDirectory(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("Unix permission semantics")
+	}
+	dir := filepath.Join(t.TempDir(), "guardrail")
+	if err := os.Mkdir(dir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "night.toml")
+	if err := Write(path, Marker{Until: testNow.Add(time.Hour), SetBy: "host:1"}); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(dir); err != nil {
+		t.Fatal(err)
+	} else if got := info.Mode().Perm(); got != 0o700 {
+		t.Fatalf("marker directory permissions = %o, want 700", got)
+	}
+}
+
+func TestWriteRejectsSymlinkMarkerDirectory(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink creation may require privileges on Windows")
+	}
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "guardrail")
+	if err := os.Symlink(target, dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := Write(filepath.Join(dir, "night.toml"), Marker{Until: testNow.Add(time.Hour), SetBy: "host:1"}); err == nil || !strings.Contains(err.Error(), "directory") {
+		t.Fatalf("Write() error = %v, want symlink-directory rejection", err)
+	}
+}
+
 func TestLoadMissingAndExpiredMarkersAreInactive(t *testing.T) {
 	missing, err := Load(filepath.Join(t.TempDir(), "missing.toml"), testNow)
 	if err != nil || missing.Active {

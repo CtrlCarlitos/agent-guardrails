@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"mvdan.cc/sh/v3/syntax"
@@ -147,7 +148,10 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 }
 
 func checkNightControlInvocation(s Simple) *policy.Verdict {
-	if len(s.Argv) >= 2 && head(s.Argv) == "guardrail" && strings.EqualFold(s.Argv[1], "night") {
+	direct := len(s.Argv) >= 2 && strings.EqualFold(s.Argv[1], "night") &&
+		(head(s.Argv) == "guardrail" || s.wordUnresolved(0) && mentionsExecutable(s.Argv[0], "guardrail"))
+	opaque := len(s.Argv) >= 2 && isOpaqueExecutor(head(s.Argv)) && mentionsCommand(s.Argv[1:], "guardrail", "night")
+	if direct || opaque {
 		return &policy.Verdict{
 			Decision: policy.Deny,
 			RuleID:   "P5.self-config",
@@ -155,6 +159,38 @@ func checkNightControlInvocation(s Simple) *policy.Verdict {
 		}
 	}
 	return nil
+}
+
+func mentionsExecutable(value, executable string) bool {
+	for _, candidate := range visiblePathCandidates(value) {
+		if head([]string{candidate}) == executable {
+			return true
+		}
+		for _, token := range strings.FieldsFunc(candidate, func(r rune) bool {
+			return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !strings.ContainsRune(`._-/\`, r)
+		}) {
+			if head([]string{token}) == executable {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func mentionsCommand(values []string, executable, subcommand string) bool {
+	foundExecutable := false
+	for _, value := range values {
+		for _, candidate := range visiblePathCandidates(value) {
+			if !foundExecutable {
+				foundExecutable = head([]string{candidate}) == executable
+				continue
+			}
+			if strings.EqualFold(candidate, subcommand) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func literalWriteFindExemptions(command string, simples []Simple, finds map[int]*findEvaluation, tc ToolCall) []bool {

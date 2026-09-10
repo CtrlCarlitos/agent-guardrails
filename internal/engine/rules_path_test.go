@@ -1158,6 +1158,8 @@ func TestOperatorConfigIsProtected(t *testing.T) {
 	protected := []string{
 		"/home/u/.config/guardrail/anything.toml",
 		"/home/u/guardrail/waivers.toml",
+		"/custom/xdg/guardrail/night.toml",
+		`C:\Users\u\AppData\Roaming\guardrail\night.toml`,
 	}
 	for _, p := range protected {
 		read := ToolCall{Tool: "Read", Paths: []string{p}, RepoRoot: "/repo", CWD: "/repo"}
@@ -1177,6 +1179,8 @@ func TestOperatorConfigIsProtected(t *testing.T) {
 	for _, command := range []string{
 		"cp /tmp/evil /home/u/.config/guardrail/anything.toml",
 		"sed -i s/deny/allow/ /home/u/guardrail/waivers.toml",
+		"rm /custom/xdg/guardrail/night.toml",
+		`python3 -c "open('/custom/xdg/guardrail/night.toml', 'w')"`,
 	} {
 		tc := ToolCall{Tool: "Bash", Command: command, RepoRoot: "/repo", CWD: "/repo"}
 		v := checkPaths(tc, pathPol())

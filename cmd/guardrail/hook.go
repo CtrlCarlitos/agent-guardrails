@@ -119,10 +119,13 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if tc.Event == "pre" && needsState {
 		err := sessionTransaction(tc.SessionID, func(st *session.State) error {
 			if needsNightAnnouncement {
-				until := nightState.Until.Format(time.RFC3339)
-				if st.NightModeAnnouncedUntil != until {
+				until := nightState.Until.Format(time.RFC3339Nano)
+				if st.NightModeAnnouncements[plane] != until {
 					announceNight = true
-					st.NightModeAnnouncedUntil = until
+					if st.NightModeAnnouncements == nil {
+						st.NightModeAnnouncements = make(map[string]string)
+					}
+					st.NightModeAnnouncements[plane] = until
 				}
 			}
 			v = engine.Evaluate(tc, merged)
@@ -159,13 +162,11 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			v = *rv
 		}
 	}
+	normalVerdict := v
 	v = engine.ApplyNightMode(v, nightState.Active)
+	nightAllowed := normalVerdict.Decision == policy.Ask && v.Decision == policy.Allow && v.RuleID == "ask-allowed-by-night-mode"
 	if announceNight {
-		if v.Reason == "" {
-			v.Reason = nightState.Banner()
-		} else {
-			v.Reason = nightState.Banner() + "; " + v.Reason
-		}
+		v = prependVerdictReason(v, nightState.Banner())
 	}
 
 	rec := audit.Record{
@@ -183,6 +184,12 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if err := audit.Write(rec, audit.DefaultPath(merged.Slots.AuditLog)); err != nil {
 		highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: audit write failed (%v)", err))
+		if nightAllowed {
+			v = normalVerdict
+			if announceNight {
+				v = prependVerdictReason(v, nightState.Banner())
+			}
+		}
 	}
 	stderrWarnings := append(append([]string{}, highPriorityWarnings...), mergeWarnings...)
 	adapter.EmitModelWarnings(stderrWarnings, stderr)
@@ -197,6 +204,15 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	default:
 		return 2
 	}
+}
+
+func prependVerdictReason(v policy.Verdict, prefix string) policy.Verdict {
+	if v.Reason == "" {
+		v.Reason = prefix
+	} else {
+		v.Reason = prefix + "; " + v.Reason
+	}
+	return v
 }
 
 func loadNightState(now time.Time) (night.State, error) {

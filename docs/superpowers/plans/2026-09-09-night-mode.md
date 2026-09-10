@@ -100,7 +100,7 @@ Expected: FAIL because the transform and hook integration do not exist.
 
 **Step 3: Implement the shared pipeline seam**
 
-Add the pure Engine transform. Load night state once near the start of each hook call; append a sanitized high-priority warning on load failure and remain inactive. While active, disable OpenCode approval-memory handling for that call. Apply the transform after Engine, Trifecta, approval-memory, and Recipe checks, then use the transformed Verdict for the existing audit record and Adapter emission. Do not add plane-specific night branches or change Adapter contracts.
+Add the pure Engine transform. Load night state once near the start of each hook call; append a sanitized high-priority warning on load failure and remain inactive. While active, disable OpenCode approval-memory handling for that call. Apply the transform after Engine, Trifecta, approval-memory, and Recipe checks, then use the transformed Verdict for the existing audit record and Adapter emission. If that night-mode audit write fails, fall back to the original Ask rather than emitting an unaudited Allow. Do not add plane-specific night policy branches.
 
 **Step 4: Run focused tests to verify GREEN**
 
@@ -125,6 +125,13 @@ git commit -m "feat(engine): render asks through night mode"
 - Modify: `internal/session/session.go`
 - Modify: `internal/engine/rules_bash.go`
 - Modify: `internal/engine/rules_bash_test.go`
+- Modify: `internal/engine/rules_path.go`
+- Modify: `internal/engine/rules_path_test.go`
+- Modify: `internal/genconfig/claude.go`
+- Modify: `internal/genconfig/claude_test.go`
+- Modify: `internal/genconfig/opencode_plugin.js`
+- Modify: `internal/genconfig/opencode_test.go`
+- Create: `cmd/guardrail/main_test.go`
 
 **Step 1: Write failing visibility and protection tests**
 
@@ -138,7 +145,7 @@ Expected: FAIL because visibility and command protection are absent.
 
 **Step 3: Implement visibility and self-protection**
 
-Prepend the banner before doctor's version line and before Claude's existing autonomy posture. Track OpenCode/Antigravity announcement by expiry in the existing session transaction, prefixing only the first response reason where their schemas allow it. Extend normalized Bash classification to recognize the `guardrail` executable followed by the `night` subcommand and return the existing `P5.self-config` Deny, retaining ordinary P5 waiver behavior and normal strongest-Verdict selection. Do not modify generated settings or Declarative-floor files: this is a runtime Engine command rule, and Deny survives night rendering.
+Prepend the banner before doctor's version line and before Claude's existing autonomy posture. Track OpenCode/Antigravity announcement by exact expiry and plane in the existing session transaction, prefixing only the first response reason where their schemas allow it; have the OpenCode plugin surface that Allow reason through its supported toast API. Extend normalized Bash classification to recognize direct, unresolved-but-visible, and opaque-interpreter `guardrail night` invocations and return the existing `P5.self-config` Deny. Protect `night.toml` at arbitrary Operator config roots in both the runtime Engine and generated Declarative floors, retaining ordinary P5 waiver behavior and normal strongest-Verdict selection. Do not edit installed settings: generated floors change only for future explicit generation/sync.
 
 **Step 4: Run focused tests to verify GREEN**
 
@@ -149,7 +156,7 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add cmd/guardrail/doctor.go cmd/guardrail/doctor_test.go cmd/guardrail/hook.go cmd/guardrail/hook_test.go internal/session/session.go internal/engine/rules_bash.go internal/engine/rules_bash_test.go
+git add cmd/guardrail/doctor.go cmd/guardrail/doctor_test.go cmd/guardrail/hook.go cmd/guardrail/hook_test.go cmd/guardrail/main_test.go internal/session/session.go internal/engine/rules_bash.go internal/engine/rules_bash_test.go internal/engine/rules_path.go internal/engine/rules_path_test.go internal/genconfig/claude.go internal/genconfig/claude_test.go internal/genconfig/opencode_plugin.js internal/genconfig/opencode_test.go
 git commit -m "feat(night): expose posture and protect controls"
 ```
 
@@ -157,11 +164,11 @@ git commit -m "feat(night): expose posture and protect controls"
 
 **Files:**
 - Modify: `test/adversarial/corpus.json`
-- Modify only if the existing schema cannot express the case: `test/adversarial/adversarial_test.go`
+- Modify: `test/adversarial/adversarial_test.go`
 
 **Step 1: Add exactly one corpus entry**
 
-Add one case showing that an active-mode self-control attempt such as `guardrail night off` is still denied by `P5.self-config`. Do not add a second night-mode corpus row; keep broader combinations in unit/integration tests.
+Add one case showing that an active-mode self-control attempt such as `guardrail night off` is still denied by `P5.self-config`. Extend the harness just enough to activate a marker and assert the rule ID for that row. Do not add a second night-mode corpus row; keep broader combinations in unit/integration tests.
 
 **Step 2: Run the adversarial test**
 

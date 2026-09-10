@@ -2642,6 +2642,8 @@
     "command": "guardrail night off",
     "cwd": "/repo",
     "repo_root": "/repo",
-    "want": "deny"
+    "night": true,
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
   }
 ]

@@ -483,6 +483,46 @@ try {
 	}
 }
 
+func TestOpencodePluginSurfacesNightModeAllowReason(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is required to exercise the embedded OpenCode plugin")
+	}
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "guardrail")
+	fakeGuardrail := `#!/bin/sh
+IFS= read -r _ || :
+printf '%s' '{"decision":"allow","reason":"NIGHT MODE until 2026-09-11T05:00:00Z; allowed by active night mode"}'
+`
+	if err := os.WriteFile(binary, []byte(fakeGuardrail), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pluginPath := filepath.Join(dir, "guardrail.mjs")
+	if err := os.WriteFile(pluginPath, OpencodePluginFor(binary), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := `
+import { pathToFileURL } from "node:url";
+const loaded = await import(pathToFileURL(process.argv[1]).href);
+let toast;
+const client = { tui: { showToast: async (input) => { toast = input; } } };
+const plugin = await loaded.default({ directory: "/repo", client });
+await plugin["tool.execute.before"](
+  { tool: "bash", sessionID: "night-plugin" },
+  { args: { command: "true" } },
+);
+process.stdout.write(JSON.stringify(toast));
+`
+	cmd := exec.Command(node, "--input-type=module", "--eval", runner, pluginPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("night-mode allow failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), `"message":"NIGHT MODE until 2026-09-11T05:00:00Z"`) {
+		t.Fatalf("night-mode toast = %s", output)
+	}
+}
+
 func TestOpencodePluginRejectsOversizeEnvelopeBeforeSpawningEngine(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
