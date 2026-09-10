@@ -5,22 +5,10 @@
 This response answers the complete finding index in the
 [2026-09-04 adversarial review](./2026-09-04-adversarial-review.md), whose build
 under test was `b109b33`+ and whose scope also included the separate chezmoi
-installer. Phase 3's published Engine source boundary is clean commit
-[`a2965681e4ea552f8b29b329fd8b6a2ee513a395`](https://github.com/CtrlCarlitos/agent-guardrails/commit/a2965681e4ea552f8b29b329fd8b6a2ee513a395):
-the local and remote `v0.11.0-dev` tags resolve to that hash, and the GitHub
-Release for `v0.11.0-dev` publishes six platform binaries plus `SHA256SUMS`.
-Phase 2 is complete and published: local and remote `v0.12.0-dev` both resolve to
-[`d4e43e814564785c28ea8d84023c60f60d72af2e`](https://github.com/CtrlCarlitos/agent-guardrails/commit/d4e43e814564785c28ea8d84023c60f60d72af2e),
-and its GitHub Release carries six platform binaries plus `SHA256SUMS`.
-**`v0.12.0-dev` is the deployed binary** as of 2026-09-06: the chezmoi
-installer pin is `v0.12.0-dev` in all four locations (`3205860`), and
-`~/.local/bin/guardrail --version` reports it. Phase 1 is published at
-`v0.9.0-dev` (`aa66b99615a4ba3384ffb5a661bcfebe03f7c181`). Phase 4 is
-complete in source through `9484388`, but is not tagged, published, deployed,
-or reflected in the installer pin.
-
-*Status updated 2026-09-06 for the Phase 4 source closeout. Publication and
-deployment claims remain scoped to the tags named below.*
+installer. The current source and release boundary is `v0.17.0-dev` at
+[`e1ab96559d684dbcce470656d80230864cfded11`](https://github.com/CtrlCarlitos/agent-guardrails/commit/e1ab96559d684dbcce470656d80230864cfded11).
+It includes Phase 1 through Phase 5 and supersedes the historical publication
+boundaries recorded below.
 
 The honest executive answer is **not all findings are addressed**. Phase 1
 closed the normalization and self-protection fixes assigned to it. Phase 3 and
@@ -29,12 +17,16 @@ cross-plane failures. Phase 2 closed its token normalization, git, Docker,
 egress, wrapper, destructive-primitive, working-directory, and regression-lock
 work. Phase 4 closed path-matching correctness, secret tiers, command-operand
 coverage, scoped self-configuration, and executable identity for CR-9, H-2,
-H-7, M-2 through M-6, NF-1, and NF-2. M-9 is fully fixed: the chezmoi branch
+H-7, M-2 through M-6, NF-1, and NF-2. Phase 5 fixed M-7 and NF-4 through
+NF-10, NF-13 through NF-15, and NF-17 through NF-19. M-9 is fully fixed: the
+chezmoi branch
 `guardrail-remediation-phase1` is merged into chezmoi `main`, the `shasum`
 fallback is live (`run_onchange_install_packages.sh.tmpl:344`), and the pin
-advanced to `v0.12.0-dev`. **Phase 5** retains H-6, H-10, and M-7. The current
-ledger is 38 fixed, 0 partially fixed, and 3 outstanding across 41 indexed
-findings.
+advanced through the published release sequence. The current ledger is **53
+fixed, 0 partially fixed, and 5 outstanding across 58 indexed findings**.
+H-6, H-10, NF-3, NF-11, and NF-12 are parked by the operator under
+[ADR-0012](../adr/0012-static-analysis-boundary-and-shape-threshold.md); the
+candidate ADR-0013 containment work is parked separately and is not a finding.
 
 The protection described here is at the static plane tool-call boundary. The
 Engine evaluates operations visible in an attempted tool call, including
@@ -53,9 +45,12 @@ bullets as distinct ledger entries.
 |---|---:|---:|---:|---:|
 | CRITICAL | 19 | 0 | 0 | 19 (16 numbered findings plus 3 addendum bullets) |
 | HIGH | 9 | 0 | 2 | 11 |
-| MEDIUM | 8 | 0 | 1 | 9 |
-| NEW FINDINGS | 2 | 0 | 0 | 2 |
-| **Total** | **38** | **0** | **3** | **41** |
+| MEDIUM | 9 | 0 | 0 | 9 |
+| NEW FINDINGS | 16 | 0 | 3 | 19 |
+| **Total** | **53** | **0** | **5** | **58** |
+
+NF-5b is a separately indexed addendum. NF-16 was never assigned to a finding
+and is not included in the totals.
 
 ## CRITICAL ledger
 
@@ -94,11 +89,11 @@ reviewed mutator, destructive-primitive, and reader channels are fixed
 | **H-3 Wrapper strip-list holes** | **Fixed** | Phase 2, `v0.12.0-dev` (published 2026-09-06, deployed) | Normalization unwraps option-aware `setsid`, `stdbuf`, `ionice`, `watch`, and `chroot`, with unknown/missing values degrading only that statement ([`tokenize.go:1792-1839`](../../internal/engine/tokenize.go#L1792-L1839), [lines 2052-2104](../../internal/engine/tokenize.go#L2052-L2104)). Additional privilege launchers and deliberately unparsed `parallel` deny in [`rules_bash.go:709-713`](../../internal/engine/rules_bash.go#L709-L713). Wrapper, shell, malformed-option, and safe controls begin at [`rules_bash_test.go:1016`](../../internal/engine/rules_bash_test.go#L1016) and [`tokenize_test.go:363`](../../internal/engine/tokenize_test.go#L363). | - |
 | **H-4 Uncovered destructive primitives** | **Fixed** | Phase 2, `v0.12.0-dev` (published 2026-09-06, deployed) | Option-aware destination checks cover mv/cp/ln/tee/install and deletion-mode rsync, including move sources and remote destinations ([`rules_bash.go`](../../internal/engine/rules_bash.go), [`rules_path.go`](../../internal/engine/rules_path.go)). Find destructive exec families, update-ref, worktree remove, switch discard, and git rm are covered; option-aware SSH remote commands and enabled visible `LocalCommand` settings remain subject to host and nested Bash checks ([`rules_git.go`](../../internal/engine/rules_git.go), [`rules_net.go`](../../internal/engine/rules_net.go)). Destination, rsync, find, git, SSH remote-command, local-command, malformed-setting, and control locks are in [`rules_bash_test.go`](../../internal/engine/rules_bash_test.go), [`rules_git_test.go`](../../internal/engine/rules_git_test.go), and [`rules_net_test.go`](../../internal/engine/rules_net_test.go). | -; H-10's unknown tools remain a separate Phase 5 gap. |
 | **H-5 Symlink laundering outside the repo** | **Fixed** | Phase 3 whole-review hardening at `v0.11.0-dev`; secret-tier ordering completed in Phase 4 | Every visible path candidate aggregates lexical secret classification with resolved-target secret-directory and escape enforcement ([`rules_path.go`](../../internal/engine/rules_path.go)). Existing outside aliases, missing-leaf traversal, secret-directory aliases, and ambiguous-ask versus symlink-deny ordering are locked in [`rules_path_test.go`](../../internal/engine/rules_path_test.go) and [`resolve_test.go`](../../internal/pathutil/resolve_test.go). The live Overlay gate remains [`TestAuthorizedSecretAllowStillBlocksSymlinkEscape`](../../test/adversarial/overlay_test.go). | -; dynamically assembled targets remain outside the documented static boundary. |
-| **H-6 WebFetch / WebSearch / Task / NotebookEdit are entirely ungated** | **Outstanding** | Phase 5 | Claude parsing retains only `command` and `file_path`, not native URL/query/notebook fields ([`claude.go:14-22`](../../internal/adapter/claude.go#L14-L22)); network signaling explicitly returns false for non-Bash calls ([`trifecta_signals.go:21-37`](../../internal/engine/trifecta_signals.go#L21-L37)). No native-tool egress/trifecta regression closes the finding. | Native network tools can bypass P6 and the trifecta network leg; unknown native write tools can bypass path protection. |
+| **H-6 WebFetch / WebSearch / Task / NotebookEdit are entirely ungated** | **Outstanding (parked)** | ADR-0012 / operator | Claude parsing retains only `command` and `file_path`, not native URL/query/notebook fields ([`claude.go:14-22`](../../internal/adapter/claude.go#L14-L22)); network signaling explicitly returns false for non-Bash calls ([`trifecta_signals.go:21-37`](../../internal/engine/trifecta_signals.go#L21-L37)). No native-tool egress/trifecta regression closes the finding. | Native network tools can bypass P6 and the trifecta network leg; unknown native write tools can bypass path protection. |
 | **H-7 Case-sensitive globs** | **Fixed** | Phase 4, `b29ce8d` and `08cbc79` | Path containment and glob matching normalize case before comparison across secret, self-configuration, git-protected, and CI/infrastructure lists ([`rules_path.go`](../../internal/engine/rules_path.go)). APFS/NTFS-style variants are locked in [`rules_scope_test.go`](../../internal/engine/rules_scope_test.go) and the adversarial corpus. | - |
 | **H-8 `audit_log` overlay = silencing + arbitrary append.** | **Fixed** | Phase 3, `v0.11.0-dev` | Operator config exposes an exact-repository Boolean grant ([`operator.go:97-121`](../../internal/policy/operator.go#L97-L121)); Merge retains the Base audit path unless granted ([`merge.go:87-94`](../../internal/policy/merge.go#L87-L94)). Exact-boundary and no-authorization locks are in [`merge_test.go:132-192`](../../internal/policy/merge_test.go#L132-L192), with hostile `/dev/null` integration in [`overlay_test.go:15-120`](../../test/adversarial/overlay_test.go#L15-L120). | - |
 | **H-9 Claude SessionStart `additionalContext` was an unbounded prompt-injection channel.** | **Fixed** | Phase 3, `v0.11.0-dev` | Waiver IDs are format-filtered and model-facing warnings are sanitized/capped in [`sanitize.go:11-51`](../../internal/adapter/sanitize.go#L11-L51); `PostureText` uses both at [`claude.go:89-102`](../../internal/adapter/claude.go#L89-L102). Unicode/control, rune-boundary, ID-format, and posture-cap locks are in [`sanitize_test.go:12-105`](../../internal/adapter/sanitize_test.go#L12-L105). | - |
-| **H-10 Unknown tool names fail OPEN on all three planes.** | **Outstanding** | Phase 5 | All Adapter normalizers preserve unknown names ([`opencode.go:48-62`](../../internal/adapter/opencode.go#L48-L62), [`antigravity.go:70-82`](../../internal/adapter/antigravity.go#L70-L82)); `Evaluate` returns allow when no specialized check hits ([`evaluate.go:18-35`](../../internal/engine/evaluate.go#L18-L35)). OpenCode also forwards arbitrary tool names and only recognized path fields ([`opencode_plugin.js:43-55`](../../internal/genconfig/opencode_plugin.js#L43-L55)). There is no unknown-pre-tool deny regression. | New, missing, or misspelled tool names, including real write/network primitives, still fail open. |
+| **H-10 Unknown tool names fail OPEN on all three planes.** | **Outstanding (parked)** | ADR-0012 / operator | All Adapter normalizers preserve unknown names ([`opencode.go:48-62`](../../internal/adapter/opencode.go#L48-L62), [`antigravity.go:70-82`](../../internal/adapter/antigravity.go#L70-L82)); `Evaluate` returns allow when no specialized check hits ([`evaluate.go:18-35`](../../internal/engine/evaluate.go#L18-L35)). OpenCode also forwards arbitrary tool names and only recognized path fields ([`opencode_plugin.js:43-55`](../../internal/genconfig/opencode_plugin.js#L43-L55)). There is no unknown-pre-tool deny regression. | New, missing, or misspelled tool names, including real write/network primitives, still fail open. |
 | **H-11 No overlay size limit → hook timeout → guard skipped.** | **Fixed** | Phase 3, `v0.11.0-dev` | `LoadOverlay` rejects over 1 MiB both before opening and through a bounded reader in [`config.go:14-15`](../../internal/policy/config.go#L14-L15) and [lines 58-76](../../internal/policy/config.go#L58-L76). Boundary and malformed-oversize tests are in [`config_test.go:253-303`](../../internal/policy/config_test.go#L253-L303); Antigravity oversized-failure protocol coverage is in [`hook_test.go:644-674`](../../cmd/guardrail/hook_test.go#L644-L674). | - |
 
 ## MEDIUM ledger
@@ -111,7 +106,7 @@ reviewed mutator, destructive-primitive, and reader channels are fixed
 | **M-4 `ciInfraLockGlobs` basename matching gates routine work** | **Fixed** | Phase 4, `b29ce8d` | Root-only CI/infrastructure names are evaluated only as repository-relative root paths; explicitly anywhere-scoped globs remain protected ([`rules_path.go`](../../internal/engine/rules_path.go)). Relative, absolute, repository-root `/`, escape, nested, and symlink cases are locked in [`rules_scope_test.go`](../../internal/engine/rules_scope_test.go). | - |
 | **M-5 `selfConfigGlobs` basename fallback blocks agent-doc repos** | **Fixed** | Phase 4, `b29ce8d` | Root-only agent-document names are evaluated only at the repository root, from lexical and resolved path forms; nested templates no longer match by basename ([`rules_path.go`](../../internal/engine/rules_path.go)). Root, nested, case, escape, and symlink controls are locked in [`rules_scope_test.go`](../../internal/engine/rules_scope_test.go) and the corpus. | - |
 | **M-6 `git clean -n` dry-runs are denied** | **Fixed** | Phase 4, `d13f4af` | `git clean` recognizes `-n` and `--dry-run` before destructive selection flags ([`rules_bash.go`](../../internal/engine/rules_bash.go)). Combined short flags, long form, destructive controls, and corpus cases are locked in [`rules_bash_test.go`](../../internal/engine/rules_bash_test.go). | - |
-| **M-7 Trifecta: session state is deletable and racy** | **Outstanding** | Phase 5 | Session persistence remains unlocked `ReadFile`/`WriteFile` ([`session.go:53-90`](../../internal/session/session.go#L53-L90)); empty IDs still disable state ([lines 35-50](../../internal/session/session.go#L35-L50)); flagless `rm` receives no P1 Verdict ([`rules_bash.go:269-293`](../../internal/engine/rules_bash.go#L269-L293)). No concurrency/deletion regression exists. | State legs can still be lost to races, deleted by the plane, or disabled by an empty session ID. |
+| **M-7 Trifecta: session state is deletable and racy** | **Fixed** | Phase 5, `2d0ac69` | Session transactions are locked and atomic, P7 tracking is Engine-owned, legacy state is migrated into an isolated v2 namespace, and empty-session/deletion lifecycle gaps fail closed ([`session.go`](../../internal/session/session.go), [`trifecta_signals.go`](../../internal/engine/trifecta_signals.go)). Cross-process serialization and lifecycle regressions cover the original races and bypasses. | - |
 | **M-8 Deny `Reason` was `Fprintf`'d unescaped into Claude's model-facing block channel.** | **Fixed** | Phase 3, `v0.11.0-dev` | Every Adapter sanitizes model-facing reasons; Claude applies it before both stderr and ask JSON ([`claude.go:64-86`](../../internal/adapter/claude.go#L64-L86)), with common Unicode-safe control normalization and rune capping in [`sanitize.go:11-21`](../../internal/adapter/sanitize.go#L11-L21) and [`safetext.go:9-20`](../../internal/safetext/safetext.go#L9-L20). Per-plane reason regressions are in [`claude_emit_test.go:19-47`](../../internal/adapter/claude_emit_test.go#L19-L47), [`opencode_test.go:44-68`](../../internal/adapter/opencode_test.go#L44-L68), and [`antigravity_test.go:65-81`](../../internal/adapter/antigravity_test.go#L65-L81). | - |
 | **M-9 macOS installs no guard at all.** | **Fixed** | Phase 1 (chezmoi); merged, applied and pushed 2026-09-06 | The chezmoi branch `guardrail-remediation-phase1` is merged into chezmoi `main` (`git branch --merged main` lists it). `main` resolves `sha256sum`, `gsha256sum`, or `shasum -a 256` in `run_onchange_install_packages.sh.tmpl:340-348` and `scripts/update_ai_tools.sh`. The installer pin is `v0.12.0-dev` in all four locations (chezmoi `3205860`), and the installed binary reports `guardrail v0.12.0-dev`. This repository still cannot regression-test the external chezmoi path; the evidence is the merged chezmoi history and the live install. | Not exercised on real macOS in this session; the fallback is verified by inspection and by the merged commit, not by a Mac install. |
 
@@ -122,15 +117,34 @@ reviewed mutator, destructive-primitive, and reader channels are fixed
 | **NF-1 Agent memory was classified as agent configuration** | **Fixed** | Phase 4, `d13f4af` | Self-configuration globs cover settings, hooks, plugins, agents, commands, skills, and Claude instructions rather than all of `.claude`; memory writes no longer receive `P5.self-config` ([`rules_path.go`](../../internal/engine/rules_path.go)). [`TestAgentMemoryIsNotAgentConfig`](../../internal/engine/rules_path_test.go) and the corpus prove the out-of-repository memory write receives `P5.out-of-repo` ask while configuration writes deny. | - |
 | **NF-2 Executable identity was not canonicalized** | **Fixed** | Phase 4, `98b7f8f` | Command heads normalize slash direction and case, take the basename, and strip `.exe` once for every command map ([`rules_bash.go`](../../internal/engine/rules_bash.go)). Unit and corpus locks cover `cat.exe`, `CAT`, `C:\bin\cat.exe`, and Unix absolute paths. | - |
 
-## Phase 4 completion and remaining work
+| **NF-3 Plane-disabled owned hooks are not reconciled** | **Outstanding (detection half; parked)** | ADR-0012 / operator | `doctor` can report an absent active hook, but a disabled hook cannot invoke its own repair and the external updater/re-arm path has not been delivered. | A plane-disabled guard remains dependent on external operator action. |
+| **NF-4 Standard output device redirects Ask** | **Fixed** | Phase 5, `2036668` | Exact cleaned redirects to `/dev/null`, `/dev/stdout`, `/dev/stderr`, and `/dev/tty` are exempted only at the redirect seam; mutator destinations remain protected. | - |
+| **NF-5 Unresolved state is command-wide rather than position-aware** | **Fixed** | Phase 5, `d552b1a` | Expansion provenance is retained per argument and redirect and joined to policy-bearing operand roles; inert unresolved data no longer forces an Ask. | - |
+| **NF-5b Literal parameter prefixes remain unresolved** | **Fixed** | Phase 5, `09cd998` | Proven one-field literal parameter prefixes resolve while unknown, operated, split-prone, and glob-prone values remain under `P3.unresolved`. | - |
+| **NF-6 Claude scratch redirects Ask** | **Fixed** | Phase 5, `251bf1a` | The general NF-8 system-temp descendant rule covers Claude scratch paths without a plane-specific payload field. | - |
+| **NF-7 Routine local Git identity writes are denied** | **Fixed** | Phase 5, `2a20aaf` | Git config writes are classified by scope and key; approved local identity keys Allow, unknown local keys Ask, and high-risk/global/system writes Deny. | - |
+| **NF-8 System temp descendants are not Base-authorized** | **Fixed** | Phase 5, `251bf1a` | Strict descendants of runtime system temp roots are authorized for destructive `rm` and output redirects; roots and escapes remain protected. | - |
+| **NF-9 Fully scoped temporary `find` deletion Asks** | **Fixed** | Phase 5, `09cd998` | Conservative root/action parsing permits only exact scoped deletion under authorized system-temp descendants. | - |
+| **NF-10 Native rules pre-empt NF-8/NF-9** | **Fixed** | Phase 5, `780a577` | Fresh generation omits the broad native patterns and owned-entry merges retire them from existing Claude/OpenCode settings. | - |
+| **NF-11 Audit records omit execution location** | **Outstanding (parked)** | ADR-0012 / operator | Audit JSONL still lacks the proposed additive `cwd` and `repo_root` context fields. | Session IDs do not identify where a subagent operation ran. |
+| **NF-12 Operator-held Phase 5 follow-up** | **Outstanding (parked)** | ADR-0012 / operator | ADR-0012 names NF-12 in the parked set, but no tracked brief defines an implementation contract. | Must be specified before execution; no code claims closure. |
+| **NF-13 OpenCode Ask retries have no bounded approval memory** | **Fixed** | Phase 5, `8d9af6c` | OpenCode carries complete arguments and remembers one exact approved retry for ten minutes; committed state is one-shot, bounded, and hardened against transport failures. | - |
+| **NF-14 Direct non-link writes before scoped `find` force an Ask** | **Fixed** | Phase 5, `91ba961` | Statement-local filesystem facts distinguish bounded direct writes from link/pathname uncertainty and preserve the exemption through trailing wrappers. | - |
+| **NF-15 Antigravity Ask mapping does not force a prompt** | **Fixed** | Phase 5, `3dafda5` | Antigravity pre-hook Ask Verdicts map to `force_ask`; contract and Adapter tests lock the wire behavior. | - |
+| **NF-17 Plane-owned writable roots Ask as out-of-repository** | **Fixed** | Phase 5, `dee0bb6` | File tools and bounded shell writes recognize system-temp descendants and the exact Claude memory root with lexical, physical, and actual-home checks. | - |
+| **NF-18 Read-only `find` is treated as bulk deletion** | **Fixed** | Phase 5, `1f425d6` | The action-aware parser distinguishes read-only actions and applies command policy to `-exec`/`-execdir` callbacks while retaining provenance. | - |
+| **NF-19 Bounded literal-assigned shell values remain unresolved** | **Fixed** | Phase 5, `e1ab965` | The resolver covers policy-bearing operands, executable prefixes, bounded literal loops, `PWD`, and `HOME`; nonliteral, nested, or over-16-item loops remain fail-closed. | - |
 
-The original report's Phase 2 set remains fully reconciled. Phase 4 now adds
+NF-16 was never assigned to a finding; the numbering gap is intentional and is
+not a ledger entry.
+
+## Phase 5 completion and parked work
+
+The original report's Phase 2 set remains fully reconciled. Phases 4 and 5 add
 current source, focused Engine tests, Declarative floor tests, and end-to-end
-corpus evidence for CR-9, H-2, H-7, M-2 through M-6, NF-1, and NF-2. The corpus
-preserves all 196 prior entries in their original order with identical fields and
-values, then appends 111 whole-Engine cases. The resulting adversarial corpus is
-**307 cases: 77 allow, 23 ask, and 207 deny**. Its harness validates the plane
-response and matching audit record rather than classifying exit status alone
+corpus evidence through `v0.17.0-dev`. The resulting adversarial corpus is **321
+cases: 85 allow, 25 ask, and 211 deny**. Its harness validates the plane response
+and matching audit record rather than classifying exit status alone
 ([`adversarial_test.go:108-211`](../../test/adversarial/adversarial_test.go#L108-L211)).
 
 The first meaningful H-5 live gate passed. The exact authorized
@@ -142,9 +156,10 @@ That completed lock moves the CRITICAL addendum “Slots widened globally, not
 repo-scoped” from partially fixed to fixed; it does not widen the static
 tool-call boundary.
 
-Only Phase 5 findings remain outstanding: **H-6** (native network/tool gating),
-**H-10** (unknown-tool fail-open behavior), and **M-7** (trifecta session-state
-integrity). The review is therefore not fully closed.
+The genuinely open work is **H-6**, **H-10**, **NF-3**'s detection half,
+**NF-11**, **NF-12**, and candidate **ADR-0013** containment. The operator has
+parked all six under ADR-0012's static-analysis boundary; ADR-0013 is not counted
+as a finding. The review is therefore reconciled but not fully closed.
 
 ## Phase 3 whole-review corrections
 
@@ -232,7 +247,7 @@ whole-phase review produced the following corrections before `v0.11.0-dev`:
   published six platform binaries and checksums.
 - The Phase 4 closeout gate passed `make check && /usr/local/go/bin/go test
   ./... -count=1` at the documentation boundary.
-- The adversarial corpus is exactly **307 cases: 77 allow, 23 ask, 207 deny**.
+- The adversarial corpus is exactly **321 cases: 85 allow, 25 ask, 211 deny**.
   The harness validates the plane response and matching audit record rather than
   classifying an exit status alone
   ([`adversarial_test.go:108-211`](../../test/adversarial/adversarial_test.go#L108-L211)).
@@ -247,13 +262,15 @@ whole-phase review produced the following corrections before `v0.11.0-dev`:
   probes of the installed binary showed `rm -rf "/etc"`, `/bin/rm -rf /`,
   `cd /etc && rm -rf .`, `git --git-dir /r/.git push --force` and
   `docker compose -f d.yml down` move from exit 0 to exit 2.
+- **2026-09-09:** local and remote `v0.17.0-dev` resolve to
+  **`e1ab96559d684dbcce470656d80230864cfded11`**, the Phase 5 source boundary.
 
 ## Explicit non-claims
 
-- No code for Phase 5 has landed. H-6, H-10, and M-7 remain open.
-- Phase 4 is complete in source but is not tagged, published, deployed, or
-  reflected in the installer pins. `v0.13.0-dev` and `v0.14.0-dev` do not exist.
-- The review is **not** closed; Phase 5 still has three outstanding findings.
+- Phase 5 has landed through `v0.17.0-dev`; this document does not claim that
+  parked H-6, H-10, NF-3, NF-11, NF-12, or ADR-0013 are implemented.
+- The review is reconciled but not fully closed: five findings and one candidate
+  ADR remain parked under ADR-0012 / operator direction.
 - This is static Guardrail Policy enforcement at plane tool-call boundaries,
   not an operating-system sandbox and not containment against arbitrary
   same-user code with dynamically concealed effects.
@@ -265,5 +282,7 @@ Covered CRITICAL headings: **CR-1 through CR-16**, plus all three addendum
 bullets: **CR-3 addendum: `waive` was unbounded.**, **Slots widened globally,
 not repo-scoped.**, and **"Logged" did not mean visible.** Covered HIGH
 headings: **H-1 through H-11**. Covered MEDIUM headings: **M-1 through M-9**.
-Covered new findings: **NF-1 and NF-2**. No numbered CRITICAL, HIGH, MEDIUM,
-new, or addendum finding is omitted.
+Covered assigned new findings: **NF-1 through NF-15, NF-17 through NF-19**, plus
+the separately indexed **NF-5b**. NF-16 was never assigned and is explicitly
+recorded as a numbering gap. No assigned CRITICAL, HIGH, MEDIUM, new, or
+addendum finding is omitted.

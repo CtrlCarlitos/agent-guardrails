@@ -54,9 +54,10 @@ classification.
 
 ## Consequences
 
-- The Phase 5 queue (H-10, H-6, NF-11, NF-12, NF-17, NF-18, NF-19) is the last
-  planned Engine work for shell semantics. Later phases are planes, adapters,
-  policy, and operations.
+- NF-17, NF-18, and NF-19 landed by `v0.17.0-dev`, completing the final planned
+  Engine work for shell semantics. H-6, H-10, NF-3, NF-11, NF-12, and candidate
+  ADR-0013 containment are parked by the operator; later work begins only when
+  explicitly scheduled.
 - The audit log is the only admissible evidence for a new shape. The threshold
   is measured, not argued.
 - Prompts that remain after this point are documented in the residual-risk
