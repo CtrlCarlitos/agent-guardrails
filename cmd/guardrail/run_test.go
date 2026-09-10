@@ -34,7 +34,7 @@ func TestRunHelp(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("help exit = %d, want 0", code)
 	}
-	for _, want := range []string{"hook", "gen-config", "doctor", "version"} {
+	for _, want := range []string{"hook", "gen-config", "doctor", "night", "version"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("usage missing %q", want)
 		}

@@ -24,6 +24,9 @@ usage:
       --dir <path>         repo directory to sync (default ".")
       --planes <list>      comma-separated planes (default "claude,opencode,antigravity")
       --binary <path>      guardrail path to register in hook commands (default "guardrail")
+  guardrail night on [--until HH:MM | --for 8h]
+  guardrail night off
+  guardrail night status
   guardrail doctor                      print resolved policy/overlay/audit/hook state
 `
 
@@ -45,6 +48,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdGenConfig(args[1:], stdout, stderr)
 	case "sync":
 		return cmdSync(args[1:], stdout, stderr)
+	case "night":
+		return cmdNight(args[1:], stdout, stderr)
 	case "doctor":
 		return cmdDoctor(args[1:], stdout, stderr)
 	default:
