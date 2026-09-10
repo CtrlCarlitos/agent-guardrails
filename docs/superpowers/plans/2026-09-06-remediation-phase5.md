@@ -1,8 +1,11 @@
-# Adversarial Remediation Phase 5 Implementation Plan
+# Adversarial Remediation Phase 5 Record
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Record status:** Phase 5 shipped through `v0.17.0-dev`. Completed checklists
+> record landed work; unchecked checklists are parked historical designs, not an
+> active queue.
 
-**Goal:** Close H-6, H-10, M-7, NF-3 through NF-11 (including NF-5b), and the observed opaque-executor self-config write gap without relaxing protection outside the explicitly approved temp-root and Git-config refinements.
+**Goal:** Record the Phase 5 remediation work, its landed boundaries, and the
+work parked under ADR-0012 / operator direction.
 
 **Architecture:** Keep the Engine authoritative and make each plane deliver enough normalized evidence for it to evaluate. Separate plane invocation and payload coverage, native-network policy, session integrity, production-friction fixes, retired native-floor cleanup, disabled-hook reconciliation, opaque-source uncertainty, and additive audit context so each change has its own RED tests and review gate.
 
@@ -22,12 +25,12 @@
 - Every plane-facing task requires generated-config or adapter-contract coverage in addition to Engine unit tests.
 - Do not edit the external chezmoi repository from this repository. Record exact external follow-up commands instead.
 - Do not push or tag automatically. Each implementation task stops after local verification and a reviewable commit.
-- NF-4 through NF-9, including NF-5b, are complete and shipped as `v0.14.0-dev` at `09cd998`. Task 4 below is a completion record, not remaining work. Carlitos ratified NF-8.
-- Execute the remaining work in this order: Task 4b (NF-10), Task 1 (H-10), Task 2 (H-6), Task 3 (M-7), Task 5 (NF-3), Task 6 (opaque-executor self-config writes), then Task 7 (NF-11, corpus, docs, and ledger).
-- Start every remaining task from current local `main` on its own branch in a dedicated worktree. Commit locally, run the independent gate and probes, and stop for Carlitos's review before merge. Do not push.
-- Phase 5 targets `v0.15.0-dev` only after Task 7 closes. Version changes, publication, deployment, and tags remain operator actions.
+- NF-4 through NF-9, including NF-5b, shipped as `v0.14.0-dev` at `09cd998`; NF-10 landed at `780a577`; M-7 closed at `2d0ac69`.
+- NF-13, NF-14, and NF-15 closed at `8d9af6c`, `91ba961`, and `3dafda5`; NF-17, NF-18, and NF-19 closed at `dee0bb6`, `1f425d6`, and `e1ab965`.
+- H-6, H-10, NF-3, NF-11, NF-12, opaque-executor semantic expansion, and candidate ADR-0013 containment are **parked (ADR-0012 / operator)**. No task resumes without operator scheduling.
+- The corpus, review, ledger, and release-record half of Task 7 is complete. Its NF-11 audit-code half is parked.
 
-## Preflight Findings
+## Historical Preflight Findings
 
 The original plan predated Phase 4 and contained incorrect implementation premises. This table is the required pre-Task-1 report.
 
@@ -51,15 +54,17 @@ The original plan predated Phase 4 and contained incorrect implementation premis
 
 **Audit pass 2026-09-07 18:40Z → 2026-09-08 04:56Z (`v0.15.0-dev`, 4,466 evaluations, 22 sessions, 158 asks / 14 denies, ~26 of them verification probes). Three shapes clear the ADR-0012 threshold; everything else is residue by design.**
 
-- **NF-19 — literal-assigned variables are not substituted in three positions.** Bisected from 32 asks in one skill's command pattern (`SK=…; PLAN=…; …`): `git add $PLAN` (git subcommand operand), `$SK/scripts/review-package $PLAN …` (operand of an *unknown* command; a literal operand there already allows), and `for n in 2 3 4; … $n …` (enumerable loop variable in a path position). Also `$PWD` (4 asks) — resolvable from the tracked cwd, as is `$HOME`. Same resolver as NF-5b, extended to those positions; ask stays for anything not literal-assigned or not enumerable. Lock each shape allow and its `/etc` counterpart deny.
-- **NF-17 — file-tool writes into plane-owned dirs ask as out-of-repo.** ▶ `Write`/`Edit` with `file_path` under the session scratchpad → `P5.out-of-repo` ask (17 events); redirects into `~/.claude/projects/<p>/memory/**` ask (4). NF-6/NF-8 covered Bash redirects only. Apply the same temp-root allowance to `checkOutOfRepoWrite` for file tools, and treat `~/.claude/projects/*/memory/**` as a plane-owned writable root for file tools, redirects and rm — it is the agent's memory, not configuration (NF-1's distinction).
-- **NF-18 — read-only `find` is treated as a bulk deletion.** ▶ `find . -name '*.go' -print`, `find . -path ./node_modules -prune -o -name x -print`, `find . -name '*.go' -ls`, and `find . -type f -exec grep -l foo {} +` all ask "not an exact scoped deletion"; only a bare `find . -name x` allows. `-print*`, `-ls`, `-fls`, `-prune`, `-quit` are not actions that delete; `-exec <cmd>` is judged as the inner command (grep = read, rm = the NF-9 rule). 2 events, but a plain bug.
+- **NF-17 [FIXED - `dee0bb6`] - file-tool writes into plane-owned dirs ask as out-of-repo.** `Write`/`Edit` with `file_path` under the session scratchpad produced `P5.out-of-repo`; redirects into `~/.claude/projects/<p>/memory/**` also asked.
+- **NF-18 [FIXED - `1f425d6`] - read-only `find` is treated as a bulk deletion.** Read-only actions now remain read-only and callbacks are evaluated through their own policy path.
+- **NF-19 [FIXED - `e1ab965`] - literal-assigned variables are not substituted in policy-bearing positions.** The bounded resolver covers assigned operands/executables, finite loops, `PWD`, and `HOME` while uncertain shapes remain fail-closed.
 
 Residue, by design (do not code): `$(mktemp -d)` / `$(git …)` in a path position, `diff <(…)`, shell functions `p(){…}`, `git remote add|set-url` with credential URLs in throwaway repos (7, one credential test session), `pkill -f`. These are the ADR-0012 routes: hygiene, Overlay, or the Ask.
 
 ---
 
 ### Task 1: H-10 - Route Unknown Tools and Every Visible Path
+
+**Status:** Parked (ADR-0012 / operator).
 
 **Files:**
 - Modify: `internal/genconfig/claude.go`
@@ -165,6 +170,8 @@ git commit -m "fix: route unknown tool paths through every gate (H-10)"
 
 ### Task 2: H-6 - Apply Native Network Policy Across All Planes
 
+**Status:** Parked (ADR-0012 / operator).
+
 **Files:**
 - Modify: `internal/engine/toolcall.go`
 - Modify: `internal/engine/rules_net.go`
@@ -241,7 +248,9 @@ git commit -m "fix: enforce native network policy across planes (H-6)"
 
 ---
 
-### Task 3: M-7 - Make Session Tracking Durable and Non-Bypassable
+### Task 3 Completion Record: M-7 - Durable Session Tracking
+
+**Status:** Complete at `2d0ac69`.
 
 **Files:**
 - Modify: `internal/session/session.go`
@@ -259,17 +268,17 @@ git commit -m "fix: enforce native network policy across planes (H-6)"
 - Lock acquisition never falls back to an unlocked write. A crashed process cannot leave later sessions blocked indefinitely. A bounded acquisition failure is returned to the caller without overwriting state.
 - Missing session IDs and transaction failures escalate an otherwise-Allow private-data or network signal to a model-visible Ask when P7 is active. Existing Ask and Deny Verdicts remain unchanged. Routine calls that carry neither signal are not interrupted.
 
-- [ ] **Step 0: Create the dedicated Task 3 worktree from reviewed local main**
+- [x] **Step 0: Create the dedicated Task 3 worktree from reviewed local main**
 
 ```bash
 git worktree add ../agent-guardrails-phase5-task3 -b phase5-task3-m7 main
 ```
 
-- [ ] **Step 1: Add RED storage-key tests**
+- [x] **Step 1: Add RED storage-key tests**
 
 Cover empty IDs, `/`, `\\`, `..`, colons, control characters, and a 4 KiB ID. Empty remains invalid. Every nonempty value maps deterministically to a portable fixed-length key and cannot escape the session directory.
 
-- [ ] **Step 2: Add RED concurrency and crash-recovery tests**
+- [x] **Step 2: Add RED concurrency and crash-recovery tests**
 
 Run at least 100 concurrent private/network updates against one session and assert both monotonic bits survive every run. Add a subprocess test that exits while holding the transaction primitive, then prove the next process can acquire and update without an unlocked fallback.
 
@@ -277,19 +286,19 @@ Run at least 100 concurrent private/network updates against one session and asse
 /usr/local/go/bin/go test ./internal/session -run 'Concurrent|Crash|Portable' -race -count=100
 ```
 
-- [ ] **Step 3: Add RED deletion-protection tests**
+- [x] **Step 3: Add RED deletion-protection tests**
 
 Assert Bash `rm` of Linux, macOS/XDG, and Windows session-store forms Denies as `P5.self-config`. Update the duplicated Claude self-config path list for direct file-tool edits and add coarse `Bash(rm *guardrail/sessions/*)` and Windows-equivalent entries to `bashDenyGlobs` so flagless deletion retains a Declarative-floor fallback when the Engine is unavailable.
 
-- [ ] **Step 4: Add RED hook tests for unavailable tracking**
+- [x] **Step 4: Add RED hook tests for unavailable tracking**
 
 With P7 active, an allowlisted native network call carrying no session ID must return a model-visible Ask with a P7 rule ID. Exercise the private-data signal with its ordinary P4 Verdict explicitly waived in the test policy so the underlying Verdict is Allow. Repeat with forced session transaction failure. Add controls proving existing Ask/Deny Verdicts are not downgraded. With `P7.trifecta` waived, preserve the normal underlying Verdict.
 
-- [ ] **Step 5: Implement one serialized transaction**
+- [x] **Step 5: Implement one serialized transaction**
 
 Replace the `Load`/mutate/`Save` sequence in `cmdHook` with the transaction. Keep pruning best-effort, but do not let pruning delete active lock state or race the transaction. Reject any design based on permanent `O_CREATE|O_EXCL` lock files or a timeout that proceeds unlocked.
 
-- [ ] **Step 6: Verify and commit locally**
+- [x] **Step 6: Verify and commit locally**
 
 ```bash
 /usr/local/go/bin/gofmt -w internal/session/session.go cmd/guardrail/hook.go internal/engine/rules_path.go internal/genconfig/claude.go
@@ -565,7 +574,9 @@ The final independent review returned `READY`; the complete race suite and `make
 
 ---
 
-### Task 4b: NF-10 - Retire Native Rules That Pre-empt NF-8/NF-9
+### Task 4b Completion Record: NF-10 - Retire Pre-empting Native Rules
+
+**Status:** Complete at `780a577`.
 
 **Files:**
 - Modify: `internal/genconfig/claude.go`
@@ -586,17 +597,17 @@ The final independent review returned `READY`; the complete race suite and `make
 - `MergePlaneInto(path, plane, frag)` treats exactly those five patterns as retired guardrail floor rules for explicit Claude/OpenCode generation. It removes the wrapped forms from Claude `permissions.deny`/`permissions.ask` and the unwrapped keys from OpenCode `permission.bash` before merging the current fragment. Generic `MergeInto` retains its non-destructive union semantics; no other user permission is removed.
 - The literal shell command `rm -rf /*` remains an Engine Deny, not a native-floor rule. Both planes define `*` as an unescapable Bash-permission wildcard, so a native `rm -rf /*` rule would also pre-empt NF-8 for absolute temp descendants.
 
-- [ ] **Step 0: Create the dedicated Task 4b worktree from local main**
+- [x] **Step 0: Create the dedicated Task 4b worktree from local main**
 
 ```bash
 git worktree add ../agent-guardrails-phase5-task4b -b phase5-task4b main
 ```
 
-- [ ] **Step 1: Add RED fresh-floor and migration regressions**
+- [x] **Step 1: Add RED fresh-floor and migration regressions**
 
 Assert both generated floors retain `/`, `~`, `.`, `..`, and `srm *`, omit all five retired patterns, and allow a representative strict temp descendant to reach the hook. Also prove no native `/*` rule reintroduces absolute-path pre-emption. Start merge fixtures with the old Claude and OpenCode rules present; after `MergePlaneInto`, assert every retired rule is absent while unrelated user rules survive.
 
-- [ ] **Step 2: Run the focused tests and confirm the root-cause failures**
+- [x] **Step 2: Run the focused tests and confirm the root-cause failures**
 
 ```bash
 /usr/local/go/bin/go test ./internal/genconfig -run 'Retired|TempDelete|BashPermissions' -count=1
@@ -604,7 +615,7 @@ Assert both generated floors retain `/`, `~`, `.`, `..`, and `srm *`, omit all f
 
 Expected: fresh-generation coverage fails on `find * -delete`; merge fixtures fail because obsolete `rm` and `find` rules survive accumulation.
 
-- [ ] **Step 3: Implement exact retirement and regenerate goldens**
+- [x] **Step 3: Implement exact retirement and regenerate goldens**
 
 Delete `Bash(find * -delete)` from `bashAskGlobs`. Add an explicit plane-aware merge entry point used by `gen-config` and `sync`; before its permission merge, remove only the five exact retired patterns from Claude's permission arrays and OpenCode's Bash permission object. Keep generic merges unchanged, centralize the retirement list, and do not broaden it to pattern-based deletion.
 
@@ -613,11 +624,11 @@ Delete `Bash(find * -delete)` from `bashAskGlobs`. Add an explicit plane-aware m
 git diff -- test/fixtures/claude/settings-floor.golden.json test/fixtures/opencode/settings-floor.golden.json
 ```
 
-- [ ] **Step 4: Verify Engine delivery through a real Claude session**
+- [x] **Step 4: Verify Engine delivery through a real Claude session**
 
 Run live probe #5 through Claude with the candidate floor installed. Confirm a strict system-temp descendant `rm -rf` and scoped `find ... -delete` reach the hook and receive the Engine's NF-8/NF-9 Allow, while every catastrophic literal remains natively denied. Record the exact payloads, native config, audit evidence, and Verdicts; Engine-only probes are insufficient.
 
-- [ ] **Step 5: Verify, gate, and commit locally**
+- [x] **Step 5: Verify, gate, and commit locally**
 
 ```bash
 /usr/local/go/bin/gofmt -w internal/genconfig/claude.go internal/genconfig/merge.go cmd/guardrail/genconfig.go cmd/guardrail/sync.go
@@ -629,11 +640,13 @@ git add internal/genconfig cmd/guardrail/genconfig.go cmd/guardrail/genconfig_te
 git commit -m "fix: retire native rules that pre-empt temp authorization (NF-10)"
 ```
 
-Do not push. Stop for the independent gate and Carlitos's review before merge.
+The independent gate and Carlitos review completed before merge.
 
 ---
 
 ### Task 5: NF-3 - Reconcile Plane-Disabled Owned Hooks
+
+**Status:** Parked (ADR-0012 / operator); the detection half remains open.
 
 **Files:**
 - Modify: `internal/genconfig/merge.go`
@@ -705,6 +718,8 @@ Do not mark NF-3 fully fixed in the review ledger until the external updater mes
 
 ### Task 6: Opaque Executors - Ask on Visible Self-Config Write Uncertainty
 
+**Status:** Parked (ADR-0012 / operator).
+
 **Files:**
 - Modify: `internal/engine/tokenize.go`
 - Modify: `internal/engine/rules_path.go`
@@ -770,7 +785,10 @@ git commit -m "fix: ask on opaque self-config write uncertainty"
 
 ---
 
-### Task 7: NF-11, Corpus, Documentation, and Release Readiness
+### Task 7 Record: NF-11, Corpus, Documentation, and Release Readiness
+
+**Status:** Corpus, documentation, ledger, and release evidence complete; NF-11
+audit code parked (ADR-0012 / operator).
 
 **Files:**
 - Modify: `internal/audit/audit.go`
@@ -799,11 +817,11 @@ git worktree add ../agent-guardrails-phase5-task7 -b phase5-task7-closeout main
 
 Add serialization tests proving nonempty `cwd` and `repo_root` appear under those exact JSON keys and older records without them still decode. Add a `cmdHook` test that parses the emitted audit record and matches both fields to the normalized tool call. Document the shared parent/subagent `session_id` behavior and the role of the two location fields.
 
-- [ ] **Step 2: Audit coverage by finding**
+- [x] **Step 2: Audit coverage by finding**
 
 Confirm at least one regression test and one non-regression control for H-6, H-10, M-7, NF-3, NF-4, NF-5, NF-5b, NF-6, NF-7, NF-8, NF-9, NF-10, NF-11, and opaque self-config uncertainty. Add missing corpus entries only where the generic corpus can express the payload.
 
-- [ ] **Step 3: Run the complete verification suite**
+- [x] **Step 3: Run the complete verification suite**
 
 ```bash
 make check
@@ -813,11 +831,11 @@ git diff --check
 
 Expected: all checks pass and all pre-Phase-5 corpus entries retain their exact Verdict and rule ID.
 
-- [ ] **Step 4: Update the review records factually**
+- [x] **Step 4: Update the review records factually**
 
 Mark a finding fixed only when its behavior and plane delivery are both verified. Record the opaque dynamic-path boundary explicitly. Record NF-3 as partial until its external repair trigger is deployed. Do not describe the 2026-09-04 review as closed while any ledger entry remains partial or outstanding.
 
-- [ ] **Step 5: Commit the local closeout**
+- [x] **Step 5: Commit the local closeout**
 
 ```bash
 git add internal/audit cmd/guardrail test/adversarial/corpus.json docs/reviews README.md
@@ -826,16 +844,20 @@ git status --short
 git log --oneline --decorate -10
 ```
 
-Stop for review. After the independent gate and Carlitos's merge, Phase 5 ships as `v0.15.0-dev`. Pushes, version changes, release tags, binary publication, and external installer pin updates are separate operator-approved work.
+Phase 5 shipped through `v0.17.0-dev`. NF-11 remains parked; this historical
+checklist does not authorize release or operator actions.
 
 ---
 
 ## Self-Review
 
-**Spec coverage:** H-10 is Task 1; H-6 is Task 2; M-7 is Task 3; NF-4 through NF-9, including NF-5b, are the completed Task 4; NF-10 is Task 4b; NF-3 is Task 5; opaque-executor self-config uncertainty is Task 6; NF-11, corpus, and evidence are Task 7.
+**Spec coverage:** M-7, NF-4 through NF-10, NF-13 through NF-15, and NF-17
+through NF-19 are complete. H-10, H-6, NF-3, NF-11, NF-12, opaque-executor
+semantic expansion, and candidate ADR-0013 are parked (ADR-0012 / operator).
 
 **Corrected stale premises:** The plan no longer assumes Claude-only native networking, a `Query` field, a new unconditional WebSearch Ask, first-path extraction, four rather than five write gates, an incomplete read-only alias list, `O_CREATE|O_EXCL` timeout locking, a stable Claude-specific scratch encoding, blanket Git-config denial, or automatic push/tag closeout.
 
 **Known boundaries:** Dynamic opaque path construction remains outside static inspection. A disabled plane cannot invoke its own repair, so NF-3 needs an external updater trigger. Pathless unknown custom/MCP tools remain allowed. Ratified NF-8 authorizes strict temp descendants for destructive `rm` and output redirects while preserving existing destination-mutator behavior; NF-9 reuses that boundary only for fully scoped `find` deletion, and root equality remains unauthorized.
 
-**Execution order:** Task 4 is complete and shipped. Execute Task 4b, then Tasks 1, 2, 3, 5, 6, and 7 in that order, each from reviewed local `main` on its own branch in a dedicated worktree. Every task stops after its local commit, independent gate, and probes; Carlitos merges. Task 7 closes only what the evidence supports and prepares, but does not publish, `v0.15.0-dev`.
+**Closeout:** Phase 5 is a record, not a queue. Parked work resumes only when
+the operator schedules it under ADR-0012.
