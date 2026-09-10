@@ -45,6 +45,8 @@ func TestGuardrailNightInvocationIsSelfConfigDeny(t *testing.T) {
 		`python3 -c "import os; os.system('guardrail night off')"`,
 		`node -e "require('child_process').execSync('guardrail night off')"`,
 		`python3 -c "subcommand='night'; executable='guardrail'; run(executable, subcommand)"`,
+		"python3 <<'PY'\nimport os\nos.system(\"guardrail night off\")\nPY",
+		`python3 <<< 'import os; os.system("guardrail night off")'`,
 	}
 	for _, command := range commands {
 		v := evalBash(t, command)

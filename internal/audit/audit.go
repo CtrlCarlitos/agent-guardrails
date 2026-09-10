@@ -62,6 +62,14 @@ func Write(rec Record, path string) (err error) {
 		rec.TS = time.Now().UTC().Format(time.RFC3339)
 	}
 	rec.Command = redact(rec.Command)
+	line, err := json.Marshal(rec)
+	if err != nil {
+		return err
+	}
+	return appendLine(path, append(line, '\n'), nil)
+}
+
+func appendLine(path string, line []byte, afterAppend func() error) (err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
@@ -74,12 +82,15 @@ func Write(rec Record, path string) (err error) {
 			err = closeErr
 		}
 	}()
-	line, err := json.Marshal(rec)
-	if err != nil {
+	if _, err = f.Write(line); err != nil {
 		return err
 	}
-	_, err = f.Write(append(line, '\n'))
-	return err
+	if afterAppend != nil {
+		if err := afterAppend(); err != nil {
+			return err
+		}
+	}
+	return validateRegularDestination(path, f, nil)
 }
 
 func openRegularAppend(path string) (*os.File, error) {
@@ -95,16 +106,23 @@ func openRegularAppend(path string) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateRegularDestination(path, f, before); err != nil {
+		if closeErr := f.Close(); closeErr != nil {
+			return nil, fmt.Errorf("audit destination changed or is not a regular file; closing: %w", closeErr)
+		}
+		return nil, err
+	}
+	return f, nil
+}
+
+func validateRegularDestination(path string, f *os.File, before os.FileInfo) error {
 	opened, statErr := f.Stat()
 	current, lstatErr := os.Lstat(path)
 	changed := statErr != nil || lstatErr != nil || !opened.Mode().IsRegular() ||
 		!current.Mode().IsRegular() || !os.SameFile(opened, current) ||
 		before != nil && !os.SameFile(before, opened)
 	if changed {
-		if closeErr := f.Close(); closeErr != nil {
-			return nil, fmt.Errorf("audit destination changed or is not a regular file; closing: %w", closeErr)
-		}
-		return nil, errors.New("audit destination changed or is not a regular file")
+		return errors.New("audit destination changed or is not a regular file")
 	}
-	return f, nil
+	return nil
 }

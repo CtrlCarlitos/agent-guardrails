@@ -105,7 +105,7 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 		takeSimple(checkRmRf(s, tc, pol))
 		takeSimple(checkDiskDestroyers(s))
 		takeSimple(checkDestinationWrites(s, tc, pol))
-		takeSimple(checkNightControlInvocation(s))
+		takeSimple(checkNightControlInvocation(s, tc.Command))
 		takeSimple(checkGit(s))
 		takeSimple(checkGitSafety(s, tc))
 		takeSimple(checkDocker(s, tc.Command))
@@ -147,10 +147,13 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 	return worst
 }
 
-func checkNightControlInvocation(s Simple) *policy.Verdict {
+func checkNightControlInvocation(s Simple, command string) *policy.Verdict {
 	direct := len(s.Argv) >= 2 && strings.EqualFold(s.Argv[1], "night") &&
 		(head(s.Argv) == "guardrail" || s.wordUnresolved(0) && mentionsExecutable(s.Argv[0], "guardrail"))
-	opaque := len(s.Argv) >= 2 && isOpaqueExecutor(head(s.Argv)) && mentionsCommand(s.Argv[1:], "guardrail", "night")
+	var opaque bool
+	if len(s.Argv) >= 1 && isOpaqueExecutor(head(s.Argv)) {
+		opaque = mentionsCommand([]string{command}, "guardrail", "night")
+	}
 	if direct || opaque {
 		return &policy.Verdict{
 			Decision: policy.Deny,

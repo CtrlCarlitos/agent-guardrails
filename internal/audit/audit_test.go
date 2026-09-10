@@ -99,6 +99,24 @@ func TestWriteRejectsSymlinkDestination(t *testing.T) {
 	}
 }
 
+func TestAppendLineRejectsDestinationReplacedAfterAppend(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not permit renaming this open file")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+	moved := filepath.Join(dir, "moved.jsonl")
+	err := appendLine(path, []byte("record\n"), func() error {
+		if err := os.Rename(path, moved); err != nil {
+			return err
+		}
+		return os.WriteFile(path, nil, 0o600)
+	})
+	if err == nil {
+		t.Fatal("append succeeded after destination replacement")
+	}
+}
+
 func TestRecordDecodesLegacyJSONWithoutOriginRuleID(t *testing.T) {
 	var record Record
 	if err := json.Unmarshal([]byte(`{"plane":"opencode","tool":"Bash","decision":"ask","rule_id":"P2.git-checkout-restore"}`), &record); err != nil {

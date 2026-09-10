@@ -516,6 +516,32 @@ func TestHookNightControlIsP5DenyAcrossPlanes(t *testing.T) {
 	}
 }
 
+func TestHookNightControlInInterpreterHeredocIsP5Deny(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	enableNightForHook(t)
+	command := "python3 <<'PY'\nimport os\nos.system(\"guardrail night off\")\nPY"
+	payload, err := json.Marshal(map[string]any{
+		"cwd":             "/tmp",
+		"hook_event_name": "PreToolUse",
+		"tool_name":       "Bash",
+		"tool_input":      map[string]string{"command": command},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"hook", "claude"}, bytes.NewReader(payload), &stdout, &stderr); code != 2 {
+		t.Fatalf("exit = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+	records := readApprovalAudit(t, stateHome)
+	if len(records) != 1 || records[0].Decision != "deny" || records[0].RuleID != "P5.self-config" {
+		t.Fatalf("audit = %+v, want deny/P5.self-config", records)
+	}
+}
+
 func TestHookClaudeDeny(t *testing.T) {
 	code, _, errb := runHook(t, "bash-rm-rf.json")
 	if code != 2 {
