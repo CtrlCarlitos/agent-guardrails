@@ -90,7 +90,7 @@ git commit -m "feat(cli): add night mode controls"
 
 **Step 1: Write failing transform and hook tests**
 
-Table-test inactive Allow/Ask/Deny and active Allow/Ask/Deny. The only active rewrite must be Ask to `policy.Allow` with `rule_id = "ask-allowed-by-night-mode"`, the prior rule in `origin_rule_id`, and a stable reason. Add hook coverage proving the same emitted Allow on Claude, OpenCode, and Antigravity, Deny preservation, Recipe Ask conversion, one marker read per invocation, live on/off changes between invocations, audit provenance, no consumption/creation of OpenCode approval memory while active, and fail-closed normal posture plus a warning for malformed/unreadable markers.
+Table-test inactive Allow/Ask/Deny and active Allow/Ask/Deny. The only active rewrite must be Ask to `policy.Allow` with `rule_id = "ask-allowed-by-night-mode"`, the prior rule in `origin_rule_id`, and a stable reason. Add hook coverage proving the same emitted Allow on Claude, OpenCode, and Antigravity, Deny preservation, one marker read per invocation, live on/off changes between invocations, audit provenance, no consumption/creation of OpenCode approval memory while active, and fail-closed normal posture plus a warning for malformed/unreadable markers.
 
 **Step 2: Run the focused tests to verify RED**
 
@@ -122,14 +122,13 @@ git commit -m "feat(engine): render asks through night mode"
 - Modify: `cmd/guardrail/doctor_test.go`
 - Modify: `cmd/guardrail/hook.go`
 - Modify: `cmd/guardrail/hook_test.go`
-- Modify: `internal/adapter/claude.go`
-- Modify: `internal/adapter/claude_test.go`
+- Modify: `internal/session/session.go`
 - Modify: `internal/engine/rules_bash.go`
 - Modify: `internal/engine/rules_bash_test.go`
 
 **Step 1: Write failing visibility and protection tests**
 
-Assert that active doctor output and Claude SessionStart context begin with the shared night banner, inactive output is unchanged, and invalid marker state is visible without claiming activation. Table-test direct and absolute-path `guardrail night on|off|status` Bash invocations as `P5.self-config`; verify equivalent parsed calls from all three planes reach the same Deny and remain Deny under active night mode.
+Assert that active doctor output and Claude SessionStart context begin with the shared night banner, inactive output is unchanged, and invalid marker state is visible without claiming activation. For OpenCode and Antigravity, persist the announced expiry in existing session state and include the banner in the first pre-tool response for each active-mode expiry, without adapter-local memory. Table-test direct and absolute-path `guardrail night on|off|status` Bash invocations as `P5.self-config`; verify equivalent parsed calls from all three planes reach the same Deny and remain Deny under active night mode.
 
 **Step 2: Run focused tests to verify RED**
 
@@ -139,7 +138,7 @@ Expected: FAIL because visibility and command protection are absent.
 
 **Step 3: Implement visibility and self-protection**
 
-Prepend the banner before doctor's version line and before Claude's existing autonomy posture. Extend normalized Bash classification to recognize the `guardrail` executable followed by the `night` subcommand and return the existing `P5.self-config` Deny, retaining ordinary P5 waiver behavior and normal strongest-Verdict selection. Do not modify generated settings or Declarative-floor files: this is a runtime Engine command rule, and Deny survives night rendering.
+Prepend the banner before doctor's version line and before Claude's existing autonomy posture. Track OpenCode/Antigravity announcement by expiry in the existing session transaction, prefixing only the first response reason where their schemas allow it. Extend normalized Bash classification to recognize the `guardrail` executable followed by the `night` subcommand and return the existing `P5.self-config` Deny, retaining ordinary P5 waiver behavior and normal strongest-Verdict selection. Do not modify generated settings or Declarative-floor files: this is a runtime Engine command rule, and Deny survives night rendering.
 
 **Step 4: Run focused tests to verify GREEN**
 
@@ -150,7 +149,7 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add cmd/guardrail/doctor.go cmd/guardrail/doctor_test.go cmd/guardrail/hook.go cmd/guardrail/hook_test.go internal/adapter/claude.go internal/adapter/claude_test.go internal/engine/rules_bash.go internal/engine/rules_bash_test.go
+git add cmd/guardrail/doctor.go cmd/guardrail/doctor_test.go cmd/guardrail/hook.go cmd/guardrail/hook_test.go internal/session/session.go internal/engine/rules_bash.go internal/engine/rules_bash_test.go
 git commit -m "feat(night): expose posture and protect controls"
 ```
 

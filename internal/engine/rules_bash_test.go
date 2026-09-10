@@ -35,6 +35,20 @@ func TestHeadCanonicalizesExecutableIdentity(t *testing.T) {
 	}
 }
 
+func TestGuardrailNightInvocationIsSelfConfigDeny(t *testing.T) {
+	commands := []string{
+		"guardrail night on --for 8h",
+		"/home/operator/.local/bin/guardrail night off",
+		"guardrail.exe night status",
+	}
+	for _, command := range commands {
+		v := evalBash(t, command)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
+			t.Errorf("%q -> %+v, want deny/P5.self-config", command, v)
+		}
+	}
+}
+
 func TestAbsolutePathHeadsAreMatched(t *testing.T) {
 	deny := []string{
 		`/bin/rm -rf /`,

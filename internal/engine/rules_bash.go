@@ -104,6 +104,7 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 		takeSimple(checkRmRf(s, tc, pol))
 		takeSimple(checkDiskDestroyers(s))
 		takeSimple(checkDestinationWrites(s, tc, pol))
+		takeSimple(checkNightControlInvocation(s))
 		takeSimple(checkGit(s))
 		takeSimple(checkGitSafety(s, tc))
 		takeSimple(checkDocker(s, tc.Command))
@@ -143,6 +144,17 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 		take(checkFindActions(find.parsed, s, tc, pol, findFSExemptions[index]))
 	}
 	return worst
+}
+
+func checkNightControlInvocation(s Simple) *policy.Verdict {
+	if len(s.Argv) >= 2 && head(s.Argv) == "guardrail" && strings.EqualFold(s.Argv[1], "night") {
+		return &policy.Verdict{
+			Decision: policy.Deny,
+			RuleID:   "P5.self-config",
+			Reason:   "the guarded plane cannot change its own night-mode posture",
+		}
+	}
+	return nil
 }
 
 func literalWriteFindExemptions(command string, simples []Simple, finds map[int]*findEvaluation, tc ToolCall) []bool {

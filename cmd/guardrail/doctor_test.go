@@ -8,6 +8,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
 )
 
 func doctorOutputLines(output string) []string {
@@ -73,6 +76,28 @@ func TestDoctorBasics(t *testing.T) {
 	}
 	if countDoctorLine(s, "policy warnings: none") != 1 || countDoctorLine(s, "policy warnings:") != 0 {
 		t.Errorf("doctor output must contain exactly one policy warning section:\n%s", s)
+	}
+}
+
+func TestDoctorPrintsActiveNightBannerFirst(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	path, err := night.DefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := night.Write(path, night.Marker{Until: time.Now().Add(time.Hour), SetBy: "test:1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"doctor"}, strings.NewReader(""), &stdout, &stderr); code != 0 {
+		t.Fatalf("doctor exit = %d, stderr %q", code, stderr.String())
+	}
+	if first := doctorOutputLines(stdout.String())[0]; !strings.HasPrefix(first, "NIGHT MODE until ") {
+		t.Fatalf("doctor first line = %q, want active night banner", first)
 	}
 }
 

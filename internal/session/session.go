@@ -51,10 +51,11 @@ type PendingApproval struct {
 }
 
 type State struct {
-	SawPrivateRead   bool                       `json:"saw_private_read"`
-	SawNetworkCall   bool                       `json:"saw_network_call"`
-	PendingApprovals map[string]PendingApproval `json:"pending_approvals,omitempty"`
-	UpdatedAt        string                     `json:"updated_at"`
+	SawPrivateRead          bool                       `json:"saw_private_read"`
+	SawNetworkCall          bool                       `json:"saw_network_call"`
+	PendingApprovals        map[string]PendingApproval `json:"pending_approvals,omitempty"`
+	NightModeAnnouncedUntil string                     `json:"night_mode_announced_until,omitempty"`
+	UpdatedAt               string                     `json:"updated_at"`
 }
 
 func dir() string {

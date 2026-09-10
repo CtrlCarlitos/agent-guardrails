@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -16,6 +17,12 @@ import (
 )
 
 func cmdDoctor(args []string, stdout, stderr io.Writer) int {
+	nightState, err := loadNightState(time.Now())
+	if err != nil {
+		fmt.Fprintf(stderr, "guardrail: night marker unreadable (%s); night mode remains inactive\n", safetext.SingleLine(err.Error()))
+	} else if nightState.Active {
+		fmt.Fprintln(stdout, nightState.Banner())
+	}
 	fmt.Fprintf(stdout, "guardrail %s\n", safetext.SingleLine(version))
 
 	cwd, _ := os.Getwd()

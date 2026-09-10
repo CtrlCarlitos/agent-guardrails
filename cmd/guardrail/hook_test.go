@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/session"
 )
 
@@ -151,6 +152,250 @@ func runHook(t *testing.T, fixture string) (int, string, string) {
 	var out, errb bytes.Buffer
 	code := run([]string{"hook", "claude"}, f, &out, &errb)
 	return code, out.String(), errb.String()
+}
+
+func enableNightForHook(t *testing.T) string {
+	t.Helper()
+	path, err := night.DefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := night.Write(path, night.Marker{Until: time.Now().Add(time.Hour), SetBy: "test:1"}); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestHookNightModeAllowsAsksAcrossPlanesWithAuditProvenance(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		payload string
+		wantOut string
+	}{
+		{
+			name:    "claude",
+			args:    []string{"hook", "claude"},
+			payload: `{"session_id":"night-claude","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push origin main"}}`,
+			wantOut: "",
+		},
+		{
+			name:    "opencode",
+			args:    []string{"hook", "opencode"},
+			payload: `{"session_id":"night-opencode","event":"pre","tool":"bash","command":"git push origin main","cwd":"/tmp","arguments":{"command":"git push origin main"}}`,
+			wantOut: `"decision":"allow"`,
+		},
+		{
+			name:    "antigravity",
+			args:    []string{"hook", "antigravity", "pre"},
+			payload: `{"conversationId":"night-antigravity","toolCall":{"name":"run_command","args":{"CommandLine":"git push origin main","Cwd":"/tmp"}}}`,
+			wantOut: `"decision":"allow"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stateHome := t.TempDir()
+			t.Setenv("XDG_STATE_HOME", stateHome)
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			t.Setenv("GUARDRAIL_CONFIG", "")
+			enableNightForHook(t)
+
+			var stdout, stderr bytes.Buffer
+			code := run(tt.args, strings.NewReader(tt.payload), &stdout, &stderr)
+			if code != 0 || stderr.String() != "" || (tt.wantOut == "" && stdout.String() != "") || (tt.wantOut != "" && !strings.Contains(stdout.String(), tt.wantOut)) {
+				t.Fatalf("night hook = code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+			}
+			if tt.name != "claude" && !strings.Contains(stdout.String(), "NIGHT MODE until ") {
+				t.Fatalf("first %s response omitted night banner: %s", tt.name, stdout.String())
+			}
+
+			records := readApprovalAudit(t, stateHome)
+			if len(records) != 1 || records[0].Decision != "allow" || records[0].RuleID != "ask-allowed-by-night-mode" || records[0].OriginRuleID != "P2.git-push-protected" {
+				t.Fatalf("night audit = %+v, want allow with night and origin rule IDs", records)
+			}
+		})
+	}
+}
+
+func TestHookNightModeNeverWeakensDeny(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		payload string
+	}{
+		{name: "claude", args: []string{"hook", "claude"}, payload: `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}`},
+		{name: "opencode", args: []string{"hook", "opencode"}, payload: `{"event":"pre","tool":"bash","command":"rm -rf /","cwd":"/tmp"}`},
+		{name: "antigravity", args: []string{"hook", "antigravity", "pre"}, payload: `{"toolCall":{"name":"run_command","args":{"CommandLine":"rm -rf /","Cwd":"/tmp"}}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			t.Setenv("GUARDRAIL_CONFIG", "")
+			enableNightForHook(t)
+			var stdout, stderr bytes.Buffer
+			code := run(tt.args, strings.NewReader(tt.payload), &stdout, &stderr)
+			if code != 2 && tt.name != "antigravity" {
+				t.Fatalf("night deny exit = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+			}
+			if tt.name == "claude" && !strings.Contains(stderr.String(), "guardrail:") {
+				t.Fatalf("night weakened Claude deny: stdout %q, stderr %q", stdout.String(), stderr.String())
+			}
+			if tt.name != "claude" && !strings.Contains(stdout.String(), `"decision":"deny"`) {
+				t.Fatalf("night weakened %s deny: stdout %q, stderr %q", tt.name, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func TestHookNightModeIsReadForEveryCall(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	payload := `{"session_id":"night-live","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push origin main"}}`
+	call := func() string {
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &stdout, &stderr); code != 0 || stderr.String() != "" {
+			t.Fatalf("hook exit = %d, stderr %q", code, stderr.String())
+		}
+		return stdout.String()
+	}
+	if out := call(); !strings.Contains(out, `"permissionDecision":"ask"`) {
+		t.Fatalf("inactive call = %q, want Ask", out)
+	}
+	path := enableNightForHook(t)
+	if out := call(); out != "" {
+		t.Fatalf("active call = %q, want Allow", out)
+	}
+	if err := night.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if out := call(); !strings.Contains(out, `"permissionDecision":"ask"`) {
+		t.Fatalf("post-off call = %q, want Ask", out)
+	}
+}
+
+func TestHookMalformedNightMarkerKeepsNormalPostureAndWarns(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	path, err := night.DefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("until = ["), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push origin main"}}`
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d, stderr %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"permissionDecision":"ask"`) || !strings.Contains(stderr.String(), "night marker") {
+		t.Fatalf("malformed marker = stdout %q, stderr %q; want normal Ask and warning", stdout.String(), stderr.String())
+	}
+}
+
+func TestHookNightModeDoesNotCreateOpenCodeApprovalMemory(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	enableNightForHook(t)
+	const sessionID = "night-no-approval"
+	payload := `{"session_id":"` + sessionID + `","event":"pre","tool":"bash","command":"git push origin main","cwd":"/tmp","arguments":{"command":"git push origin main"}}`
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"hook", "opencode"}, strings.NewReader(payload), &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+	state, _ := readApprovalState(t, sessionID)
+	if len(state.PendingApprovals) != 0 {
+		t.Fatalf("night mode created approval memory: %+v", state.PendingApprovals)
+	}
+}
+
+func TestHookNightBannerAppearsOncePerNonClaudeSession(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		payload string
+	}{
+		{name: "opencode", args: []string{"hook", "opencode"}, payload: `{"session_id":"night-banner-opencode","event":"pre","tool":"bash","command":"git push origin main","cwd":"/tmp"}`},
+		{name: "antigravity", args: []string{"hook", "antigravity", "pre"}, payload: `{"conversationId":"night-banner-antigravity","toolCall":{"name":"run_command","args":{"CommandLine":"git push origin main","Cwd":"/tmp"}}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			t.Setenv("GUARDRAIL_CONFIG", "")
+			enableNightForHook(t)
+			for call := 1; call <= 2; call++ {
+				var stdout, stderr bytes.Buffer
+				if code := run(tt.args, strings.NewReader(tt.payload), &stdout, &stderr); code != 0 {
+					t.Fatalf("call %d exit = %d, stderr %q", call, code, stderr.String())
+				}
+				hasBanner := strings.Contains(stdout.String(), "NIGHT MODE until ")
+				if hasBanner != (call == 1) {
+					t.Fatalf("call %d banner=%v, stdout %q", call, hasBanner, stdout.String())
+				}
+			}
+		})
+	}
+}
+
+func TestHookClaudeSessionStartPrintsNightBannerFirst(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	enableNightForHook(t)
+	payload := `{"session_id":"night-session-start","cwd":"/tmp","hook_event_name":"SessionStart"}`
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d, stderr %q", code, stderr.String())
+	}
+	var response struct {
+		HookSpecificOutput struct {
+			AdditionalContext string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(response.HookSpecificOutput.AdditionalContext, "NIGHT MODE until ") {
+		t.Fatalf("SessionStart posture = %q, want night banner first", response.HookSpecificOutput.AdditionalContext)
+	}
+}
+
+func TestHookNightControlIsP5DenyAcrossPlanes(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		payload string
+	}{
+		{name: "claude", args: []string{"hook", "claude"}, payload: `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"guardrail night off"}}`},
+		{name: "opencode", args: []string{"hook", "opencode"}, payload: `{"event":"pre","tool":"bash","command":"guardrail night off","cwd":"/tmp"}`},
+		{name: "antigravity", args: []string{"hook", "antigravity", "pre"}, payload: `{"toolCall":{"name":"run_command","args":{"CommandLine":"guardrail night off","Cwd":"/tmp"}}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stateHome := t.TempDir()
+			t.Setenv("XDG_STATE_HOME", stateHome)
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			t.Setenv("GUARDRAIL_CONFIG", "")
+			enableNightForHook(t)
+			var stdout, stderr bytes.Buffer
+			code := run(tt.args, strings.NewReader(tt.payload), &stdout, &stderr)
+			if code != 2 && tt.name != "antigravity" {
+				t.Fatalf("exit = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+			}
+			records := readApprovalAudit(t, stateHome)
+			if len(records) != 1 || records[0].Decision != "deny" || records[0].RuleID != "P5.self-config" {
+				t.Fatalf("audit = %+v, want deny/P5.self-config", records)
+			}
+		})
+	}
 }
 
 func TestHookClaudeDeny(t *testing.T) {

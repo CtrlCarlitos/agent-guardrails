@@ -9,6 +9,7 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/adapter"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/recipe"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/session"
@@ -59,6 +60,10 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err != nil {
 		return failClosed(fmt.Sprintf("guardrail: unparseable hook payload (%v); failing closed", err))
 	}
+	nightState, nightErr := loadNightState(time.Now())
+	if nightErr != nil {
+		highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: night marker unreadable (%v); night mode remains inactive", nightErr))
+	}
 
 	base, err := policy.LoadBase()
 	if err != nil {
@@ -97,16 +102,29 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		stderrWarnings := append(append([]string{}, highPriorityWarnings...), mergeWarnings...)
 		adapter.EmitModelWarnings(stderrWarnings, stderr)
 		text := adapter.PostureText(policy.SortedWaivers(merged), postureWarnings)
+		if nightState.Active {
+			text = nightState.Banner() + "\n" + text
+		}
 		return adapter.EmitClaudeSessionStart(text, stdout)
 	}
 
 	approvalKey, approvalEnabled := engine.OpenCodeApprovalKey(tc)
+	approvalEnabled = approvalEnabled && !nightState.Active
 	needsP7 := tc.Event == "pre" && engine.TrifectaTrackingEnabled(merged)
-	needsState := tc.SessionID != "" && (needsP7 || approvalEnabled)
+	needsNightAnnouncement := nightState.Active && tc.Event == "pre" && plane != "claude"
+	needsState := tc.SessionID != "" && (needsP7 || approvalEnabled || needsNightAnnouncement)
 	var v policy.Verdict
 	stateApplied := false
+	announceNight := needsNightAnnouncement && tc.SessionID == ""
 	if tc.Event == "pre" && needsState {
 		err := sessionTransaction(tc.SessionID, func(st *session.State) error {
+			if needsNightAnnouncement {
+				until := nightState.Until.Format(time.RFC3339)
+				if st.NightModeAnnouncedUntil != until {
+					announceNight = true
+					st.NightModeAnnouncedUntil = until
+				}
+			}
 			v = engine.Evaluate(tc, merged)
 			if needsP7 {
 				if esc := engine.ApplyTrifecta(v, tc, st, merged); esc != nil {
@@ -141,6 +159,14 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			v = *rv
 		}
 	}
+	v = engine.ApplyNightMode(v, nightState.Active)
+	if announceNight {
+		if v.Reason == "" {
+			v.Reason = nightState.Banner()
+		} else {
+			v.Reason = nightState.Banner() + "; " + v.Reason
+		}
+	}
 
 	rec := audit.Record{
 		SessionID:    tc.SessionID,
@@ -171,4 +197,12 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	default:
 		return 2
 	}
+}
+
+func loadNightState(now time.Time) (night.State, error) {
+	path, err := night.DefaultPath()
+	if err != nil {
+		return night.State{}, err
+	}
+	return night.Load(path, now)
 }
