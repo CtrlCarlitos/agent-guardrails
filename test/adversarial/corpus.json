@@ -2635,5 +2635,13 @@
     "cwd": "/repo",
     "repo_root": "/repo",
     "want": "allow"
+  },
+  {
+    "name": "guarded plane cannot disable night mode",
+    "tool": "Bash",
+    "command": "guardrail night off",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
   }
 ]
