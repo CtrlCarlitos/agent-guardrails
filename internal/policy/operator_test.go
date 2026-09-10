@@ -56,6 +56,22 @@ func TestOperatorConfigPathUsesPlatformConfigDirectory(t *testing.T) {
 	}
 }
 
+func TestOperatorConfigDirUsesPlatformConfigDirectory(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("Unix environment-variable behavior")
+	}
+
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	got, err := OperatorConfigDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(xdg, "guardrail"); got != want {
+		t.Fatalf("OperatorConfigDir() = %q, want %q", got, want)
+	}
+}
+
 func TestOperatorConfigRejectsInvalidConfigRoot(t *testing.T) {
 	if os.PathSeparator == '\\' {
 		t.Skip("Unix environment-variable behavior")

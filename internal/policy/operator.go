@@ -36,7 +36,19 @@ func OperatorConfigPath() string {
 	return path
 }
 
+func OperatorConfigDir() (string, error) {
+	return operatorConfigDir(runtime.GOOS)
+}
+
 func operatorConfigPath(goos string) (string, error) {
+	base, err := operatorConfigDir(goos)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "waivers.toml"), nil
+}
+
+func operatorConfigDir(goos string) (string, error) {
 	var base string
 	if goos == "windows" {
 		base = os.Getenv("APPDATA")
@@ -54,7 +66,7 @@ func operatorConfigPath(goos string) (string, error) {
 		}
 		base = filepath.Join(home, ".config")
 	}
-	return filepath.Join(base, "guardrail", "waivers.toml"), nil
+	return filepath.Join(base, "guardrail"), nil
 }
 
 func emptyOperatorConfig() *OperatorConfig {
