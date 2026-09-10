@@ -4,7 +4,7 @@
 
 engine_min_version = "0.1"
 
-# Optional: request a different audit-log stream for this repo. This takes
+# Optional top-level setting: request a different audit-log stream for this repo. This takes
 # effect only when the exact cleaned absolute repository path in the Operator
 # config grants `audit_log = true`.
 # audit_log = ".agents/guardrail.jsonl"
@@ -17,7 +17,7 @@ engine_min_version = "0.1"
 # waive = ["P7.trifecta"]
 
 [slots]
-# Fill the Base policy's parameterized holes.
+# Extend or fill the Base policy's configurable slots.
 # `secret_allow` entries require an Operator config grant. `safe_roots` has no
 # such grant: every entry must resolve inside this repository or it is dropped.
 # Every `egress_allowlist` entry needs a grant containing the exact same string
@@ -26,7 +26,9 @@ engine_min_version = "0.1"
 safe_roots       = ["./tmp", "./.cache"] # P1: rm -rf permitted here
 egress_allowlist = ["api.github.com"]    # P6: hosts curl/wget may reach
 # secret_dirs      = ["**/.vault/**"]      # P4: unwaivable secret directories
-# secret_ask_globs = ["**/*.crt"]          # P4: ambiguous in-repo secret files
+# secret_globs     = ["**/project.key"]    # P4: waivable definitive secret files
+# secret_ask_globs = ["**/*.crt"]          # P4: Ask in-repo, Deny outside
+# secret_allow     = ["**/*.example"]      # P4: authorized file allowance; never overrides secret_dirs
 
 # Extra project rules (added to the Base).
 [[rules]]

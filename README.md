@@ -2,7 +2,8 @@
 
 One guardrail policy, enforced across every AI coding-agent host ("plane") — Claude
 Code, opencode, Antigravity (Codex planned). A shared Go decision engine
-(`guardrail`) plus a generated native-config floor per plane; thin idiomatic adapters.
+(`guardrail`) plus a generated native-config floor where the plane supports one;
+thin idiomatic adapters.
 Installed globally via dotfiles; each project layers its own rules in a committed
 `guardrail.toml`.
 
@@ -12,18 +13,22 @@ Installed globally via dotfiles; each project layers its own rules in a committe
 
 ## Status
 
-The [2026-09-04 adversarial security review](./docs/reviews/2026-09-04-adversarial-review.md)
-identified the current remediation roadmap. Phase 1 is published at `v0.9.0-dev`.
-Phase 3 and its whole-review hardening are published at `v0.11.0-dev`. Phase 2
-is complete on `main`; `v0.12.0-dev` is planned but has not been created or
-pushed. Only Phase 4 remains outstanding in this repository. The installer pin
-remains at `v0.7.0-dev`. The M-9 installer fix and Task 10b tooling remain on the
-separate chezmoi branch `guardrail-remediation-phase1`, which is unmerged,
-unapplied, and unpushed.
+The current source and release boundary is `v0.17.0-dev` at `e1ab965`. The
+[2026-09-04 adversarial security review](./docs/reviews/2026-09-04-adversarial-review.md)
+and its Phase 1 through Phase 5 remediation are reconciled in the
+[response ledger](./docs/reviews/2026-09-05-remediation-response.md). H-6, H-10,
+NF-3, NF-11, NF-12, and candidate ADR-0013 containment are parked under
+[ADR-0012](./docs/adr/0012-static-analysis-boundary-and-shape-threshold.md) and
+operator direction.
 
 Every Overlay egress entry is a loosening request and needs an exact per-entry
 grant for that repository in Operator config. Total wildcards `*` and `**` are
 always forbidden. See [Operator config](./docs/operator-config.md).
+
+Secret paths have three tiers: directory secrets always Deny; file secrets Deny
+but may be waived with Operator authorization; ambiguous secrets Ask inside the
+repository and Deny outside it. A `secret_allow` entry cannot override a
+directory secret.
 
 The original plan series is complete: Plans 1–6 + the git -C/-c hotfix (v0.4.1) +
 the deployment plan, and Plan 7 (P8 recipes + `guardrail sync`) finished it off.
@@ -47,16 +52,10 @@ so `gen-config antigravity` emits only the hooks.json registration; `gen-config`
 covers Claude + opencode + Antigravity installation; `doctor` covers Claude
 installation and diagnostics. `guardrail sync` regenerates a project's plane
 configs from Base+Overlay in one shot (per-plane warn-and-continue). CI + real
-releases ship the binary; the chezmoi installer wires it globally. Known parked
-gaps include `git -C <path>` target-repo validation (a different concern from the
-v0.4.1 parsing fix), `docker … | xargs`, backslash-escaped words, `bash -lc`,
-Windows-path engine semantics, and the macOS `sha256sum` fallback. H-5's
-outside-repository symlink laundering is fixed by resolved-target checks. The
-Engine also denies visible opaque-interpreter references to Operator config, but
-it is a static tool-call guard, not an operating-system sandbox: dynamically
-concealed same-user writes remain outside its boundary. Phase 2's original
-findings are fixed and locked in the 307-case adversarial corpus; the remaining
-repository findings are assigned to Phase 4.
+releases ship the binary; the chezmoi installer wires it globally. The Engine is
+a static tool-call guard, not an operating-system sandbox: dynamically concealed
+same-user writes remain outside its boundary. Fixed behavior through Phase 5 is
+locked in the 321-case adversarial corpus.
 
 `make smoke` runs a best-effort end-to-end check against a real `claude` session
 (needs a login, spends tokens, not in CI) — see `test/smoke/README.md`.

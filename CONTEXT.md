@@ -1,8 +1,9 @@
 # Agent Guardrails
 
-One guardrail policy ("SOP") enforced across any number of AI coding-agent hosts
-("planes"). A shared decision engine plus generated per-plane native config; thin,
-idiomatic adapters. Ships universally via dotfiles; each project layers its own rules.
+One Guardrail Policy enforced across any number of AI coding-agent hosts
+("planes"). A shared Engine plus generated native config where a plane supports
+it; thin, idiomatic Adapters. Ships universally via dotfiles; each project layers
+its own rules.
 
 ## Language
 
@@ -14,9 +15,24 @@ _Avoid_: harness, runner, agent, tool
 **Guardrail Policy**:
 The plane-agnostic ruleset the guard enforces, comprising the **Base policy**
 (universal, shipped by the dotfiles package) and an **Overlay** (a project's own).
-Its secret tiers classify a directory secret as an unwaivable deny, a file secret
-as a waivable deny, and an ambiguous secret as an ask only inside the repository.
+Its secret tiers classify protected paths according to their certainty and scope.
 _Avoid_: SOP, ruleset, config
+
+**Directory secret**:
+A path inside a sensitive directory. It always Denies and cannot be waived or
+overridden by a Secret allowance.
+
+**File secret**:
+A path matching a definitive secret-file pattern. It Denies unless an authorized
+Waiver or Secret allowance applies.
+
+**Ambiguous secret**:
+A path matching a potentially sensitive file pattern. It Asks inside the
+repository and Denies outside it.
+
+**Secret allowance**:
+An Overlay `secret_allow` request authorized by Operator config. It can allow a
+matching file name but never overrides a Directory secret.
 
 **Base policy**:
 The universal Guardrail Policy shipped with the dotfiles package. The floor every
@@ -24,9 +40,9 @@ plane gets. An Overlay may tighten, extend, or `waive` it, never silently loosen
 _Avoid_: default policy, global rules
 
 **Overlay**:
-A project's committed `guardrail.toml`. Adds rules, fills the Base's parameterized
-slots (safe roots, egress allowlist, ephemeral-DB pattern, container-naming scheme,
-formatter tiers), and may request permission to `waive` named Base rules.
+A project's committed `guardrail.toml`. Adds rules; extends safe roots, secret
+tiers, Secret allowances, and the egress allowlist; and may request permission to
+`waive` named Base rules. Its audit-log request is a top-level setting.
 _Avoid_: project config, local policy, override file
 
 **Operator config**:
@@ -54,15 +70,15 @@ map these onto their own richer vocabularies (e.g. Antigravity's `force_ask`).
 _Avoid_: decision, result, outcome
 
 **Declarative floor**:
-The subset of the Policy expressed as a plane's *native* permission config (Claude
-`settings.json` permissions, `opencode.json` permission, Antigravity `hooks.json`).
-Enforced by the plane itself even when the Engine is unavailable.
+The subset of the Policy expressed as a plane's native permission config: Claude
+`settings.json` permissions and OpenCode `opencode.json` permission. It remains
+enforced when the Engine is unavailable; Antigravity has no Declarative floor.
 _Avoid_: static rules, fallback policy
 
 **Recipe**:
-A per-language definition of the P8 format-and-lint commands, split into a per-edit
-tier (sub-2s, single file) and a session-completion tier. Base ships Go, Python,
-JavaScript/TypeScript, Rust, Elixir, Odoo.
+A per-language definition of the P8 per-edit format-and-lint commands. The Base
+policy ships Go, Python, JavaScript/TypeScript, and Rust Recipes; session-completion,
+Elixir, and Odoo Recipes remain follow-ups.
 _Avoid_: linter config, toolchain, profile
 
 **Waiver**:
@@ -70,3 +86,23 @@ An entry in an Overlay's `waive = [...]` that switches a named Base rule off for
 project when authorized by the Operator config. Written to the audit log on every hit
 and printed in Claude's SessionStart posture — never silent.
 _Avoid_: exception, exclusion, ignore
+
+**System temp root**:
+A platform-provided temporary-directory root. Only strict descendants are
+authorized at designated write seams; the root itself and escapes remain protected.
+
+**Plane-owned writable root**:
+A narrowly shaped out-of-repository directory owned by one plane for its working
+state. Authorization applies only to the named plane and designated write surfaces.
+
+**Approval memory**:
+OpenCode's ten-minute, exact-call, one-shot memory of an operator-approved Ask.
+Current Deny and Allow Verdicts always take precedence over remembered approval.
+
+**Autonomy posture**:
+Claude's SessionStart advisory describing the active operating posture, Waivers,
+and warnings. It is model-facing context, not a Verdict mode.
+
+**Containment posture**:
+A proposed operator-selected `host` or `contained` enforcement posture described
+by candidate ADR-0013. It is not implemented.
