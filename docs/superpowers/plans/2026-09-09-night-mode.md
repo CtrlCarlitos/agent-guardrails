@@ -4,7 +4,7 @@
 
 **Goal:** Add an operator-controlled, expiring night mode that turns every runtime Ask into an audited Allow without weakening any Deny on Claude, OpenCode, or Antigravity.
 
-**Architecture:** A small `internal/night` package owns the marker's platform path, strict TOML lifecycle, and active-state/banner model. The command-hook pipeline reads that state once for every invocation, suppresses OpenCode approval-memory mutation while active, and applies one Engine-owned Verdict transform after all normal policy and Recipe evaluation but before audit and Adapter emission. CLI, doctor, and Claude SessionStart consume the same package; the existing Engine Bash classifier protects the command itself as `P5.self-config`.
+**Architecture:** A small `internal/night` package owns the marker's platform path, strict TOML lifecycle, and active-state/banner model. The command-hook pipeline reads that state once for every invocation, suppresses OpenCode approval-memory mutation while active, and applies one Engine-owned Verdict transform after all normal policy and Recipe evaluation but before audit and Adapter emission. CLI, doctor, and Claude SessionStart consume the same package; the existing Engine Bash classifier protects the command itself as `P5.self-config`, while the CLI independently requires terminal stdin for `night on` and `night off`.
 
 **Tech Stack:** Go, BurntSushi TOML, existing Engine/Adapter/audit packages, table-driven tests, adversarial JSON corpus.
 
@@ -55,7 +55,7 @@ git commit -m "feat(night): add expiring operator marker"
 
 **Step 1: Write failing command tests**
 
-Test help/dispatch and the exact approved lifecycle: `on` defaults to eight hours, `--for` accepts one positive Go duration, `--until HH:MM` chooses the next local occurrence, the two expiry flags are mutually exclusive, unexpected arguments and invalid/non-positive expiry fail without changing the marker, `off` is idempotent, and `status` reports active/inactive/error with the specified output and exit codes. Assert `set_by` is `<hostname>:<pid>` and isolate storage with `XDG_CONFIG_HOME` or an injected path.
+Test help/dispatch and the exact approved lifecycle: `on` defaults to eight hours, `--for` accepts one positive Go duration, `--until HH:MM` chooses the next local occurrence, the two expiry flags are mutually exclusive, unexpected arguments and invalid/non-positive expiry fail without changing the marker, `off` is idempotent, and `status` reports active/inactive/error with the specified output and exit codes. Assert `set_by` is `<hostname>:<pid>`, require terminal stdin for `on` and `off` but not `status`, cover a renamed binary under null stdin, and isolate storage with `XDG_CONFIG_HOME` or an injected path.
 
 **Step 2: Run the focused tests to verify RED**
 
@@ -65,7 +65,7 @@ Expected: FAIL because `night` is not dispatched.
 
 **Step 3: Implement the CLI**
 
-Add `night` to usage and dispatch. Parse arguments with a private `flag.FlagSet`, compute deadlines using local time before storing RFC3339-capable absolute instants, persist through `internal/night`, sanitize operator-facing errors, and keep all status output deterministic and single-line where the spec requires it.
+Add `night` to usage and dispatch. Parse arguments with a private `flag.FlagSet`, compute deadlines using local time before storing RFC3339-capable absolute instants, persist through `internal/night`, reject `on` and `off` before marker access unless stdin is a terminal, sanitize operator-facing errors, and keep all status output deterministic and single-line where the spec requires it.
 
 **Step 4: Run focused tests to verify GREEN**
 

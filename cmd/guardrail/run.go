@@ -3,6 +3,9 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
+
+	"golang.org/x/term"
 )
 
 // version is overridden at build time via -ldflags "-X main.version=vX.Y.Z".
@@ -49,7 +52,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "sync":
 		return cmdSync(args[1:], stdout, stderr)
 	case "night":
-		return cmdNight(args[1:], stdout, stderr)
+		file, terminal := stdin.(*os.File)
+		return cmdNight(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdout, stderr)
 	case "doctor":
 		return cmdDoctor(args[1:], stdout, stderr)
 	default:

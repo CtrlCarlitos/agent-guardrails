@@ -13,9 +13,23 @@ import (
 
 const defaultNightDuration = 8 * time.Hour
 
-func cmdNight(args []string, stdout, stderr io.Writer) int {
+const nightUsage = `usage:
+  guardrail night on [--until HH:MM | --for 8h]
+  guardrail night off
+  guardrail night status
+`
+
+func cmdNight(args []string, operatorTerminal bool, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "guardrail: night requires on, off, or status")
+		return 2
+	}
+	if args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
+		fmt.Fprint(stdout, nightUsage)
+		return 0
+	}
+	if (args[0] == "on" || args[0] == "off") && !operatorTerminal {
+		fmt.Fprintln(stderr, "night mode is an operator action; run it from a terminal")
 		return 2
 	}
 	path, err := night.DefaultPath()

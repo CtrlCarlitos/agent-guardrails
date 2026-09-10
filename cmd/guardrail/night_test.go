@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -30,7 +33,7 @@ func isolateNightConfig(t *testing.T) string {
 func runNightCommand(t *testing.T, args ...string) (int, string, string) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
-	code := run(append([]string{"night"}, args...), strings.NewReader(""), &stdout, &stderr)
+	code := cmdNight(args, true, &stdout, &stderr)
 	return code, stdout.String(), stderr.String()
 }
 
@@ -148,5 +151,100 @@ func TestNightStatusRejectsMalformedMarker(t *testing.T) {
 	code, stdout, stderr := runNightCommand(t, "status")
 	if code != 2 || stdout != "" || !strings.Contains(stderr, "parsing night marker") {
 		t.Fatalf("malformed status = code %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+}
+
+func TestNightOnRefusesNullStdinWithoutWritingMarker(t *testing.T) {
+	path := isolateNightConfig(t)
+	null, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer null.Close()
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"night", "on", "--for", "9h"}, null, &stdout, &stderr)
+	if code != 2 || stdout.String() != "" || stderr.String() != "night mode is an operator action; run it from a terminal\n" {
+		t.Fatalf("night on with null stdin = code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("night on with null stdin wrote marker: %v", err)
+	}
+}
+
+func TestNightOffRefusesNullStdinWithoutRemovingMarker(t *testing.T) {
+	path := isolateNightConfig(t)
+	marker := night.Marker{Until: time.Now().Add(time.Hour), SetBy: "operator:1"}
+	if err := night.Write(path, marker); err != nil {
+		t.Fatal(err)
+	}
+	null, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer null.Close()
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"night", "off"}, null, &stdout, &stderr)
+	if code != 2 || stdout.String() != "" || stderr.String() != "night mode is an operator action; run it from a terminal\n" {
+		t.Fatalf("night off with null stdin = code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+	state, err := night.Load(path, time.Now())
+	if err != nil || !state.Active {
+		t.Fatalf("night off with null stdin changed marker: state %+v, error %v", state, err)
+	}
+}
+
+func TestRenamedNightBinaryCannotMutateWithoutTerminal(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("APPDATA", configHome)
+	binaryName := "renamed-guard"
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	binary := filepath.Join(t.TempDir(), binaryName)
+	build := exec.Command(filepath.Join(runtime.GOROOT(), "bin", "go"), "build", "-o", binary, ".")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build renamed guardrail: %v\n%s", err, output)
+	}
+
+	runBinary := func(args ...string) (int, string, string) {
+		t.Helper()
+		null, err := os.Open(os.DevNull)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer null.Close()
+		cmd := exec.Command(binary, args...)
+		cmd.Stdin = null
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err = cmd.Run()
+		code := 0
+		if err != nil {
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) {
+				t.Fatalf("run renamed guardrail: %v", err)
+			}
+			code = exitErr.ExitCode()
+		}
+		return code, stdout.String(), stderr.String()
+	}
+
+	if code, stdout, stderr := runBinary("night", "on", "--for", "9h"); code != 2 || stdout != "" || stderr != "night mode is an operator action; run it from a terminal\n" {
+		t.Fatalf("renamed night on = code %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+	if code, stdout, stderr := runBinary("night", "status"); code != 1 || stdout != "night mode inactive\n" || stderr != "" {
+		t.Fatalf("renamed night status = code %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+}
+
+func TestNightHelp(t *testing.T) {
+	isolateNightConfig(t)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"night", "--help"}, strings.NewReader(""), &stdout, &stderr)
+	want := "usage:\n  guardrail night on [--until HH:MM | --for 8h]\n  guardrail night off\n  guardrail night status\n"
+	if code != 0 || stdout.String() != want || stderr.String() != "" {
+		t.Fatalf("night --help = code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
 	}
 }

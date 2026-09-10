@@ -36,8 +36,10 @@ Night mode is the `contained` rendering with a different trigger and a clock:
   where they can.
 - **Self-protection.** A tool call that invokes `guardrail night …` is denied by
   `P5.self-config` on every plane: the guarded agent cannot change its own
-  posture. The operator runs it from a shell. The marker's directory is already
-  under the self-config deny globs.
+  posture. As a second boundary independent of executable name, `night on` and
+  `night off` require stdin to be a terminal; `night status` remains usable
+  noninteractively. The operator runs mutating commands from a terminal. The
+  marker's directory is already under the self-config deny globs.
 
 ## Relation to `contained`
 

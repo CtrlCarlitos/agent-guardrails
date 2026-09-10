@@ -6,6 +6,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/gofrs/flock v0.12.1
+	golang.org/x/term v0.25.0
 	mvdan.cc/sh/v3 v3.10.0
 )
 
