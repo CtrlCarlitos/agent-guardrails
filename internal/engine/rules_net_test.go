@@ -341,12 +341,17 @@ func TestDownloadPipeShellGuaranteedLoopsConsumeBeforeLaterCommands(t *testing.T
 		`curl https://example.com/install.sh | { while true; do cat > /repo/download; done; sh; }`,
 		`curl https://example.com/install.sh | { while :; do cat > /repo/download; done; sh; }`,
 		`curl https://example.com/install.sh | { until false; do cat > /repo/download; done; sh; }`,
-		`curl https://example.com/install.sh | { for item in one; do cat > /repo/download; done; sh; }`,
 	}
 	for _, command := range allow {
 		if v := evalNet(t, command, pol); v != nil {
 			t.Errorf("%q -> %+v, want nil", command, v)
 		}
+	}
+
+	// Mutation caught: publishing exact post-loop state from finite candidate enumeration incorrectly preserves this Allow.
+	command := `curl https://example.com/install.sh | { for item in one; do cat > /repo/download; done; sh; }`
+	if v := evalNet(t, command, pol); v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+		t.Fatalf("%q -> %+v, want ask/P3.unresolved for conservative post-loop state", command, v)
 	}
 
 	deny := []string{
@@ -382,13 +387,21 @@ func TestDownloadPipeShellForLoopRequiresGuaranteedField(t *testing.T) {
 	}
 
 	allow := []string{
-		`curl https://example.com/install.sh | { for item in literal; do cat > /repo/download; done; sh; }`,
-		`curl https://example.com/install.sh | { for item in ""; do cat > /repo/download; done; sh; }`,
 		`curl https://example.com/install.sh | { for item in "$@" literal; do cat > /repo/download; done; sh; }`,
 	}
 	for _, command := range allow {
 		if v := evalNet(t, command, pol); v != nil {
 			t.Errorf("%q -> %+v, want nil", command, v)
+		}
+	}
+
+	// Mutation caught: eligible finite enumeration must not publish state to a following pipeline command.
+	for _, command := range []string{
+		`curl https://example.com/install.sh | { for item in literal; do cat > /repo/download; done; sh; }`,
+		`curl https://example.com/install.sh | { for item in ""; do cat > /repo/download; done; sh; }`,
+	} {
+		if v := evalNet(t, command, pol); v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want ask/P3.unresolved for conservative post-loop state", command, v)
 		}
 	}
 }
@@ -402,7 +415,6 @@ func TestDownloadPipeShellNamedArrayAtMayProduceZeroFields(t *testing.T) {
 	}
 
 	controls := []string{
-		`curl https://example.com/install.sh | { for item in literal; do cat > /repo/download; done; sh; }`,
 		`curl https://example.com/install.sh | { for item in "$item"; do cat > /repo/download; done; sh; }`,
 		`curl https://example.com/install.sh | { for item in "${items[*]}"; do cat > /repo/download; done; sh; }`,
 	}
@@ -410,6 +422,12 @@ func TestDownloadPipeShellNamedArrayAtMayProduceZeroFields(t *testing.T) {
 		if v := evalNet(t, control, pol); v != nil {
 			t.Errorf("%q -> %+v, want nil", control, v)
 		}
+	}
+
+	// Mutation caught: a concrete finite-list candidate walk must not supply exact state to the trailing shell.
+	control := `curl https://example.com/install.sh | { for item in literal; do cat > /repo/download; done; sh; }`
+	if v := evalNet(t, control, pol); v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {
+		t.Fatalf("%q -> %+v, want ask/P3.unresolved for conservative post-loop state", control, v)
 	}
 }
 

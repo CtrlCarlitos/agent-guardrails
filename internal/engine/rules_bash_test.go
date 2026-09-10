@@ -1606,15 +1606,15 @@ func TestFindWriteChainRejectsNonDirectCommandIdentity(t *testing.T) {
 	}
 }
 
-// Mutation caught: accepting resolved normalization output hides assignments and runtime substitutions in policy positions.
-func TestFindWriteChainRejectsAssignmentsVariablesAndSubstitutions(t *testing.T) {
+// Mutation caught: accepting resolved normalization output hides unsafe assignments and runtime substitutions in policy positions.
+func TestFindWriteChainHandlesAssignmentsVariablesAndSubstitutions(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "root")
 	target := filepath.Join(root, "a")
 	commands := map[string]struct {
 		command string
 		ruleID  string
 	}{
-		"assigned command name":          {fmt.Sprintf(`WRITER=touch; $WRITER %q && find %q -delete`, target, root), "P3.unresolved"},
+		"assigned command name":          {fmt.Sprintf(`WRITER=touch; $WRITER %q && find %q -delete`, target, root), "P1.find-delete"},
 		"variable target":                {fmt.Sprintf(`TARGET=%q; touch "$TARGET" && find %q -delete`, target, root), "P1.find-delete"},
 		"variable root":                  {fmt.Sprintf(`ROOT=%q; touch %q && find "$ROOT" -delete`, root, target), "P1.find-delete"},
 		"PATH prefix":                    {fmt.Sprintf(`PATH=/tmp/evil touch %q && find %q -delete`, target, root), "P1.find-delete"},
@@ -2446,7 +2446,7 @@ func TestShellStateVariableMutationsAskBeforePolicyUse(t *testing.T) {
 		`TARGET=/repo/safe; read TARGET < /repo/input; rm -rf "$TARGET/guardrail-test"`,
 		`TARGET=/repo/safe; source /repo/script; rm -rf "$TARGET/guardrail-test"`,
 		`TARGET=/repo/safe; declare TARGET=/etc; rm -rf "$TARGET/guardrail-test"`,
-		`TARGET=/repo/safe; for TARGET in /etc; do :; done; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; for TARGET in "$ITEM"; do :; done; rm -rf "$TARGET/guardrail-test"`,
 	} {
 		v := evalBash(t, command)
 		if v == nil || v.Decision != policy.Ask || v.RuleID != "P3.unresolved" {

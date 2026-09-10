@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -41,6 +42,7 @@ type pipelinePosition struct {
 
 type normalizeContext struct {
 	nextPipelineID int
+	loopDepth      int
 }
 
 func splitSimples(src string) ([]Simple, error) {
@@ -53,10 +55,10 @@ func splitSimplesWithContext(src string, ctx *normalizeContext) ([]Simple, error
 		return nil, err
 	}
 	pipelines := pipelinePositions(f, ctx, shadowedStaticCommandNames(f))
-	return extractSimples(src, f, pipelines, nil), nil
+	return extractSimples(src, f, pipelines, nil, nil), nil
 }
 
-func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pipelinePosition, states map[*syntax.Stmt]cwdState) []Simple {
+func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pipelinePosition, states map[*syntax.Stmt]cwdState, replacements map[*syntax.Stmt][]Simple) []Simple {
 	var out []Simple
 	syntax.Walk(f, func(node syntax.Node) bool {
 		stmt, ok := node.(*syntax.Stmt)
@@ -66,6 +68,12 @@ func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pip
 		state, tracked := states[stmt]
 		if states != nil && !tracked {
 			return false
+		}
+		if _, replaced := replacements[stmt]; replaced && len(stmt.Redirs) == 0 {
+			if _, call := stmt.Cmd.(*syntax.CallExpr); !call {
+				out = append(out, Simple{Cwd: state.cwd, Unresolved: state.unknown, cwdUnknown: state.unknown, origin: stmt, shellState: state})
+				return false
+			}
 		}
 		var args []*syntax.Word
 		if stmt.Cmd != nil {
@@ -211,7 +219,7 @@ func (s Simple) inputRedirectUnresolved(index int) bool {
 }
 
 func resolveLocalWord(word *syntax.Word, state cwdState) (string, bool) {
-	if word == nil || len(state.variables) == 0 || state.ifsUnknown {
+	if word == nil || len(state.variables) == 0 {
 		return "", false
 	}
 	var value strings.Builder
@@ -236,7 +244,10 @@ func resolveLocalWord(word *syntax.Word, state cwdState) (string, bool) {
 			value.WriteString(resolved)
 			fieldAnchor = true
 		case *syntax.ParamExp:
-			if len(word.Parts) == 1 || part.Excl || part.Length || part.Width || part.Index != nil || part.Slice != nil || part.Repl != nil || part.Names != 0 || part.Exp != nil || !validShellVariableName(part.Param.Value) {
+			if part.Excl || part.Length || part.Width || part.Index != nil || part.Slice != nil || part.Repl != nil || part.Names != 0 || part.Exp != nil || !validShellVariableName(part.Param.Value) {
+				return "", false
+			}
+			if state.ifsUnknown {
 				return "", false
 			}
 			ifs := " \t\n"
@@ -244,7 +255,7 @@ func resolveLocalWord(word *syntax.Word, state cwdState) (string, bool) {
 				ifs = tracked
 			}
 			resolved, ok := state.variables[part.Param.Value]
-			if !ok || strings.ContainsAny(resolved, ifs) || strings.ContainsAny(resolved, "*?[") {
+			if !ok || !unquotedValueGuaranteesOneField(resolved, ifs) {
 				return "", false
 			}
 			unquotedParameter = true
@@ -253,14 +264,21 @@ func resolveLocalWord(word *syntax.Word, state cwdState) (string, bool) {
 			return "", false
 		}
 	}
-	if unquotedParameter && !fieldAnchor {
+	if resolved := value.String(); unquotedParameter && !fieldAnchor && (len(word.Parts) != 1 || resolved == "") {
 		return "", false
 	}
-	if resolved := value.String(); unquotedParameter && strings.ContainsAny(resolved, "*?[") {
+	if resolved := value.String(); unquotedParameter && !unquotedValueGuaranteesOneField(resolved, "") {
 		return "", false
 	} else {
 		return resolved, true
 	}
+}
+
+func unquotedValueGuaranteesOneField(value, ifs string) bool {
+	if strings.ContainsAny(value, ifs) || strings.ContainsAny(value, "*?[") {
+		return false
+	}
+	return !strings.Contains(value, "@(") && !strings.Contains(value, "+(") && !strings.Contains(value, "!(")
 }
 
 func resolveLocalQuotedParts(parts []syntax.WordPart, variables map[string]string) (string, bool) {
@@ -933,6 +951,8 @@ type cwdState struct {
 	cdpathUnknown         bool
 	variables             map[string]string
 	namerefs              map[string]string
+	assignmentAttributes  map[string]bool
+	attributesUnknown     bool
 	gitEnvironmentUnknown bool
 }
 
@@ -1158,13 +1178,22 @@ func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 		if w.expansions(command.Loop, state) {
 			state.fsUncertain = true
 		}
+		if w.ctx.loopDepth == 0 && !forClauseContainsLoop(command) {
+			if items, eligible := staticForItems(command); eligible {
+				if name, eligible := staticForIterator(command.Loop, state); eligible {
+					return w.enumerateStaticFor(stmt, command, name, items, state)
+				}
+			}
+		}
 		switch forClauseIterations(command) {
 		case iterationNone:
 			return successOutcome(state)
 		}
 		state = invalidateLoopVariables(state, command.Loop)
 		uncertainBody := forClauseIterations(command) == iterationPossible || forClauseMayRepeat(command)
+		leaveLoop := w.ctx.enterLoop()
 		body := w.withUncertainDefinitions(uncertainBody, func() cwdOutcome { return w.list(command.Do, state) })
+		leaveLoop()
 		post := body.merged()
 		if forClauseIterations(command) == iterationPossible {
 			post = mergeCwd(state, post)
@@ -1181,9 +1210,8 @@ func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 		state = invalidateDeclarationVariables(state, command)
 		return bothOutcome(state)
 	case *syntax.LetClause, *syntax.ArithmCmd:
-		state.variables = nil
+		state = withoutAllVariables(state)
 		state.namerefs = nil
-		state.gitEnvironmentUnknown = true
 		return bothOutcome(state)
 	case *syntax.FuncDecl:
 		w.isolated().stmt(command.Body, state)
@@ -1195,6 +1223,159 @@ func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 		return bothOutcome(state)
 	}
 	return bothOutcome(unknownCwd(state))
+}
+
+const maxStaticForItems = 16
+
+func staticForItems(clause *syntax.ForClause) ([]string, bool) {
+	words, ok := clause.Loop.(*syntax.WordIter)
+	if !ok || !words.InPos.IsValid() || len(words.Items) == 0 || len(words.Items) > maxStaticForItems {
+		return nil, false
+	}
+	items := make([]string, 0, len(words.Items))
+	for _, word := range words.Items {
+		braceProbe := *word
+		braceProbe.Parts = append([]syntax.WordPart(nil), word.Parts...)
+		if syntax.SplitBraces(&braceProbe) {
+			return nil, false
+		}
+		value, static := staticWord(word, false)
+		if !static || !wordGuaranteesField(word) {
+			return nil, false
+		}
+		items = append(items, value)
+	}
+	return items, true
+}
+
+func forClauseContainsLoop(clause *syntax.ForClause) bool {
+	contains := false
+	for _, stmt := range clause.Do {
+		syntax.Walk(stmt, func(node syntax.Node) bool {
+			switch node.(type) {
+			case *syntax.ForClause, *syntax.WhileClause:
+				contains = true
+				return false
+			default:
+				return !contains
+			}
+		})
+		if contains {
+			return true
+		}
+	}
+	return false
+}
+
+func staticForIterator(loop syntax.Loop, state cwdState) (string, bool) {
+	words, ok := loop.(*syntax.WordIter)
+	if !ok || words.Name == nil || state.attributesUnknown || state.assignmentAttributes[words.Name.Value] {
+		return "", false
+	}
+	if _, nameref := state.namerefs[words.Name.Value]; nameref {
+		return "", false
+	}
+	return words.Name.Value, true
+}
+
+func (w *cwdWalker) enumerateStaticFor(stmt *syntax.Stmt, clause *syntax.ForClause, name string, items []string, state cwdState) cwdOutcome {
+	leaveLoop := w.ctx.enterLoop()
+	defer leaveLoop()
+	var replacements []Simple
+	baseFunctions := cloneFunctions(w.functions)
+	functionAlternatives := []map[string]shellFunctionSet{baseFunctions}
+	crossIterationMutation := false
+	if len(clause.Do) == 0 {
+		w.replacements[stmt] = nil
+		return conservativeLoopOutcome(state)
+	}
+	body := w.src[clause.Do[0].Pos().Offset():clause.Do[len(clause.Do)-1].End().Offset()]
+	for _, item := range items {
+		candidateState := withVariable(state, name, item)
+		result, err := normalizeWithState(body, candidateState, w.ctx, baseFunctions, w.active, w.pipelines[stmt])
+		if err != nil {
+			post := conservativeLoopState(state)
+			w.replacements[stmt] = append(replacements, Simple{Cwd: post.cwd, Unresolved: true, cwdUnknown: true, pipelines: w.pipelines[stmt]})
+			return bothOutcome(post)
+		}
+		replacements = append(replacements, result.simples...)
+		functionAlternatives = append(functionAlternatives, result.functions)
+		crossIterationMutation = crossIterationMutation || loopOutcomeChangesTrackedFacts(candidateState, result.outcome, result.simples)
+		crossIterationMutation = crossIterationMutation || !sameFunctionEnvironment(baseFunctions, result.functions)
+	}
+	if len(items) > 1 && crossIterationMutation {
+		post := conservativeLoopState(state)
+		replacements = append(replacements, Simple{Cwd: post.cwd, Unresolved: true, cwdUnknown: true, pipelines: w.pipelines[stmt]})
+	}
+	w.replacements[stmt] = replacements
+	w.publishFunctions(mergeFunctionAlternatives(functionAlternatives...), w.uncertainDef)
+	return conservativeLoopOutcome(state)
+}
+
+func conservativeLoopOutcome(state cwdState) cwdOutcome {
+	return bothOutcome(conservativeLoopState(state))
+}
+
+func loopOutcomeChangesTrackedFacts(before cwdState, out cwdOutcome, simples []Simple) bool {
+	if out.canSuccess && !sameTrackedShellFacts(before, out.success) || out.canFailure && !sameTrackedShellFacts(before, out.failure) {
+		return true
+	}
+	filesystemChanged := out.canSuccess && before.fsUncertain != out.success.fsUncertain ||
+		out.canFailure && before.fsUncertain != out.failure.fsUncertain
+	if !filesystemChanged {
+		return false
+	}
+	for _, simple := range simples {
+		switch head(simple.Argv) {
+		case "cd":
+			return true
+		case "find":
+			parsed := parseFindActions(simple.Argv)
+			parsed.applySourceProvenance(simple)
+			if parsed.exactScopedDeletion {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func sameTrackedShellFacts(left, right cwdState) bool {
+	return left.cwd == right.cwd &&
+		left.unknown == right.unknown &&
+		left.ifsUnknown == right.ifsUnknown &&
+		left.cdpath == right.cdpath &&
+		left.cdpathSet == right.cdpathSet &&
+		left.cdpathUnknown == right.cdpathUnknown &&
+		left.attributesUnknown == right.attributesUnknown &&
+		left.gitEnvironmentUnknown == right.gitEnvironmentUnknown &&
+		maps.Equal(left.variables, right.variables) &&
+		maps.Equal(left.namerefs, right.namerefs) &&
+		maps.Equal(left.assignmentAttributes, right.assignmentAttributes)
+}
+
+func conservativeLoopState(state cwdState) cwdState {
+	state = unknownCwd(invalidateNamedVariables(state, nil, true))
+	state.fsUncertain = true
+	return state
+}
+
+func sameFunctionEnvironment(left, right map[string]shellFunctionSet) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for name, leftSet := range left {
+		rightSet, ok := right[name]
+		if !ok || leftSet.mayBeUndefined != rightSet.mayBeUndefined || len(leftSet.bodies) != len(rightSet.bodies) {
+			return false
+		}
+		for index, leftBody := range leftSet.bodies {
+			if leftBody.source != rightSet.bodies[index].source {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (w *cwdWalker) ifClause(clause *syntax.IfClause, state cwdState) cwdOutcome {
@@ -1222,6 +1403,8 @@ func (w *cwdWalker) ifClause(clause *syntax.IfClause, state cwdState) cwdOutcome
 }
 
 func (w *cwdWalker) whileClause(clause *syntax.WhileClause, state cwdState) cwdOutcome {
+	leaveLoop := w.ctx.enterLoop()
+	defer leaveLoop()
 	condition := w.list(clause.Cond, state)
 	truth := literalCondition(clause.Cond, w.shadowed)
 	bodyReachable := truth != conditionFalse
@@ -1244,6 +1427,11 @@ func (w *cwdWalker) whileClause(clause *syntax.WhileClause, state cwdState) cwdO
 	// A syntactically endless loop can still exit through break or an
 	// unmodelled status/control transfer. Keep following commands reachable.
 	return bothOutcome(bodyPost)
+}
+
+func (ctx *normalizeContext) enterLoop() func() {
+	ctx.loopDepth++
+	return func() { ctx.loopDepth-- }
 }
 
 func (w *cwdWalker) caseClause(clause *syntax.CaseClause, state cwdState) cwdOutcome {
@@ -1464,6 +1652,14 @@ func (w *cwdWalker) call(stmt *syntax.Stmt, call *syntax.CallExpr, state cwdStat
 		return successOutcome(applyPersistentAssignments(state, call))
 	}
 	simple := simpleForCall(w.src, stmt, call, state)
+	local := applyCallAssignments(state, call)
+	w.recursive[stmt] = local
+	if !simple.wordUnresolved(0) {
+		if functions, ok := w.functions[simple.Argv[0]]; ok {
+			out := w.functionCall(stmt, simple, simple.Argv[0], functions, local)
+			return restoreCallAssignments(out, state, call)
+		}
+	}
 	argv, bypassFunction, noExecute, err := directCommandArgv(simple.Argv)
 	if err != nil {
 		return bothOutcome(unknownCwd(invalidateNamedVariables(state, nil, true)))
@@ -1474,15 +1670,13 @@ func (w *cwdWalker) call(stmt *syntax.Stmt, call *syntax.CallExpr, state cwdStat
 	if len(argv) == 0 {
 		return bothOutcome(state)
 	}
-	local := applyCallAssignments(state, call)
-	w.recursive[stmt] = local
-
-	if functions, ok := w.functions[argv[0]]; ok && !bypassFunction {
-		out := w.functionCall(stmt, simple, argv[0], functions, local)
-		return restoreCallAssignments(out, state, call)
-	}
 	if argv[0] == "eval" {
 		return restoreCallAssignments(w.eval(stmt, simple, argv, local), state, call)
+	}
+	declarationCall := assignmentDeclarationBuiltin(argv[0])
+	if declarationCall {
+		state = invalidateCallVariables(state, argv)
+		local = invalidateCallVariables(local, argv)
 	}
 	if simple.Unresolved && bypassFunction {
 		return bothOutcome(unknownCwd(state))
@@ -1490,11 +1684,13 @@ func (w *cwdWalker) call(stmt *syntax.Stmt, call *syntax.CallExpr, state cwdStat
 	if simple.Unresolved && len(w.functions) > 0 && !bypassFunction {
 		return bothOutcome(unknownCwd(state))
 	}
-	state = invalidateCallVariables(state, argv)
-	local = invalidateCallVariables(local, argv)
+	if !declarationCall {
+		state = invalidateCallVariables(state, argv)
+		local = invalidateCallVariables(local, argv)
+	}
 	switch argv[0] {
 	case "cd":
-		return restoreCallAssignments(restoreCDPath(cdOutcome(local, simple, argv), state), state, call)
+		return restoreCallAssignments(cdOutcome(local, simple, argv), state, call)
 	case "pushd", "popd":
 		return bothOutcome(unknownCwd(state))
 	case ".", "source":
@@ -1522,22 +1718,6 @@ func (w *cwdWalker) call(stmt *syntax.Stmt, call *syntax.CallExpr, state cwdStat
 	default:
 		return bothOutcome(state)
 	}
-}
-
-func restoreCDPath(out cwdOutcome, persistent cwdState) cwdOutcome {
-	restore := func(state cwdState) cwdState {
-		state.cdpath = persistent.cdpath
-		state.cdpathSet = persistent.cdpathSet
-		state.cdpathUnknown = persistent.cdpathUnknown
-		return state
-	}
-	if out.canSuccess {
-		out.success = restore(out.success)
-	}
-	if out.canFailure {
-		out.failure = restore(out.failure)
-	}
-	return out
 }
 
 func directCommandArgv(argv []string) (rest []string, bypassFunction, noExecute bool, err error) {
@@ -1589,8 +1769,8 @@ func (w *cwdWalker) eval(stmt *syntax.Stmt, simple Simple, argv []string, state 
 }
 
 func invalidateExpansionFacts(state cwdState) cwdState {
-	state.variables, state.namerefs = nil, nil
-	state.ifsUnknown = false
+	state = withoutAllVariables(state)
+	state.namerefs = nil
 	return state
 }
 
@@ -1635,114 +1815,65 @@ func (w *cwdWalker) functionCall(stmt *syntax.Stmt, simple Simple, name string, 
 }
 
 func applyCallAssignments(state cwdState, call *syntax.CallExpr) cwdState {
-	variables := make(map[string]string, len(state.variables)+len(call.Assigns))
-	for name, value := range state.variables {
-		variables[name] = value
-	}
 	for _, assignment := range call.Assigns {
 		if assignment.Name == nil {
 			continue
 		}
 		name := assignment.Name.Value
 		if target, ok := resolveNameref(state.namerefs, name); !ok {
-			state.variables = nil
+			state = withoutAllVariables(state)
 			state.namerefs = nil
-			state.gitEnvironmentUnknown = true
 			return state
 		} else if target != name {
-			delete(variables, target)
-			if gitRepositoryEnvironmentVariable(target) {
-				state.gitEnvironmentUnknown = true
-			}
+			state = withoutVariables(state, target)
 			continue
 		}
 		if assignment.Append || assignment.Index != nil || assignment.Array != nil {
-			delete(variables, name)
-			if gitRepositoryEnvironmentVariable(name) {
-				state.gitEnvironmentUnknown = true
-			}
-		} else {
-			value := ""
-			ok := assignment.Value == nil
-			if !ok {
-				value, ok = staticWord(assignment.Value, false)
-			}
-			if ok {
-				variables[name] = value
-			} else {
-				delete(variables, name)
-				if gitRepositoryEnvironmentVariable(name) {
-					state.gitEnvironmentUnknown = true
-				}
-			}
-		}
-		if name != "CDPATH" {
+			state = withoutVariables(state, name)
 			continue
 		}
-		if assignment.Append || assignment.Index != nil || assignment.Array != nil {
-			state.cdpathUnknown = true
-			state.cdpathSet = false
-			continue
-		}
-		value, ok := staticWord(assignment.Value, false)
+		value := ""
+		ok := assignment.Value == nil
 		if !ok {
-			state.cdpathUnknown = true
-			state.cdpathSet = false
-			continue
+			value, ok = staticWord(assignment.Value, false)
 		}
-		state.cdpath = value
-		state.cdpathSet = true
-		state.cdpathUnknown = false
+		if ok {
+			state = withVariable(state, name, value)
+		} else {
+			state = withoutVariables(state, name)
+		}
 	}
-	state.variables = variables
 	return state
 }
 
 func restoreCallAssignments(out cwdOutcome, persistent cwdState, call *syntax.CallExpr) cwdOutcome {
 	var names []string
-	restoreCDPath := false
 	for _, assignment := range call.Assigns {
 		if assignment.Name == nil {
 			continue
 		}
 		names = append(names, assignment.Name.Value)
-		restoreCDPath = restoreCDPath || assignment.Name.Value == "CDPATH"
 	}
 	resolved, ok := resolveNamerefNames(persistent.namerefs, names)
 	restore := func(state cwdState) cwdState {
 		if !ok {
-			state.variables = nil
+			state = withoutAllVariables(state)
 			state.namerefs = nil
-			state.gitEnvironmentUnknown = true
 			return state
-		}
-		variables := make(map[string]string, len(state.variables))
-		for name, value := range state.variables {
-			variables[name] = value
 		}
 		namerefs := make(map[string]string, len(state.namerefs))
 		for name, target := range state.namerefs {
 			namerefs[name] = target
 		}
 		for _, name := range resolved {
-			if value, exists := persistent.variables[name]; exists {
-				variables[name] = value
-			} else {
-				delete(variables, name)
-			}
+			state = restoreVariable(state, persistent, name)
 			if target, exists := persistent.namerefs[name]; exists {
 				namerefs[name] = target
 			} else {
 				delete(namerefs, name)
 			}
 		}
-		state.variables = variables
 		state.namerefs = namerefs
-		if restoreCDPath {
-			state.cdpath = persistent.cdpath
-			state.cdpathSet = persistent.cdpathSet
-			state.cdpathUnknown = persistent.cdpathUnknown
-		}
 		return state
 	}
 	if out.canSuccess {
@@ -1755,45 +1886,7 @@ func restoreCallAssignments(out cwdOutcome, persistent cwdState, call *syntax.Ca
 }
 
 func applyPersistentAssignments(state cwdState, call *syntax.CallExpr) cwdState {
-	state = applyCallAssignments(state, call)
-	variables := make(map[string]string, len(state.variables)+len(call.Assigns))
-	for name, value := range state.variables {
-		variables[name] = value
-	}
-	for _, assignment := range call.Assigns {
-		if assignment.Name == nil {
-			continue
-		}
-		name := assignment.Name.Value
-		if target, ok := resolveNameref(state.namerefs, name); !ok {
-			state.variables = nil
-			state.namerefs = nil
-			state.gitEnvironmentUnknown = true
-			return state
-		} else if target != name {
-			delete(variables, target)
-			if gitRepositoryEnvironmentVariable(target) {
-				state.gitEnvironmentUnknown = true
-			}
-			continue
-		}
-		if assignment.Append || assignment.Index != nil || assignment.Array != nil {
-			delete(variables, name)
-			continue
-		}
-		value := ""
-		ok := assignment.Value == nil
-		if !ok {
-			value, ok = staticWord(assignment.Value, false)
-		}
-		if !ok {
-			delete(variables, name)
-			continue
-		}
-		variables[name] = value
-	}
-	state.variables = variables
-	return state
+	return applyCallAssignments(state, call)
 }
 
 func invalidateCallVariables(state cwdState, argv []string) cwdState {
@@ -1801,7 +1894,9 @@ func invalidateCallVariables(state cwdState, argv []string) cwdState {
 		return state
 	}
 	switch argv[0] {
-	case "cd", "pushd", "popd":
+	case "cd":
+		return withoutVariables(state, "OLDPWD")
+	case "pushd", "popd":
 		return withoutVariables(state, "PWD", "OLDPWD")
 	case ".", "source":
 		state = invalidateNamedVariables(state, nil, true)
@@ -1814,12 +1909,11 @@ func invalidateCallVariables(state cwdState, argv []string) cwdState {
 		if uncontrolled {
 			state = unknownCwd(state)
 			state.fsUncertain = true
-			state.cdpath = ""
-			state.cdpathSet = false
-			state.cdpathUnknown = true
 		}
 		return state
-	case "declare", "typeset", "local", "export", "readonly", "unset":
+	case "declare", "typeset", "local", "readonly":
+		return invalidateDeclarationCallVariables(state, argv)
+	case "export", "unset":
 		names, uncontrolled := declarationArgumentNames(argv[1:])
 		return invalidateNamedVariables(state, names, uncontrolled)
 	case "getopts":
@@ -1827,9 +1921,8 @@ func invalidateCallVariables(state cwdState, argv []string) cwdState {
 			return invalidateNamedVariables(state, []string{argv[2], "OPTARG", "OPTIND"}, !validShellVariableName(argv[2]))
 		}
 	case "let":
-		state.variables = nil
+		state = withoutAllVariables(state)
 		state.namerefs = nil
-		state.gitEnvironmentUnknown = true
 	case "set", "shopt", "trap":
 		state = invalidateNamedVariables(state, nil, true)
 	case "printf":
@@ -1839,6 +1932,71 @@ func invalidateCallVariables(state cwdState, argv []string) cwdState {
 		}
 	}
 	return state
+}
+
+func assignmentDeclarationBuiltin(name string) bool {
+	switch name {
+	case "declare", "typeset", "local", "readonly":
+		return true
+	default:
+		return false
+	}
+}
+
+func invalidateDeclarationCallVariables(state cwdState, argv []string) cwdState {
+	names, assignmentAttributes, uncontrolled := declarationCallEffects(argv)
+	state = invalidateNamedVariables(state, names, uncontrolled)
+	if uncontrolled || !assignmentAttributes {
+		return state
+	}
+	return withAssignmentAttributes(state, names)
+}
+
+func withAssignmentAttributes(state cwdState, names []string) cwdState {
+	attributes := make(map[string]bool, len(state.assignmentAttributes)+len(names))
+	for name := range state.assignmentAttributes {
+		attributes[name] = true
+	}
+	for _, name := range names {
+		attributes[name] = true
+	}
+	state.assignmentAttributes = attributes
+	return state
+}
+
+func declarationCallEffects(argv []string) (names []string, assignmentAttributes, uncontrolled bool) {
+	if len(argv) == 0 || !assignmentDeclarationBuiltin(argv[0]) {
+		return nil, false, true
+	}
+	assignmentAttributes = argv[0] == "readonly"
+	options := true
+	for _, arg := range argv[1:] {
+		if options && arg == "--" {
+			options = false
+			continue
+		}
+		if options && len(arg) > 1 && (arg[0] == '-' || arg[0] == '+') {
+			for _, option := range arg[1:] {
+				if !strings.ContainsRune("aAfFgiIlnprtux", option) {
+					return names, false, true
+				}
+				if strings.ContainsRune("aAilnru", option) {
+					if arg[0] == '+' {
+						return names, false, true
+					}
+					assignmentAttributes = true
+				}
+			}
+			continue
+		}
+		options = false
+		name, _, _ := strings.Cut(arg, "=")
+		if !validShellVariableName(name) {
+			return names, false, true
+		}
+		names = append(names, name)
+	}
+	return names, assignmentAttributes, false
 }
 
 func invalidateDeclarationVariables(state cwdState, declaration *syntax.DeclClause) cwdState {
@@ -1855,6 +2013,9 @@ func invalidateDeclarationVariables(state cwdState, declaration *syntax.DeclClau
 		}
 	}
 	state = invalidateNamedVariables(state, names, uncontrolled)
+	if declarationHasAssignmentAttributes(declaration) {
+		state = withAssignmentAttributes(state, names)
+	}
 	if uncontrolled || !declarationCreatesNameref(declaration) {
 		return state
 	}
@@ -1868,15 +2029,30 @@ func invalidateDeclarationVariables(state cwdState, declaration *syntax.DeclClau
 		}
 		target, ok := staticWord(assignment.Value, false)
 		if !ok || !validShellVariableName(target) {
-			state.variables = nil
+			state = withoutAllVariables(state)
 			state.namerefs = nil
-			state.gitEnvironmentUnknown = true
 			return state
 		}
 		namerefs[assignment.Name.Value] = target
 	}
 	state.namerefs = namerefs
 	return state
+}
+
+func declarationHasAssignmentAttributes(declaration *syntax.DeclClause) bool {
+	if declaration.Variant != nil && (declaration.Variant.Value == "nameref" || declaration.Variant.Value == "readonly") {
+		return true
+	}
+	for _, assignment := range declaration.Args {
+		if assignment.Name != nil {
+			continue
+		}
+		value, ok := staticWord(assignment.Value, false)
+		if ok && strings.HasPrefix(value, "-") && strings.ContainsAny(strings.TrimPrefix(value, "-"), "aAilnru") {
+			return true
+		}
+	}
+	return false
 }
 
 func declarationCreatesNameref(declaration *syntax.DeclClause) bool {
@@ -1897,10 +2073,10 @@ func declarationCreatesNameref(declaration *syntax.DeclClause) bool {
 
 func invalidateNamedVariables(state cwdState, names []string, uncontrolled ...bool) cwdState {
 	if len(uncontrolled) > 0 && uncontrolled[0] {
-		state.variables = nil
+		state = withoutAllVariables(state)
 		state.namerefs = nil
-		state.ifsUnknown = true
-		state.gitEnvironmentUnknown = true
+		state.assignmentAttributes = nil
+		state.attributesUnknown = true
 		return state
 	}
 	return withoutVariables(state, names...)
@@ -2033,12 +2209,7 @@ func validShellVariableName(name string) bool {
 func invalidateLoopVariables(state cwdState, loop syntax.Loop) cwdState {
 	wordLoop, ok := loop.(*syntax.WordIter)
 	if !ok || wordLoop.Name == nil {
-		state.variables = nil
-		state.gitEnvironmentUnknown = true
-		return state
-	}
-	if gitRepositoryEnvironmentVariable(wordLoop.Name.Value) {
-		state.gitEnvironmentUnknown = true
+		return withoutAllVariables(state)
 	}
 	return withoutVariables(state, wordLoop.Name.Value)
 }
@@ -2046,15 +2217,22 @@ func invalidateLoopVariables(state cwdState, loop syntax.Loop) cwdState {
 func withoutVariables(state cwdState, names ...string) cwdState {
 	resolved, ok := resolveNamerefNames(state.namerefs, names)
 	if !ok {
-		state.variables = nil
+		state = withoutAllVariables(state)
 		state.namerefs = nil
-		state.gitEnvironmentUnknown = true
 		return state
 	}
-	names = resolved
+	return withoutResolvedVariables(state, resolved...)
+}
+
+func withoutResolvedVariables(state cwdState, names ...string) cwdState {
 	for _, name := range names {
 		if name == "IFS" {
-			return invalidateNamedVariables(state, nil, true)
+			state.ifsUnknown = true
+		}
+		if name == "CDPATH" {
+			state.cdpath = ""
+			state.cdpathSet = false
+			state.cdpathUnknown = true
 		}
 		if gitRepositoryEnvironmentVariable(name) {
 			state.gitEnvironmentUnknown = true
@@ -2072,6 +2250,71 @@ func withoutVariables(state cwdState, names ...string) cwdState {
 	}
 	state.variables = variables
 	return state
+}
+
+func withoutAllVariables(state cwdState) cwdState {
+	state.variables = nil
+	state.ifsUnknown = true
+	state.cdpath = ""
+	state.cdpathSet = false
+	state.cdpathUnknown = true
+	state.gitEnvironmentUnknown = true
+	return state
+}
+
+func withVariable(state cwdState, name, value string) cwdState {
+	if !canPublishExactVariable(state, name) {
+		return withoutResolvedVariables(state, name)
+	}
+	variables := make(map[string]string, len(state.variables)+1)
+	for current, tracked := range state.variables {
+		variables[current] = tracked
+	}
+	variables[name] = value
+	state.variables = variables
+	switch name {
+	case "IFS":
+		state.ifsUnknown = false
+	case "CDPATH":
+		state.cdpath = value
+		state.cdpathSet = true
+		state.cdpathUnknown = false
+	}
+	return state
+}
+
+func restoreVariable(state, persistent cwdState, name string) cwdState {
+	if !canPublishExactVariable(state, name) {
+		return withoutResolvedVariables(state, name)
+	}
+	variables := make(map[string]string, len(state.variables))
+	for current, tracked := range state.variables {
+		variables[current] = tracked
+	}
+	value, exists := persistent.variables[name]
+	if exists {
+		variables[name] = value
+	} else {
+		delete(variables, name)
+	}
+	state.variables = variables
+	switch name {
+	case "IFS":
+		state.ifsUnknown = persistent.ifsUnknown
+	case "CDPATH":
+		state.cdpath = persistent.cdpath
+		state.cdpathSet = persistent.cdpathSet
+		state.cdpathUnknown = persistent.cdpathUnknown
+	default:
+		if gitRepositoryEnvironmentVariable(name) {
+			state.gitEnvironmentUnknown = state.gitEnvironmentUnknown || persistent.gitEnvironmentUnknown || !exists
+		}
+	}
+	return state
+}
+
+func canPublishExactVariable(state cwdState, name string) bool {
+	return !state.attributesUnknown && !state.assignmentAttributes[name]
 }
 
 func resolveNamerefNames(namerefs map[string]string, names []string) ([]string, bool) {
@@ -2137,6 +2380,11 @@ func cdOutcome(state cwdState, simple Simple, argv []string) cwdOutcome {
 		} else {
 			success.cwd = filepath.Clean(physicalPath)
 		}
+	}
+	if success.unknown {
+		success = withoutVariables(success, "PWD")
+	} else {
+		success = withVariable(success, "PWD", success.cwd)
 	}
 	switch status {
 	case cdDirectoryAccessible:
@@ -2280,12 +2528,12 @@ func mergeCwd(states ...cwdState) cwdState {
 		return cwdState{unknown: true}
 	}
 	merged := states[0]
-	merged.variables = commonVariables(states)
+	merged.variables, merged.ifsUnknown, merged.gitEnvironmentUnknown = mergeVariableFacts(states)
 	merged.namerefs = commonNamerefs(states)
+	merged.assignmentAttributes = combinedAssignmentAttributes(states)
 	for _, state := range states[1:] {
-		merged.ifsUnknown = merged.ifsUnknown || state.ifsUnknown || merged.variables["IFS"] != state.variables["IFS"]
 		merged.fsUncertain = merged.fsUncertain || state.fsUncertain
-		merged.gitEnvironmentUnknown = merged.gitEnvironmentUnknown || state.gitEnvironmentUnknown
+		merged.attributesUnknown = merged.attributesUnknown || state.attributesUnknown
 		if state.unknown || merged.unknown || state.cwd != merged.cwd {
 			merged.cwd = ""
 			merged.unknown = true
@@ -2296,6 +2544,50 @@ func mergeCwd(states ...cwdState) cwdState {
 		}
 	}
 	return merged
+}
+
+func mergeVariableFacts(states []cwdState) (map[string]string, bool, bool) {
+	ifsUnknown := !sameVariableValue(states, "IFS")
+	gitEnvironmentUnknown := !sameGitRepositoryEnvironment(states)
+	for _, state := range states {
+		ifsUnknown = ifsUnknown || state.ifsUnknown
+		gitEnvironmentUnknown = gitEnvironmentUnknown || state.gitEnvironmentUnknown
+	}
+	return commonVariables(states), ifsUnknown, gitEnvironmentUnknown
+}
+
+func sameVariableValue(states []cwdState, name string) bool {
+	want, wantPresent := states[0].variables[name]
+	for _, state := range states[1:] {
+		value, present := state.variables[name]
+		if present != wantPresent || value != want {
+			return false
+		}
+	}
+	return true
+}
+
+func sameGitRepositoryEnvironment(states []cwdState) bool {
+	want := gitRepositoryEnvironment(states[0].variables)
+	for _, state := range states[1:] {
+		if !maps.Equal(want, gitRepositoryEnvironment(state.variables)) {
+			return false
+		}
+	}
+	return true
+}
+
+func combinedAssignmentAttributes(states []cwdState) map[string]bool {
+	var combined map[string]bool
+	for _, state := range states {
+		for name := range state.assignmentAttributes {
+			if combined == nil {
+				combined = make(map[string]bool)
+			}
+			combined[name] = true
+		}
+	}
+	return combined
 }
 
 func commonNamerefs(states []cwdState) map[string]string {
@@ -2338,7 +2630,7 @@ func unknownCwd(states ...cwdState) cwdState {
 	state := mergeCwd(states...)
 	state.cwd = ""
 	state.unknown = true
-	return state
+	return withoutVariables(state, "PWD")
 }
 
 func cwdMayChange(before, after cwdState) bool {
@@ -2349,14 +2641,21 @@ func forClauseMayRepeat(clause *syntax.ForClause) bool {
 	return analyzeForClause(clause).mayRepeat
 }
 
-// Normalize returns every command that will actually execute, with no-op
-// wrappers stripped and argument-executing runners unwrapped.
+// Normalize returns conservative policy candidates, with no-op wrappers
+// stripped and argument-executing runners unwrapped. Candidates may include
+// syntactic loop-body commands that shell control flow would skip.
 func Normalize(command, cwd string) ([]Simple, error) {
 	return normalizeWithContext(command, cwd, &normalizeContext{})
 }
 
 func normalizeWithContext(command, cwd string, ctx *normalizeContext) ([]Simple, error) {
-	state := cwdState{cwd: cwd}
+	state := cwdState{cwd: cwd, variables: make(map[string]string, 2)}
+	if cwd != "" {
+		state.variables["PWD"] = cwd
+	}
+	if home, ok := os.LookupEnv("HOME"); ok {
+		state.variables["HOME"] = home
+	}
 	if cdpath, ok := os.LookupEnv("CDPATH"); ok {
 		state.cdpath = cdpath
 		state.cdpathSet = true
@@ -2406,7 +2705,7 @@ func normalizeWithState(command string, state cwdState, ctx *normalizeContext, f
 		recursive:    make(map[*syntax.Stmt]cwdState),
 	}
 	outcome := walker.list(f.Stmts, state)
-	base := extractSimples(command, f, pipelines, walker.states)
+	base := extractSimples(command, f, pipelines, walker.states, walker.replacements)
 	var out []Simple
 	for _, s := range base {
 		if recursiveState, ok := walker.recursive[s.origin]; ok {

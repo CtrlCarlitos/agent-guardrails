@@ -3,10 +3,12 @@ package engine
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
@@ -509,6 +511,1041 @@ func TestNF5bPreservesQuotedParameterSemantics(t *testing.T) {
 	}
 }
 
+// Mutation caught: requiring a literal anchor for every unquoted parameter leaves safe standalone scalar fields unresolved.
+func TestNF19ResolvesSafeStandaloneParameters(t *testing.T) {
+	command := `PLAN=docs/x; SK=/repo/tools; $SK/review-package $PLAN`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/repo/tools/review-package", "docs/x"}
+	if len(got) != 1 || !reflect.DeepEqual(got[0].Argv, want) || got[0].Unresolved || !got[0].resolvedArgs[0] || !got[0].resolvedArgs[1] {
+		t.Fatalf("Normalize(%q) = %+v, want one concrete command %q", command, got, want)
+	}
+	if verdict := evalBash(t, `PLAN=docs/x; git add $PLAN`); verdict != nil {
+		t.Fatalf("standalone assigned git operand = %+v, want allow", verdict)
+	}
+}
+
+// Mutation caught: treating zero-, split-, or glob-producing standalone expansions as one field can hide the runtime command shape.
+func TestNF19LeavesUnsafeStandaloneParametersUnresolved(t *testing.T) {
+	for _, command := range []string{
+		`S=; rm -rf $S`,
+		`rm -rf $INHERITED`,
+		`S='/repo/one two'; rm -rf $S`,
+		`IFS=/; S=repo/path; rm -rf $S`,
+		`S='/repo/*'; rm -rf $S`,
+		`if condition; then S=/repo/a; else S=/repo/b; fi; rm -rf $S`,
+		`S=/repo/a; rm -rf ${S:-/etc}`,
+		`S=$(printf /repo/a); rm -rf $S`,
+		`S=$((1)); rm -rf $S`,
+	} {
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+}
+
+// Mutation caught: combining adjacent unquoted expansions exceeds the approved one-part standalone resolution boundary.
+func TestNF19LeavesAdjacentUnquotedParametersUnresolved(t *testing.T) {
+	command := `A=/; B=etc; rm -rf $A$B`
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+	}
+}
+
+// Mutation caught: walking a finite loop only once drops concrete iterator values from normalization and policy aggregation.
+func TestNF19EnumeratesStaticFiniteLoopItemsInShellOrder(t *testing.T) {
+	command := `for n in one two three; do /repo/bin/$n /repo/$n; done`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"/repo/bin/one", "/repo/one"},
+		{"/repo/bin/two", "/repo/two"},
+		{"/repo/bin/three", "/repo/three"},
+	}
+	if !reflect.DeepEqual(argvs(got), want) {
+		t.Fatalf("Normalize(%q) argv = %v, want every iteration in shell order %v", command, argvs(got), want)
+	}
+	for index, simple := range got {
+		if simple.Unresolved || !simple.resolvedArgs[0] || !simple.resolvedArgs[1] {
+			t.Errorf("iteration %d lost concrete resolver provenance: %+v", index, simple)
+		}
+	}
+	if verdict := evalBash(t, command); verdict != nil {
+		t.Fatalf("checkBash(%q) = %+v, want allow for audited concrete candidates", command, verdict)
+	}
+}
+
+// Mutation caught: discarding any enumerated item can keep its concrete destructive path from the strongest-Verdict aggregation.
+func TestNF19EveryFiniteLoopItemReachesPolicy(t *testing.T) {
+	command := `for TARGET in /repo/safe /etc; do rm -rf $TARGET; done`
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
+		t.Fatalf("checkBash(%q) = %+v, want deny/P1.rm-rf from strongest loop iteration", command, verdict)
+	}
+}
+
+// Mutation caught: recursively enumerating eligible loops multiplies candidates without bound.
+func TestNF19NestedFiniteLoopsFailClosedWithoutProductExpansion(t *testing.T) {
+	command := `for a in 1 2 3 4 5 6 7 8 9 10; do for b in 1 2 3 4 5 6 7 8 9 10; do for c in 1 2 3 4 5 6 7 8 9 10; do for d in 1 2 3 4 5 6 7 8 9 10; do for e in 1 2 3 4 5 6 7 8 9 10; do rm -rf "/repo/$a/$b/$c/$d/$e"; done; done; done; done; done`
+	type result struct {
+		simples []Simple
+		verdict *policy.Verdict
+		err     error
+	}
+	done := make(chan result, 1)
+	go func() {
+		simples, err := Normalize(command, "/repo")
+		verdict := checkBash(ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, bashPol())
+		done <- result{simples: simples, verdict: verdict, err: err}
+	}()
+	select {
+	case got := <-done:
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+		if len(got.simples) != 1 || !got.simples[0].Unresolved {
+			t.Fatalf("Normalize produced %d candidates (%+v), want one unresolved candidate", len(got.simples), got.simples)
+		}
+		if got.verdict == nil || got.verdict.Decision != policy.Ask || got.verdict.RuleID != "P3.unresolved" {
+			t.Fatalf("checkBash = %+v, want ask/P3.unresolved", got.verdict)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("nested finite loops exceeded the one-second normalization deadline")
+	}
+}
+
+// Mutation caught: moving the item cap above 16 reintroduces attacker-controlled candidate growth.
+func TestNF19FiniteLoopItemLimit(t *testing.T) {
+	tests := []struct {
+		name       string
+		items      string
+		candidates int
+		decision   policy.Decision
+		ruleID     string
+	}{
+		{name: "sixteen enumerates", items: "01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16", candidates: 16, decision: policy.Allow},
+		{name: "seventeen asks", items: "01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17", candidates: 1, decision: policy.Ask, ruleID: "P3.unresolved"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			command := fmt.Sprintf(`for n in %s; do rm -rf "/repo/$n"; done`, test.items)
+			simples, err := Normalize(command, "/repo")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(simples) != test.candidates {
+				t.Fatalf("Normalize produced %d candidates, want %d", len(simples), test.candidates)
+			}
+			verdict := checkBash(ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, bashPol())
+			if test.decision == policy.Allow {
+				if verdict != nil {
+					t.Fatalf("checkBash = %+v, want allow", verdict)
+				}
+				return
+			}
+			if verdict == nil || verdict.Decision != test.decision || verdict.RuleID != test.ruleID {
+				t.Fatalf("checkBash = %+v, want %s/%s", verdict, test.decision, test.ruleID)
+			}
+		})
+	}
+}
+
+// Mutation caught: retaining the normalized value but losing its provenance hides the resolved path from P4.
+func TestNF19ResolvedUnknownCommandOperandReachesPathPolicy(t *testing.T) {
+	pol := pathPol()
+	pol.Slots.SecretDirs = append(pol.Slots.SecretDirs, "/etc/passwd")
+	tests := []struct {
+		name     string
+		command  string
+		decision policy.Decision
+		ruleID   string
+	}{
+		{name: "safe", command: `T=/tmp/gc/x; somenewtool $T`, decision: policy.Allow},
+		{name: "etc", command: `T=/etc/passwd; somenewtool $T`, decision: policy.Deny, ruleID: "P4.secret-path"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			verdict := Evaluate(ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}, pol)
+			if test.decision == policy.Allow {
+				if verdict.Decision != policy.Allow {
+					t.Fatalf("Evaluate = %+v, want allow", verdict)
+				}
+				return
+			}
+			if verdict.Decision != test.decision || verdict.RuleID != test.ruleID {
+				t.Fatalf("Evaluate = %+v, want %s/%s", verdict, test.decision, test.ruleID)
+			}
+		})
+	}
+}
+
+// Mutation caught: treating an unquoted brace expansion as one literal loop item omits its destructive runtime item.
+func TestNF19BraceExpandedLoopListFailsClosed(t *testing.T) {
+	command := `for n in {safe,/etc}; do rm -rf "$n"; done`
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+	}
+}
+
+// Mutation caught: rejecting brace text without respecting shell quoting loses an eligible literal item.
+func TestNF19QuotedBraceLoopItemRemainsConcrete(t *testing.T) {
+	command := `for n in '{safe,/etc}'; do rm -rf "$n"; done`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{"rm", "-rf", "{safe,/etc}"}}
+	if !reflect.DeepEqual(argvs(got), want) || got[0].Unresolved {
+		t.Fatalf("Normalize(%q) = %+v, want one concrete candidate %v", command, got, want)
+	}
+	if verdict := evalBash(t, command); verdict != nil {
+		t.Fatalf("checkBash(%q) = %+v, want allow", command, verdict)
+	}
+}
+
+// Mutation caught: parsing a function-shadowed wrapper before function lookup can erase its destructive body.
+func TestNF19FunctionShadowedWrappersReachPolicy(t *testing.T) {
+	for _, wrapper := range []string{"command", "builtin"} {
+		for _, command := range []string{
+			fmt.Sprintf(`%s(){ rm -rf /etc; }; %s`, wrapper, wrapper),
+			fmt.Sprintf(`%s(){ rm -rf /etc; }; WRAPPER=%s; $WRAPPER`, wrapper, wrapper),
+			fmt.Sprintf(`%s(){ rm -rf /etc; }; for n in one two; do %s; done`, wrapper, wrapper),
+		} {
+			verdict := evalBash(t, command)
+			if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
+				t.Errorf("checkBash(%q) = %+v, want deny/P1.rm-rf", command, verdict)
+			}
+		}
+	}
+}
+
+// Mutation caught: moving wrapper lookup must not stop real wrappers from bypassing a function with the wrapped name.
+func TestNF19UnshadowedWrappersStillBypassFunctions(t *testing.T) {
+	for _, wrapper := range []string{"command", "builtin"} {
+		command := fmt.Sprintf(`danger(){ rm -rf /etc; }; %s danger`, wrapper)
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hasArgv(got, []string{"rm", "-rf", "/etc"}) {
+			t.Errorf("Normalize(%q) invoked bypassed function: %+v", command, got)
+		}
+		if verdict := evalBash(t, command); verdict != nil {
+			t.Errorf("checkBash(%q) = %+v, want allow", command, verdict)
+		}
+	}
+}
+
+// Mutation caught: looking up the original wrapper before applying call assignments can hide them from the function or leak them to the caller.
+func TestNF19ShadowedWrapperPrefixAssignmentsAreScoped(t *testing.T) {
+	command := `command(){ rm -rf "$TARGET/body"; }; TARGET=/etc; TARGET=/repo/safe command; rm -rf "$TARGET/caller"`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasArgv(got, []string{"rm", "-rf", "/repo/safe/body"}) {
+		t.Fatalf("shadowed wrapper body did not see prefix assignment: %+v", got)
+	}
+	if !hasArgv(got, []string{"rm", "-rf", "/etc/caller"}) {
+		t.Fatalf("caller did not regain prior assignment: %+v", got)
+	}
+}
+
+// Mutation caught: exact break/continue execution omits a syntactic body tail and can hide a destructive policy candidate.
+func TestNF19PlainLoopControlCannotHideBodyTail(t *testing.T) {
+	for _, control := range []string{"break", "continue"} {
+		command := fmt.Sprintf(`for n in one two; do %s; rm -rf /etc/$n; done`, control)
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := [][]string{
+			{control}, {"rm", "-rf", "/etc/one"},
+			{control}, {"rm", "-rf", "/etc/two"}, nil,
+		}
+		if !reflect.DeepEqual(argvs(got), want) {
+			t.Errorf("Normalize(%q) argv = %v, want complete per-item candidates %v", command, argvs(got), want)
+		}
+		if !got[len(got)-1].Unresolved {
+			t.Errorf("Normalize(%q) last = %+v, want unresolved control-state sentinel", command, got[len(got)-1])
+		}
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
+			t.Errorf("checkBash(%q) = %+v, want deny/P1.rm-rf", command, verdict)
+		}
+	}
+}
+
+// Mutation caught: recognizing builtin/command wrappers as exact loop control omits the remaining syntactic body candidates.
+func TestNF19WrappedLoopControlCannotHideBodyTail(t *testing.T) {
+	for _, wrapper := range []string{"builtin", "command"} {
+		command := fmt.Sprintf(`for n in one two; do %s break; rm -rf /etc/$n; done`, wrapper)
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := [][]string{
+			{"break"}, {"rm", "-rf", "/etc/one"},
+			{"break"}, {"rm", "-rf", "/etc/two"}, nil,
+		}
+		if !reflect.DeepEqual(argvs(got), want) {
+			t.Errorf("Normalize(%q) argv = %v, want complete wrapped-control candidates %v", command, argvs(got), want)
+		}
+		if !got[len(got)-1].Unresolved {
+			t.Errorf("Normalize(%q) last = %+v, want unresolved control-state sentinel", command, got[len(got)-1])
+		}
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
+			t.Errorf("checkBash(%q) = %+v, want deny/P1.rm-rf", command, verdict)
+		}
+	}
+}
+
+// Mutation caught: falling back to one unresolved body walk for shadowed or body-mutated controls loses concrete per-item candidates.
+func TestNF19FunctionMutatedControlCannotHideBodyTail(t *testing.T) {
+	for _, command := range []string{
+		`break(){ :; }; for n in one two; do break; rm -rf /etc/$n; done`,
+		`command(){ :; }; for n in one two; do command break; rm -rf /etc/$n; done`,
+		`for n in one two; do continue(){ :; }; continue; rm -rf /etc/$n; done`,
+		`define(){ continue(){ :; }; }; for n in one two; do define; continue; rm -rf /etc/$n; done`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasArgv(got, []string{"rm", "-rf", "/etc/one"}) || !hasArgv(got, []string{"rm", "-rf", "/etc/two"}) {
+			t.Errorf("Normalize(%q) argv = %v, want both concrete destructive tails", command, argvs(got))
+		}
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
+			t.Errorf("checkBash(%q) = %+v, want deny/P1.rm-rf", command, verdict)
+		}
+	}
+}
+
+// Mutation caught: compensating control-flow degradation erases a genuine PWD assignment before continue.
+func TestNF19CrossIterationPWDMutationBeforeControlFailsClosed(t *testing.T) {
+	command := `for n in one two; do rm -rf "$PWD/guardrail-test"; PWD=/etc; continue; done`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"rm", "-rf", "/repo/guardrail-test"}, {"continue"},
+		{"rm", "-rf", "/repo/guardrail-test"}, {"continue"}, nil,
+	}
+	if !reflect.DeepEqual(argvs(got), want) {
+		t.Fatalf("Normalize(%q) argv = %v, want concrete body candidates plus unresolved sentinel %v", command, argvs(got), want)
+	}
+	if !got[len(got)-1].Unresolved {
+		t.Fatalf("Normalize(%q) last = %+v, want unresolved cross-item PWD mutation sentinel", command, got[len(got)-1])
+	}
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+	}
+}
+
+// Mutation caught: restarting every item from the original function map can miss a destructive redefinition used by a later item.
+func TestNF19CrossIterationFunctionMutationFailsClosed(t *testing.T) {
+	command := `mutate(){ mutate(){ rm -rf /etc; }; }; for n in one two; do mutate; done`
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved for cross-item function mutation", command, verdict)
+	}
+}
+
+// Mutation caught: discarding candidate variable outcomes reuses a safe initial target after the body changes it.
+func TestNF19CrossIterationScalarMutationFailsClosed(t *testing.T) {
+	command := `TARGET=/repo/safe; for n in one two; do rm -rf "$TARGET"; TARGET=/etc; done`
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved for cross-item scalar mutation", command, verdict)
+	}
+}
+
+// Mutation caught: discarding candidate cwd outcomes resolves every iteration against the original PWD.
+func TestNF19CrossIterationCWDMutationFailsClosed(t *testing.T) {
+	command := `for n in one two; do rm -rf "$PWD/guardrail-test"; cd /etc; done`
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved for cross-item cwd mutation", command, verdict)
+	}
+}
+
+// Mutation caught: discarding declaration effects treats a later nameref iteration as an ordinary scalar.
+func TestNF19CrossIterationDeclarationMutationFailsClosed(t *testing.T) {
+	command := `TARGET=/repo/safe; ACTUAL=/etc; for n in one two; do rm -rf "$TARGET"; declare -n TARGET=ACTUAL; done`
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved for cross-item declaration mutation", command, verdict)
+	}
+}
+
+// Mutation caught: replacing concrete candidates with a state sentinel can soften a literal deny.
+func TestNF19CrossIterationSentinelPreservesLiteralDeny(t *testing.T) {
+	command := `TARGET=/repo/safe; for n in one two; do rm -rf /etc; TARGET=/etc; done`
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
+		t.Fatalf("checkBash(%q) = %+v, want deny/P1.rm-rf from concrete candidate", command, verdict)
+	}
+}
+
+// Mutation caught: treating ordinary external-command filesystem uncertainty as shell-state change defeats audited finite loops.
+func TestNF19StateInertAuditedLoopRemainsConcrete(t *testing.T) {
+	command := `SK=/repo/tools; PLAN=docs/plan.md; for n in 2 3 4; do "$SK/task-brief" "$PLAN" $n; done`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"/repo/tools/task-brief", "docs/plan.md", "2"},
+		{"/repo/tools/task-brief", "docs/plan.md", "3"},
+		{"/repo/tools/task-brief", "docs/plan.md", "4"},
+	}
+	if !reflect.DeepEqual(argvs(got), want) {
+		t.Fatalf("Normalize(%q) argv = %v, want audited candidates %v", command, argvs(got), want)
+	}
+	for index, simple := range got {
+		if simple.Unresolved {
+			t.Errorf("candidate %d = %+v, want concrete", index, simple)
+		}
+	}
+	if verdict := evalBash(t, command); verdict != nil {
+		t.Fatalf("checkBash(%q) = %+v, want allow", command, verdict)
+	}
+}
+
+// Mutation caught: ignoring filesystem uncertainty when find consumes it treats every deletion pass as the first.
+func TestNF19CrossIterationFilesystemMutationBeforeFindFailsClosed(t *testing.T) {
+	root := t.TempDir()
+	command := fmt.Sprintf(`for n in one two; do find %q -mindepth 1 -delete; done`, root)
+	verdict := checkBash(
+		ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"},
+		&policy.Policy{Slots: policy.Slots{SafeRoots: []string{root}}, Waived: map[string]bool{}},
+	)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved for cross-item filesystem mutation before find", command, verdict)
+	}
+}
+
+// Mutation caught: treating every find as a filesystem-sensitive destructive operation over-broadens the sentinel.
+func TestNF19CrossIterationReadOnlyFindRemainsConcrete(t *testing.T) {
+	root := t.TempDir()
+	command := fmt.Sprintf(`for n in one two; do find %q -maxdepth 1; done`, root)
+	verdict := checkBash(
+		ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"},
+		&policy.Policy{Slots: policy.Slots{SafeRoots: []string{root}}, Waived: map[string]bool{}},
+	)
+	if verdict != nil {
+		t.Fatalf("checkBash(%q) = %+v, want allow for read-only find", command, verdict)
+	}
+}
+
+// Mutation caught: publishing enumerated iterator, variable, cwd, or status invents an exact post-loop target.
+func TestNF19PostLoopStateAndStatusRemainUnresolved(t *testing.T) {
+	for _, command := range []string{
+		`for TARGET in /repo/one /repo/two; do git add "$TARGET"; done; rm -rf "$TARGET"`,
+		`TARGET=/repo/safe; for n in one; do TARGET=/etc; done; rm -rf "$TARGET"`,
+		`for n in one; do cd /etc; done; rm -rf "$PWD/guardrail-test"`,
+		`TARGET=/repo/safe; for n in one; do true; done && TARGET=/etc; rm -rf $TARGET`,
+	} {
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+
+	command := `for n in one; do true; done && TARGET=/repo/safe; rm -rf /etc`
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
+		t.Fatalf("checkBash(%q) = %+v, want independent literal deny/P1.rm-rf", command, verdict)
+	}
+}
+
+// Mutation caught: accepting runtime-expanded or pathname-expanded loop lists invents a finite iterator history.
+func TestNF19LeavesUnboundedLoopListsUnresolved(t *testing.T) {
+	for _, command := range []string{
+		`for n in $ITEMS; do rm -rf $n; done`,
+		`for n; do rm -rf $n; done`,
+		`for n in *; do rm -rf $n; done`,
+		`for n in $(printf /etc); do rm -rf $n; done`,
+		`for n in $((1)); do rm -rf $n; done`,
+	} {
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+}
+
+// Mutation caught: post-loop invalidation can make iterator-attribute tests pass even when the in-loop binding is wrongly treated as ordinary.
+func TestNF19RejectsNonScalarIteratorBindings(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		command string
+	}{
+		{name: "nameref", command: `ACTUAL=/repo/safe; declare -n TARGET=ACTUAL; for TARGET in /repo/safe; do rm -rf "$TARGET"; done`},
+		{name: "readonly", command: `readonly TARGET=/repo/safe; for TARGET in /repo/safe; do rm -rf "$TARGET"; done`},
+		{name: "lowercase", command: `declare -l TARGET=/repo/safe; for TARGET in /repo/safe; do rm -rf "$TARGET"; done`},
+		{name: "uppercase", command: `declare -u TARGET=/repo/safe; for TARGET in /repo/safe; do rm -rf "$TARGET"; done`},
+		{name: "array", command: `declare -a TARGET=/repo/safe; for TARGET in /repo/safe; do rm -rf "$TARGET"; done`},
+		{name: "integer", command: `declare -i TARGET=0; for TARGET in /repo/safe; do rm -rf "$TARGET"; done`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			verdict := evalBash(t, test.command)
+			if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+				t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved from in-loop operand", test.command, verdict)
+			}
+		})
+	}
+}
+
+// Mutation caught: unwrapped or resolved declaration builtins can invalidate a value without recording non-ordinary assignment semantics.
+func TestNF19RejectsWrappedAndResolvedDeclarationIterators(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		command string
+	}{
+		{name: "wrapped-case-conversion", command: `command declare -l TARGET=/repo/safe; for TARGET in /repo/safe; do rm -rf "$TARGET"; done`},
+		{name: "wrapped-array", command: `command declare -a TARGET=/repo/safe; for TARGET in /repo/safe; do rm -rf "$TARGET"; done`},
+		{name: "wrapped-readonly", command: `builtin readonly TARGET=/repo/safe; for TARGET in /repo/safe; do rm -rf "$TARGET"; done`},
+		{name: "resolved-integer", command: `DECL=declare; $DECL -i TARGET=0; for TARGET in /repo/safe; do rm -rf "$TARGET"; done`},
+		{name: "resolved-readonly", command: `DECL=readonly; $DECL TARGET=/repo/safe; for TARGET in /repo/safe; do rm -rf "$TARGET"; done`},
+		{name: "resolved-unknown-flag", command: `FLAGS=-Z; command declare "$FLAGS" TARGET=/repo/safe; for TARGET in /repo/safe; do rm -rf "$TARGET"; done`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			verdict := evalBash(t, test.command)
+			if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+				t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved from in-loop operand", test.command, verdict)
+			}
+		})
+	}
+}
+
+// Mutation caught: persistent assignment publishes an untransformed scalar despite known assignment attributes.
+func TestNF19AttributedPersistentAssignmentFailsClosed(t *testing.T) {
+	command := `declare -u TARGET; TARGET=/repo/safe; rm -rf "$TARGET"`
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+	}
+}
+
+// Mutation caught: command-prefix assignment publishes an attributed value inside a function instead of restoring uncertainty.
+func TestNF19AttributedPrefixAssignmentAndRestoreFailClosed(t *testing.T) {
+	command := `declare -u TARGET; inspect(){ rm -rf "$TARGET/body"; }; TARGET=/repo/safe inspect; rm -rf "$TARGET/caller"`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rmCount := 0
+	for _, simple := range got {
+		if head(simple.Argv) != "rm" {
+			continue
+		}
+		rmCount++
+		if !simple.wordUnresolved(2) {
+			t.Errorf("Normalize(%q) rm = %+v, want attributed target unresolved", command, simple)
+		}
+	}
+	if rmCount != 2 {
+		t.Fatalf("Normalize(%q) = %+v, want function and restored-caller rm candidates", command, got)
+	}
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+	}
+}
+
+// Mutation caught: an unknown declaration transition is discarded when a later assignment republishes an exact value.
+func TestNF19UnknownAttributeAssignmentFailsClosed(t *testing.T) {
+	command := `FLAGS=-Z; command declare "$FLAGS" GIT_DIR; GIT_DIR=/repo/safe; git status`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got[len(got)-1]
+	if _, published := last.gitEnvironment["GIT_DIR"]; published || !last.gitEnvironmentUnknown || !last.Unresolved {
+		t.Fatalf("Normalize(%q) last = %+v, want assignment after unknown attributes unpublished", command, last)
+	}
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+	}
+}
+
+// Mutation caught: successful cd publishes exact PWD despite unsupported PWD assignment attributes.
+func TestNF19AttributedPWDPublicationFailsClosed(t *testing.T) {
+	repo := t.TempDir()
+	command := fmt.Sprintf(`declare -u PWD; cd %q; rm -rf "$PWD/guardrail-test"`, repo)
+	verdict := checkBash(ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, bashPol())
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+	}
+}
+
+// Mutation caught: declaration invalidation leaves the separately tracked CDPATH exact after assigning it attributes.
+func TestNF19AttributedCDPATHSearchFailsClosed(t *testing.T) {
+	repo := t.TempDir()
+	searchRoot := filepath.Join(repo, "search")
+	if err := os.MkdirAll(filepath.Join(searchRoot, "target"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CDPATH", searchRoot)
+	command := `declare -u CDPATH; cd target; rm -rf "$PWD/guardrail-test"`
+	verdict := checkBash(ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, bashPol())
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+	}
+}
+
+// Mutation caught: applying the attribute invariant to every assignment would discard ordinary exact scalar and PWD facts.
+func TestNF19OrdinaryAssignmentsAndPWDRemainConcrete(t *testing.T) {
+	command := `TARGET=/repo/safe; rm -rf "$TARGET"; cd /repo; rm -rf "$PWD/guardrail-test"`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"rm", "-rf", "/repo/safe"},
+		{"cd", "/repo"},
+		{"rm", "-rf", "/repo/guardrail-test"},
+	}
+	if !reflect.DeepEqual(argvs(got), want) {
+		t.Fatalf("Normalize(%q) argv = %v, want concrete commands %v", command, argvs(got), want)
+	}
+	for index, simple := range got {
+		if simple.Unresolved {
+			t.Errorf("Normalize(%q) candidate %d = %+v, want concrete", command, index, simple)
+		}
+	}
+	if verdict := evalBash(t, command); verdict != nil {
+		t.Fatalf("checkBash(%q) = %+v, want allow", command, verdict)
+	}
+}
+
+// Mutation caught: dropping the attributed Ask candidate can let strongest-Verdict handling obscure a literal Deny regression.
+func TestNF19AttributedAssignmentPreservesLiteralDeny(t *testing.T) {
+	command := `declare -u TARGET; TARGET=/repo/safe; rm -rf "$TARGET"; rm -rf /etc`
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
+		t.Fatalf("checkBash(%q) = %+v, want deny/P1.rm-rf", command, verdict)
+	}
+}
+
+// Mutation caught: Git environment extraction consumes an exact value that unsupported attributes would transform.
+func TestNF19AttributedGitEnvironmentIsNotPublished(t *testing.T) {
+	command := `declare -u GIT_DIR; GIT_DIR=/repo/safe; git status`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got[len(got)-1]
+	if _, published := last.gitEnvironment["GIT_DIR"]; published || !last.gitEnvironmentUnknown || !last.Unresolved {
+		t.Fatalf("Normalize(%q) last = %+v, want unknown Git environment without attributed exact value", command, last)
+	}
+}
+
+// Mutation caught: binding a static loop iterator only in variables leaves the CDPATH search mirror stale.
+func TestNF19LoopBindingSynchronizesCDPATH(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, "etc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := `CDPATH=; for CDPATH in /; do cd etc; rm -rf "$PWD/guardrail-test"; done`
+	got, err := Normalize(command, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"rm", "-rf", "/etc/guardrail-test"}
+	if !hasArgv(got, want) {
+		t.Fatalf("Normalize(%q) = %+v, want runtime-reachable candidate %q", command, got, want)
+	}
+	verdict := checkBash(ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, bashPol())
+	if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
+		t.Fatalf("checkBash(%q) = %+v, want loop-bound CDPATH to reach deny/P1.rm-rf", command, verdict)
+	}
+}
+
+// Mutation caught: treating every CDPATH loop binding as unknown loses a semantically safe concrete search result.
+func TestNF19SafeLoopBoundCDPATHRemainsConcrete(t *testing.T) {
+	repo := t.TempDir()
+	searchRoot := filepath.Join(repo, "search")
+	target := filepath.Join(searchRoot, "target")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := fmt.Sprintf(`CDPATH=; for CDPATH in %q; do cd target; rm -rf "$PWD/guardrail-test"; done`, searchRoot)
+	got, err := Normalize(command, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"rm", "-rf", filepath.Join(target, "guardrail-test")}
+	if last := got[len(got)-1]; !reflect.DeepEqual(last.Argv, want) || last.Unresolved {
+		t.Fatalf("Normalize(%q) last = %+v, want concrete %q", command, last, want)
+	}
+	if verdict := checkBash(ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, bashPol()); verdict != nil {
+		t.Fatalf("checkBash(%q) = %+v, want allow", command, verdict)
+	}
+}
+
+// Mutation caught: synchronizing only CDPATH leaves other special loop bindings inconsistent with exact assignment.
+func TestNF19LoopBindingSynchronizesIFSAndGitFacts(t *testing.T) {
+	ifsCommand := `for IFS in :; do S="safe:/etc"; rm -rf $S; done`
+	verdict := evalBash(t, ifsCommand)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", ifsCommand, verdict)
+	}
+
+	gitCommand := `for GIT_DIR in /repo/safe/.git; do git status; done`
+	got, err := Normalize(gitCommand, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got[len(got)-1]
+	if last.gitEnvironment["GIT_DIR"] != "/repo/safe/.git" || last.gitEnvironmentUnknown || last.Unresolved {
+		t.Fatalf("Normalize(%q) last = %+v, want exact loop-bound Git environment", gitCommand, last)
+	}
+
+	unknownCommand := `printf -v GIT_DIR /tmp/unknown; for GIT_DIR in /repo/safe/.git; do git status; done`
+	got, err = Normalize(unknownCommand, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last = got[len(got)-1]
+	if !last.gitEnvironmentUnknown || !last.Unresolved {
+		t.Fatalf("Normalize(%q) last = %+v, want prior Git uncertainty preserved", unknownCommand, last)
+	}
+}
+
+// Mutation caught: bulk value loss without IFS invalidation assumes default splitting after custom IFS was discarded.
+func TestNF19BulkValueLossInvalidatesIFS(t *testing.T) {
+	cases := map[string]string{
+		"let builtin":  `IFS=:; let x=1; S="safe:/etc"; rm -rf $S`,
+		"arithmetic":   `IFS=:; ((x=1)); S="safe:/etc"; rm -rf $S`,
+		"C-style loop": `IFS=:; for ((i=0; i<1; i++)); do :; done; S="safe:/etc"; rm -rf $S`,
+	}
+	for name, command := range cases {
+		t.Run(name, func(t *testing.T) {
+			verdict := evalBash(t, command)
+			if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+				t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+			}
+		})
+	}
+}
+
+// Mutation caught: treating known default IFS as unknown without a value-loss transition rejects an ordinary safe scalar.
+func TestNF19DefaultIFSControlRemainsConcrete(t *testing.T) {
+	command := `S=safe; rm -rf $S`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"rm", "-rf", "safe"}
+	if len(got) != 1 || !reflect.DeepEqual(got[0].Argv, want) || got[0].Unresolved {
+		t.Fatalf("Normalize(%q) = %+v, want concrete %q", command, got, want)
+	}
+	if verdict := evalBash(t, command); verdict != nil {
+		t.Fatalf("checkBash(%q) = %+v, want allow", command, verdict)
+	}
+}
+
+// Mutation caught: direct all-value loss outside arithmetic bypasses the special-variable invalidation seam.
+func TestNF19AdditionalBulkValueLossRoutesInvalidateIFS(t *testing.T) {
+	cases := map[string]string{
+		"nested shell expansion scope": `IFS=:; bash -c 'S="safe:/etc"; rm -rf $S'`,
+		"cyclic nameref assignment":    `declare -n A=B; declare -n B=A; IFS=:; A=value; S="safe:/etc"; rm -rf $S`,
+		"invalid nameref declaration":  `IFS=:; declare -n REF=not-valid; S="safe:/etc"; rm -rf $S`,
+		"cyclic nameref invalidation":  `declare -n A=B; declare -n B=A; IFS=:; unset A; S="safe:/etc"; rm -rf $S`,
+	}
+	for name, command := range cases {
+		t.Run(name, func(t *testing.T) {
+			verdict := evalBash(t, command)
+			if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+				t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+			}
+		})
+	}
+}
+
+// Mutation caught: recognizing only ordinary glob metacharacters publishes extglob-capable tracked values as one field.
+func TestNF19UnquotedTrackedExtglobValuesFailClosed(t *testing.T) {
+	for _, value := range []string{"@(safe|etc)", "+(safe|etc)", "!(safe)"} {
+		command := fmt.Sprintf("S=%q; rm -rf $S", value)
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+}
+
+// Mutation caught: applying unquoted extglob restrictions inside quotes or to ordinary safe values loses concrete fields.
+func TestNF19QuotedExtglobAndOrdinaryValuesRemainConcrete(t *testing.T) {
+	for _, command := range []string{
+		`S='@(safe|etc)'; rm -rf "$S"`,
+		`S=safe; rm -rf $S`,
+	} {
+		if verdict := evalBash(t, command); verdict != nil {
+			t.Errorf("checkBash(%q) = %+v, want allow", command, verdict)
+		}
+	}
+}
+
+// Mutation caught: an unresolved state-seam candidate must not outrank or erase an independent literal Deny.
+func TestNF19StateSeamUncertaintyPreservesLiteralDeny(t *testing.T) {
+	command := `S='@(safe|etc)'; rm -rf $S; rm -rf /etc`
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
+		t.Fatalf("checkBash(%q) = %+v, want deny/P1.rm-rf", command, verdict)
+	}
+}
+
+// Mutation caught: a real extglob-enabled shell can expand these prior-literal values into runtime path fields.
+func TestNF19BashExtglobSemanticFixture(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash is not installed")
+	}
+	dir := t.TempDir()
+	for _, name := range []string{"safe", "etc"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := map[string]string{
+		"@(safe|etc)": "etc\nsafe",
+		"+(safe|etc)": "etc\nsafe",
+		"!(safe)":     "etc",
+	}
+	for value, want := range cases {
+		command := exec.Command(bash, "-O", "extglob", "-c", fmt.Sprintf("S=%q; printf '%%s\\n' $S", value))
+		command.Dir = dir
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("bash extglob probe for %q: %v: %s", value, err, output)
+		}
+		if got := strings.TrimSpace(string(output)); got != want {
+			t.Fatalf("bash extglob probe for %q = %q, want %q", value, got, want)
+		}
+	}
+}
+
+// Mutation caught: consolidating exact publication without mirror-aware restoration breaks safe prefix scoping.
+func TestNF19SpecialVariablePrefixRestorationRemainsConcrete(t *testing.T) {
+	repo := t.TempDir()
+	searchRoot := filepath.Join(repo, "search")
+	target := filepath.Join(searchRoot, "target")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := fmt.Sprintf(`CDPATH=%q; noop(){ :; }; CDPATH=/ noop; cd target; rm -rf "$PWD/guardrail-test"`, searchRoot)
+	got, err := Normalize(command, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"rm", "-rf", filepath.Join(target, "guardrail-test")}
+	if last := got[len(got)-1]; !reflect.DeepEqual(last.Argv, want) || last.Unresolved {
+		t.Fatalf("Normalize(%q) last = %+v, want restored CDPATH command %q", command, last, want)
+	}
+	if verdict := evalBash(t, `S=safe; noop(){ :; }; IFS=: noop; rm -rf $S`); verdict != nil {
+		t.Fatalf("default IFS after prefix restoration = %+v, want allow", verdict)
+	}
+}
+
+// Mutation caught: comparing merged-away IFS against later arms misses custom-versus-absent state in first-arm order.
+func TestNF19MergeDetectsIFSPresenceSymmetrically(t *testing.T) {
+	for _, command := range []string{
+		`if [ -e /runtime-choice ]; then IFS=:; else :; fi; S="safe:/etc"; rm -rf $S`,
+		`if [ -e /runtime-choice ]; then :; else IFS=:; fi; S="safe:/etc"; rm -rf $S`,
+	} {
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+}
+
+// Mutation caught: merge either overlooks differing known IFS values or discards an identical known value.
+func TestNF19MergeComparesKnownIFSValues(t *testing.T) {
+	different := `if [ -e /runtime-choice ]; then IFS=:; else IFS=/; fi; S="safe:/etc"; rm -rf $S`
+	verdict := evalBash(t, different)
+	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", different, verdict)
+	}
+
+	identical := `if [ -e /runtime-choice ]; then IFS=:; else IFS=:; fi; S=/repo/safe; rm -rf $S`
+	got, err := Normalize(identical, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"rm", "-rf", "/repo/safe"}
+	if last := got[len(got)-1]; !reflect.DeepEqual(last.Argv, want) || last.Unresolved {
+		t.Fatalf("Normalize(%q) last = %+v, want concrete %q", identical, last, want)
+	}
+	if verdict := evalBash(t, identical); verdict != nil {
+		t.Fatalf("checkBash(%q) = %+v, want allow", identical, verdict)
+	}
+}
+
+// Mutation caught: commonVariables drops differing or branch-absent Git values without marking repository state unknown.
+func TestNF19MergeDetectsGitEnvironmentDifferences(t *testing.T) {
+	for _, command := range []string{
+		`if [ -e /runtime-choice ]; then GIT_DIR=/repo/safe; else GIT_DIR=/etc; fi; git status`,
+		`if [ -e /runtime-choice ]; then GIT_DIR=/repo/safe; else :; fi; git status`,
+		`if [ -e /runtime-choice ]; then :; else GIT_DIR=/repo/safe; fi; git status`,
+	} {
+		got, err := Normalize(command, "/repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		last := got[len(got)-1]
+		if !last.gitEnvironmentUnknown || !last.Unresolved {
+			t.Errorf("Normalize(%q) last = %+v, want unknown merged Git environment", command, last)
+		}
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+}
+
+// Mutation caught: marking every branch merge unknown discards an identical exact Git repository environment.
+func TestNF19MergeRetainsIdenticalGitEnvironment(t *testing.T) {
+	command := `if [ -e /runtime-choice ]; then GIT_DIR=/repo/safe; else GIT_DIR=/repo/safe; fi; git status`
+	got, err := Normalize(command, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got[len(got)-1]
+	if last.gitEnvironment["GIT_DIR"] != "/repo/safe" || last.gitEnvironmentUnknown || last.Unresolved {
+		t.Fatalf("Normalize(%q) last = %+v, want identical concrete Git environment", command, last)
+	}
+	if verdict := evalBash(t, command); verdict != nil {
+		t.Fatalf("checkBash(%q) = %+v, want allow", command, verdict)
+	}
+}
+
+// Mutation caught: merge uncertainty must not replace a stronger independent literal destructive candidate.
+func TestNF19StateMergeUncertaintyPreservesLiteralDeny(t *testing.T) {
+	command := `if [ -e /runtime-choice ]; then GIT_DIR=/repo/safe; else GIT_DIR=/etc; fi; git status; rm -rf /etc`
+	verdict := evalBash(t, command)
+	if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
+		t.Fatalf("checkBash(%q) = %+v, want deny/P1.rm-rf", command, verdict)
+	}
+}
+
+// Mutation caught: omitting PWD/HOME seeds leaves stable shell-owned paths unresolved in policy-bearing positions.
+func TestNF19ResolvesSeededPWDAndHOME(t *testing.T) {
+	repo := t.TempDir()
+	home := filepath.Join(repo, "home")
+	t.Setenv("HOME", home)
+	command := `git add "$PWD/quoted" $PWD/plain "$HOME/quoted" $HOME/plain`
+	got, err := Normalize(command, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"git", "add", filepath.Join(repo, "quoted"), filepath.Join(repo, "plain"), filepath.Join(home, "quoted"), filepath.Join(home, "plain")}
+	if len(got) != 1 || !reflect.DeepEqual(got[0].Argv, want) || got[0].Unresolved {
+		t.Fatalf("Normalize(%q) = %+v, want seeded paths %q", command, got, want)
+	}
+	if verdict := checkBash(ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, bashPol()); verdict != nil {
+		t.Fatalf("seeded repository paths = %+v, want allow", verdict)
+	}
+}
+
+// Mutation caught: restoring the old standalone-parameter rejection leaves exact PWD/HOME words unresolved and hides direct /etc targets.
+func TestNF19ResolvesExactStandalonePWDHOMEAndAssignedPaths(t *testing.T) {
+	repo := t.TempDir()
+	home := filepath.Join(repo, "home")
+	t.Setenv("HOME", home)
+	got, err := Normalize(`git add $PWD $HOME`, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"git", "add", repo, home}
+	if len(got) != 1 || !reflect.DeepEqual(got[0].Argv, want) || got[0].Unresolved || !got[0].resolvedArgs[2] || !got[0].resolvedArgs[3] {
+		t.Fatalf("standalone PWD/HOME = %+v, want concrete command %q", got, want)
+	}
+
+	for _, command := range []string{
+		`TARGET=/etc; rm -rf $TARGET`,
+		`PWD=/etc; rm -rf $PWD`,
+		`HOME=/etc; rm -rf $HOME`,
+	} {
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
+			t.Errorf("checkBash(%q) = %+v, want deny/P1.rm-rf", command, verdict)
+		}
+	}
+}
+
+// Mutation caught: failing to update, override, or invalidate shell-owned variables can make destructive concrete paths evade policy.
+func TestNF19PWDAndHOMEStateChangesRemainFailClosed(t *testing.T) {
+	repo := t.TempDir()
+	subdir := filepath.Join(repo, "sub")
+	if err := os.Mkdir(subdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", repo)
+
+	got, err := Normalize(`cd sub; git add "$PWD/x"`, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"git", "add", filepath.Join(subdir, "x")}
+	if last := got[len(got)-1]; !reflect.DeepEqual(last.Argv, want) || last.Unresolved {
+		t.Fatalf("successful cd last = %+v, want updated PWD command %q", last, want)
+	}
+
+	got, err = Normalize(`cd missing; git add "$PWD/x"`, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = []string{"git", "add", filepath.Join(repo, "x")}
+	if last := got[len(got)-1]; !reflect.DeepEqual(last.Argv, want) || last.Unresolved {
+		t.Fatalf("failed cd last = %+v, want prior PWD command %q", last, want)
+	}
+
+	for _, command := range []string{
+		`PWD=/etc; rm -rf "$PWD/x"`,
+		`HOME=/etc; rm -rf $HOME/x`,
+	} {
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
+			t.Errorf("checkBash(%q) = %+v, want deny/P1.rm-rf", command, verdict)
+		}
+	}
+
+	for _, command := range []string{
+		`cd "$TARGET"; rm -rf "$PWD/x"`,
+		`read HOME < /repo/input; rm -rf "$HOME/x"`,
+	} {
+		verdict := evalBash(t, command)
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Errorf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
+		}
+	}
+
+	verdict := checkBash(ToolCall{Tool: "Bash", Command: `rm -rf $PWD/x`, CWD: "/etc", RepoRoot: "/repo"}, bashPol())
+	if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
+		t.Fatalf("cwd-seeded /etc PWD = %+v, want deny/P1.rm-rf", verdict)
+	}
+	t.Setenv("HOME", "/etc")
+	verdict = evalBash(t, `rm -rf "$HOME/x"`)
+	if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
+		t.Fatalf("environment-seeded /etc HOME = %+v, want deny/P1.rm-rf", verdict)
+	}
+}
+
 func TestNormalizePreservesPerWordProvenance(t *testing.T) {
 	got, err := Normalize(`SDK=/repo/sdk; OUT=/repo/out; grep "$PATTERN" '$LITERAL' "$SDK/api" > "$OUT"`, "/repo")
 	if err != nil {
@@ -576,7 +1613,6 @@ func TestNormalizeOnlyResolvesEligiblePriorAssignments(t *testing.T) {
 		`TARGET=$(pwd); cat "$TARGET"`,
 		`TARGET=$((1 + 1)); cat "$TARGET"`,
 		`cat "$INHERITED"`,
-		`TARGET=/repo/a; cat $TARGET`,
 	} {
 		got, err := Normalize(command, "/repo")
 		if err != nil {
@@ -594,7 +1630,7 @@ func TestNormalizeInvalidatesVariablesMutatedByShellState(t *testing.T) {
 		`TARGET=/repo/safe; read TARGET < /repo/input; rm -rf "$TARGET/guardrail-test"`,
 		`TARGET=/repo/safe; source /repo/script; rm -rf "$TARGET/guardrail-test"`,
 		`TARGET=/repo/safe; declare TARGET=/etc; rm -rf "$TARGET/guardrail-test"`,
-		`TARGET=/repo/safe; for TARGET in /etc; do :; done; rm -rf "$TARGET/guardrail-test"`,
+		`TARGET=/repo/safe; for TARGET in "$ITEM"; do :; done; rm -rf "$TARGET/guardrail-test"`,
 	} {
 		got, err := Normalize(command, "/repo")
 		if err != nil {
@@ -971,7 +2007,7 @@ func TestNormalizeStripsWrappers(t *testing.T) {
 }
 
 func TestNormalizePreservesUnresolved(t *testing.T) {
-	got, err := Normalize(`env FOO=1 rm -rf $HOME`, "")
+	got, err := Normalize(`env FOO=1 rm -rf $TARGET`, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1125,29 +2161,29 @@ func TestNormalizeWatchTreatsCommandAsShellSource(t *testing.T) {
 	}{
 		{
 			`watch 'rm -rf /'`,
-			[]Simple{{Argv: []string{"rm", "-rf", "/"}}},
+			[]Simple{{Argv: []string{"rm", "-rf", "/"}, gitEnvironmentUnknown: true}},
 		},
 		{
 			`watch 'printf ok; rm -rf /'`,
-			[]Simple{{Argv: []string{"printf", "ok"}}, {Argv: []string{"rm", "-rf", "/"}}},
+			[]Simple{{Argv: []string{"printf", "ok"}, gitEnvironmentUnknown: true}, {Argv: []string{"rm", "-rf", "/"}, gitEnvironmentUnknown: true}},
 		},
 		{
 			`watch 'printf ok > /etc/passwd'`,
-			[]Simple{{Argv: []string{"printf", "ok"}, Redirects: []string{"/etc/passwd"}}},
+			[]Simple{{Argv: []string{"printf", "ok"}, Redirects: []string{"/etc/passwd"}, gitEnvironmentUnknown: true}},
 		},
 		{
 			`watch 'printf ok; cat < inner-input' < outer-input > outer-output`,
 			[]Simple{
 				{Redirects: []string{"outer-output"}, ReadRedirects: []string{"outer-input"}},
-				{Argv: []string{"printf", "ok"}},
-				{Argv: []string{"cat"}, ReadRedirects: []string{"inner-input"}},
+				{Argv: []string{"printf", "ok"}, gitEnvironmentUnknown: true},
+				{Argv: []string{"cat"}, ReadRedirects: []string{"inner-input"}, gitEnvironmentUnknown: true},
 			},
 		},
 		{
 			`watch 'printf ok' > "$TARGET"`,
 			[]Simple{
 				{Redirects: []string{`"$TARGET"`}, Unresolved: true},
-				{Argv: []string{"printf", "ok"}, Unresolved: true},
+				{Argv: []string{"printf", "ok"}, Unresolved: true, gitEnvironmentUnknown: true},
 			},
 		},
 	}
@@ -2250,14 +3286,22 @@ func TestNormalizeNegatedAndRedirectedCdKeepsFailureReachable(t *testing.T) {
 	}
 }
 
-func TestNormalizeRepeatableLoopsDoNotPublishOnePassCwd(t *testing.T) {
+// Mutation caught: publishing exact cwd from finite-loop enumeration makes later relative state look authoritative.
+func TestNormalizeLoopCwdPublication(t *testing.T) {
 	repo := t.TempDir()
 	start := filepath.Join(repo, "one", "two")
 	if err := os.MkdirAll(start, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	got, err := Normalize(`for item in a b; do cd ..; done; pwd`, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := got[len(got)-1]; !last.Unresolved || last.Cwd != "" {
+		t.Fatalf("static finite loop last = %+v, want unknown post-loop cwd", last)
+	}
+
 	commands := []string{
-		`for item in a b; do cd ..; done; pwd`,
 		`while true; do cd ..; break; done; pwd`,
 		`until false; do cd ..; continue; done; pwd`,
 	}
@@ -2271,7 +3315,7 @@ func TestNormalizeRepeatableLoopsDoNotPublishOnePassCwd(t *testing.T) {
 		}
 	}
 
-	got, err := Normalize(`while condition; do rm -rf /; break; done; pwd`, start)
+	got, err = Normalize(`while condition; do rm -rf /; break; done; pwd`, start)
 	if err != nil {
 		t.Fatal(err)
 	}

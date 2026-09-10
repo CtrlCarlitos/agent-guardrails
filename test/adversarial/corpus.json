@@ -536,12 +536,12 @@
     "want": "deny"
   },
   {
-    "name": "unresolved bare rm target",
+    "name": "seeded home rm target",
     "tool": "Bash",
     "command": "rm -rf $HOME",
     "cwd": "/repo",
     "repo_root": "/repo",
-    "want": "ask"
+    "want": "deny"
   },
   {
     "name": "write dot-segment kube config",

@@ -129,6 +129,7 @@ func TestAdversarialCorpus(t *testing.T) {
 		e := e
 		t.Run(e.Name, func(t *testing.T) {
 			cwd, physicalRoot := materializeRepo(t, e)
+			processHome := filepath.Join(filepath.VolumeName(physicalRoot)+string(filepath.Separator), "guardrail-adversarial-home")
 			callEntry, err := rewriteLogicalRepoPaths(e, physicalRoot)
 			if err != nil {
 				t.Fatal(err)
@@ -190,7 +191,13 @@ func TestAdversarialCorpus(t *testing.T) {
 			}
 			cmd := exec.Command(bin, "hook", "claude")
 			cmd.Stdin = bytes.NewReader(payload)
-			cmd.Env = append(os.Environ(),
+			for _, variable := range os.Environ() {
+				if !strings.HasPrefix(variable, "HOME=") {
+					cmd.Env = append(cmd.Env, variable)
+				}
+			}
+			cmd.Env = append(cmd.Env,
+				"HOME="+processHome,
 				"XDG_STATE_HOME="+stateHome,
 				"XDG_CONFIG_HOME="+configHome,
 				"GUARDRAIL_CONFIG="+config,
