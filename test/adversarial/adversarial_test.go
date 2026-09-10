@@ -105,8 +105,9 @@ func trackCommandSources(t *testing.T) {
 	}
 }
 
-// The corpus harness requires CWD inside RepoRoot. The cwd ~/.ssh bare-filename
-// cases therefore remain covered by focused Engine tests.
+// Corpus calls run through the Claude Adapter, which derives RepoRoot from CWD;
+// materializeRepo therefore confines CWD beneath the temporary Git fixture.
+// Known and unknown commands using bare id_rsa from CWD ~/.ssh remain Engine tests.
 func TestAdversarialCorpus(t *testing.T) {
 	bin := buildAdversarialBinary(t)
 	raw, err := os.ReadFile("corpus.json")
