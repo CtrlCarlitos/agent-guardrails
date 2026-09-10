@@ -332,6 +332,34 @@ func TestHookNightModeFallsBackToAskWhenAuditFails(t *testing.T) {
 	}
 }
 
+func TestHookNightModeFallsBackToAskForNonRegularAuditDestination(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	configDir := filepath.Join(configHome, "guardrail")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "waivers.toml"), []byte("[\"/tmp\"]\naudit_log = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	overlayPath := filepath.Join(t.TempDir(), "guardrail.toml")
+	if err := os.WriteFile(overlayPath, []byte(fmt.Sprintf("audit_log = %q\n", os.DevNull)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GUARDRAIL_CONFIG", overlayPath)
+	enableNightForHook(t)
+
+	payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push origin main"}}`
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"permissionDecision":"ask"`) || !strings.Contains(stderr.String(), "audit write failed") {
+		t.Fatalf("non-regular audit = stdout %q, stderr %q; want normal Ask plus warning", stdout.String(), stderr.String())
+	}
+}
+
 func TestHookNightModeDoesNotCreateOpenCodeApprovalMemory(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -375,6 +403,27 @@ func TestHookNightBannerAppearsOncePerNonClaudeSession(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestHookNightBannerAppearsWhenSessionTransactionFails(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	enableNightForHook(t)
+	realTransaction := sessionTransaction
+	sessionTransaction = func(string, func(*session.State) error) error {
+		return errors.New("injected pre-commit failure")
+	}
+	t.Cleanup(func() { sessionTransaction = realTransaction })
+
+	payload := `{"session_id":"night-banner-failed-transaction","event":"pre","tool":"bash","command":"git push origin main","cwd":"/tmp"}`
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"hook", "opencode"}, strings.NewReader(payload), &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d, stderr %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "NIGHT MODE until ") || !strings.Contains(stderr.String(), "session transaction failed") {
+		t.Fatalf("transaction failure = stdout %q, stderr %q; want banner and warning", stdout.String(), stderr.String())
 	}
 }
 

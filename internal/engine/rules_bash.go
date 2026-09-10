@@ -179,18 +179,19 @@ func mentionsExecutable(value, executable string) bool {
 
 func mentionsCommand(values []string, executable, subcommand string) bool {
 	foundExecutable := false
+	foundSubcommand := false
 	for _, value := range values {
 		for _, candidate := range visiblePathCandidates(value) {
-			if !foundExecutable {
-				foundExecutable = head([]string{candidate}) == executable
-				continue
-			}
-			if strings.EqualFold(candidate, subcommand) {
-				return true
+			tokens := append([]string{candidate}, strings.FieldsFunc(candidate, func(r rune) bool {
+				return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !strings.ContainsRune(`._-/\`, r)
+			})...)
+			for _, token := range tokens {
+				foundExecutable = foundExecutable || head([]string{token}) == executable
+				foundSubcommand = foundSubcommand || strings.EqualFold(token, subcommand)
 			}
 		}
 	}
-	return false
+	return foundExecutable && foundSubcommand
 }
 
 func literalWriteFindExemptions(command string, simples []Simple, finds map[int]*findEvaluation, tc ToolCall) []bool {

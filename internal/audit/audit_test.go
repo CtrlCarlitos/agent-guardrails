@@ -70,6 +70,35 @@ func TestWriteIncludesOriginRuleIDOnlyWhenPresent(t *testing.T) {
 	}
 }
 
+func TestWriteRejectsNonRegularDestination(t *testing.T) {
+	err := Write(Record{Plane: "claude", Tool: "Bash", Decision: "allow"}, os.DevNull)
+	if err == nil {
+		t.Fatal("Write to null device succeeded, want non-regular destination error")
+	}
+}
+
+func TestWriteRejectsSymlinkDestination(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.jsonl")
+	if err := os.WriteFile(target, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "audit.jsonl")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("create audit symlink: %v", err)
+	}
+	if err := Write(Record{Plane: "claude", Tool: "Bash", Decision: "allow"}, link); err == nil {
+		t.Fatal("Write through symlink succeeded, want destination error")
+	}
+	raw, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) != 0 {
+		t.Fatalf("symlink target was modified: %q", raw)
+	}
+}
+
 func TestRecordDecodesLegacyJSONWithoutOriginRuleID(t *testing.T) {
 	var record Record
 	if err := json.Unmarshal([]byte(`{"plane":"opencode","tool":"Bash","decision":"ask","rule_id":"P2.git-checkout-restore"}`), &record); err != nil {

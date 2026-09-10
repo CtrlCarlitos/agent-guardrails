@@ -3,6 +3,8 @@ package audit
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -55,7 +57,7 @@ func redact(s string) string {
 	return s
 }
 
-func Write(rec Record, path string) error {
+func Write(rec Record, path string) (err error) {
 	if rec.TS == "" {
 		rec.TS = time.Now().UTC().Format(time.RFC3339)
 	}
@@ -63,15 +65,46 @@ func Write(rec Record, path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := openRegularAppend(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); err == nil {
+			err = closeErr
+		}
+	}()
 	line, err := json.Marshal(rec)
 	if err != nil {
 		return err
 	}
 	_, err = f.Write(append(line, '\n'))
 	return err
+}
+
+func openRegularAppend(path string) (*os.File, error) {
+	before, err := os.Lstat(path)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	if err == nil && !before.Mode().IsRegular() {
+		return nil, errors.New("audit destination is not a regular file")
+	}
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	opened, statErr := f.Stat()
+	current, lstatErr := os.Lstat(path)
+	changed := statErr != nil || lstatErr != nil || !opened.Mode().IsRegular() ||
+		!current.Mode().IsRegular() || !os.SameFile(opened, current) ||
+		before != nil && !os.SameFile(before, opened)
+	if changed {
+		if closeErr := f.Close(); closeErr != nil {
+			return nil, fmt.Errorf("audit destination changed or is not a regular file; closing: %w", closeErr)
+		}
+		return nil, errors.New("audit destination changed or is not a regular file")
+	}
+	return f, nil
 }

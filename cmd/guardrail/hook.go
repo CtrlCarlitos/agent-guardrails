@@ -145,6 +145,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			stateApplied = true
 			highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: session transaction committed but lock release failed (%v)", err))
 		} else {
+			announceNight = needsNightAnnouncement
 			highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: session transaction failed (%v)", err))
 		}
 	}

@@ -124,11 +124,13 @@ func cmdNightOn(path string, args []string, stdout, stderr io.Writer) int {
 }
 
 func repeatedNightFlag(args []string, name string) bool {
-	prefix := "--" + name
 	count := 0
 	for _, arg := range args {
-		if arg == prefix || len(arg) > len(prefix) && arg[:len(prefix)+1] == prefix+"=" {
-			count++
+		for _, prefix := range []string{"--" + name, "-" + name} {
+			if arg == prefix || len(arg) > len(prefix) && arg[:len(prefix)+1] == prefix+"=" {
+				count++
+				break
+			}
 		}
 	}
 	return count > 1

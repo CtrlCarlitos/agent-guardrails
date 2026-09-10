@@ -98,6 +98,8 @@ func TestNightOnRejectsInvalidExpiryWithoutChangingMarker(t *testing.T) {
 		{"on", "--for", "1h", "--until", "23:00"},
 		{"on", "--for", "1h", "--for", "2h"},
 		{"on", "--until", "22:00", "--until", "23:00"},
+		{"on", "-for", "1h", "-for", "2h"},
+		{"on", "--until", "22:00", "-until", "23:00"},
 		{"on", "extra"},
 	}
 	for _, args := range tests {
