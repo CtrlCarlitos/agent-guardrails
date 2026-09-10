@@ -30,7 +30,7 @@ var pathOperandCommands = map[string]bool{
 	"tee": true, "base32": true, "base64": true, "md5sum": true, "sha1sum": true,
 	"sha256sum": true, "cp": true, "mv": true, "install": true, "rsync": true,
 	"scp": true, "tar": true, "zip": true, "gzip": true, "openssl": true, "gpg": true,
-	"dd": true, "jq": true, "yq": true,
+	"dd": true, "jq": true, "yq": true, "unlink": true, "rmdir": true,
 }
 
 func parseOperandRoles(argv []string) operandParseResult {

@@ -20,12 +20,50 @@ func head(argv []string) string {
 	return strings.TrimSuffix(name, ".exe")
 }
 
+type bashAnalysis struct {
+	simples        []Simple
+	orderedSimples []Simple
+	finds          map[int]*findEvaluation
+	err            error
+}
+
+type findEvaluation struct {
+	parsed    findActionParseResult
+	callbacks []Simple
+}
+
+func analyzeBash(tc ToolCall) *bashAnalysis {
+	simples, err := Normalize(tc.Command, tc.CWD)
+	analysis := &bashAnalysis{simples: simples, err: err}
+	if err != nil {
+		return analysis
+	}
+	for index, simple := range simples {
+		analysis.orderedSimples = append(analysis.orderedSimples, simple)
+		if head(simple.Argv) != "find" {
+			continue
+		}
+		parsed := parseFindActions(simple.Argv)
+		parsed.applySourceProvenance(simple)
+		callbacks := adaptFindCallbacks(&parsed, simple, tc)
+		if analysis.finds == nil {
+			analysis.finds = make(map[int]*findEvaluation)
+		}
+		analysis.finds[index] = &findEvaluation{parsed: parsed, callbacks: callbacks}
+		analysis.orderedSimples = append(analysis.orderedSimples, callbacks...)
+	}
+	return analysis
+}
+
 func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	if !tc.IsBash() {
 		return nil
 	}
-	simples, err := Normalize(tc.Command, tc.CWD)
-	if err != nil {
+	return checkBashAnalysis(tc, pol, analyzeBash(tc))
+}
+
+func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) *policy.Verdict {
+	if analysis.err != nil {
 		return &policy.Verdict{Decision: policy.Ask, RuleID: "tokenize-failed",
 			Reason: "could not parse shell command; failing closed to ask"}
 	}
@@ -42,9 +80,42 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 			worst = v
 		}
 	}
-	take(checkDownloadPipeShell(simples))
-	findFSExemptions := literalWriteFindExemptions(tc.Command, simples, tc)
-	for index, s := range simples {
+	take(checkDownloadPipeShell(analysis.orderedSimples))
+	findFSExemptions := literalWriteFindExemptions(tc.Command, analysis.simples, analysis.finds, tc)
+	evaluateSimple := func(s Simple, findFSExemption bool) *policy.Verdict {
+		var simpleWorst *policy.Verdict
+		takeSimple := func(v *policy.Verdict) {
+			if v == nil || pol.Waived[v.RuleID] && v.RuleID != "P3.unresolved" {
+				return
+			}
+			if simpleWorst == nil || v.Decision.Severity() > simpleWorst.Decision.Severity() {
+				simpleWorst = v
+			}
+		}
+		if unresolvedPolicyPosition(s) {
+			takeSimple(&policy.Verdict{Decision: policy.Ask, RuleID: "P3.unresolved",
+				Reason: "command contains an unresolved value in a policy-bearing position"})
+		}
+		if len(s.Argv) == 0 {
+			takeSimple(checkAskTier(s, tc, pol)) // redirect targets only
+			take(simpleWorst)
+			return simpleWorst
+		}
+		takeSimple(checkRmRf(s, tc, pol))
+		takeSimple(checkDiskDestroyers(s))
+		takeSimple(checkDestinationWrites(s, tc, pol))
+		takeSimple(checkGit(s))
+		takeSimple(checkGitSafety(s, tc))
+		takeSimple(checkDocker(s, tc.Command))
+		if head(s.Argv) != "find" {
+			takeSimple(checkAskTierWithFindFSExemption(s, tc, pol, findFSExemption))
+		}
+		takeSimple(checkEgress(s, pol))
+		takeSimple(checkPackageInstall(s))
+		take(simpleWorst)
+		return simpleWorst
+	}
+	for index, s := range analysis.simples {
 		if !s.cwdUnknown {
 			s.gitInitExpected = initializedGitDir != "" && initializedGitDir == filepath.Clean(s.Cwd)
 		}
@@ -52,28 +123,29 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		if directory, ok := gitInitCurrentDirectory(s); ok {
 			initializedGitDir = directory
 		}
-		if unresolvedPolicyPosition(s) {
-			take(&policy.Verdict{Decision: policy.Ask, RuleID: "P3.unresolved",
-				Reason: "command contains an unresolved value in a policy-bearing position"})
-		}
-		if len(s.Argv) == 0 {
-			take(checkAskTier(s, tc, pol)) // redirect targets only
+		evaluateSimple(s, findFSExemptions[index])
+		find := analysis.finds[index]
+		if find == nil {
 			continue
 		}
-		take(checkRmRf(s, tc, pol))
-		take(checkDiskDestroyers(s))
-		take(checkDestinationWrites(s, tc, pol))
-		take(checkGit(s))
-		take(checkGitSafety(s, tc))
-		take(checkDocker(s, tc.Command))
-		take(checkAskTierWithFindFSExemption(s, tc, pol, findFSExemptions[index]))
-		take(checkEgress(s, pol))
-		take(checkPackageInstall(s))
+		for callbackIndex, callback := range find.callbacks {
+			callback.gitInitExpected = s.gitInitExpected
+			find.callbacks[callbackIndex] = callback
+			// NF-9 owns normalized rm callback semantics; the adapted Simple still supplies shared path and pipeline evidence.
+			if callback.Argv[0] == "rm" {
+				continue
+			}
+			callbackVerdict := evaluateSimple(callback, false)
+			if callbackVerdict == nil && (callback.Argv[0] != head(callback.Argv) || callback.resolvedArgs[0] || callback.wordUnresolved(0) || !knownInertOperandGrammar(callback.Argv[0])) {
+				take(ask("P1.find-delete", "find callback requires unsupported execution semantics"))
+			}
+		}
+		take(checkFindActions(find.parsed, s, tc, pol, findFSExemptions[index]))
 	}
 	return worst
 }
 
-func literalWriteFindExemptions(command string, simples []Simple, tc ToolCall) []bool {
+func literalWriteFindExemptions(command string, simples []Simple, finds map[int]*findEvaluation, tc ToolCall) []bool {
 	exemptions := make([]bool, len(simples))
 	file, err := syntax.NewParser().Parse(strings.NewReader(command), "")
 	if err != nil {
@@ -92,10 +164,15 @@ func literalWriteFindExemptions(command string, simples []Simple, tc ToolCall) [
 		if !ok || len(findArgv) == 0 || findArgv[0] != "find" || len(stmt.Redirs) != 0 || !sameStrings(findArgv, simples[findIndex].Argv) {
 			continue
 		}
-		root, bulkAction, exact := scopedFindDelete(findArgv)
-		if !bulkAction || !exact || hasRawDotDot(root) {
+		find := finds[findIndex]
+		if find == nil {
 			continue
 		}
+		parsed := find.parsed
+		if !parsed.exactScopedDeletion || hasRawDotDot(parsed.scopedDeletionRoot) {
+			continue
+		}
+		root := parsed.scopedDeletionRoot
 		cwd := simpleCwd(simples[findIndex], tc)
 		if cwd == "" || pathHasExistingSymlink(root, cwd) {
 			continue
@@ -511,7 +588,7 @@ func checkDestinationWrites(s Simple, tc ToolCall, pol *policy.Policy) *policy.V
 	cwd := simpleCwd(s, tc)
 	command := head(s.Argv)
 	switch command {
-	case "mv", "cp", "ln", "tee", "install":
+	case "mv", "cp", "ln", "tee", "install", "unlink":
 	case "rsync":
 		deletes, err := rsyncDeletionMode(s.Argv)
 		if err != nil {
@@ -1274,25 +1351,11 @@ func checkAskTierWithFindFSExemption(s Simple, tc ToolCall, pol *policy.Policy, 
 			return ask("P1.chown", "recursive chown")
 		}
 	case "find":
-		root, bulkAction, exact := scopedFindDelete(s.Argv)
-		if bulkAction {
-			if !exact {
-				return ask("P1.find-delete", "find action is not an exact scoped deletion")
-			}
-			if s.fsUncertain && !findFSExemption {
-				return ask("P1.find-delete", "find deletion scope may have changed before execution")
-			}
-			cwd := simpleCwd(s, tc)
-			candidate := pathCandidate{path: root, cwd: cwd, cwdUnknown: s.cwdUnknown}
-			if findRootOverlapsRepository(candidate, tc.RepoRoot) {
-				return ask("P1.find-delete", "find deletion starts inside the repository: "+root)
-			}
-			if authorized, _ := authorizedPath(candidate, "", nil, systemTempRoots(), false); !authorized {
-				return ask("P1.find-delete", "find deletion starts outside configured safe roots: "+root)
-			}
-		}
+		return checkFindActions(parseFindActions(s.Argv), s, tc, pol, findFSExemption)
 	case "truncate":
 		return ask("P1.truncate", "truncate destroys file contents with no diff")
+	case "rmdir":
+		return ask("P1.rmdir", "rmdir deletes directories without exact safe path semantics")
 	case "kill":
 		if hasAnyFlag(s.Argv, "9") {
 			return ask("P1.kill", "kill -9 can corrupt the target process's state")
@@ -1319,6 +1382,36 @@ func checkAskTierWithFindFSExemption(s Simple, tc ToolCall, pol *policy.Policy, 
 	return nil
 }
 
+func checkFindActions(parsed findActionParseResult, s Simple, tc ToolCall, pol *policy.Policy, findFSExemption bool) *policy.Verdict {
+	if parsed.exactScopedDeletionManaged {
+		if !parsed.exactScopedDeletion {
+			return ask("P1.find-delete", "find action is not an exact scoped deletion")
+		}
+		if s.fsUncertain && !findFSExemption {
+			return ask("P1.find-delete", "find deletion scope may have changed before execution")
+		}
+		root := parsed.scopedDeletionRoot
+		cwd := simpleCwd(s, tc)
+		candidate := pathCandidate{path: root, cwd: cwd, cwdUnknown: s.cwdUnknown}
+		if findRootOverlapsRepository(candidate, tc.RepoRoot) {
+			return ask("P1.find-delete", "find deletion starts inside the repository: "+root)
+		}
+		if authorized, _ := authorizedPath(candidate, "", nil, systemTempRoots(), false); !authorized {
+			return ask("P1.find-delete", "find deletion starts outside configured safe roots: "+root)
+		}
+	}
+	if parsed.uncertaintyReason != "" {
+		return ask("P1.find-delete", parsed.uncertaintyReason)
+	}
+	for _, output := range parsed.outputs {
+		candidate := pathCandidate{path: output.value, cwd: simpleCwd(s, tc), cwdUnknown: s.cwdUnknown}
+		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, nil, true); !authorized {
+			return ask("P1.out-of-repo-write", "writes to a path outside the repo and configured safe roots: "+output.value)
+		}
+	}
+	return nil
+}
+
 func findRootOverlapsRepository(root pathCandidate, repoRoot string) bool {
 	if repoRoot == "" || root.cwdUnknown && !filepath.IsAbs(root.path) {
 		return false
@@ -1334,49 +1427,18 @@ func findRootOverlapsRepository(root pathCandidate, repoRoot string) bool {
 	return false
 }
 
-func scopedFindDelete(argv []string) (root string, bulkAction, exact bool) {
-	for _, arg := range argv[1:] {
-		if strings.Contains(" -delete -exec -execdir -ok -okdir -print -print0 -printf -fprintf -fprint -fprint0 -ls -fls -prune -quit ", " "+arg+" ") {
-			bulkAction = true
-		}
-	}
-	if !bulkAction || len(argv) < 3 || strings.HasPrefix(argv[1], "-") || !strings.HasPrefix(argv[2], "-") && argv[2] != "!" && argv[2] != "(" {
-		return "", bulkAction, false
-	}
-	for i, arg := range argv[2:] {
-		i += 2
-		switch arg {
-		case "-delete":
-			return argv[1], true, i == len(argv)-1 && knownFindTests(argv[2:i])
-		case "-ok", "-okdir", "-follow", "-print", "-print0", "-printf", "-fprintf", "-fprint", "-fprint0", "-ls", "-fls", "-prune", "-quit":
-			return "", true, false
-		case "-exec", "-execdir":
-			if i+3 >= len(argv) || argv[i+1] != "rm" || !knownFindTests(argv[2:i]) {
-				return "", true, false
-			}
-			j := i + 2
-			for j < len(argv) && knownFindRmOption(argv[j]) {
-				j++
-			}
-			return argv[1], true, j+1 == len(argv)-1 && argv[j] == "{}" && (argv[j+1] == "+" || argv[j+1] == ";" || argv[j+1] == `\;`)
-		}
-	}
-	return "", true, false
-}
-
 func knownFindRmOption(arg string) bool {
 	return len(arg) > 1 && (arg[1] != '-' && strings.Trim(arg[1:], "dfirvIR") == "" || arg == "--directory" || arg == "--force" || arg == "--interactive" || arg == "--one-file-system" || arg == "--no-preserve-root" || arg == "--preserve-root" || arg == "--preserve-root=all" || arg == "--recursive" || arg == "--verbose" || arg == "--interactive=always" || arg == "--interactive=never" || arg == "--interactive=once")
 }
 
 func knownFindTests(argv []string) bool {
-	noValue := " -true -false -empty -readable -writable -executable -nouser -nogroup -xdev -mount -depth -daystart -ignore_readdir_race -noignore_readdir_race "
-	oneValue := " -amin -anewer -atime -cmin -cnewer -context -ctime -fstype -gid -group -ilname -iname -inum -ipath -iregex -links -lname -maxdepth -mindepth -mmin -mtime -name -newer -path -perm -regex -regextype -samefile -size -type -uid -used -user -wholename -xattrname -xtype "
 	for len(argv) > 0 {
-		if strings.Contains(noValue, " "+argv[0]+" ") {
+		predicate, known := describeFindPredicate(argv[0])
+		if known && predicate.arity == 0 && argv[0] != "-follow" {
 			argv = argv[1:]
 			continue
 		}
-		if !strings.Contains(oneValue, " "+argv[0]+" ") && !(len(argv[0]) == 8 && strings.HasPrefix(argv[0], "-newer") && strings.ContainsRune("aBcm", rune(argv[0][6])) && strings.ContainsRune("aBcmt", rune(argv[0][7]))) || len(argv) < 2 || strings.Contains(noValue+oneValue+" -delete -exec -execdir -ok -okdir ", " "+argv[1]+" ") || (argv[0] == "-type" || argv[0] == "-xtype") && (strings.Trim(argv[1], "bcdflpsD,") != "" || len(argv[1]) != 2*strings.Count(argv[1], ",")+1) || (argv[0] == "-maxdepth" || argv[0] == "-mindepth") && !allDigits(argv[1]) {
+		if !known || predicate.arity != 1 || len(argv) < 2 || (argv[0] == "-type" || argv[0] == "-xtype") && (strings.Trim(argv[1], "bcdflpsD,") != "" || len(argv[1]) != 2*strings.Count(argv[1], ",")+1) || (argv[0] == "-maxdepth" || argv[0] == "-mindepth") && !allDigits(argv[1]) {
 			return false
 		}
 		argv = argv[2:]

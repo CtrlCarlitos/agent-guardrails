@@ -1308,6 +1308,39 @@
     "want": "ask"
   },
   {
+    "name": "find observed read only print",
+    "tool": "Bash",
+    "command": "find . -name '*.go' -print",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "find file output outside repository",
+    "tool": "Bash",
+    "command": "find . -fprint /etc/guardrail-nf18",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask"
+  },
+  {
+    "name": "find callback beneath secret directory",
+    "tool": "Bash",
+    "command": "find /repo/.ssh/keys -exec cat {} +",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "fixture_files": [".ssh/keys/id_rsa"],
+    "want": "deny"
+  },
+  {
+    "name": "find exact temporary callback deletion",
+    "tool": "Bash",
+    "command": "find /tmp/guardrail-nf18-target -exec rm -rf {} +",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
     "name": "git update ref delete",
     "tool": "Bash",
     "command": "git update-ref -d refs/heads/main",

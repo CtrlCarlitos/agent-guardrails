@@ -34,6 +34,14 @@ func isWriteToolCall(tool string) bool {
 }
 
 func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
+	var bash *bashAnalysis
+	if tc.IsBash() {
+		bash = analyzeBash(tc)
+	}
+	return checkPathsAnalysis(tc, pol, bash)
+}
+
+func checkPathsAnalysis(tc ToolCall, pol *policy.Policy, bash *bashAnalysis) *policy.Verdict {
 	var worst *policy.Verdict
 	take := func(v *policy.Verdict) {
 		if v == nil {
@@ -48,7 +56,8 @@ func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 			take(v)
 		}
 	}
-	parsed := parsePrivatePaths(tc)
+	parsed := parsePrivatePathsAnalysis(tc, bash)
+	writes := writeCandidatesAnalysis(tc, bash)
 	for _, candidate := range parsed.candidates {
 		take(classifySecretPath(candidate, pol, true))
 		takeWaivable(checkSymlinkEscape(candidate, tc))
@@ -56,9 +65,9 @@ func checkPaths(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	if parsed.uncertaintyReason != "" {
 		takeWaivable(&policy.Verdict{Decision: policy.Ask, RuleID: "P4.path-parse-uncertain", Reason: parsed.uncertaintyReason})
 	}
-	takeWaivable(checkGitProtectedPaths(tc))
-	takeWaivable(checkSelfConfig(tc))
-	takeWaivable(checkCIInfraLockfile(tc))
+	takeWaivable(checkGitProtectedPathCandidates(writes))
+	takeWaivable(checkSelfConfigCandidatesAnalysis(tc, writes, bash))
+	takeWaivable(checkCIInfraLockfileCandidates(tc, writes))
 	takeWaivable(checkOutOfRepoWrite(tc))
 	return worst
 }
@@ -80,6 +89,14 @@ type privatePathParseResult struct {
 }
 
 func parsePrivatePaths(tc ToolCall) privatePathParseResult {
+	var bash *bashAnalysis
+	if tc.IsBash() {
+		bash = analyzeBash(tc)
+	}
+	return parsePrivatePathsAnalysis(tc, bash)
+}
+
+func parsePrivatePathsAnalysis(tc ToolCall, bash *bashAnalysis) privatePathParseResult {
 	var candidates []pathCandidate
 	uncertaintyReason := ""
 	if isFileTool(tc.Tool) {
@@ -87,40 +104,50 @@ func parsePrivatePaths(tc ToolCall) privatePathParseResult {
 			candidates = append(candidates, pathCandidate{path: path, cwd: tc.CWD, repoRoot: tc.RepoRoot})
 		}
 	}
-	if tc.IsBash() {
-		simples, err := Normalize(tc.Command, tc.CWD)
-		if err == nil {
-			for _, s := range simples {
-				parsed := parseOperandRoles(s.Argv)
-				if uncertaintyReason == "" && parsed.uncertaintyReason != "" {
-					uncertaintyReason = parsed.uncertaintyReason
+	if bash != nil && bash.err == nil {
+		appendSimple := func(s Simple) {
+			parsed := parseOperandRoles(s.Argv)
+			if uncertaintyReason == "" && parsed.uncertaintyReason != "" {
+				uncertaintyReason = parsed.uncertaintyReason
+			}
+			for _, operand := range parsed.operands {
+				if operand.role == operandNonPath || parsed.uncertaintyReason != "" && operand.role == operandUncertain {
+					continue
 				}
+				candidates = append(candidates, pathCandidate{path: operand.value, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
+			}
+			if isOpaqueExecutor(head(s.Argv)) {
 				for _, operand := range parsed.operands {
-					if operand.role != operandNonPath {
-						if parsed.uncertaintyReason != "" && operand.role == operandUncertain {
-							continue
-						}
-						path := operand.value
-						candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
+					if operand.role == operandNonPath {
+						continue
 					}
-				}
-				if isOpaqueExecutor(head(s.Argv)) {
-					for _, operand := range parsed.operands {
-						if operand.role == operandNonPath {
-							continue
-						}
-						for _, path := range visiblePathCandidates(operand.value) {
-							if looksLikePathOperand(path) {
-								candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
-							}
+					for _, path := range visiblePathCandidates(operand.value) {
+						if looksLikePathOperand(path) {
+							candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
 						}
 					}
 				}
-				paths := append(append([]string{}, s.Redirects...), s.ReadRedirects...)
-				paths = append(paths, writeTargets(s)...)
-				for _, path := range paths {
-					candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
-				}
+			}
+			paths := append(append([]string{}, s.Redirects...), s.ReadRedirects...)
+			paths = append(paths, writeTargets(s)...)
+			for _, path := range paths {
+				candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
+			}
+		}
+		for index, s := range bash.simples {
+			find := bash.finds[index]
+			if find == nil {
+				appendSimple(s)
+				continue
+			}
+			candidates = append(candidates, findRootCandidates(find.parsed, s, tc)...)
+			candidates = append(candidates, findOutputCandidates(find.parsed, s, tc)...)
+			candidates = append(candidates, findReadPathCandidates(find.parsed, s, tc)...)
+			for _, path := range append(append([]string{}, s.Redirects...), s.ReadRedirects...) {
+				candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
+			}
+			for _, callback := range find.callbacks {
+				appendSimple(callback)
 			}
 		}
 	}
@@ -267,7 +294,7 @@ var mutatingDestinationCommands = map[string]destinationCommandSpec{
 
 var mutatingAllArgs = map[string]bool{
 	"rm": true, "truncate": true, "chmod": true, "chown": true,
-	"mkdir": true, "touch": true, "shred": true,
+	"mkdir": true, "touch": true, "shred": true, "unlink": true, "rmdir": true,
 }
 
 type destinationArgs struct {
@@ -499,17 +526,32 @@ func writeTargets(s Simple) []string {
 }
 
 func writeCandidates(tc ToolCall) []pathCandidate {
+	var bash *bashAnalysis
+	if tc.IsBash() {
+		bash = analyzeBash(tc)
+	}
+	return writeCandidatesAnalysis(tc, bash)
+}
+
+func writeCandidatesAnalysis(tc ToolCall, bash *bashAnalysis) []pathCandidate {
 	var out []pathCandidate
-	if isFileTool(tc.Tool) {
+	if isWriteToolCall(tc.Tool) {
 		for _, path := range tc.Paths {
 			out = append(out, pathCandidate{path: path, cwd: tc.CWD, repoRoot: tc.RepoRoot})
 		}
 	}
-	if tc.IsBash() {
-		if simples, err := Normalize(tc.Command, tc.CWD); err == nil {
-			for _, s := range simples {
-				for _, path := range append(append([]string{}, s.Redirects...), writeTargets(s)...) {
-					out = append(out, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
+	if bash != nil && bash.err == nil {
+		appendSimple := func(s Simple) {
+			for _, path := range append(append([]string{}, s.Redirects...), writeTargets(s)...) {
+				out = append(out, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
+			}
+		}
+		for index, s := range bash.simples {
+			appendSimple(s)
+			if find := bash.finds[index]; find != nil {
+				out = append(out, findOutputCandidates(find.parsed, s, tc)...)
+				for _, callback := range find.callbacks {
+					appendSimple(callback)
 				}
 			}
 		}
@@ -521,7 +563,11 @@ func checkGitProtectedPaths(tc ToolCall) *policy.Verdict {
 	if isFileTool(tc.Tool) && !isWriteToolCall(tc.Tool) {
 		return nil
 	}
-	for _, candidate := range writeCandidates(tc) {
+	return checkGitProtectedPathCandidates(writeCandidates(tc))
+}
+
+func checkGitProtectedPathCandidates(candidates []pathCandidate) *policy.Verdict {
+	for _, candidate := range candidates {
 		if matchesScoped(candidate, gitProtectedGlobs, nil) {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P2.git-protected-path",
 				Reason: "write to a protected git-internal path: " + candidate.path}
@@ -560,23 +606,33 @@ func checkSelfConfig(tc ToolCall) *policy.Verdict {
 	if isFileTool(tc.Tool) && !isWriteToolCall(tc.Tool) {
 		return nil
 	}
-	for _, candidate := range writeCandidates(tc) {
+	return checkSelfConfigCandidates(tc, writeCandidates(tc))
+}
+
+func checkSelfConfigCandidates(tc ToolCall, candidates []pathCandidate) *policy.Verdict {
+	var bash *bashAnalysis
+	if tc.IsBash() {
+		bash = analyzeBash(tc)
+	}
+	return checkSelfConfigCandidatesAnalysis(tc, candidates, bash)
+}
+
+func checkSelfConfigCandidatesAnalysis(tc ToolCall, candidates []pathCandidate, bash *bashAnalysis) *policy.Verdict {
+	for _, candidate := range candidates {
 		if matchesScoped(candidate, selfConfigGlobs, selfConfigRootOnly) {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
 				Reason: "write to the agent's own guardrail/shell config: " + candidate.path}
 		}
 	}
-	if tc.IsBash() {
-		if simples, err := Normalize(tc.Command, tc.CWD); err == nil {
-			for _, s := range simples {
-				if !isOpaqueExecutor(head(s.Argv)) {
-					continue
-				}
-				for _, arg := range s.Argv[1:] {
-					if containsOperatorConfigPath(arg) {
-						return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
-							Reason: "opaque command names the Operator config: " + head(s.Argv)}
-					}
+	if bash != nil && bash.err == nil {
+		for _, s := range bash.orderedSimples {
+			if !isOpaqueExecutor(head(s.Argv)) {
+				continue
+			}
+			for _, arg := range s.Argv[1:] {
+				if containsOperatorConfigPath(arg) {
+					return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
+						Reason: "opaque command names the Operator config: " + head(s.Argv)}
 				}
 			}
 		}
@@ -717,7 +773,11 @@ func checkCIInfraLockfile(tc ToolCall) *policy.Verdict {
 	if isFileTool(tc.Tool) && !isWriteToolCall(tc.Tool) {
 		return nil
 	}
-	for _, candidate := range writeCandidates(tc) {
+	return checkCIInfraLockfileCandidates(tc, writeCandidates(tc))
+}
+
+func checkCIInfraLockfileCandidates(tc ToolCall, candidates []pathCandidate) *policy.Verdict {
+	for _, candidate := range candidates {
 		if matchesScoped(candidate, ciInfraLockGlobs, ciInfraRootOnly) {
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P5.ci-infra-lockfile",
 				Reason: "edit of a CI/infra/lockfile — this code runs later with more privilege: " + candidate.path}
