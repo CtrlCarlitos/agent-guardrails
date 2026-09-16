@@ -30,3 +30,13 @@ Implemented the Claude capability inventory and catch-all pre-hook contract.
 - `/usr/local/go/bin/go test ./internal/planecontract ./internal/adapter ./internal/genconfig -run Claude -v`
 - `/usr/local/go/bin/go test ./...`
 - `git diff --check`
+
+## Review Fix: ShareOnboardingGuide
+
+- Added Claude `ShareOnboardingGuide` as an explicit deny capability.
+- Added an end-to-end Claude hook fixture proving parsing and Engine evaluation
+  block the native call with exit `2`.
+- Added generated pre-hook contract coverage proving the deny entry is present
+  and covered by the generated catch-all matcher.
+- RED: the focused hook test returned exit `0` before the inventory entry;
+  GREEN and `/usr/local/go/bin/go test ./...` pass after the change.

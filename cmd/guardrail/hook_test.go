@@ -589,6 +589,13 @@ func TestHookClaudeSecretDeny(t *testing.T) {
 	}
 }
 
+func TestHookClaudeShareOnboardingGuideDeny(t *testing.T) {
+	code, _, _ := runHook(t, "share-onboarding-guide.json")
+	if code != 2 {
+		t.Fatalf("ShareOnboardingGuide: exit %d, want 2", code)
+	}
+}
+
 func TestHookClaudeGitCommitAllowedForNow(t *testing.T) {
 	// P2 (git-safety) lands in a later plan; until then git commit is not gated.
 	code, _, _ := runHook(t, "bash-git-commit.json")

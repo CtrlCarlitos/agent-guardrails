@@ -49,6 +49,7 @@ var claudeTools = []ToolSpec{
 	{"SendFeedback", "SendFeedback", policy.CapabilityDeny},
 	{"SendMessage", "SendMessage", policy.CapabilityDeny},
 	{"SendUserFile", "SendUserFile", policy.CapabilityDeny},
+	{"ShareOnboardingGuide", "ShareOnboardingGuide", policy.CapabilityDeny},
 	{"Skill", "Skill", policy.CapabilitySafeControl},
 	{"SubagentHandback", "SubagentHandback", policy.CapabilitySafeControl},
 	{"TaskCreate", "TaskCreate", policy.CapabilitySafeControl},

@@ -328,6 +328,17 @@ func TestClaudeHooks(t *testing.T) {
 	}
 }
 
+func TestClaudePreHookCoversShareOnboardingGuide(t *testing.T) {
+	spec, ok := planecontract.ClaudeTool("ShareOnboardingGuide")
+	if !ok || spec.Capability != policy.CapabilityDeny {
+		t.Fatalf("ShareOnboardingGuide = %#v, %v; want deny", spec, ok)
+	}
+	pre := claudeHooks("guardrail")["PreToolUse"].([]any)[0].(map[string]any)
+	if pre["matcher"] != planecontract.ClaudePreHookMatcher() || !planecontract.ClaudePreMatcherMatches(spec.NativeTool) {
+		t.Fatalf("PreToolUse does not cover %s", spec.NativeTool)
+	}
+}
+
 func TestClaudeHooksSessionStart(t *testing.T) {
 	h := claudeHooks("/usr/local/bin/guardrail")
 	ss, ok := h["SessionStart"].([]any)
