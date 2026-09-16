@@ -137,3 +137,15 @@ safe live-versus-stale socket ownership, and separate mutation audit records.
   between replacements; concurrent mutations for one repository serialize.
 - Added live-daemon ownership, concurrent grant, and Overlay-before-Operator
   crash-window recovery coverage.
+
+## Fix Round 3
+
+- The allowance journal root, key, and journal records require current-user
+  ownership, private modes, and regular-file types. Journals are HMAC-authenticated
+  with a private random key, so unsigned or forged content cannot grant hosts.
+- All repository allowance operations now share one Operator-config lock and
+  recover every pending journal before reading or rewriting the shared config.
+- Journal creation, document replacement, journal removal, and their parent
+  directories are fsynced to preserve recovery intent across power loss.
+- Added forged-journal, unsafe-directory, cross-repository concurrency, and
+  power-loss-window recovery coverage.

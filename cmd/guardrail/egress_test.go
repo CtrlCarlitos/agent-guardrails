@@ -212,3 +212,88 @@ func TestAllowanceJournalRecoversAfterOverlayWriteBeforeOperatorWrite(t *testing
 		t.Fatalf("journal remained after recovery: %v", err)
 	}
 }
+
+func TestForgedAllowanceJournalCannotGrantHost(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	journalPath, err := allowanceJournalPath(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(journalPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	forged := allowanceJournal{OverlayPath: filepath.Join(repo, "guardrail.toml"), OverlayAfter: []byte("[slots]\nweb_hosts = [\"forged.example.test\"]\n"), OverlayMode: 0o644, OperatorPath: policy.OperatorConfigPath(), OperatorAfter: []byte("[web_hosts]\nglobal = [\"forged.example.test\"]\n")}
+	if err := writePrivateFile(journalPath, mustJSON(t, forged), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := recoverAllowanceJournal(journalPath); err == nil {
+		t.Fatal("forged journal was accepted")
+	}
+	if _, err := os.Stat(policy.OperatorConfigPath()); !os.IsNotExist(err) {
+		t.Fatalf("forged journal wrote operator config: %v", err)
+	}
+}
+
+func TestUnsafeAllowanceJournalDirectoryIsRejected(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	repo := filepath.Join(t.TempDir(), "repo")
+	journalPath, err := allowanceJournalPath(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(journalPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeWebHostApproval(approval.Request{RepoRoot: repo, Host: "unsafe.example.test", Scope: approval.RepoScope, Action: "web-host-grant"}); err == nil {
+		t.Fatal("grant accepted an unsafe journal directory")
+	}
+}
+
+func TestConcurrentRepositoryGrantsAcrossReposRetainEveryHost(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	repos := []string{filepath.Join(t.TempDir(), "one"), filepath.Join(t.TempDir(), "two")}
+	start := make(chan struct{})
+	errs := make(chan error, len(repos))
+	var wg sync.WaitGroup
+	for i, repo := range repos {
+		host := []string{"one.example.test", "two.example.test"}[i]
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs <- executeWebHostApproval(approval.Request{RepoRoot: repo, Host: host, Scope: approval.RepoScope, Action: "web-host-grant"})
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	op, err := policy.LoadOperatorConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, repo := range repos {
+		if !op.AllowsWebHost(repo, []string{"one.example.test", "two.example.test"}[i]) {
+			t.Fatalf("operator config lost concurrent repository grant for %q", repo)
+		}
+	}
+}
+
+func mustJSON(t *testing.T, value any) []byte {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
