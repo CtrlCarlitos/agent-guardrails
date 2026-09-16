@@ -124,7 +124,11 @@ func TestAntigravityContractFixtures(t *testing.T) {
 			}
 			cmd := exec.Command(bin, "hook", "antigravity", "pre")
 			cmd.Stdin = bytes.NewReader(payload)
-			cmd.Env = append(os.Environ(), "XDG_STATE_HOME="+t.TempDir(), "GUARDRAIL_CONFIG=")
+			cmd.Env = append(os.Environ(),
+				"XDG_STATE_HOME="+t.TempDir(),
+				"XDG_CONFIG_HOME="+t.TempDir(),
+				"GUARDRAIL_CONFIG=",
+			)
 			out, err := cmd.Output()
 			if err != nil {
 				t.Fatalf("%s: hook failed: %v", name, err)
