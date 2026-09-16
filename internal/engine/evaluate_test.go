@@ -38,6 +38,59 @@ func TestEvaluate(t *testing.T) {
 	}
 }
 
+func TestUnknownToolAuditsButAllowsInAuditPosture(t *testing.T) {
+	p := fullPol()
+	p.UnknownToolPosture = policy.UnknownAudit
+	v := Evaluate(ToolCall{NativeTool: "new_tool", Capability: policy.CapabilityUnknown}, p)
+	if v.Decision != policy.Allow || v.AuditKind != "unknown-native-tool" {
+		t.Fatalf("unknown tool audit posture = %+v, want allow/unknown-native-tool", v)
+	}
+}
+
+func TestUnknownToolDeniesInDenyPosture(t *testing.T) {
+	p := fullPol()
+	p.UnknownToolPosture = policy.UnknownDeny
+	v := Evaluate(ToolCall{NativeTool: "new_tool", Capability: policy.CapabilityUnknown}, p)
+	if v.Decision != policy.Deny || v.AuditKind != "unknown-native-tool" {
+		t.Fatalf("unknown tool deny posture = %+v, want deny/unknown-native-tool", v)
+	}
+}
+
+func TestPathCapabilitiesDenyWithoutPaths(t *testing.T) {
+	for _, capability := range []policy.Capability{policy.CapabilityReadDiscovery, policy.CapabilityMutation} {
+		v := Evaluate(ToolCall{NativeTool: "path_tool", Capability: capability}, fullPol())
+		if v.Decision != policy.Deny {
+			t.Fatalf("%s without paths = %+v, want deny", capability, v)
+		}
+	}
+}
+
+func TestCommandCapabilityDeniesWithoutCommand(t *testing.T) {
+	v := Evaluate(ToolCall{NativeTool: "command_tool", Capability: policy.CapabilityCommand}, fullPol())
+	if v.Decision != policy.Deny {
+		t.Fatalf("command without input = %+v, want deny", v)
+	}
+}
+
+func TestStaticCapabilitiesDispatchWithoutFallback(t *testing.T) {
+	cases := []struct {
+		capability policy.Capability
+		want       policy.Decision
+	}{
+		{policy.CapabilitySafeControl, policy.Allow},
+		{policy.CapabilityDeny, policy.Deny},
+		{policy.CapabilityWebSearch, policy.Ask},
+		{policy.CapabilityDelegation, policy.Deny},
+		{policy.Capability("invalid"), policy.Deny},
+	}
+	for _, tt := range cases {
+		v := Evaluate(ToolCall{NativeTool: "capability_tool", Capability: tt.capability}, fullPol())
+		if v.Decision != tt.want {
+			t.Fatalf("%s = %+v, want %s", tt.capability, v, tt.want)
+		}
+	}
+}
+
 func TestEvaluateWaived(t *testing.T) {
 	p := fullPol()
 	p.Waived["P1.rm-rf"] = true

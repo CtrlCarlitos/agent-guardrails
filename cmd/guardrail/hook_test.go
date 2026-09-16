@@ -617,6 +617,27 @@ func TestHookAuditLogWritten(t *testing.T) {
 	}
 }
 
+func TestHookAuditRecordsNativeToolWithoutArguments(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	payload := `{"session_id":"s1","event":"pre","tool":"new_tool","cwd":"/tmp","arguments":{"token":"raw-secret"}}`
+	var out, errb bytes.Buffer
+	if code := run([]string{"hook", "opencode"}, strings.NewReader(payload), &out, &errb); code != 0 {
+		t.Fatalf("exit=%d, stderr=%s", code, errb.String())
+	}
+	raw, err := os.ReadFile(filepath.Join(state, "guardrail", "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"native_tool":"new_tool"`) {
+		t.Fatalf("audit record omitted native tool: %s", raw)
+	}
+	if strings.Contains(string(raw), "raw-secret") || strings.Contains(string(raw), `"arguments"`) {
+		t.Fatalf("audit record leaked raw input: %s", raw)
+	}
+}
+
 func TestHookStaleGuardrailConfigDegrades(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "/no/such/guardrail.toml")

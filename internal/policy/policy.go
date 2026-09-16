@@ -68,6 +68,7 @@ type Verdict struct {
 	RuleID       string
 	OriginRuleID string
 	Reason       string
+	AuditKind    string
 }
 
 func (v Verdict) IsZero() bool { return v.Decision == "" }

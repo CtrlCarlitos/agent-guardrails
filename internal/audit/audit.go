@@ -17,6 +17,10 @@ type Record struct {
 	SessionID    string   `json:"session_id,omitempty"`
 	Plane        string   `json:"plane"`
 	Tool         string   `json:"tool"`
+	NativeTool   string   `json:"native_tool,omitempty"`
+	Capability   string   `json:"capability,omitempty"`
+	InputShape   string   `json:"input_shape,omitempty"`
+	AuditKind    string   `json:"audit_kind,omitempty"`
 	Event        string   `json:"event,omitempty"`
 	Command      string   `json:"command,omitempty"`
 	Paths        []string `json:"paths,omitempty"`
