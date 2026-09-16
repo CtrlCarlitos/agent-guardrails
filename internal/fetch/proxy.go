@@ -8,20 +8,31 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
 const maxBody = 1 << 20
+const fetchTimeout = 15 * time.Second
 
 var errAsk = errors.New("unapproved web host")
+var errInvalid = errors.New("invalid web URL")
 
 func Fetch(ctx context.Context, raw string, pol *policy.Policy) (string, policy.Verdict, error) {
-	if !allowed(raw, pol) {
+	host, err := hostFromURL(raw)
+	if err != nil {
+		return "", policy.Verdict{Decision: policy.Deny, RuleID: "fetch-invalid"}, nil
+	}
+	if !allowedHost(host, pol) {
 		return "", policy.Verdict{Decision: policy.Ask, RuleID: "fetch-host", Reason: "web fetch to an unapproved host requires operator approval"}, nil
 	}
-	client := &http.Client{Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(req *http.Request, _ []*http.Request) error {
-		if !allowed(req.URL.String(), pol) {
+	client := &http.Client{Timeout: fetchTimeout, Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+		host, err := hostFromURL(req.URL.String())
+		if err != nil {
+			return errInvalid
+		}
+		if !allowedHost(host, pol) {
 			return errAsk
 		}
 		return nil
@@ -33,6 +44,9 @@ func Fetch(ctx context.Context, raw string, pol *policy.Policy) (string, policy.
 	resp, err := client.Do(req)
 	if errors.Is(err, errAsk) {
 		return "", policy.Verdict{Decision: policy.Ask, RuleID: "fetch-host", Reason: "redirect destination requires operator approval"}, nil
+	}
+	if errors.Is(err, errInvalid) {
+		return "", policy.Verdict{Decision: policy.Deny, RuleID: "fetch-invalid"}, nil
 	}
 	if err != nil {
 		return "", policy.Verdict{Decision: policy.Deny, RuleID: "fetch-failed"}, err
@@ -57,16 +71,27 @@ func Fetch(ctx context.Context, raw string, pol *policy.Policy) (string, policy.
 }
 
 func allowed(raw string, pol *policy.Policy) bool {
+	host, err := hostFromURL(raw)
+	return err == nil && allowedHost(host, pol)
+}
+
+func hostFromURL(raw string) (string, error) {
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" ||
 		(parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return false
+		return "", errInvalid
 	}
 	host := strings.ToLower(parsed.Hostname())
-	err = policy.ValidateWebHost(host)
-	if err != nil {
-		return false
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
+		return host, nil
 	}
+	if err := policy.ValidateWebHost(host); err != nil {
+		return "", errInvalid
+	}
+	return host, nil
+}
+
+func allowedHost(host string, pol *policy.Policy) bool {
 	if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
 		return true
 	}

@@ -4,10 +4,55 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
+
+func TestFetchDeniesInvalidURLs(t *testing.T) {
+	for _, raw := range []string{"example.com", "ftp://example.com", "https://user@example.com", "https://example.com/#fragment"} {
+		_, v, err := Fetch(context.Background(), raw, &policy.Policy{})
+		if err != nil || v.Decision != policy.Deny {
+			t.Errorf("Fetch(%q) = %+v, %v", raw, v, err)
+		}
+	}
+}
+
+func TestFetchAllowsIPv6Loopback(t *testing.T) {
+	if !allowed("http://[::1]/", &policy.Policy{}) {
+		t.Fatal("IPv6 loopback denied")
+	}
+}
+
+func TestFetchRejectsUnsafeMediaAndOversizedBodies(t *testing.T) {
+	for _, tc := range []struct {
+		media, body string
+		rule        string
+	}{{"application/octet-stream", "x", "fetch-content-type"}, {"text/plain", strings.Repeat("x", maxBody+1), "fetch-too-large"}} {
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", tc.media)
+			w.Write([]byte(tc.body))
+		}))
+		_, v, _ := Fetch(context.Background(), s.URL, &policy.Policy{})
+		s.Close()
+		if v.RuleID != tc.rule {
+			t.Errorf("%s = %+v", tc.media, v)
+		}
+	}
+}
+
+func TestFetchHonorsContextDeadline(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { time.Sleep(time.Second) }))
+	defer s.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	_, v, err := Fetch(ctx, s.URL, &policy.Policy{})
+	if err == nil || v.Decision != policy.Deny {
+		t.Fatalf("Fetch = %+v, %v", v, err)
+	}
+}
 
 func TestFetchReturnsNormalizedHTMLAfterAllowedRedirect(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
