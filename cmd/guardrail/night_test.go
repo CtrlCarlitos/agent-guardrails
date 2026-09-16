@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
 )
 
@@ -52,6 +54,17 @@ func TestNightRequestCompletesOnlyThroughBroker(t *testing.T) {
 	state, err := night.Load(path, time.Now())
 	if err != nil || !state.Active {
 		t.Fatalf("night state = %+v, error %v; want active after broker action", state, err)
+	}
+	raw, err := os.ReadFile(audit.DefaultPath(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec audit.Record
+	if err := json.Unmarshal(raw, &rec); err != nil {
+		t.Fatal(err)
+	}
+	if rec.OperatorAction != "night-on" || rec.Decision != "completed" || rec.RequestID != r.ID {
+		t.Fatalf("audit record = %+v, want completed night mutation", rec)
 	}
 }
 

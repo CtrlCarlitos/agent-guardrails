@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -49,6 +50,27 @@ func TestDaemonUsesPrivateSocketAndSubmitsRequestOnce(t *testing.T) {
 	}
 	if err := approval.Approve(socket, r.ID, approval.RepoScope); err == nil {
 		t.Fatal("replayed approval succeeded")
+	}
+}
+
+func TestDaemonDoesNotReplaceALiveSocket(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("persistent approvals are unavailable on Windows")
+	}
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	first, err := approval.StartDaemon(socket, approval.New(), func(string) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := approval.StartDaemon(socket, approval.New(), func(string) error { return nil })
+	if err == nil {
+		second.Close()
+		t.Fatal("second daemon replaced the live socket")
+	}
+	if _, err := approval.Submit(socket, request()); err != nil {
+		t.Fatalf("live daemon stopped accepting requests: %v", err)
 	}
 }
 

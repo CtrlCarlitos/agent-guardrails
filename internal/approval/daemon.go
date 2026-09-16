@@ -100,6 +100,9 @@ func StartDaemon(socket string, broker *Broker, openURL func(string) error) (*Da
 	if broker == nil || openURL == nil {
 		return nil, ErrMalformed
 	}
+	if err := broker.recoverInterruptedActions(); err != nil {
+		return nil, err
+	}
 	listener, err := listenPrivate(socket)
 	if err != nil {
 		return nil, err
@@ -190,6 +193,7 @@ func (d *Daemon) handle(conn net.Conn) {
 	default:
 		reply.Error = "approval request unavailable"
 	}
+	d.touch()
 	_ = json.NewEncoder(conn).Encode(reply)
 }
 

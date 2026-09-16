@@ -146,6 +146,21 @@ func (b *Broker) hasPending() bool {
 	return pending
 }
 
+// recoverInterruptedActions makes idempotent canonical actions retryable after
+// a daemon process dies between recording execution and recording completion.
+func (b *Broker) recoverInterruptedActions() error {
+	return session.Transaction(requestSessionID, func(st *session.State) error {
+		prune(st.ApprovalRequests, b.now().UTC())
+		for id, request := range st.ApprovalRequests {
+			if request.Status == "executing" {
+				request.Status = "pending"
+				st.ApprovalRequests[id] = request
+			}
+		}
+		return nil
+	})
+}
+
 func (b *Broker) Approve(id string, scope Scope) error {
 	var request Request
 	err := session.Transaction(requestSessionID, func(st *session.State) error {

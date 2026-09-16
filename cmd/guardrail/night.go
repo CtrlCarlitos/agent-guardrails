@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 )
@@ -25,7 +26,11 @@ func executeNightApproval(r approval.Request) error {
 		return err
 	}
 	if r.Action == "night-off" {
-		return night.Remove(path)
+		if err := night.Remove(path); err != nil {
+			return err
+		}
+		writeNightAudit(r)
+		return nil
 	}
 	clock, err := time.ParseInLocation("15:04", r.Parameters["until"], time.Local)
 	if err != nil {
@@ -40,7 +45,15 @@ func executeNightApproval(r approval.Request) error {
 	if err != nil {
 		return fmt.Errorf("resolving hostname: %w", err)
 	}
-	return night.Write(path, night.Marker{Until: until, SetBy: fmt.Sprintf("%s:%d", hostname, os.Getpid())})
+	if err := night.Write(path, night.Marker{Until: until, SetBy: fmt.Sprintf("%s:%d", hostname, os.Getpid())}); err != nil {
+		return err
+	}
+	writeNightAudit(r)
+	return nil
+}
+
+func writeNightAudit(r approval.Request) {
+	_ = audit.Write(audit.Record{Plane: r.Plane, Tool: "guardrail", Event: "operator-action", Decision: "completed", OperatorAction: r.Action, RequestID: r.ID}, audit.DefaultPath(""))
 }
 
 const nightUsage = `usage:
