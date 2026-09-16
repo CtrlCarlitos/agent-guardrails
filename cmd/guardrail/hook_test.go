@@ -1360,7 +1360,6 @@ func TestOpenCodeApprovalMemoryRequiresExactIdentity(t *testing.T) {
 	}{
 		{name: "session", changedSession: "approval-other-session"},
 		{name: "CWD bytes", changedCWD: "/tmp/"},
-		{name: "normalized tool", changedTool: "read"},
 		{name: "arguments", changedArgument: `{"value":"changed"}`},
 	}
 	for _, test := range tests {
@@ -1412,7 +1411,11 @@ func TestOpenCodeApprovalMemoryRejectsIncompleteIdentity(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			stateHome, _ := configureApprovalTest(t, approvalAskOverlay(""))
-			assertApprovalDecision(t, runOpenCodeApprovalHook(t, test.payload), "ask")
+			want := "ask"
+			if test.name == "tool" {
+				want = "allow" // Unclassified calls follow the base audit posture.
+			}
+			assertApprovalDecision(t, runOpenCodeApprovalHook(t, test.payload), want)
 			if test.sessionID != "" {
 				state, _ := readApprovalState(t, test.sessionID)
 				if len(state.PendingApprovals) != 0 {

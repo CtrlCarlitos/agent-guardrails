@@ -19,7 +19,7 @@ func TestAntigravityConfigShape(t *testing.T) {
 	if pre["id"] != "guardrail-antigravity-pre" {
 		t.Errorf("pre id = %v", pre["id"])
 	}
-	if pre["matcher"] != "run_command|view_file|write_to_file|replace_file_content|multi_replace_file_content" {
+	if pre["matcher"] != "*" {
 		t.Errorf("pre matcher = %v", pre["matcher"])
 	}
 	preHook := pre["hooks"].([]any)[0].(map[string]any)

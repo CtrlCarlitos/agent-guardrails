@@ -1,5 +1,7 @@
 package genconfig
 
+import "github.com/CtrlCarlitos/agent-guardrails/internal/planecontract"
+
 // AntigravityConfig emits the proven named-wrapper shape from takumi-dream's
 // working hooks.json: events live inside a "guardrail" key with "enabled"
 // alongside. Antigravity has no declarative permission layer, so there is no
@@ -13,7 +15,7 @@ func AntigravityConfig(binary string) Fragment {
 			"PreToolUse": []any{
 				map[string]any{
 					"id":      "guardrail-antigravity-pre",
-					"matcher": "run_command|view_file|write_to_file|replace_file_content|multi_replace_file_content",
+					"matcher": planecontract.AntigravityPreHookMatcher(),
 					"hooks": []any{
 						map[string]any{"type": "command", "command": preCmd, "timeout": 15},
 					},

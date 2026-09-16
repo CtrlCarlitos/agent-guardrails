@@ -64,10 +64,16 @@ var claudeTools = []ToolSpec{
 }
 
 func RegisteredTools(plane string) []ToolSpec {
-	if plane != "claude" {
+	switch plane {
+	case "claude":
+		return append([]ToolSpec(nil), claudeTools...)
+	case "opencode":
+		return append([]ToolSpec(nil), opencodeTools...)
+	case "antigravity":
+		return append([]ToolSpec(nil), antigravityTools...)
+	default:
 		return nil
 	}
-	return append([]ToolSpec(nil), claudeTools...)
 }
 
 func ClaudeTool(nativeTool string) (ToolSpec, bool) {

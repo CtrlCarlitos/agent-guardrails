@@ -1,5 +1,10 @@
 {
   "bash-rm-rf.json": {"exit": 2},
   "bash-ls.json":    {"exit": 0},
-  "read-env.json":   {"exit": 2}
+  "read-env.json":          {"exit": 2},
+  "grep-secret.json":       {"exit": 2},
+  "apply-patch.json":       {"exit": 2},
+  "webfetch.json":          {"exit": 2},
+  "websearch.json":         {"exit": 0},
+  "custom.json":            {"exit": 2}
 }

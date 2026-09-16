@@ -44,3 +44,49 @@ func TestClaudePreHookMatcherCoversEveryInventoryTool(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenCodeAndAntigravityInventoriesClassifyCapabilityBoundary(t *testing.T) {
+	for _, tt := range []struct {
+		plane string
+		tool  string
+		want  policy.Capability
+	}{
+		{"opencode", "apply_patch", policy.CapabilityMutation},
+		{"opencode", "grep", policy.CapabilityReadDiscovery},
+		{"opencode", "glob", policy.CapabilityReadDiscovery},
+		{"opencode", "webfetch", policy.CapabilityWebFetch},
+		{"antigravity", "list_dir", policy.CapabilityReadDiscovery},
+		{"antigravity", "grep_search", policy.CapabilityReadDiscovery},
+		{"antigravity", "read_url_content", policy.CapabilityWebFetch},
+		{"antigravity", "search_web", policy.CapabilityWebSearch},
+	} {
+		var spec ToolSpec
+		var ok bool
+		switch tt.plane {
+		case "opencode":
+			spec, ok = OpencodeTool(tt.tool)
+		case "antigravity":
+			spec, ok = AntigravityTool(tt.tool)
+		}
+		if !ok || spec.Capability != tt.want {
+			t.Fatalf("%s %s = %#v, %v; want %v", tt.plane, tt.tool, spec, ok, tt.want)
+		}
+	}
+	for _, tool := range []string{"custom", "mcp__server__unsafe"} {
+		spec, ok := OpencodeTool(tool)
+		if !ok || spec.Capability != policy.CapabilityDeny {
+			t.Fatalf("OpenCode %s = %#v, %v; want deny", tool, spec, ok)
+		}
+	}
+}
+
+func TestAntigravityPreHookMatcherCoversEveryInventoryTool(t *testing.T) {
+	if matcher := AntigravityPreHookMatcher(); matcher != "*" {
+		t.Fatalf("matcher = %q, want catch-all", matcher)
+	}
+	for _, spec := range RegisteredTools("antigravity") {
+		if !AntigravityPreMatcherMatches(spec.NativeTool) {
+			t.Fatal(spec.NativeTool)
+		}
+	}
+}

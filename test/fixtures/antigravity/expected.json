@@ -2,5 +2,9 @@
   "run-command-chmod-r.json": {"decision": "force_ask"},
   "run-command-rm-rf.json": {"decision": "deny"},
   "run-command-ls.json":    {"decision": "allow"},
-  "write-secret.json":      {"decision": "deny"}
+  "write-secret.json":      {"decision": "deny"},
+  "list-secret.json":       {"decision": "deny"},
+  "webfetch.json":          {"decision": "deny"},
+  "websearch.json":         {"decision": "force_ask"},
+  "custom.json":            {"decision": "deny"}
 }

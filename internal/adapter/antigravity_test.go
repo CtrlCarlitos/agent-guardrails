@@ -53,13 +53,42 @@ func TestParseAntigravityCWDFallsBackToWorkspacePaths(t *testing.T) {
 	}
 }
 
-func TestParseAntigravityUnknownToolPassesThrough(t *testing.T) {
+func TestParseAntigravityGrepSearchIsDiscovery(t *testing.T) {
 	tc, err := ParseAntigravity("pre", strings.NewReader(`{"toolCall":{"name":"grep_search","args":{}}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tc.Tool != "grep_search" {
-		t.Fatalf("Tool = %q, want passthrough grep_search", tc.Tool)
+	if tc.Tool != "Grep" || tc.Capability != policy.CapabilityReadDiscovery {
+		t.Fatalf("ToolCall = %+v, want Grep read discovery", tc)
+	}
+}
+
+func TestParseAntigravityClassifiesAndExtractsTypedInputs(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		raw      string
+		wantCap  policy.Capability
+		wantURL  string
+		wantPath string
+	}{
+		{"list", `{"toolCall":{"name":"list_dir","args":{"AbsolutePath":"/repo/.env"}}}`, policy.CapabilityReadDiscovery, "", "/repo/.env"},
+		{"search", `{"toolCall":{"name":"grep_search","args":{"AbsolutePath":"/repo/.env"}}}`, policy.CapabilityReadDiscovery, "", "/repo/.env"},
+		{"fetch", `{"toolCall":{"name":"read_url_content","args":{"Url":"https://example.test/docs"}}}`, policy.CapabilityWebFetch, "https://example.test/docs", ""},
+		{"web search", `{"toolCall":{"name":"search_web","args":{"Query":"guardrails"}}}`, policy.CapabilityWebSearch, "", ""},
+		{"custom", `{"toolCall":{"name":"custom","args":{}}}`, policy.CapabilityDeny, "", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tc, err := ParseAntigravity("pre", strings.NewReader(tt.raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.Capability != tt.wantCap || tc.URL != tt.wantURL {
+				t.Fatalf("ToolCall = %+v, want capability %q and URL %q", tc, tt.wantCap, tt.wantURL)
+			}
+			if tt.wantPath != "" && (len(tc.Paths) != 1 || tc.Paths[0] != tt.wantPath) {
+				t.Fatalf("paths = %q, want %q", tc.Paths, tt.wantPath)
+			}
+		})
 	}
 }
 

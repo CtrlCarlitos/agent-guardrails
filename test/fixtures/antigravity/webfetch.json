@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"read_url_content","args":{"Url":"https://example.test/docs"}}}
