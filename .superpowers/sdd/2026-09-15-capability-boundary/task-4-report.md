@@ -149,3 +149,13 @@ safe live-versus-stale socket ownership, and separate mutation audit records.
   directories are fsynced to preserve recovery intent across power loss.
 - Added forged-journal, unsafe-directory, cross-repository concurrency, and
   power-loss-window recovery coverage.
+
+## Fix Round 4
+
+- Global egress grant and revoke now acquire the same private Operator-config
+  lock as repository allowance transactions and recover journals before reading
+  shared state.
+- Global Operator config replacements use the fsync-backed temporary-file,
+  rename, and parent-directory synchronization path.
+- Added mixed global/repository concurrency coverage; global writes now share
+  the same power-loss-safe durability primitive as journal recovery.

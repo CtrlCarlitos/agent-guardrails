@@ -23,6 +23,38 @@ type allowanceJournal struct {
 	MAC           []byte `json:"mac"`
 }
 
+func applyGlobalWebHost(host string, grant bool) error {
+	dir, err := allowanceJournalDir()
+	if err != nil {
+		return err
+	}
+	if err := ensureAllowanceDir(dir); err != nil {
+		return err
+	}
+	lock := flock.New(filepath.Join(dir, "operator.lock"), flock.SetPermissions(0o600))
+	if err := lock.Lock(); err != nil {
+		return err
+	}
+	defer lock.Unlock()
+	if err := recoverAllowanceJournals(dir); err != nil {
+		return err
+	}
+	op, err := policy.LoadOperatorConfig()
+	if err != nil {
+		return err
+	}
+	op.GlobalWebHosts = updateHost(op.GlobalWebHosts, host, grant)
+	raw, err := operatorConfigContent(op)
+	if err != nil {
+		return err
+	}
+	path := policy.OperatorConfigPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return writeSyncedPrivateFile(path, raw, 0o600)
+}
+
 func applyRepoWebHost(repo, host string, grant bool) error {
 	dir, err := allowanceJournalDir()
 	if err != nil {

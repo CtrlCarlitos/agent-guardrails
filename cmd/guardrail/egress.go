@@ -24,12 +24,7 @@ func executeWebHostApproval(r approval.Request) error {
 	}
 	grant := r.Action == "web-host-grant"
 	if r.Scope == approval.GlobalScope {
-		op, err := policy.LoadOperatorConfig()
-		if err != nil {
-			return err
-		}
-		op.GlobalWebHosts = updateHost(op.GlobalWebHosts, r.Host, grant)
-		if err := writeOperatorConfig(op); err != nil {
+		if err := applyGlobalWebHost(r.Host, grant); err != nil {
 			return err
 		}
 		writeWebHostAudit(r)

@@ -289,6 +289,41 @@ func TestConcurrentRepositoryGrantsAcrossReposRetainEveryHost(t *testing.T) {
 	}
 }
 
+func TestConcurrentGlobalAndRepositoryGrantsRetainEveryHost(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	repo := filepath.Join(t.TempDir(), "repo")
+	requests := []approval.Request{
+		{RepoRoot: repo, Host: "global.example.test", Scope: approval.GlobalScope, Action: "web-host-grant"},
+		{RepoRoot: repo, Host: "repo.example.test", Scope: approval.RepoScope, Action: "web-host-grant"},
+	}
+	start := make(chan struct{})
+	errs := make(chan error, len(requests))
+	var wg sync.WaitGroup
+	for _, request := range requests {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs <- executeWebHostApproval(request)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	op, err := policy.LoadOperatorConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !op.AllowsGlobalWebHost("global.example.test") || !op.AllowsWebHost(repo, "repo.example.test") {
+		t.Fatalf("operator config lost mixed grant: %+v", op)
+	}
+}
+
 func mustJSON(t *testing.T, value any) []byte {
 	t.Helper()
 	raw, err := json.Marshal(value)
