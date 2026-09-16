@@ -159,3 +159,8 @@ safe live-versus-stale socket ownership, and separate mutation audit records.
   rename, and parent-directory synchronization path.
 - Added mixed global/repository concurrency coverage; global writes now share
   the same power-loss-safe durability primitive as journal recovery.
+
+## Fix Round 4 Follow-up
+
+- Isolated mixed global/repository concurrency coverage with a test-local
+  `XDG_STATE_HOME`, including its journal key and global Operator lock.

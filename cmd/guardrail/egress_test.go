@@ -291,6 +291,7 @@ func TestConcurrentRepositoryGrantsAcrossReposRetainEveryHost(t *testing.T) {
 
 func TestConcurrentGlobalAndRepositoryGrantsRetainEveryHost(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	repo := filepath.Join(t.TempDir(), "repo")
 	requests := []approval.Request{
 		{RepoRoot: repo, Host: "global.example.test", Scope: approval.GlobalScope, Action: "web-host-grant"},
