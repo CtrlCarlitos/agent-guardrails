@@ -1,5 +1,6 @@
 # The shipped Base policy. Universal rules only — anything project-specific
 # belongs in a repo's guardrail.toml Overlay.
+unknown_tool_posture = "audit"
 
 [slots]
 safe_roots       = []

@@ -10,6 +10,20 @@ import (
 )
 
 func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, repoRoot string) (*Policy, []string, error) {
+	unknownToolPosture := base.UnknownToolPosture
+	if unknownToolPosture == "" {
+		unknownToolPosture = UnknownAudit
+	}
+	if _, err := ParseUnknownToolPosture(string(unknownToolPosture)); err != nil {
+		return nil, nil, err
+	}
+	if ov != nil && ov.UnknownToolPosture != "" {
+		var err error
+		unknownToolPosture, err = ParseUnknownToolPosture(string(ov.UnknownToolPosture))
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 	m := &Policy{
 		Slots: Slots{
 			SafeRoots:       append([]string{}, base.Slots.SafeRoots...),
@@ -20,8 +34,9 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 			EgressAllowlist: append([]string{}, base.Slots.EgressAllowlist...),
 			AuditLog:        base.Slots.AuditLog,
 		},
-		Rules:  append([]Rule{}, base.Rules...),
-		Waived: map[string]bool{},
+		Rules:              append([]Rule{}, base.Rules...),
+		Waived:             map[string]bool{},
+		UnknownToolPosture: unknownToolPosture,
 	}
 	for k, v := range base.Waived {
 		m.Waived[k] = v
