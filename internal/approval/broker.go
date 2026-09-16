@@ -234,6 +234,10 @@ func durable(r Request) session.ApprovalRequest {
 			params["until"] = until
 		}
 	}
+	if r.Action == "web-host-grant" || r.Action == "web-host-revoke" {
+		params["scope"] = string(r.Scope)
+		params["host"] = r.Host
+	}
 	return session.ApprovalRequest{ID: r.ID, Plane: r.Plane, SessionDigest: digest(r.SessionID), RepoRoot: filepath.Clean(r.RepoRoot), Host: r.Host, Scope: string(r.Scope), ReasonDigest: digest(r.Reason), Action: r.Action, Parameters: params, ExpiresAt: r.ExpiresAt, Status: r.Status}
 }
 

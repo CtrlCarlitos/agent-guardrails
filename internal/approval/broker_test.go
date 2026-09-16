@@ -62,6 +62,23 @@ func TestApproveRejectsAChangedScope(t *testing.T) {
 	}
 }
 
+func TestWebHostActionPreservesRequestedScopeAndHost(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	broker := approval.New()
+	r := request()
+	r.Action = "web-host-grant"
+	r.Scope = approval.GlobalScope
+	r.Host = "api.example.test"
+	created, err := broker.Create(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := broker.Request(created.ID)
+	if err != nil || got.Scope != approval.GlobalScope || got.Parameters["host"] != "api.example.test" {
+		t.Fatalf("restored request = %+v, error %v", got, err)
+	}
+}
+
 func TestApproveRejectsExpiredRequest(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	broker := approval.New()

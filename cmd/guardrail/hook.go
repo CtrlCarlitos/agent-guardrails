@@ -119,9 +119,13 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	stateApplied := false
 	announceNight := needsNightAnnouncement && tc.SessionID == ""
 	if tc.Event == "pre" && hasOperatorAction {
+		scope := approval.Allow
+		if operatorAction.Name == "web-host-grant" || operatorAction.Name == "web-host-revoke" {
+			scope = approval.Scope(operatorAction.Parameters["scope"])
+		}
 		r, createErr := approval.SubmitOnDemand(approval.Request{
 			Plane: tc.Plane, SessionID: tc.SessionID, RepoRoot: tc.RepoRoot,
-			Scope: approval.Allow, Reason: "canonical operator action",
+			Scope: scope, Reason: "canonical operator action",
 			Action: operatorAction.Name, Parameters: operatorAction.Parameters,
 		})
 		if createErr != nil {

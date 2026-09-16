@@ -80,6 +80,18 @@ Required decision: define the daemon socket authentication protocol, including
 platform support, token/credential source, permissions, validation, and daemon
 restart behavior.
 
+## Final Review Follow-up
+
+- Preserved the canonical requested `repo` or `global` scope and host through
+  hook submission and durable broker recovery for web-host actions.
+- Browser-launch failure now closes only the failed transport and retains the
+  pending request for a TTY client.
+- Focused verification: `go test ./internal/approval ./cmd/guardrail`.
+
+Remaining final-review items still require implementation: recoverable action
+execution and idle accounting, atomic repository Overlay/Operator mutation,
+safe live-versus-stale socket ownership, and separate mutation audit records.
+
 ## Completion
 
 - Implemented the on-demand broker daemon over a mode-0700 Unix socket

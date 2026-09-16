@@ -155,20 +155,15 @@ func (d *Daemon) handle(conn net.Conn) {
 		r, err := d.broker.Create(message.Request)
 		if err == nil {
 			browser, url, startErr := StartBrowser(d.broker, r.ID)
-			if startErr != nil {
-				err = startErr
-			} else if err = d.openURL(url); err == nil {
+			if startErr == nil && d.openURL(url) == nil {
 				d.mu.Lock()
 				d.browsers[r.ID] = browser
 				d.mu.Unlock()
-			} else {
+			} else if browser != nil {
 				_ = browser.Close()
 			}
 		}
 		if err != nil {
-			if r.ID != "" {
-				_ = d.broker.Deny(r.ID)
-			}
 			reply.Error = "approval request unavailable"
 		} else {
 			reply.Request = r
