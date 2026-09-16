@@ -11,7 +11,8 @@ Decision: for every OpenCode pre-execution tool call, not only Bash, the Engine
 will use one-shot **approval memory** in the existing per-session state. The
 first `ask` stores a pending entry and still throws. The Adapter now emits the
 Engine-adapter shared operator-authorization guidance described in
-`2026-09-15-actionable-authorization-design.md`; a Deny cannot be authorized.
+[design](../superpowers/specs/2026-09-15-actionable-authorization-design.md);
+a Deny cannot be authorized.
 
 If the same OpenCode session submits the same normalized tool and canonical
 arguments from the byte-for-byte same CWD within ten minutes, normal policy

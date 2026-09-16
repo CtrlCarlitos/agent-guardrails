@@ -103,7 +103,7 @@ func EmitAntigravity(v policy.Verdict, phase string, tc engine.ToolCall, stdout 
 	}
 	payload := map[string]any{"decision": decision}
 	if reason := guidanceForModel(v, nativeAction(tc.NativeTool, tc.Arguments)); reason != "" {
-		payload["reason"] = sanitizeForModel(reason)
+		payload["reason"] = reason
 	}
 	b, _ := json.Marshal(payload)
 	stdout.Write(append(b, '\n'))

@@ -18,12 +18,10 @@ func Guidance(v policy.Verdict, action string) string {
 }
 
 func guidanceForModel(v policy.Verdict, action string) string {
-	if v.Decision != policy.Ask {
+	if v.Decision == policy.Ask {
+		// Bound only untrusted policy prose; the native action must remain exact.
+		v.Reason = sanitizeForModel(v.Reason)
 		return Guidance(v, action)
 	}
-	available := maxModelFacingRunes - len([]rune(Guidance(v, "")))
-	if available > 0 && len([]rune(action)) > available {
-		action = string([]rune(action)[:available-1]) + "…"
-	}
-	return Guidance(v, action)
+	return sanitizeForModel(Guidance(v, action))
 }
