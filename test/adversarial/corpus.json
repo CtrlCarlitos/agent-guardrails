@@ -2637,13 +2637,13 @@
     "want": "allow"
   },
   {
-    "name": "guarded plane cannot disable night mode",
+    "name": "canonical night change requires broker approval",
     "tool": "Bash",
     "command": "guardrail night off",
     "cwd": "/repo",
     "repo_root": "/repo",
     "night": true,
-    "want": "deny",
-    "want_rule_id": "P5.self-config"
+    "want": "ask",
+    "want_rule_id": "operator-action"
   }
 ]

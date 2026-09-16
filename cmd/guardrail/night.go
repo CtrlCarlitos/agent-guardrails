@@ -7,11 +7,41 @@ import (
 	"os"
 	"time"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 )
 
 const defaultNightDuration = 8 * time.Hour
+
+func init() {
+	approval.RegisterAction("night-on", executeNightApproval)
+	approval.RegisterAction("night-off", executeNightApproval)
+}
+
+func executeNightApproval(r approval.Request) error {
+	path, err := night.DefaultPath()
+	if err != nil {
+		return err
+	}
+	if r.Action == "night-off" {
+		return night.Remove(path)
+	}
+	clock, err := time.ParseInLocation("15:04", r.Parameters["until"], time.Local)
+	if err != nil {
+		return fmt.Errorf("invalid approved night expiry")
+	}
+	now := time.Now()
+	until := time.Date(now.Year(), now.Month(), now.Day(), clock.Hour(), clock.Minute(), 0, 0, now.Location())
+	if !until.After(now) {
+		until = until.AddDate(0, 0, 1)
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		return fmt.Errorf("resolving hostname: %w", err)
+	}
+	return night.Write(path, night.Marker{Until: until, SetBy: fmt.Sprintf("%s:%d", hostname, os.Getpid())})
+}
 
 const nightUsage = `usage:
   guardrail night on [--until HH:MM | --for 8h]

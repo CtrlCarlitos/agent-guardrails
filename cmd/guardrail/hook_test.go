@@ -488,15 +488,15 @@ func TestHookClaudeSessionStartPrintsNightBannerFirst(t *testing.T) {
 	}
 }
 
-func TestHookNightControlIsP5DenyAcrossPlanes(t *testing.T) {
+func TestHookCanonicalNightControlCreatesBrokerRequestAcrossPlanes(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    []string
 		payload string
 	}{
-		{name: "claude", args: []string{"hook", "claude"}, payload: `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"guardrail night off"}}`},
-		{name: "opencode", args: []string{"hook", "opencode"}, payload: `{"event":"pre","tool":"bash","command":"guardrail night off","cwd":"/tmp"}`},
-		{name: "antigravity", args: []string{"hook", "antigravity", "pre"}, payload: `{"toolCall":{"name":"run_command","args":{"CommandLine":"guardrail night off","Cwd":"/tmp"}}}`},
+		{name: "claude", args: []string{"hook", "claude"}, payload: `{"session_id":"night-broker","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"guardrail night off"}}`},
+		{name: "opencode", args: []string{"hook", "opencode"}, payload: `{"session_id":"night-broker","event":"pre","tool":"bash","command":"guardrail night off","cwd":"/tmp"}`},
+		{name: "antigravity", args: []string{"hook", "antigravity", "pre"}, payload: `{"conversationId":"night-broker","toolCall":{"name":"run_command","args":{"CommandLine":"guardrail night off","Cwd":"/tmp"}}}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -507,12 +507,12 @@ func TestHookNightControlIsP5DenyAcrossPlanes(t *testing.T) {
 			enableNightForHook(t)
 			var stdout, stderr bytes.Buffer
 			code := run(tt.args, strings.NewReader(tt.payload), &stdout, &stderr)
-			if code != 2 && tt.name != "antigravity" {
+			if code != 0 {
 				t.Fatalf("exit = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
 			}
 			records := readApprovalAudit(t, stateHome)
-			if len(records) != 1 || records[0].Decision != "deny" || records[0].RuleID != "P5.self-config" {
-				t.Fatalf("audit = %+v, want deny/P5.self-config", records)
+			if len(records) != 1 || records[0].Decision != "ask" || records[0].RuleID != "operator-action" {
+				t.Fatalf("audit = %+v, want ask/operator-action", records)
 			}
 		})
 	}

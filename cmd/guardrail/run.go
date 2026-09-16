@@ -33,6 +33,7 @@ usage:
   guardrail night on [--until HH:MM | --for 8h]
   guardrail night off
   guardrail night status
+  guardrail approvals --request <id>
 	guardrail doctor                      print resolved policy/overlay/audit/hook state
 	guardrail fetch <URL>                 fetch normalized text through Guardrail
 `
@@ -58,6 +59,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "night":
 		file, terminal := stdin.(*os.File)
 		return cmdNight(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdout, stderr)
+	case "approvals":
+		file, terminal := stdin.(*os.File)
+		return cmdApprovals(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdout, stderr)
 	case "doctor":
 		return cmdDoctor(args[1:], stdout, stderr)
 	case "fetch":

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
 )
 
@@ -28,6 +29,30 @@ func isolateNightConfig(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func TestNightRequestCompletesOnlyThroughBroker(t *testing.T) {
+	isolateNightConfig(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	broker := approval.New()
+	r, err := broker.Create(approval.Request{
+		Plane: "opencode", SessionID: "night-request", RepoRoot: "/repo", Scope: approval.Allow,
+		Reason: "canonical operator action", Action: "night-on", Parameters: map[string]string{"until": time.Now().Add(time.Hour).Format("15:04")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := broker.Approve(r.ID, approval.Allow); err != nil {
+		t.Fatal(err)
+	}
+	path, err := night.DefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := night.Load(path, time.Now())
+	if err != nil || !state.Active {
+		t.Fatalf("night state = %+v, error %v; want active after broker action", state, err)
+	}
 }
 
 func runNightCommand(t *testing.T, args ...string) (int, string, string) {

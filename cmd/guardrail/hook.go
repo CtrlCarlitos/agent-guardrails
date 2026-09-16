@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/adapter"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
@@ -108,6 +109,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return adapter.EmitClaudeSessionStart(text, stdout)
 	}
 
+	operatorAction, hasOperatorAction := engine.OperatorAction(tc)
 	approvalKey, approvalEnabled := engine.OpenCodeApprovalKey(tc)
 	approvalEnabled = approvalEnabled && !nightState.Active
 	needsP7 := tc.Event == "pre" && engine.TrifectaTrackingEnabled(merged)
@@ -116,7 +118,19 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var v policy.Verdict
 	stateApplied := false
 	announceNight := needsNightAnnouncement && tc.SessionID == ""
-	if tc.Event == "pre" && needsState {
+	if tc.Event == "pre" && hasOperatorAction {
+		r, createErr := approval.New().Create(approval.Request{
+			Plane: tc.Plane, SessionID: tc.SessionID, RepoRoot: tc.RepoRoot,
+			Scope: approval.Allow, Reason: "canonical operator action",
+			Action: operatorAction.Name, Parameters: operatorAction.Parameters,
+		})
+		if createErr != nil {
+			v = policy.Verdict{Decision: policy.Deny, RuleID: "operator-action-broker", Reason: "operator-action request could not be recorded; failing closed"}
+		} else {
+			v = policy.Verdict{Decision: policy.Ask, RuleID: "operator-action", Reason: "operator action requires broker approval", OperatorAction: operatorAction.Name, RequestID: r.ID}
+		}
+		stateApplied = true
+	} else if tc.Event == "pre" && needsState {
 		err := sessionTransaction(tc.SessionID, func(st *session.State) error {
 			if needsNightAnnouncement {
 				until := nightState.Until.Format(time.RFC3339Nano)
@@ -164,7 +178,9 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 	normalVerdict := v
-	v = engine.ApplyNightMode(v, nightState.Active)
+	if !hasOperatorAction {
+		v = engine.ApplyNightMode(v, nightState.Active)
+	}
 	nightAllowed := normalVerdict.Decision == policy.Ask && v.Decision == policy.Allow && v.RuleID == "ask-allowed-by-night-mode"
 	if announceNight {
 		v = prependVerdictReason(v, nightState.Banner())
@@ -197,19 +213,21 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 func auditRecord(tc engine.ToolCall, v policy.Verdict, waivers []string) audit.Record {
 	rec := audit.Record{
-		SessionID:    tc.SessionID,
-		Plane:        tc.Plane,
-		Tool:         tc.Tool,
-		NativeTool:   tc.NativeTool,
-		Capability:   string(tc.Capability),
-		InputShape:   tc.InputShape,
-		AuditKind:    v.AuditKind,
-		Event:        tc.Event,
-		Decision:     string(v.Decision),
-		RuleID:       v.RuleID,
-		OriginRuleID: v.OriginRuleID,
-		Reason:       v.Reason,
-		Waivers:      waivers,
+		SessionID:      tc.SessionID,
+		Plane:          tc.Plane,
+		Tool:           tc.Tool,
+		NativeTool:     tc.NativeTool,
+		Capability:     string(tc.Capability),
+		InputShape:     tc.InputShape,
+		AuditKind:      v.AuditKind,
+		Event:          tc.Event,
+		Decision:       string(v.Decision),
+		RuleID:         v.RuleID,
+		OriginRuleID:   v.OriginRuleID,
+		Reason:         v.Reason,
+		Waivers:        waivers,
+		OperatorAction: v.OperatorAction,
+		RequestID:      v.RequestID,
 	}
 	if tc.Capability != policy.CapabilityUnknown {
 		rec.Command = tc.Command
