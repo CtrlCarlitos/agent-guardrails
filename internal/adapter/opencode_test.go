@@ -139,13 +139,33 @@ func TestEmitOpencodeSanitizesReasonForEveryDecision(t *testing.T) {
 			if got["decision"] != string(tt.decision) {
 				t.Fatalf("bad payload: %v", got)
 			}
-			if tt.decision == policy.Ask && (!strings.Contains(got["reason"], "Operator authorization required: needs approval.") || !strings.Contains(got["reason"], `Request authorization for this exact action: Bash {"command":"chmod -R 777 /tmp","timeout":30}.`) || !strings.Contains(got["reason"], "If the operator approves, retry this exact tool call once.") || !strings.Contains(got["reason"], "Do not alter or broaden the action.")) {
+			if tt.decision == policy.Ask && (!strings.Contains(got["reason"], "Operator authorization required: needs approval.") || !strings.Contains(got["reason"], `Request authorization for this exact action: bash {"command":"chmod -R 777 /tmp","timeout":30}.`) || !strings.Contains(got["reason"], "If the operator approves, retry this exact tool call once.") || !strings.Contains(got["reason"], "Do not alter or broaden the action.")) {
 				t.Fatalf("ask guidance = %q", got["reason"])
 			}
 			if tt.decision == policy.Deny && (!strings.Contains(got["reason"], "Guardrail denied this action: needs approval.") || !strings.Contains(got["reason"], "It cannot be authorized.") || !strings.Contains(got["reason"], "Choose a safe alternative.")) {
 				t.Fatalf("deny guidance = %q", got["reason"])
 			}
 		})
+	}
+}
+
+func TestEmitOpencodeAskRetainsConstraintsWhenActionExceedsBound(t *testing.T) {
+	raw := `{"session_id":"s1","event":"pre","tool":"bash","cwd":"/tmp","arguments":{"command":"` + strings.Repeat("x", maxModelFacingRunes*2) + `"}}`
+	tc, err := ParseOpencode(strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	code := EmitOpencode(policy.Verdict{Decision: policy.Ask, Reason: "needs approval"}, tc, &out, &errb)
+	if code != 0 {
+		t.Fatalf("code = %d, want 0", code)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len([]rune(got["reason"])) > maxModelFacingRunes+1 || !strings.Contains(got["reason"], "Request authorization for this exact action: bash ") || !strings.Contains(got["reason"], "If the operator approves, retry this exact tool call once.") || !strings.Contains(got["reason"], "Do not alter or broaden the action.") {
+		t.Fatalf("bounded Ask guidance = %q", got["reason"])
 	}
 }
 

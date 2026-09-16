@@ -45,14 +45,15 @@ func ParseClaude(r io.Reader) (engine.ToolCall, error) {
 		event = "session-start"
 	}
 	tc := engine.ToolCall{
-		Plane:     "claude",
-		Event:     event,
-		Tool:      p.ToolName,
-		Command:   p.ToolInput.Command,
-		SessionID: p.SessionID,
-		CWD:       p.CWD,
-		Arguments: native.ToolInput,
-		Raw:       raw,
+		Plane:      "claude",
+		Event:      event,
+		Tool:       p.ToolName,
+		NativeTool: p.ToolName,
+		Command:    p.ToolInput.Command,
+		SessionID:  p.SessionID,
+		CWD:        p.CWD,
+		Arguments:  native.ToolInput,
+		Raw:        raw,
 	}
 	if p.ToolInput.FilePath != "" {
 		tc.Paths = []string{p.ToolInput.FilePath}
@@ -79,7 +80,7 @@ func nativeAction(tool string, arguments any) string {
 func EmitClaude(v policy.Verdict, event string, tc engine.ToolCall, stdout, stderr io.Writer) int {
 	switch v.Decision {
 	case policy.Deny:
-		fmt.Fprintf(stderr, "guardrail: %s\n", sanitizeForModel(Guidance(v, nativeAction(tc.Tool, tc.Arguments))))
+		fmt.Fprintf(stderr, "guardrail: %s\n", sanitizeForModel(guidanceForModel(v, nativeAction(tc.NativeTool, tc.Arguments))))
 		return 2
 	case policy.Ask:
 		hookEvent := "PreToolUse"
@@ -90,7 +91,7 @@ func EmitClaude(v policy.Verdict, event string, tc engine.ToolCall, stdout, stde
 			"hookSpecificOutput": map[string]any{
 				"hookEventName":            hookEvent,
 				"permissionDecision":       "ask",
-				"permissionDecisionReason": sanitizeForModel(Guidance(v, nativeAction(tc.Tool, tc.Arguments))),
+				"permissionDecisionReason": sanitizeForModel(guidanceForModel(v, nativeAction(tc.NativeTool, tc.Arguments))),
 			},
 		}
 		b, _ := json.Marshal(payload)

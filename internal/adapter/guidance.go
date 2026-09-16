@@ -16,3 +16,14 @@ func Guidance(v policy.Verdict, action string) string {
 		return v.Reason
 	}
 }
+
+func guidanceForModel(v policy.Verdict, action string) string {
+	if v.Decision != policy.Ask {
+		return Guidance(v, action)
+	}
+	available := maxModelFacingRunes - len([]rune(Guidance(v, "")))
+	if available > 0 && len([]rune(action)) > available {
+		action = string([]rune(action)[:available-1]) + "…"
+	}
+	return Guidance(v, action)
+}

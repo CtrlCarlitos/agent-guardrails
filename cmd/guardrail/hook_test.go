@@ -1807,7 +1807,7 @@ func TestHookAntigravityAskIncludesAuthorizationGuidance(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got["decision"] != "force_ask" || !strings.Contains(got["reason"], "Operator authorization required: push to a protected branch.") || !strings.Contains(got["reason"], `Bash {"CommandLine":"git push origin main","Cwd":"/tmp"}`) || !strings.Contains(got["reason"], "If the operator approves, retry this exact tool call once.") {
+	if got["decision"] != "force_ask" || !strings.Contains(got["reason"], "Operator authorization required: push to a protected branch.") || !strings.Contains(got["reason"], `run_command {"CommandLine":"git push origin main","Cwd":"/tmp"}`) || !strings.Contains(got["reason"], "If the operator approves, retry this exact tool call once.") {
 		t.Fatalf("Ask payload = %v", got)
 	}
 }

@@ -62,15 +62,16 @@ func ParseAntigravity(phase string, r io.Reader) (engine.ToolCall, error) {
 	}
 
 	tc := engine.ToolCall{
-		Plane:     "antigravity",
-		Event:     event,
-		Tool:      normalizeAntigravityTool(p.ToolCall.Name),
-		Command:   p.ToolCall.Args.CommandLine,
-		Paths:     paths,
-		SessionID: p.ConversationID,
-		CWD:       cwd,
-		Arguments: native.ToolCall.Args,
-		Raw:       raw,
+		Plane:      "antigravity",
+		Event:      event,
+		Tool:       normalizeAntigravityTool(p.ToolCall.Name),
+		NativeTool: p.ToolCall.Name,
+		Command:    p.ToolCall.Args.CommandLine,
+		Paths:      paths,
+		SessionID:  p.ConversationID,
+		CWD:        cwd,
+		Arguments:  native.ToolCall.Args,
+		Raw:        raw,
 	}
 	tc.RepoRoot = repoRoot(cwd)
 	return tc, nil
@@ -101,7 +102,7 @@ func EmitAntigravity(v policy.Verdict, phase string, tc engine.ToolCall, stdout 
 		decision = "force_ask"
 	}
 	payload := map[string]any{"decision": decision}
-	if reason := Guidance(v, nativeAction(tc.Tool, tc.Arguments)); reason != "" {
+	if reason := guidanceForModel(v, nativeAction(tc.NativeTool, tc.Arguments)); reason != "" {
 		payload["reason"] = sanitizeForModel(reason)
 	}
 	b, _ := json.Marshal(payload)
