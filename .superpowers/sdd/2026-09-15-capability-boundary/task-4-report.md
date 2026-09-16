@@ -64,3 +64,18 @@ parent process that owns the loopback server, or an explicitly specified
 operator command that serves the request. Starting an unmanaged background
 server would make action completion and crash recovery ambiguous, violating
 the review requirement.
+
+## Daemon Authentication Blocker
+
+The revised plan requires an "authenticated user-level daemon" reached through
+an "authenticated local socket", but it does not specify an authentication
+proof or peer-credential validation protocol. Socket filesystem permissions
+control who can connect but do not authenticate the peer. Unix peer credential
+APIs are platform-specific and unavailable on Windows, while a random token
+requires a specified secure bootstrap, storage, rotation, and client protocol.
+
+Implementing either an unauthenticated socket or an invented cross-platform
+authentication scheme would violate the explicit fail-closed requirement.
+Required decision: define the daemon socket authentication protocol, including
+platform support, token/credential source, permissions, validation, and daemon
+restart behavior.
