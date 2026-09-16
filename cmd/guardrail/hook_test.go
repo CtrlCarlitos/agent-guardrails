@@ -651,6 +651,33 @@ func TestUnknownToolAuditRecordUsesBoundedMetadata(t *testing.T) {
 	}
 }
 
+func TestUnknownToolDenyPostureBlocksOpenCodeAndAntigravity(t *testing.T) {
+	overlay := filepath.Join(t.TempDir(), "guardrail.toml")
+	if err := os.WriteFile(overlay, []byte("unknown_tool_posture = \"deny\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name    string
+		args    []string
+		payload string
+		wantOut string
+	}{
+		{"opencode", []string{"hook", "opencode"}, `{"event":"pre","tool":"future_tool","cwd":"/tmp","arguments":{}}`, `"decision":"deny"`},
+		{"antigravity", []string{"hook", "antigravity", "pre"}, `{"toolCall":{"name":"future_tool","args":{}}}`, `"decision":"deny"`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			t.Setenv("GUARDRAIL_CONFIG", overlay)
+			var out, errb bytes.Buffer
+			code := run(tt.args, strings.NewReader(tt.payload), &out, &errb)
+			if (tt.name == "opencode" && code != 2) || !strings.Contains(out.String(), tt.wantOut) {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errb.String())
+			}
+		})
+	}
+}
+
 func TestHookStaleGuardrailConfigDegrades(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "/no/such/guardrail.toml")

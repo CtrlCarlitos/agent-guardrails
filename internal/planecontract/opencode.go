@@ -9,17 +9,18 @@ import (
 var opencodeTools = []ToolSpec{
 	{"bash", "Bash", policy.CapabilityCommand},
 	{"read", "Read", policy.CapabilityReadDiscovery},
-	{"list", "List", policy.CapabilityReadDiscovery},
 	{"glob", "Glob", policy.CapabilityReadDiscovery},
 	{"grep", "Grep", policy.CapabilityReadDiscovery},
+	{"lsp", "LSP", policy.CapabilityReadDiscovery},
 	{"edit", "Edit", policy.CapabilityMutation},
 	{"write", "Write", policy.CapabilityMutation},
 	{"apply_patch", "apply_patch", policy.CapabilityMutation},
-	{"patch", "patch", policy.CapabilityMutation},
 	{"webfetch", "webfetch", policy.CapabilityWebFetch},
 	{"websearch", "websearch", policy.CapabilityWebSearch},
 	{"question", "question", policy.CapabilitySafeControl},
-	{"todo", "todo", policy.CapabilitySafeControl},
+	{"skill", "skill", policy.CapabilitySafeControl},
+	{"todowrite", "todowrite", policy.CapabilitySafeControl},
+	{"task", "task", policy.CapabilityDeny},
 }
 
 func OpencodeTool(nativeTool string) (ToolSpec, bool) {

@@ -30,3 +30,16 @@ Implemented the OpenCode and Antigravity capability contracts.
 - `go test ./... -count=1`
 - `make check`
 - `git diff --check`
+
+## Fix Round
+
+- Replaced the Antigravity first-path scan with per-tool documented schemas.
+  `view_file`, file mutations, `list_dir`, `find_by_name`, and `grep_search`
+  each require their own documented path key and reject mismatched or decoy
+  fields.
+- Added the documented Antigravity task, scheduler, permission, collaboration,
+  and media surface with explicit safe-control, delegation, or deny capabilities.
+- Expanded OpenCode to its documented `lsp`, `skill`, and `todowrite` tools and
+  explicitly denies `task` pending Task 7 inheritance evidence.
+- External-surface assertions, unknown audit/deny posture tests, path-decoy
+  fixtures, and the generated OpenCode plugin contract cover the boundary.

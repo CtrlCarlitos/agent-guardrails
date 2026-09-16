@@ -46,30 +46,41 @@ func TestClaudePreHookMatcherCoversEveryInventoryTool(t *testing.T) {
 }
 
 func TestOpenCodeAndAntigravityInventoriesClassifyCapabilityBoundary(t *testing.T) {
+	// These are the documented hook-visible surfaces, not copies of the inventories.
 	for _, tt := range []struct {
 		plane string
-		tool  string
-		want  policy.Capability
+		tools map[string]policy.Capability
 	}{
-		{"opencode", "apply_patch", policy.CapabilityMutation},
-		{"opencode", "grep", policy.CapabilityReadDiscovery},
-		{"opencode", "glob", policy.CapabilityReadDiscovery},
-		{"opencode", "webfetch", policy.CapabilityWebFetch},
-		{"antigravity", "list_dir", policy.CapabilityReadDiscovery},
-		{"antigravity", "grep_search", policy.CapabilityReadDiscovery},
-		{"antigravity", "read_url_content", policy.CapabilityWebFetch},
-		{"antigravity", "search_web", policy.CapabilityWebSearch},
+		{"opencode", map[string]policy.Capability{
+			"bash": policy.CapabilityCommand, "read": policy.CapabilityReadDiscovery,
+			"grep": policy.CapabilityReadDiscovery, "glob": policy.CapabilityReadDiscovery,
+			"lsp": policy.CapabilityReadDiscovery, "edit": policy.CapabilityMutation,
+			"write": policy.CapabilityMutation, "apply_patch": policy.CapabilityMutation,
+			"skill": policy.CapabilitySafeControl, "todowrite": policy.CapabilitySafeControl,
+			"webfetch": policy.CapabilityWebFetch, "websearch": policy.CapabilityWebSearch,
+			"question": policy.CapabilitySafeControl, "task": policy.CapabilityDeny,
+		}},
+		{"antigravity", map[string]policy.Capability{
+			"run_command": policy.CapabilityCommand, "view_file": policy.CapabilityReadDiscovery,
+			"list_dir": policy.CapabilityReadDiscovery, "find_by_name": policy.CapabilityReadDiscovery,
+			"grep_search": policy.CapabilityReadDiscovery, "write_to_file": policy.CapabilityMutation,
+			"replace_file_content": policy.CapabilityMutation, "multi_replace_file_content": policy.CapabilityMutation,
+			"read_url_content": policy.CapabilityWebFetch, "search_web": policy.CapabilityWebSearch,
+			"manage_task": policy.CapabilityDeny, "schedule": policy.CapabilityDeny,
+			"list_permissions": policy.CapabilitySafeControl, "ask_permission": policy.CapabilitySafeControl,
+			"invoke_subagent": policy.CapabilityDelegation, "define_subagent": policy.CapabilityDeny,
+			"send_message": policy.CapabilityDeny, "manage_subagents": policy.CapabilityDeny,
+			"ask_question": policy.CapabilitySafeControl, "generate_image": policy.CapabilityDeny,
+		}},
 	} {
-		var spec ToolSpec
-		var ok bool
-		switch tt.plane {
-		case "opencode":
-			spec, ok = OpencodeTool(tt.tool)
-		case "antigravity":
-			spec, ok = AntigravityTool(tt.tool)
+		got := RegisteredTools(tt.plane)
+		if len(got) != len(tt.tools) {
+			t.Fatalf("%s inventory has %d entries, want %d", tt.plane, len(got), len(tt.tools))
 		}
-		if !ok || spec.Capability != tt.want {
-			t.Fatalf("%s %s = %#v, %v; want %v", tt.plane, tt.tool, spec, ok, tt.want)
+		for _, spec := range got {
+			if want, ok := tt.tools[spec.NativeTool]; !ok || spec.Capability != want {
+				t.Fatalf("%s %s = %q, want %q", tt.plane, spec.NativeTool, spec.Capability, want)
+			}
 		}
 	}
 	for _, tool := range []string{"custom", "mcp__server__unsafe"} {

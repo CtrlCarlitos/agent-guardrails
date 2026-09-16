@@ -6,5 +6,6 @@
   "apply-patch.json":       {"exit": 2},
   "webfetch.json":          {"exit": 2},
   "websearch.json":         {"exit": 0},
-  "custom.json":            {"exit": 2}
+  "custom.json":            {"exit": 2},
+  "future-tool.json":       {"exit": 0}
 }

@@ -65,11 +65,11 @@ export const GuardrailPlugin = async ({ directory, client }) => {
 			} else if (["read", "edit", "write"].includes(tool)) {
 				const p = args.filePath;
 				if (p) envelope.paths = [p];
-			} else if (["list"].includes(tool)) {
-				const p = args.directory;
-				if (p) envelope.paths = [p];
 			} else if (["glob", "grep"].includes(tool)) {
 				const p = args.path;
+				if (p) envelope.paths = [p];
+			} else if (tool === "lsp") {
+				const p = args.filePath;
 				if (p) envelope.paths = [p];
 			} else if (tool === "webfetch") {
 				envelope.url = args.url;

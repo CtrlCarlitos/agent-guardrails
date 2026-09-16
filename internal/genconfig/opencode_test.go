@@ -265,9 +265,9 @@ const before = plugin["tool.execute.before"];
 		["read", { filePath: "/repo/a.txt", offset: 2, limit: 4 }],
 		["edit", { filePath: "/repo/a.txt", oldString: "a", newString: "b" }],
 		["write", { filePath: "/repo/new.txt", content: "body" }],
-		["list", { directory: "/repo", depth: 2 }],
 		["glob", { path: "/repo/internal", pattern: "*.go" }],
 		["grep", { path: "/repo/internal", pattern: "guardrail" }],
+		["lsp", { filePath: "/repo/internal/a.go", operation: "goToDefinition" }],
 		["webfetch", { url: "https://example.test/docs" }],
 		["apply_patch", { patch: "*** Update File: /repo/a.txt" }],
 		["custom", { nested: { z: 1, a: true }, items: ["x", "y"] }],
@@ -291,9 +291,9 @@ const before = plugin["tool.execute.before"];
 		{"filePath": "/repo/a.txt", "offset": float64(2), "limit": float64(4)},
 		{"filePath": "/repo/a.txt", "oldString": "a", "newString": "b"},
 		{"filePath": "/repo/new.txt", "content": "body"},
-		{"directory": "/repo", "depth": float64(2)},
 		{"path": "/repo/internal", "pattern": "*.go"},
 		{"path": "/repo/internal", "pattern": "guardrail"},
+		{"filePath": "/repo/internal/a.go", "operation": "goToDefinition"},
 		{"url": "https://example.test/docs"},
 		{"patch": "*** Update File: /repo/a.txt"},
 		{"nested": map[string]any{"z": float64(1), "a": true}, "items": []any{"x", "y"}},
@@ -301,7 +301,7 @@ const before = plugin["tool.execute.before"];
 	if len(lines) != len(wantArguments) {
 		t.Fatalf("captured %d envelopes, want %d\n%s", len(lines), len(wantArguments), raw)
 	}
-	wantTools := []string{"bash", "read", "edit", "write", "list", "glob", "grep", "webfetch", "apply_patch", "custom"}
+	wantTools := []string{"bash", "read", "edit", "write", "glob", "grep", "lsp", "webfetch", "apply_patch", "custom"}
 	envelopes := make([]map[string]any, len(lines))
 	for i, line := range lines {
 		if err := json.Unmarshal(line, &envelopes[i]); err != nil {
@@ -322,7 +322,7 @@ const before = plugin["tool.execute.before"];
 	if got := envelopes[0]["command"]; got != "printf '%s\\n' hi" {
 		t.Errorf("Bash command projection = %q", got)
 	}
-	wantPaths := map[int]string{1: "/repo/a.txt", 2: "/repo/a.txt", 3: "/repo/new.txt", 4: "/repo", 5: "/repo/internal", 6: "/repo/internal"}
+	wantPaths := map[int]string{1: "/repo/a.txt", 2: "/repo/a.txt", 3: "/repo/new.txt", 4: "/repo/internal", 5: "/repo/internal", 6: "/repo/internal/a.go"}
 	for i, want := range wantPaths {
 		envelope := envelopes[i]
 		if !reflect.DeepEqual(envelope["paths"], []any{want}) {

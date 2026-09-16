@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
@@ -25,6 +26,46 @@ type antigravityPayload struct {
 	ConversationID string              `json:"conversationId"`
 	ToolCall       antigravityToolCall `json:"toolCall"`
 	WorkspacePaths []string            `json:"workspacePaths"`
+}
+
+type antigravityPathSchema struct {
+	key     string
+	allowed map[string]struct{}
+}
+
+var antigravityPathSchemas = map[string]antigravityPathSchema{
+	"view_file":                  {"AbsolutePath", allowedFields("AbsolutePath", "StartLine", "EndLine", "IsSkillFile")},
+	"write_to_file":              {"TargetFile", allowedFields("TargetFile", "Overwrite", "CodeContent", "Description", "IsArtifact", "ArtifactMetadata")},
+	"replace_file_content":       {"TargetFile", allowedFields("TargetFile", "Instruction", "Description", "AllowMultiple", "TargetContent", "ReplacementContent", "StartLine", "EndLine", "TargetLintErrorIds")},
+	"multi_replace_file_content": {"TargetFile", allowedFields("TargetFile", "Instruction", "Description", "ReplacementChunks", "TargetLintErrorIds", "ArtifactMetadata")},
+	"list_dir":                   {"DirectoryPath", allowedFields("DirectoryPath")},
+	"find_by_name":               {"SearchDirectory", allowedFields("SearchDirectory", "Pattern", "Type", "Excludes", "Extensions", "FullPath", "MaxDepth")},
+	"grep_search":                {"SearchPath", allowedFields("SearchPath", "Query", "IsRegex", "CaseInsensitive", "Includes", "MatchPerLine")},
+}
+
+func allowedFields(fields ...string) map[string]struct{} {
+	allowed := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		allowed[field] = struct{}{}
+	}
+	return allowed
+}
+
+func documentedAntigravityPath(tool string, input map[string]any) (string, error) {
+	schema, ok := antigravityPathSchemas[tool]
+	if !ok {
+		return "", nil
+	}
+	for key := range input {
+		if _, ok := schema.allowed[key]; !ok {
+			return "", fmt.Errorf("%s argument %q is not documented", tool, key)
+		}
+	}
+	path, ok := input[schema.key].(string)
+	if !ok || path == "" {
+		return "", fmt.Errorf("%s requires string argument %q", tool, schema.key)
+	}
+	return path, nil
 }
 
 func ParseAntigravity(phase string, r io.Reader) (engine.ToolCall, error) {
@@ -80,12 +121,11 @@ func ParseAntigravity(phase string, r io.Reader) (engine.ToolCall, error) {
 		tc.InputShape = "command"
 	}
 	if tc.Capability == policy.CapabilityReadDiscovery || tc.Capability == policy.CapabilityMutation {
-		for _, key := range []string{"AbsolutePath", "TargetFile", "Path", "FilePath", "Directory", "dirPath"} {
-			if path, ok := input[key].(string); ok && path != "" {
-				tc.Paths = []string{path}
-				break
-			}
+		path, err := documentedAntigravityPath(p.ToolCall.Name, input)
+		if err != nil {
+			return engine.ToolCall{}, err
 		}
+		tc.Paths = []string{path}
 		tc.InputShape = "path"
 	}
 	if tc.Capability == policy.CapabilityWebFetch {

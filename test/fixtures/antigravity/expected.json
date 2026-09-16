@@ -6,5 +6,7 @@
   "list-secret.json":       {"decision": "deny"},
   "webfetch.json":          {"decision": "deny"},
   "websearch.json":         {"decision": "force_ask"},
-  "custom.json":            {"decision": "deny"}
+  "custom.json":            {"decision": "deny"},
+  "future-tool.json":       {"decision": "allow"},
+  "list-decoy-secret.json": {"decision": "deny"}
 }
