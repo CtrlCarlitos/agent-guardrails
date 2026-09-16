@@ -5,6 +5,7 @@ package policy
 import (
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // Capability describes the authority exposed by a native plane tool.
@@ -91,7 +92,26 @@ type Slots struct {
 	SecretAskGlobs  []string
 	SecretAllow     []string
 	EgressAllowlist []string
+	WebHosts        []string
 	AuditLog        string
+}
+
+// ValidateWebHost accepts only canonical, exact hostname allowance values.
+func ValidateWebHost(host string) error {
+	if host == "" || host != strings.ToLower(host) || len(host) > 253 || strings.HasSuffix(host, ".") {
+		return fmt.Errorf("web host %q must be a canonical lowercase hostname", host)
+	}
+	for _, label := range strings.Split(host, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return fmt.Errorf("web host %q must be a canonical lowercase hostname", host)
+		}
+		for _, ch := range label {
+			if !(ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '-') {
+				return fmt.Errorf("web host %q must be a canonical lowercase hostname", host)
+			}
+		}
+	}
+	return nil
 }
 
 // Policy is a fully merged, ready-to-evaluate policy.

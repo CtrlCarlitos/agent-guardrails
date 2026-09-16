@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"net/url"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -43,7 +42,9 @@ func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 		return policy.Verdict{Decision: policy.Deny, RuleID: "capability-input-invalid", Reason: "web fetch capability call did not provide a valid HTTP URL"}
 	}
 	switch tc.Capability {
-	case "", policy.CapabilityCommand, policy.CapabilityReadDiscovery, policy.CapabilityMutation, policy.CapabilityWebFetch:
+	case "", policy.CapabilityCommand, policy.CapabilityReadDiscovery, policy.CapabilityMutation:
+	case policy.CapabilityWebFetch:
+		return *checkWebFetch(tc, pol)
 	case policy.CapabilitySafeControl:
 		return policy.Verdict{Decision: policy.Allow}
 	case policy.CapabilityDeny:
@@ -83,11 +84,8 @@ func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 }
 
 func validWebFetchURL(raw string) bool {
-	parsed, err := url.ParseRequestURI(raw)
-	if err != nil || parsed.Host == "" {
-		return false
-	}
-	return parsed.Scheme == "http" || parsed.Scheme == "https"
+	_, err := NormalizeWebFetchURL(raw)
+	return err == nil
 }
 
 func matchOverlayRules(tc ToolCall, pol *policy.Policy) *policy.Verdict {

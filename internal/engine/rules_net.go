@@ -121,6 +121,42 @@ func checkEgress(s Simple, pol *policy.Policy) *policy.Verdict {
 	return nil
 }
 
+// NormalizeWebFetchURL extracts the only persistent authorization value from a
+// direct web-fetch URL. Fragments and credentials can obscure the destination,
+// so they are rejected rather than normalized.
+func NormalizeWebFetchURL(raw string) (string, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
+		return "", fmt.Errorf("must be an absolute HTTP URL without fragment or credentials")
+	}
+	if !strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https") {
+		return "", fmt.Errorf("scheme must be http or https")
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if err := policy.ValidateWebHost(host); err != nil {
+		return "", err
+	}
+	return host, nil
+}
+
+func checkWebFetch(tc ToolCall, pol *policy.Policy) *policy.Verdict {
+	host, err := NormalizeWebFetchURL(tc.URL)
+	if err != nil {
+		return &policy.Verdict{Decision: policy.Deny, RuleID: "web-fetch-invalid", Reason: "web fetch URL could not be verified: " + err.Error()}
+	}
+	if isLocalHost(host) {
+		return &policy.Verdict{Decision: policy.Allow}
+	}
+	if pol != nil {
+		for _, allowed := range pol.Slots.WebHosts {
+			if host == allowed {
+				return &policy.Verdict{Decision: policy.Allow}
+			}
+		}
+	}
+	return &policy.Verdict{Decision: policy.Ask, RuleID: "web-fetch-host", Reason: "web fetch to an unapproved host requires operator approval"}
+}
+
 type networkOptionSpec struct {
 	shortFlags         string
 	shortValues        string

@@ -117,6 +117,21 @@ waive = ["P6.curl-egress"]
 	}
 }
 
+func TestOverlayLoadsExactWebHosts(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "guardrail.toml")
+	if err := os.WriteFile(p, []byte("[slots]\nweb_hosts = [\"pkg.go.dev\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ov, err := LoadOverlay(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(ov.WebHosts, []string{"pkg.go.dev"}) {
+		t.Fatalf("WebHosts = %v, want [pkg.go.dev]", ov.WebHosts)
+	}
+}
+
 func shippedOverlayExamplePath(t *testing.T) (string, string) {
 	t.Helper()
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
