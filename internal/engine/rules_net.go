@@ -140,32 +140,7 @@ func NormalizeWebFetchURL(raw string) (string, error) {
 }
 
 func checkWebFetch(tc ToolCall, pol *policy.Policy) *policy.Verdict {
-	host, err := NormalizeWebFetchURL(tc.URL)
-	if err != nil {
-		return &policy.Verdict{Decision: policy.Deny, RuleID: "web-fetch-invalid", Reason: "web fetch URL could not be verified: " + err.Error()}
-	}
-	finalHost, err := NormalizeWebFetchURL(tc.FinalURL)
-	if err != nil {
-		return &policy.Verdict{Decision: policy.Deny, RuleID: "web-fetch-redirect-unverified", Reason: "web fetch final redirect destination could not be verified"}
-	}
-	if webHostAllowed(host, pol) && webHostAllowed(finalHost, pol) {
-		return &policy.Verdict{Decision: policy.Allow}
-	}
-	return &policy.Verdict{Decision: policy.Ask, RuleID: "web-fetch-host", Reason: "web fetch to an unapproved host requires operator approval"}
-}
-
-func webHostAllowed(host string, pol *policy.Policy) bool {
-	if isLocalHost(host) {
-		return true
-	}
-	if pol != nil {
-		for _, allowed := range pol.Slots.WebHosts {
-			if host == allowed {
-				return true
-			}
-		}
-	}
-	return false
+	return &policy.Verdict{Decision: policy.Deny, RuleID: "web-fetch-native-deny", Reason: "native web fetch cannot verify redirect destinations; use guardrail fetch"}
 }
 
 type networkOptionSpec struct {

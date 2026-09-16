@@ -15,49 +15,10 @@ func evalNet(t *testing.T, cmd string, pol *policy.Policy) *policy.Verdict {
 	return checkBash(ToolCall{Tool: "Bash", Command: cmd, CWD: "/repo", RepoRoot: "/repo"}, pol)
 }
 
-func TestWebFetchAsksForUnapprovedExternalHost(t *testing.T) {
-	v := checkWebFetch(ToolCall{URL: "https://pkg.go.dev/net", FinalURL: "https://pkg.go.dev/net"}, &policy.Policy{})
-	if v == nil || v.Decision != policy.Ask {
-		t.Fatalf("web fetch = %+v, want ask", v)
-	}
-}
-
-func TestWebFetchAllowsLocalhostAndExactHost(t *testing.T) {
-	for _, tc := range []struct {
-		url      string
-		finalURL string
-		pol      *policy.Policy
-	}{
-		{"http://localhost/health", "http://localhost/health", &policy.Policy{}},
-		{"https://PKG.GO.DEV/net", "https://pkg.go.dev/net", &policy.Policy{Slots: policy.Slots{WebHosts: []string{"pkg.go.dev"}}}},
-	} {
-		v := checkWebFetch(ToolCall{URL: tc.url, FinalURL: tc.finalURL}, tc.pol)
-		if v == nil || v.Decision != policy.Allow {
-			t.Errorf("web fetch %q = %+v, want allow", tc.url, v)
-		}
-	}
-}
-
-func TestWebFetchDeniesUnverifiedRedirectDestination(t *testing.T) {
-	v := checkWebFetch(ToolCall{URL: "https://pkg.go.dev/net"}, &policy.Policy{Slots: policy.Slots{WebHosts: []string{"pkg.go.dev"}}})
+func TestNativeWebFetchDenies(t *testing.T) {
+	v := checkWebFetch(ToolCall{URL: "https://pkg.go.dev/net"}, &policy.Policy{})
 	if v == nil || v.Decision != policy.Deny {
 		t.Fatalf("web fetch = %+v, want deny", v)
-	}
-}
-
-func TestWebFetchDeniesExplicitPort(t *testing.T) {
-	v := checkWebFetch(ToolCall{URL: "https://pkg.go.dev:444/net", FinalURL: "https://pkg.go.dev:444/net"}, &policy.Policy{Slots: policy.Slots{WebHosts: []string{"pkg.go.dev"}}})
-	if v == nil || v.Decision != policy.Deny {
-		t.Fatalf("web fetch = %+v, want deny", v)
-	}
-}
-
-func TestWebFetchDeniesMalformedOrRedirectUnverifiableURL(t *testing.T) {
-	for _, rawURL := range []string{"pkg.go.dev/net", "https://user@pkg.go.dev/net", "https://pkg.go.dev/net#redirect"} {
-		v := checkWebFetch(ToolCall{URL: rawURL}, &policy.Policy{})
-		if v == nil || v.Decision != policy.Deny {
-			t.Errorf("web fetch %q = %+v, want deny", rawURL, v)
-		}
 	}
 }
 
