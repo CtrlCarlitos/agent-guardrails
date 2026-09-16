@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
@@ -63,6 +64,10 @@ func TestParseAntigravityUnknownToolPassesThrough(t *testing.T) {
 }
 
 func TestEmitAntigravityPreSanitizesReasonForEveryDecision(t *testing.T) {
+	tc, err := ParseAntigravity("pre", strings.NewReader(`{"conversationId":"c1","toolCall":{"name":"run_command","args":{"CommandLine":"chmod -R 777 /tmp","Cwd":"/tmp"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, test := range []struct {
 		decision policy.Decision
 		want     string
@@ -73,7 +78,7 @@ func TestEmitAntigravityPreSanitizesReasonForEveryDecision(t *testing.T) {
 	} {
 		t.Run(string(test.decision), func(t *testing.T) {
 			var out bytes.Buffer
-			code := EmitAntigravity(policy.Verdict{Decision: test.decision, Reason: "no\nguardrail: forged\x7fclaim"}, "pre", &out)
+			code := EmitAntigravity(policy.Verdict{Decision: test.decision, Reason: "needs approval"}, "pre", tc, &out)
 			if code != 0 {
 				t.Fatalf("code = %d, want 0 (exit code carries no meaning here)", code)
 			}
@@ -81,8 +86,14 @@ func TestEmitAntigravityPreSanitizesReasonForEveryDecision(t *testing.T) {
 			if err := json.Unmarshal(out.Bytes(), &got); err != nil {
 				t.Fatal(err)
 			}
-			if got["decision"] != test.want || got["reason"] != "no guardrail: forged claim" {
+			if got["decision"] != test.want {
 				t.Fatalf("bad payload: %v", got)
+			}
+			if test.decision == policy.Ask && (!strings.Contains(got["reason"], "Operator authorization required: needs approval.") || !strings.Contains(got["reason"], `Request authorization for this exact action: Bash {"CommandLine":"chmod -R 777 /tmp","Cwd":"/tmp"}.`) || !strings.Contains(got["reason"], "If the operator approves, retry this exact tool call once.") || !strings.Contains(got["reason"], "Do not alter or broaden the action.")) {
+				t.Fatalf("ask guidance = %q", got["reason"])
+			}
+			if test.decision == policy.Deny && (!strings.Contains(got["reason"], "Guardrail denied this action: needs approval.") || !strings.Contains(got["reason"], "It cannot be authorized.") || !strings.Contains(got["reason"], "Choose a safe alternative.")) {
+				t.Fatalf("deny guidance = %q", got["reason"])
 			}
 		})
 	}
@@ -90,7 +101,7 @@ func TestEmitAntigravityPreSanitizesReasonForEveryDecision(t *testing.T) {
 
 func TestEmitAntigravityPost(t *testing.T) {
 	var out bytes.Buffer
-	code := EmitAntigravity(policy.Verdict{Decision: policy.Deny, Reason: "irrelevant"}, "post", &out)
+	code := EmitAntigravity(policy.Verdict{Decision: policy.Deny, Reason: "irrelevant"}, "post", engine.ToolCall{}, &out)
 	if code != 0 || out.String() != "{}\n" {
 		t.Fatalf("post phase must always emit {} regardless of v; got code=%d out=%q", code, out.String())
 	}
@@ -98,7 +109,7 @@ func TestEmitAntigravityPost(t *testing.T) {
 
 func TestEmitAntigravityAllowOmitsReason(t *testing.T) {
 	var out bytes.Buffer
-	EmitAntigravity(policy.Verdict{Decision: policy.Allow}, "pre", &out)
+	EmitAntigravity(policy.Verdict{Decision: policy.Allow}, "pre", engine.ToolCall{}, &out)
 	var got map[string]any
 	json.Unmarshal(out.Bytes(), &got)
 	if _, ok := got["reason"]; ok {

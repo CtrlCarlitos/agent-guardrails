@@ -31,6 +31,12 @@ func ParseClaude(r io.Reader) (engine.ToolCall, error) {
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return engine.ToolCall{}, err
 	}
+	var native struct {
+		ToolInput json.RawMessage `json:"tool_input"`
+	}
+	if err := json.Unmarshal(raw, &native); err != nil {
+		return engine.ToolCall{}, err
+	}
 	event := "pre"
 	switch p.HookEventName {
 	case "PostToolUse":
@@ -45,6 +51,7 @@ func ParseClaude(r io.Reader) (engine.ToolCall, error) {
 		Command:   p.ToolInput.Command,
 		SessionID: p.SessionID,
 		CWD:       p.CWD,
+		Arguments: native.ToolInput,
 		Raw:       raw,
 	}
 	if p.ToolInput.FilePath != "" {
@@ -61,10 +68,18 @@ func repoRoot(cwd string) string {
 	return cwd
 }
 
-func EmitClaude(v policy.Verdict, event string, stdout, stderr io.Writer) int {
+func nativeAction(tool string, arguments any) string {
+	b, err := json.Marshal(arguments)
+	if err != nil {
+		return tool
+	}
+	return tool + " " + string(b)
+}
+
+func EmitClaude(v policy.Verdict, event string, tc engine.ToolCall, stdout, stderr io.Writer) int {
 	switch v.Decision {
 	case policy.Deny:
-		fmt.Fprintf(stderr, "guardrail: %s\n", sanitizeForModel(v.Reason))
+		fmt.Fprintf(stderr, "guardrail: %s\n", sanitizeForModel(Guidance(v, nativeAction(tc.Tool, tc.Arguments))))
 		return 2
 	case policy.Ask:
 		hookEvent := "PreToolUse"
@@ -75,7 +90,7 @@ func EmitClaude(v policy.Verdict, event string, stdout, stderr io.Writer) int {
 			"hookSpecificOutput": map[string]any{
 				"hookEventName":            hookEvent,
 				"permissionDecision":       "ask",
-				"permissionDecisionReason": sanitizeForModel(v.Reason),
+				"permissionDecisionReason": sanitizeForModel(Guidance(v, nativeAction(tc.Tool, tc.Arguments))),
 			},
 		}
 		b, _ := json.Marshal(payload)

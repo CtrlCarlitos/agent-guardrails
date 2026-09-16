@@ -35,6 +35,14 @@ func ParseAntigravity(phase string, r io.Reader) (engine.ToolCall, error) {
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return engine.ToolCall{}, err
 	}
+	var native struct {
+		ToolCall struct {
+			Args json.RawMessage `json:"args"`
+		} `json:"toolCall"`
+	}
+	if err := json.Unmarshal(raw, &native); err != nil {
+		return engine.ToolCall{}, err
+	}
 
 	event := "pre"
 	if phase == "post" {
@@ -61,6 +69,7 @@ func ParseAntigravity(phase string, r io.Reader) (engine.ToolCall, error) {
 		Paths:     paths,
 		SessionID: p.ConversationID,
 		CWD:       cwd,
+		Arguments: native.ToolCall.Args,
 		Raw:       raw,
 	}
 	tc.RepoRoot = repoRoot(cwd)
@@ -82,7 +91,7 @@ func normalizeAntigravityTool(name string) string {
 	}
 }
 
-func EmitAntigravity(v policy.Verdict, phase string, stdout io.Writer) int {
+func EmitAntigravity(v policy.Verdict, phase string, tc engine.ToolCall, stdout io.Writer) int {
 	if phase == "post" {
 		stdout.Write([]byte("{}\n"))
 		return 0
@@ -92,8 +101,8 @@ func EmitAntigravity(v policy.Verdict, phase string, stdout io.Writer) int {
 		decision = "force_ask"
 	}
 	payload := map[string]any{"decision": decision}
-	if v.Reason != "" {
-		payload["reason"] = sanitizeForModel(v.Reason)
+	if reason := Guidance(v, nativeAction(tc.Tool, tc.Arguments)); reason != "" {
+		payload["reason"] = sanitizeForModel(reason)
 	}
 	b, _ := json.Marshal(payload)
 	stdout.Write(append(b, '\n'))

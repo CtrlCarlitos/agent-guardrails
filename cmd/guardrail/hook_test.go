@@ -556,6 +556,30 @@ func TestHookClaudeAllow(t *testing.T) {
 	}
 }
 
+func TestHookClaudeAskIncludesAuthorizationGuidance(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	payload := `{"session_id":"s1","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push origin main"}}`
+	var out, errb bytes.Buffer
+	code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d, stderr=%s", code, errb.String())
+	}
+	var got struct {
+		HookSpecificOutput struct {
+			PermissionDecision       string `json:"permissionDecision"`
+			PermissionDecisionReason string `json:"permissionDecisionReason"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	reason := got.HookSpecificOutput.PermissionDecisionReason
+	if got.HookSpecificOutput.PermissionDecision != "ask" || !strings.Contains(reason, "Operator authorization required: push to a protected branch.") || !strings.Contains(reason, `Bash {"command":"git push origin main"}`) || !strings.Contains(reason, "If the operator approves, retry this exact tool call once.") {
+		t.Fatalf("Ask payload = %+v", got.HookSpecificOutput)
+	}
+}
+
 func TestHookClaudeSecretDeny(t *testing.T) {
 	code, _, _ := runHook(t, "read-env.json")
 	if code != 2 {
@@ -1770,6 +1794,24 @@ func TestHookAntigravityAllow(t *testing.T) {
 	}
 }
 
+func TestHookAntigravityAskIncludesAuthorizationGuidance(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	payload := `{"conversationId":"c1","toolCall":{"name":"run_command","args":{"CommandLine":"git push origin main","Cwd":"/tmp"}}}`
+	var out, errb bytes.Buffer
+	code := run([]string{"hook", "antigravity", "pre"}, strings.NewReader(payload), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d, stderr=%s", code, errb.String())
+	}
+	var got map[string]string
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["decision"] != "force_ask" || !strings.Contains(got["reason"], "Operator authorization required: push to a protected branch.") || !strings.Contains(got["reason"], `Bash {"CommandLine":"git push origin main","Cwd":"/tmp"}`) || !strings.Contains(got["reason"], "If the operator approves, retry this exact tool call once.") {
+		t.Fatalf("Ask payload = %v", got)
+	}
+}
+
 func TestHookAntigravityPostAlwaysEmptyObject(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
@@ -1853,7 +1895,7 @@ func TestHookCommandPlaneFailuresRetainExitTwo(t *testing.T) {
 }
 
 func TestHookAntigravityFailureReasonIsSanitized(t *testing.T) {
-	parseErr := errors.New("bad\nforged\t" + strings.Repeat("界", 300) + "\x7f")
+	parseErr := errors.New("bad\nforged\t" + strings.Repeat("界", 600) + "\x7f")
 	var out, errb bytes.Buffer
 	code := run([]string{"hook", "antigravity", "pre"}, failingReader{err: parseErr}, &out, &errb)
 	if code != 0 || errb.Len() != 0 {
@@ -1870,8 +1912,8 @@ func TestHookAntigravityFailureReasonIsSanitized(t *testing.T) {
 	if strings.ContainsAny(reason, "\n\r\t\x00\x7f") {
 		t.Fatalf("parse error reason retained controls: %q", reason)
 	}
-	if len([]rune(reason)) != 201 || !strings.HasSuffix(reason, "…") {
-		t.Fatalf("parse error reason was not truncated at 200 runes plus ellipsis: %q", reason)
+	if len([]rune(reason)) != 513 || !strings.HasSuffix(reason, "…") {
+		t.Fatalf("parse error reason was not truncated at 512 runes plus ellipsis: %q", reason)
 	}
 }
 
