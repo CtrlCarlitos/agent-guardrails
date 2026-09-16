@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
@@ -106,5 +107,108 @@ func TestCompletedWebHostMutationWritesAuditRecord(t *testing.T) {
 	}
 	if rec.OperatorAction != "web-host-grant" || rec.Decision != "completed" || rec.RequestID != "web-host-request" {
 		t.Fatalf("audit record = %+v, want completed web-host mutation", rec)
+	}
+}
+
+func TestConcurrentRepositoryGrantsRetainEveryHost(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	repo := filepath.Join(t.TempDir(), "repo")
+	hosts := []string{"one.example.test", "two.example.test", "three.example.test", "four.example.test"}
+	start := make(chan struct{})
+	errs := make(chan error, len(hosts))
+	var wg sync.WaitGroup
+	for _, host := range hosts {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs <- executeWebHostApproval(approval.Request{RepoRoot: repo, Host: host, Scope: approval.RepoScope, Action: "web-host-grant"})
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	op, err := policy.LoadOperatorConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ov, err := policy.LoadOverlay(filepath.Join(repo, "guardrail.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, host := range hosts {
+		if !op.AllowsWebHost(repo, host) {
+			t.Fatalf("operator config lost concurrent host %q", host)
+		}
+		found := false
+		for _, existing := range ov.WebHosts {
+			found = found || existing == host
+		}
+		if !found {
+			t.Fatalf("overlay lost concurrent host %q", host)
+		}
+	}
+}
+
+func TestAllowanceJournalRecoversAfterOverlayWriteBeforeOperatorWrite(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	host := "crash-window.example.test"
+	overlayPath := filepath.Join(repo, "guardrail.toml")
+	overlay, mode, _, _, err := overlayWebHostContent(overlayPath, host, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, err := policy.LoadOperatorConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	op.Repos[repo] = policy.RepoGrant{WebHosts: []string{host}}
+	operator, err := operatorConfigContent(op)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journalPath, err := allowanceJournalPath(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(journalPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAllowanceJournal(journalPath, allowanceJournal{OverlayPath: overlayPath, OverlayAfter: overlay, OverlayMode: uint32(mode), OperatorPath: policy.OperatorConfigPath(), OperatorAfter: operator}); err != nil {
+		t.Fatal(err)
+	}
+	// Model a process crash after the first durable document replacement.
+	if err := writePrivateFile(overlayPath, overlay, mode); err != nil {
+		t.Fatal(err)
+	}
+	if err := recoverAllowanceJournal(journalPath); err != nil {
+		t.Fatal(err)
+	}
+	op, err = policy.LoadOperatorConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !op.AllowsWebHost(repo, host) {
+		t.Fatal("recovery did not complete operator grant")
+	}
+	ov, err := policy.LoadOverlay(overlayPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ov.WebHosts) != 1 || ov.WebHosts[0] != host {
+		t.Fatalf("recovered overlay web hosts = %v", ov.WebHosts)
+	}
+	if _, err := os.Stat(journalPath); !os.IsNotExist(err) {
+		t.Fatalf("journal remained after recovery: %v", err)
 	}
 }

@@ -125,3 +125,15 @@ safe live-versus-stale socket ownership, and separate mutation audit records.
 - Verification: `/usr/local/go/bin/go test ./...`; `GOOS=windows
   GOARCH=amd64 /usr/local/go/bin/go build -o /tmp/guardrail-windows-test.exe
   ./cmd/guardrail`.
+
+## Fix Round 2
+
+- Daemon startup now binds and verifies exclusive ownership of its private socket
+  before recovering interrupted action state. A failed second start cannot
+  mutate requests owned by a live daemon.
+- Repository web-host grants and revokes now use a locked, private, durable
+  journal that records both target documents before either replacement. Recovery
+  deterministically completes both Overlay and Operator updates after a crash
+  between replacements; concurrent mutations for one repository serialize.
+- Added live-daemon ownership, concurrent grant, and Overlay-before-Operator
+  crash-window recovery coverage.

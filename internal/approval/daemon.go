@@ -100,11 +100,12 @@ func StartDaemon(socket string, broker *Broker, openURL func(string) error) (*Da
 	if broker == nil || openURL == nil {
 		return nil, ErrMalformed
 	}
-	if err := broker.recoverInterruptedActions(); err != nil {
-		return nil, err
-	}
 	listener, err := listenPrivate(socket)
 	if err != nil {
+		return nil, err
+	}
+	if err := broker.recoverInterruptedActions(); err != nil {
+		_ = listener.Close()
 		return nil, err
 	}
 	d := &Daemon{listener: listener, broker: broker, openURL: openURL, browsers: map[string]*Browser{}, activity: time.Now(), closed: make(chan struct{})}

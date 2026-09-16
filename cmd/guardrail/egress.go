@@ -23,11 +23,11 @@ func executeWebHostApproval(r approval.Request) error {
 		return fmt.Errorf("invalid approved web-host action")
 	}
 	grant := r.Action == "web-host-grant"
-	op, err := policy.LoadOperatorConfig()
-	if err != nil {
-		return err
-	}
 	if r.Scope == approval.GlobalScope {
+		op, err := policy.LoadOperatorConfig()
+		if err != nil {
+			return err
+		}
 		op.GlobalWebHosts = updateHost(op.GlobalWebHosts, r.Host, grant)
 		if err := writeOperatorConfig(op); err != nil {
 			return err
@@ -38,35 +38,7 @@ func executeWebHostApproval(r approval.Request) error {
 	if err := os.MkdirAll(r.RepoRoot, 0o755); err != nil {
 		return err
 	}
-	repo := filepath.Clean(r.RepoRoot)
-	overlayPath := filepath.Join(repo, "guardrail.toml")
-	overlay, mode, previous, existed, err := overlayWebHostContent(overlayPath, r.Host, grant)
-	if err != nil {
-		return err
-	}
-	repoGrant := op.Repos[repo]
-	repoGrant.WebHosts = updateHost(repoGrant.WebHosts, r.Host, grant)
-	if op.Repos == nil {
-		op.Repos = map[string]policy.RepoGrant{}
-	}
-	op.Repos[repo] = repoGrant
-	operator, err := operatorConfigContent(op)
-	if err != nil {
-		return err
-	}
-	operatorPath := policy.OperatorConfigPath()
-	if err := os.MkdirAll(filepath.Dir(operatorPath), 0o700); err != nil {
-		return err
-	}
-	if err := writePrivateFile(overlayPath, overlay, mode); err != nil {
-		return err
-	}
-	if err := writePrivateFile(operatorPath, operator, 0o600); err != nil {
-		if existed {
-			_ = writePrivateFile(overlayPath, previous, mode)
-		} else {
-			_ = os.Remove(overlayPath)
-		}
+	if err := applyRepoWebHost(filepath.Clean(r.RepoRoot), r.Host, grant); err != nil {
 		return err
 	}
 	writeWebHostAudit(r)
