@@ -1751,7 +1751,7 @@ reason = "raw\nreason\tclaim\u007f"
 	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 2 {
 		t.Fatalf("exit=%d, want 2; stderr=%q", code, errb.String())
 	}
-	if errb.String() != "guardrail: raw reason claim\n" {
+	if errb.String() != "guardrail: Guardrail denied this action: raw reason claim . It cannot be authorized. Choose a safe alternative.\n" {
 		t.Fatalf("model-facing reason was not sanitized: %q", errb.String())
 	}
 	raw, err := os.ReadFile(filepath.Join(state, "guardrail", "audit.jsonl"))

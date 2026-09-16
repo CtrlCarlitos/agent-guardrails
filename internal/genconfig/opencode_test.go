@@ -372,10 +372,11 @@ try {
 	tests := []struct {
 		response string
 		wantErr  string
+		exact    bool
 	}{
 		{response: "allow"},
-		{response: "ask", wantErr: "guardrail: Operator authorization required: external egress needs approval."},
-		{response: "deny", wantErr: "guardrail: Guardrail denied this action: protected target. It cannot be authorized. Choose a safe alternative."},
+		{response: "ask", wantErr: "guardrail: Operator authorization required: external egress needs approval. Request authorization for this exact action: bash true. If the operator approves, retry this exact tool call once. Do not alter or broaden the action.", exact: true},
+		{response: "deny", wantErr: "guardrail: Guardrail denied this action: protected target. It cannot be authorized. Choose a safe alternative.", exact: true},
 		{response: "unknown", wantErr: "guardrail: bad verdict"},
 		{response: "empty", wantErr: "guardrail: no decision returned"},
 		{response: "malformed", wantErr: "guardrail: unparseable response"},
@@ -398,6 +399,9 @@ try {
 				t.Fatalf("%s response was allowed", tt.response)
 			}
 			errText := string(output)
+			if tt.exact && errText != tt.wantErr {
+				t.Fatalf("error = %q, want exactly %q", errText, tt.wantErr)
+			}
 			if !strings.Contains(errText, tt.wantErr) {
 				t.Fatalf("error = %q, want it to contain %q", errText, tt.wantErr)
 			}
