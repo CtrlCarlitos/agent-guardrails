@@ -10,7 +10,8 @@ import (
 var baseTOML []byte
 
 type fileShape struct {
-	Slots struct {
+	UnknownToolPosture string `toml:"unknown_tool_posture"`
+	Slots              struct {
 		SafeRoots       []string `toml:"safe_roots"`
 		SecretDirs      []string `toml:"secret_dirs"`
 		SecretGlobs     []string `toml:"secret_globs"`
@@ -28,7 +29,7 @@ type fileShape struct {
 	} `toml:"rules"`
 }
 
-func (f fileShape) toPolicy() *Policy {
+func (f fileShape) toPolicy(unknownToolPosture UnknownToolPosture) *Policy {
 	p := &Policy{
 		Slots: Slots{
 			SafeRoots:       f.Slots.SafeRoots,
@@ -39,7 +40,8 @@ func (f fileShape) toPolicy() *Policy {
 			EgressAllowlist: f.Slots.EgressAllowlist,
 			AuditLog:        f.Slots.AuditLog,
 		},
-		Waived: map[string]bool{},
+		Waived:             map[string]bool{},
+		UnknownToolPosture: unknownToolPosture,
 	}
 	for _, r := range f.Rules {
 		p.Rules = append(p.Rules, Rule{
@@ -55,5 +57,9 @@ func LoadBase() (*Policy, error) {
 	if err := toml.Unmarshal(baseTOML, &f); err != nil {
 		return nil, err
 	}
-	return f.toPolicy(), nil
+	posture, err := ParseUnknownToolPosture(f.UnknownToolPosture)
+	if err != nil {
+		return nil, err
+	}
+	return f.toPolicy(posture), nil
 }
