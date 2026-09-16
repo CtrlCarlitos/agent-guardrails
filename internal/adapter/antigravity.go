@@ -129,12 +129,17 @@ func ParseAntigravity(phase string, r io.Reader) (engine.ToolCall, error) {
 		tc.InputShape = "path"
 	}
 	if tc.Capability == policy.CapabilityWebFetch {
-		for _, key := range []string{"Url", "URL", "url"} {
-			if url, ok := input[key].(string); ok {
-				tc.URL = url
-				break
-			}
+		if _, present := input["URL"]; present {
+			return engine.ToolCall{}, fmt.Errorf("antigravity %s has undocumented URL argument", p.ToolCall.Name)
 		}
+		if _, present := input["url"]; present {
+			return engine.ToolCall{}, fmt.Errorf("antigravity %s has undocumented url argument", p.ToolCall.Name)
+		}
+		url, ok := input["Url"].(string)
+		if !ok {
+			return engine.ToolCall{}, fmt.Errorf("antigravity %s requires Url", p.ToolCall.Name)
+		}
+		tc.URL = url
 		tc.InputShape = "url"
 	}
 	if tc.Capability == policy.CapabilityWebSearch {

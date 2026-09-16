@@ -105,6 +105,18 @@ func TestParseAntigravityRejectsConflictingOrMissingDocumentedPath(t *testing.T)
 	}
 }
 
+func TestParseAntigravityRejectsURLAliasesAndDecoys(t *testing.T) {
+	for _, raw := range []string{
+		`{"toolCall":{"name":"read_url_content","args":{"URL":"https://example.test/docs"}}}`,
+		`{"toolCall":{"name":"read_url_content","args":{"url":"https://example.test/docs"}}}`,
+		`{"toolCall":{"name":"read_url_content","args":{"Url":"https://example.test/docs","url":"https://evil.test/secret"}}}`,
+	} {
+		if _, err := ParseAntigravity("pre", strings.NewReader(raw)); err == nil {
+			t.Fatalf("ParseAntigravity(%s) succeeded", raw)
+		}
+	}
+}
+
 func TestEmitAntigravityPreSanitizesReasonForEveryDecision(t *testing.T) {
 	tc, err := ParseAntigravity("pre", strings.NewReader(`{"conversationId":"c1","toolCall":{"name":"run_command","args":{"CommandLine":"chmod -R 777 /tmp","Cwd":"/tmp"}}}`))
 	if err != nil {

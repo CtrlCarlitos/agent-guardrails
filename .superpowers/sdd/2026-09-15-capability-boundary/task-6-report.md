@@ -43,3 +43,11 @@ Implemented the OpenCode and Antigravity capability contracts.
   explicitly denies `task` pending Task 7 inheritance evidence.
 - External-surface assertions, unknown audit/deny posture tests, path-decoy
   fixtures, and the generated OpenCode plugin contract cover the boundary.
+
+## Re-review Fix
+
+- `read_url_content` now accepts only its documented case-sensitive `Url`
+  argument. `URL` and `url` aliases, including an alias decoy alongside `Url`,
+  are rejected before URL extraction.
+- RED: `TestParseAntigravityRejectsURLAliasesAndDecoys` failed because the
+  adapter accepted `URL`; GREEN passed after exact-field validation.
