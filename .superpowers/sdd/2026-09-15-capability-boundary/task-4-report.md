@@ -52,3 +52,15 @@ canonical-only, fail-closed boundary.
 Required decision: specify the exact canonical request forms and parameters
 for repository/global web-host grant and revoke, including how an agent may
 request an Allow once choice without selecting a persistent scope.
+
+## Fix Round 1 Browser Lifecycle Blocker
+
+The canonical persistent-host grammar is now specified, but the required
+browser lifecycle remains undefined by the current process architecture.
+`cmdHook` creates a request then exits; the existing loopback server is an
+in-process goroutine and is terminated with that hook process. A durable
+browser transport therefore requires one of: a persistent broker daemon, a
+parent process that owns the loopback server, or an explicitly specified
+operator command that serves the request. Starting an unmanaged background
+server would make action completion and crash recovery ambiguous, violating
+the review requirement.
