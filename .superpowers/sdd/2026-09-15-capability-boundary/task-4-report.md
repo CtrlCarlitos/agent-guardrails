@@ -38,3 +38,17 @@ All packages, including `test/adversarial`, pass.
 - Persistent web-host grant/revoke actions and a retained browser lifecycle are
   not implemented by this round and require a follow-up before Task 4 can be
   considered fully complete against the expanded review scope.
+
+## Fix Round 1 Blocker
+
+Implementation is blocked before adding persistent web-host actions. The
+binding design requires registered persistent host grant/revoke actions but
+does not define their canonical agent-visible command grammar or a bound
+parameter representation. The existing recognizer deliberately accepts only
+the exact night commands. Inventing a host mutation syntax would expand the
+agent-controlled self-configuration surface and violate the required
+canonical-only, fail-closed boundary.
+
+Required decision: specify the exact canonical request forms and parameters
+for repository/global web-host grant and revoke, including how an agent may
+request an Allow once choice without selecting a persistent scope.
