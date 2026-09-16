@@ -131,6 +131,21 @@ func (b *Broker) Request(id string) (Request, error) {
 	return out, err
 }
 
+func (b *Broker) hasPending() bool {
+	pending := false
+	_ = session.Transaction(requestSessionID, func(st *session.State) error {
+		prune(st.ApprovalRequests, b.now().UTC())
+		for _, request := range st.ApprovalRequests {
+			if request.Status == "pending" || request.Status == "executing" {
+				pending = true
+				break
+			}
+		}
+		return nil
+	})
+	return pending
+}
+
 func (b *Broker) Approve(id string, scope Scope) error {
 	var request Request
 	err := session.Transaction(requestSessionID, func(st *session.State) error {

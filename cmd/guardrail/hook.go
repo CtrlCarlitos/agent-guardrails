@@ -119,7 +119,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	stateApplied := false
 	announceNight := needsNightAnnouncement && tc.SessionID == ""
 	if tc.Event == "pre" && hasOperatorAction {
-		r, createErr := approval.New().Create(approval.Request{
+		r, createErr := approval.SubmitOnDemand(approval.Request{
 			Plane: tc.Plane, SessionID: tc.SessionID, RepoRoot: tc.RepoRoot,
 			Scope: approval.Allow, Reason: "canonical operator action",
 			Action: operatorAction.Name, Parameters: operatorAction.Parameters,

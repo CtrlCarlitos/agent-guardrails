@@ -6,16 +6,39 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 )
+
+func openApprovalBrowser(rawURL string) error {
+	var command string
+	var args []string
+	switch runtime.GOOS {
+	case "darwin":
+		command, args = "open", []string{rawURL}
+	case "windows":
+		command, args = "rundll32", []string{"url.dll,FileProtocolHandler", rawURL}
+	default:
+		command, args = "xdg-open", []string{rawURL}
+	}
+	return exec.Command(command, args...).Start()
+}
 
 func cmdApprovals(args []string, operatorTerminal bool, stdout, stderr io.Writer) int {
 	return cmdApprovalsInput(args, operatorTerminal, os.Stdin, stdout, stderr)
 }
 
 func cmdApprovalsInput(args []string, operatorTerminal bool, input io.Reader, stdout, stderr io.Writer) int {
+	if len(args) == 1 && args[0] == "daemon" {
+		if err := approval.RunDefaultDaemon(openApprovalBrowser); err != nil {
+			fmt.Fprintf(stderr, "guardrail: %v\n", err)
+			return 1
+		}
+		return 0
+	}
 	if !operatorTerminal {
 		fmt.Fprintln(stderr, "approvals are available only from an operator terminal")
 		return 2
@@ -27,10 +50,10 @@ func cmdApprovalsInput(args []string, operatorTerminal bool, input io.Reader, st
 		fmt.Fprintln(stderr, "guardrail: approvals requires --request <id>")
 		return 2
 	}
-	broker := approval.New()
-	r, err := broker.Request(*id)
+	socket := approval.DefaultSocketPath()
+	r, err := approval.Lookup(socket, *id)
 	if err != nil || r.Status != "pending" {
-		fmt.Fprintln(stderr, "guardrail: approval request is unavailable")
+		fmt.Fprintln(stderr, "guardrail: approval daemon unavailable")
 		return 1
 	}
 	fmt.Fprintf(stdout, "request %s\nplane: %s\nrepository: %s\nhost: %s\naction: %s\nscope: %s\nexpires: %s\n", r.ID, r.Plane, r.RepoRoot, r.Host, r.Action, r.Scope, r.ExpiresAt.Format("2006-01-02T15:04:05Z07:00"))
@@ -41,14 +64,14 @@ func cmdApprovalsInput(args []string, operatorTerminal bool, input io.Reader, st
 		return 1
 	}
 	if strings.TrimSpace(strings.ToLower(line)) != "y" {
-		if err := broker.Deny(r.ID); err != nil {
-			fmt.Fprintln(stderr, "guardrail: approval request is unavailable")
+		if err := approval.Deny(socket, r.ID); err != nil {
+			fmt.Fprintln(stderr, "guardrail: approval daemon unavailable")
 			return 1
 		}
 		fmt.Fprintln(stdout, "denied")
 		return 0
 	}
-	if err := broker.Approve(r.ID, r.Scope); err != nil {
+	if err := approval.Approve(socket, r.ID, r.Scope); err != nil {
 		fmt.Fprintln(stderr, "guardrail: approval could not be completed")
 		return 1
 	}

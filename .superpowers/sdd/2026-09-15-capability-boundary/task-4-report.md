@@ -79,3 +79,37 @@ authentication scheme would violate the explicit fail-closed requirement.
 Required decision: define the daemon socket authentication protocol, including
 platform support, token/credential source, permissions, validation, and daemon
 restart behavior.
+
+## Completion
+
+- Implemented the on-demand broker daemon over a mode-0700 Unix socket
+  directory. Hooks submit requests to the daemon and return a completion
+  verdict; the operator TTY is a daemon client.
+- The daemon owns the loopback browser, passes its 256-bit single-use token
+  only to the OS browser launcher, and never persists, audits, or returns it
+  through the broker protocol. It exits after ten minutes without activity and
+  pending requests keep it alive.
+- Added exact canonical recognition and broker-executed repository/global
+  persistent-host grant and revoke actions. Repository grants update both the
+  Overlay and matching Operator authorization; global grants update only the
+  Operator config. Replays, malformed actions, and scope changes deny.
+- Verification: `/usr/local/go/bin/go test ./...`.
+
+## Task 4 Finalization
+
+- `guardrail approvals daemon` now dispatches before the operator-terminal
+  check, allowing an on-demand hook re-exec to create the broker socket.
+- The TTY approval command now looks up, approves, and denies only through
+  the daemon socket; it cannot bypass an unavailable daemon via the session
+  store.
+- Unix, WSL, and macOS retain the private mode-0700 socket directory. Long
+  state-root paths use a deterministic short private socket path to remain
+  within Unix-domain socket limits.
+- Windows persistent/operator approvals fail closed with: `persistent
+  approvals are unavailable on Windows; use Unix, WSL, or macOS`. Windows is
+  not supported for persistent approvals.
+- Added a production-binary adversarial test that starts `approvals daemon`,
+  verifies private socket creation, and submits a canonical night request.
+- Verification: `/usr/local/go/bin/go test ./...`; `GOOS=windows
+  GOARCH=amd64 /usr/local/go/bin/go build -o /tmp/guardrail-windows-test.exe
+  ./cmd/guardrail`.
