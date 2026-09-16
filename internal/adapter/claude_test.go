@@ -3,9 +3,12 @@ package adapter
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
 func TestParseClaudeBash(t *testing.T) {
@@ -35,6 +38,36 @@ func TestParseClaudeRead(t *testing.T) {
 	}
 	if tc.Tool != "Read" || len(tc.Paths) != 1 || tc.Paths[0] != "/home/u/proj/.env" {
 		t.Fatalf("bad ToolCall: %+v", tc)
+	}
+}
+
+func TestParseClaudeClassifiesCapabilityInputs(t *testing.T) {
+	tests := []struct {
+		name       string
+		tool       string
+		input      string
+		capability policy.Capability
+		path       string
+		url        string
+	}{
+		{"powershell", "PowerShell", `{"command":"Remove-Item safe.txt"}`, policy.CapabilityCommand, "", ""},
+		{"glob", "Glob", `{"pattern":"**/*.go","path":"/repo"}`, policy.CapabilityReadDiscovery, "/repo", ""},
+		{"notebook", "NotebookEdit", `{"notebook_path":"/repo/a.ipynb"}`, policy.CapabilityMutation, "/repo/a.ipynb", ""},
+		{"fetch", "WebFetch", `{"url":"https://example.test/docs"}`, policy.CapabilityWebFetch, "", "https://example.test/docs"},
+		{"search", "WebSearch", `{"query":"guardrails"}`, policy.CapabilityWebSearch, "", ""},
+		{"mcp", "mcp__server__unsafe", `{}`, policy.CapabilityDeny, "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := fmt.Sprintf(`{"hook_event_name":"PreToolUse","tool_name":%q,"tool_input":%s}`, tt.tool, tt.input)
+			tc, err := ParseClaude(strings.NewReader(payload))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.Capability != tt.capability || tc.URL != tt.url || (tt.path != "" && (len(tc.Paths) != 1 || tc.Paths[0] != tt.path)) {
+				t.Fatalf("ToolCall = %+v", tc)
+			}
+		})
 	}
 }
 

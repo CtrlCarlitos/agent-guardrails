@@ -4,6 +4,7 @@
 package genconfig
 
 import (
+	"github.com/CtrlCarlitos/agent-guardrails/internal/planecontract"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/bmatcuk/doublestar/v4"
 )
@@ -195,7 +196,7 @@ func claudeHooks(binary string) map[string]any {
 		"PreToolUse": []any{
 			map[string]any{
 				"id":      "guardrail-claude-pre",
-				"matcher": "Bash|Read|Edit|Write|MultiEdit",
+				"matcher": planecontract.ClaudePreHookMatcher(),
 				"hooks": []any{
 					map[string]any{"type": "command", "command": cmd, "timeout": 10},
 				},
