@@ -4,15 +4,15 @@ OpenCode's `tool.execute.before` extension point can only return normally or
 throw. Its `permission.asked` and `permission.replied` events are observers;
 they do not let this Adapter create a native permission request or correlate a
 reply to an Engine Verdict. ADR-0007 therefore rendered an Engine `ask` as a
-throw telling the model to ask the user and retry, but an identical retry still
-produces the same `ask` and can never execute.
+throw, but an identical retry still produces the same `ask` and can never
+execute.
 
 Decision: for every OpenCode pre-execution tool call, not only Bash, the Engine
 will use one-shot **approval memory** in the existing per-session state. The
-first `ask` stores a pending entry and still throws. The Adapter message is:
-
-> guardrail needs confirmation — &lt;reason&gt;. Ask the user; if they approve,
-> re-run this exact tool call.
+first `ask` stores a pending entry and still throws. The Adapter now emits the
+Engine-adapter shared operator-authorization guidance described in
+[design](../superpowers/specs/2026-09-15-actionable-authorization-design.md);
+a Deny cannot be authorized.
 
 If the same OpenCode session submits the same normalized tool and canonical
 arguments from the byte-for-byte same CWD within ten minutes, normal policy

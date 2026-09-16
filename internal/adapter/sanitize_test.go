@@ -39,8 +39,8 @@ func TestSanitizeForModelStripsUnicodeControlsAndNormalizesWhitespace(t *testing
 }
 
 func TestSanitizeForModelTruncatesAtUnicodeRuneBoundary(t *testing.T) {
-	want := strings.Repeat("界", 200) + "…"
-	got := sanitizeForModel(strings.Repeat("界", 200) + "終")
+	want := strings.Repeat("界", 512) + "…"
+	got := sanitizeForModel(strings.Repeat("界", 512) + "終")
 	if got != want {
 		t.Fatalf("sanitizeForModel() = %q, want %q", got, want)
 	}
@@ -50,7 +50,7 @@ func TestSanitizeForModelTruncatesAtUnicodeRuneBoundary(t *testing.T) {
 }
 
 func TestSanitizeForModelDoesNotTruncateExactBoundary(t *testing.T) {
-	want := strings.Repeat("界", 200)
+	want := strings.Repeat("界", 512)
 	if got := sanitizeForModel(want); got != want {
 		t.Fatalf("sanitizeForModel() = %q, want exact 200-rune input unchanged", got)
 	}

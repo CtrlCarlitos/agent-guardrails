@@ -339,8 +339,8 @@ func TestOpencodePluginRequiresExplicitAllow(t *testing.T) {
 IFS= read -r _ || :
 case "$GUARDRAIL_TEST_RESPONSE" in
 	allow) printf '%s' '{"decision":"allow","reason":"accepted"}' ;;
-	ask) printf '%s' '{"decision":"ask","reason":"confirm it"}' ;;
-	deny) printf '%s' '{"decision":"deny","reason":"blocked it"}' ;;
+	ask) printf '%s' '{"decision":"ask","reason":"Operator authorization required: external egress needs approval. Request authorization for this exact action: bash true. If the operator approves, retry this exact tool call once. Do not alter or broaden the action."}' ;;
+	deny) printf '%s' '{"decision":"deny","reason":"Guardrail denied this action: protected target. It cannot be authorized. Choose a safe alternative."}' ;;
 	unknown) printf '%s' '{"decision":"unexpected","reason":"bad verdict"}' ;;
 	empty) ;;
 	malformed) printf '%s' 'not-json' ;;
@@ -375,8 +375,8 @@ try {
 		exact    bool
 	}{
 		{response: "allow"},
-		{response: "ask", wantErr: "guardrail needs confirmation \u2014 confirm it. Ask the user; if they approve, re-run this exact tool call.", exact: true},
-		{response: "deny", wantErr: "guardrail: blocked it"},
+		{response: "ask", wantErr: "guardrail: Operator authorization required: external egress needs approval. Request authorization for this exact action: bash true. If the operator approves, retry this exact tool call once. Do not alter or broaden the action.", exact: true},
+		{response: "deny", wantErr: "guardrail: Guardrail denied this action: protected target. It cannot be authorized. Choose a safe alternative.", exact: true},
 		{response: "unknown", wantErr: "guardrail: bad verdict"},
 		{response: "empty", wantErr: "guardrail: no decision returned"},
 		{response: "malformed", wantErr: "guardrail: unparseable response"},
@@ -398,11 +398,15 @@ try {
 			if err == nil {
 				t.Fatalf("%s response was allowed", tt.response)
 			}
-			if tt.exact && string(output) != tt.wantErr {
-				t.Fatalf("error = %q, want exactly %q", output, tt.wantErr)
+			errText := string(output)
+			if tt.exact && errText != tt.wantErr {
+				t.Fatalf("error = %q, want exactly %q", errText, tt.wantErr)
 			}
-			if !strings.Contains(string(output), tt.wantErr) {
-				t.Fatalf("error = %q, want it to contain %q", output, tt.wantErr)
+			if !strings.Contains(errText, tt.wantErr) {
+				t.Fatalf("error = %q, want it to contain %q", errText, tt.wantErr)
+			}
+			if (tt.response == "ask" || tt.response == "deny") && (strings.Contains(errText, "needs confirmation") || strings.Contains(errText, "re-run this exact tool call")) {
+				t.Fatalf("error retains legacy confirmation prose: %q", errText)
 			}
 		})
 	}
@@ -421,7 +425,7 @@ IFS= read -r _ || :
 printf '%s\n' 'guardrail: session transaction committed but lock release failed (injected release forged claim)' >&2
 case "$GUARDRAIL_TEST_RESPONSE" in
 	allow) printf '%s' '{"decision":"allow","reason":"accepted"}' ;;
-	ask) printf '%s' '{"decision":"ask","reason":"confirm it"}' ;;
+	ask) printf '%s' '{"decision":"ask","reason":"Operator authorization required: external egress needs approval. Request authorization for this exact action: bash true. If the operator approves, retry this exact tool call once. Do not alter or broaden the action."}' ;;
 esac
 `
 	if err := os.WriteFile(binary, []byte(fakeGuardrail), 0o755); err != nil {
@@ -448,7 +452,7 @@ try {
 }
 `
 	warning := "guardrail: session transaction committed but lock release failed (injected release forged claim)\n"
-	wantAsk := "guardrail needs confirmation \u2014 confirm it. Ask the user; if they approve, re-run this exact tool call."
+	wantAsk := "guardrail: Operator authorization required: external egress needs approval. Request authorization for this exact action: bash true. If the operator approves, retry this exact tool call once. Do not alter or broaden the action."
 	for _, tt := range []struct {
 		response string
 		wantOut  string

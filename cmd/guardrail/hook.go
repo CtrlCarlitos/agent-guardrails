@@ -34,17 +34,17 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	var highPriorityWarnings []string
+	var tc engine.ToolCall
 	failClosed := func(reason string) int {
 		highPriorityWarnings = append(highPriorityWarnings, reason)
 		if plane == "antigravity" {
 			v := policy.Verdict{Decision: policy.Deny, Reason: reason}
-			return adapter.EmitAntigravity(v, antigravityPhase, stdout)
+			return adapter.EmitAntigravity(v, antigravityPhase, tc, stdout)
 		}
 		adapter.EmitModelWarnings(highPriorityWarnings, stderr)
 		return 2
 	}
 
-	var tc engine.ToolCall
 	var err error
 	switch plane {
 	case "claude":
@@ -197,11 +197,11 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	switch plane {
 	case "claude":
-		return adapter.EmitClaude(v, tc.Event, stdout, stderr)
+		return adapter.EmitClaude(v, tc.Event, tc, stdout, stderr)
 	case "opencode":
-		return adapter.EmitOpencode(v, stdout, stderr)
+		return adapter.EmitOpencode(v, tc, stdout, stderr)
 	case "antigravity":
-		return adapter.EmitAntigravity(v, antigravityPhase, stdout)
+		return adapter.EmitAntigravity(v, antigravityPhase, tc, stdout)
 	default:
 		return 2
 	}

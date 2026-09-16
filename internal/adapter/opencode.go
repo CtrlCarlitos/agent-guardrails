@@ -42,15 +42,16 @@ func ParseOpencode(r io.Reader) (engine.ToolCall, error) {
 		event = "pre"
 	}
 	tc := engine.ToolCall{
-		Plane:     "opencode",
-		Event:     event,
-		Tool:      normalizeOpencodeTool(p.Tool),
-		Command:   p.Command,
-		Paths:     p.Paths,
-		Arguments: p.Arguments,
-		SessionID: p.SessionID,
-		CWD:       p.CWD,
-		Raw:       raw,
+		Plane:      "opencode",
+		Event:      event,
+		Tool:       normalizeOpencodeTool(p.Tool),
+		NativeTool: p.Tool,
+		Command:    p.Command,
+		Paths:      p.Paths,
+		Arguments:  p.Arguments,
+		SessionID:  p.SessionID,
+		CWD:        p.CWD,
+		Raw:        raw,
 	}
 	tc.RepoRoot = repoRoot(p.CWD)
 	return tc, nil
@@ -73,8 +74,8 @@ func normalizeOpencodeTool(t string) string {
 	}
 }
 
-func EmitOpencode(v policy.Verdict, stdout, stderr io.Writer) int {
-	payload := map[string]any{"decision": string(v.Decision), "reason": sanitizeForModel(v.Reason)}
+func EmitOpencode(v policy.Verdict, tc engine.ToolCall, stdout, stderr io.Writer) int {
+	payload := map[string]any{"decision": string(v.Decision), "reason": guidanceForModel(v, nativeAction(tc.NativeTool, tc.Arguments))}
 	b, _ := json.Marshal(payload)
 	stdout.Write(append(b, '\n'))
 	if v.Decision == policy.Deny {

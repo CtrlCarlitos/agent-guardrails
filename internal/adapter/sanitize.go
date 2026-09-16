@@ -8,7 +8,7 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 )
 
-const maxModelFacingRunes = 200
+const maxModelFacingRunes = 512
 const maxModelFacingWarnings = 20
 
 var waiverIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
