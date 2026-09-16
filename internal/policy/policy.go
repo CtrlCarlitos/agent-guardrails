@@ -46,6 +46,9 @@ const (
 	Allow Decision = "allow"
 	Ask   Decision = "ask"
 	Deny  Decision = "deny"
+	// Complete blocks the originating call while reporting a broker-owned action.
+	// It is deliberately not an Ask and must never enable a model retry.
+	Complete Decision = "complete"
 )
 
 func (d Decision) Severity() int {
@@ -55,6 +58,8 @@ func (d Decision) Severity() int {
 	case Ask:
 		return 1
 	case Deny:
+		return 2
+	case Complete:
 		return 2
 	default:
 		return -1

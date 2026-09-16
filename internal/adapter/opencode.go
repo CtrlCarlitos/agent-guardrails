@@ -75,6 +75,12 @@ func normalizeOpencodeTool(t string) string {
 }
 
 func EmitOpencode(v policy.Verdict, tc engine.ToolCall, stdout, stderr io.Writer) int {
+	if v.Decision == policy.Complete {
+		payload := map[string]any{"decision": "deny", "operator_action": v.OperatorAction, "request_id": v.RequestID, "status": "pending"}
+		b, _ := json.Marshal(payload)
+		stdout.Write(append(b, '\n'))
+		return 2
+	}
 	payload := map[string]any{"decision": string(v.Decision), "reason": guidanceForModel(v, nativeAction(tc.NativeTool, tc.Arguments))}
 	b, _ := json.Marshal(payload)
 	stdout.Write(append(b, '\n'))

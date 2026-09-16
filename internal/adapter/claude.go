@@ -79,6 +79,11 @@ func nativeAction(tool string, arguments any) string {
 
 func EmitClaude(v policy.Verdict, event string, tc engine.ToolCall, stdout, stderr io.Writer) int {
 	switch v.Decision {
+	case policy.Complete:
+		payload := map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PreToolUse", "permissionDecision": "deny", "additionalContext": "operator action pending", "operator_action": v.OperatorAction, "request_id": v.RequestID}}
+		b, _ := json.Marshal(payload)
+		stdout.Write(append(b, '\n'))
+		return 0
 	case policy.Deny:
 		fmt.Fprintf(stderr, "guardrail: %s\n", guidanceForModel(v, nativeAction(tc.NativeTool, tc.Arguments)))
 		return 2

@@ -2643,7 +2643,7 @@
     "cwd": "/repo",
     "repo_root": "/repo",
     "night": true,
-    "want": "ask",
+    "want": "complete",
     "want_rule_id": "operator-action"
   }
 ]

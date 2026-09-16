@@ -25,4 +25,16 @@ All packages, including `test/adversarial`, pass.
 
 ## Concerns
 
-No unresolved concerns.
+## Fix Round 1
+
+- Canonical broker actions now emit the structured `complete` verdict. Adapters
+  block the originating native call and return pending action metadata instead
+  of an Ask/force_ask retry path.
+- Added adapter and adversarial coverage for the non-retry completion contract.
+- Verification: `/usr/local/go/bin/go test ./...`.
+
+## Remaining Concerns
+
+- Persistent web-host grant/revoke actions and a retained browser lifecycle are
+  not implemented by this round and require a follow-up before Task 4 can be
+  considered fully complete against the expanded review scope.

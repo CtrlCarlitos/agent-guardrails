@@ -247,10 +247,11 @@ func TestAdversarialCorpus(t *testing.T) {
 
 func TestClassifyClaudeResult(t *testing.T) {
 	const (
-		denyAudit   = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"deny"}` + "\n"
-		askAudit    = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"ask"}` + "\n"
-		allowAudit  = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"allow"}` + "\n"
-		originAudit = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"allow","rule_id":"ask-approved-by-retry","origin_rule_id":"P2.git-checkout-restore"}` + "\n"
+		denyAudit     = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"deny"}` + "\n"
+		askAudit      = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"ask"}` + "\n"
+		allowAudit    = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"allow"}` + "\n"
+		completeAudit = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"complete"}` + "\n"
+		originAudit   = `{"ts":"2026-09-04T00:00:00Z","session_id":"adv-test","plane":"claude","tool":"Bash","event":"pre","decision":"allow","rule_id":"ask-approved-by-retry","origin_rule_id":"P2.git-checkout-restore"}` + "\n"
 	)
 	tests := []struct {
 		name   string
@@ -264,6 +265,7 @@ func TestClassifyClaudeResult(t *testing.T) {
 		{name: "allow", code: 0, audit: allowAudit, want: "allow"},
 		{name: "allow with origin attribution", code: 0, audit: originAudit, want: "allow"},
 		{name: "ask", code: 0, stdout: `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"confirm"}}` + "\n", audit: askAudit, want: "ask"},
+		{name: "complete", code: 0, stdout: `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","additionalContext":"operator action pending","operator_action":"night-off","request_id":"request-1"}}` + "\n", audit: completeAudit, want: "complete"},
 		{name: "deny", code: 2, stderr: "guardrail: blocked by policy\n", audit: denyAudit, want: "deny"},
 		{name: "deny reason contains runtime marker", code: 2, stderr: "guardrail: target contains runtime: metadata\n", audit: denyAudit, want: "deny"},
 		{name: "deny reason contains embedded newline", code: 2, stderr: "guardrail: first reason line\nsecond reason line\n", audit: denyAudit, want: "deny"},
@@ -428,8 +430,10 @@ func classifyClaudeProcess(code int, stdout, stderr string) (string, error) {
 			return "", fmt.Errorf("exit-zero stdout is not Claude hook JSON: %w", err)
 		}
 		hook := response.HookSpecificOutput
-		if hook.PermissionDecision != "ask" || hook.PermissionDecisionReason == "" ||
-			hook.HookEventName != "PreToolUse" {
+		if hook.PermissionDecision == "deny" && hook.HookEventName == "PreToolUse" {
+			return "complete", nil
+		}
+		if hook.PermissionDecision != "ask" || hook.PermissionDecisionReason == "" || hook.HookEventName != "PreToolUse" {
 			return "", errors.New("exit-zero stdout does not match Claude ask contract")
 		}
 		return "ask", nil
@@ -491,7 +495,7 @@ func validateEntry(e entry, names map[string]bool) error {
 		}
 	}
 	switch e.Want {
-	case "allow", "ask", "deny":
+	case "allow", "ask", "deny", "complete":
 		return nil
 	default:
 		return fmt.Errorf("%q has invalid want %q", e.Name, e.Want)

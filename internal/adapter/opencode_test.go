@@ -195,6 +195,17 @@ func TestEmitOpencodeAskRetainsMandatoryContentWhenReasonExceedsBound(t *testing
 	}
 }
 
+func TestEmitOpencodeOperatorActionIsNotRetryableAsk(t *testing.T) {
+	var out, errb bytes.Buffer
+	code := EmitOpencode(policy.Verdict{Decision: policy.Complete, OperatorAction: "night-off", RequestID: "request-1"}, engine.ToolCall{}, &out, &errb)
+	if code != 2 {
+		t.Fatalf("exit = %d, want blocked action", code)
+	}
+	if strings.Contains(out.String(), `"decision":"ask"`) || !strings.Contains(out.String(), `"operator_action":"night-off"`) {
+		t.Fatalf("operator-action response = %s", out.String())
+	}
+}
+
 func TestEmitOpencodeAllow(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := EmitOpencode(policy.Verdict{Decision: policy.Allow}, engine.ToolCall{}, &out, &errb)

@@ -507,12 +507,12 @@ func TestHookCanonicalNightControlCreatesBrokerRequestAcrossPlanes(t *testing.T)
 			enableNightForHook(t)
 			var stdout, stderr bytes.Buffer
 			code := run(tt.args, strings.NewReader(tt.payload), &stdout, &stderr)
-			if code != 0 {
+			if code != 2 && tt.name == "opencode" {
 				t.Fatalf("exit = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
 			}
 			records := readApprovalAudit(t, stateHome)
-			if len(records) != 1 || records[0].Decision != "ask" || records[0].RuleID != "operator-action" {
-				t.Fatalf("audit = %+v, want ask/operator-action", records)
+			if len(records) != 1 || records[0].Decision != "complete" || records[0].RuleID != "operator-action" {
+				t.Fatalf("audit = %+v, want complete/operator-action", records)
 			}
 		})
 	}

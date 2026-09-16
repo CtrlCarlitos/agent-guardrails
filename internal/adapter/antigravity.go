@@ -98,10 +98,18 @@ func EmitAntigravity(v policy.Verdict, phase string, tc engine.ToolCall, stdout 
 		return 0
 	}
 	decision := string(v.Decision)
+	if v.Decision == policy.Complete {
+		decision = "deny"
+	}
 	if v.Decision == policy.Ask {
 		decision = "force_ask"
 	}
 	payload := map[string]any{"decision": decision}
+	if v.Decision == policy.Complete {
+		payload["operator_action"] = v.OperatorAction
+		payload["request_id"] = v.RequestID
+		payload["status"] = "pending"
+	}
 	if reason := guidanceForModel(v, nativeAction(tc.NativeTool, tc.Arguments)); reason != "" {
 		payload["reason"] = reason
 	}
