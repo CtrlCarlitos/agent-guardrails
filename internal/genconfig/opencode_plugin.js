@@ -40,9 +40,6 @@ function callGuardrail(envelope) {
 	}
 	if (decision.decision !== "allow") {
 		const reason = decision.reason || "no decision returned";
-		if (decision.decision === "ask") {
-			throw new Error(`guardrail needs confirmation \u2014 ${reason}. Ask the user; if they approve, re-run this exact tool call.`);
-		}
 		throw new Error(`guardrail: ${reason}`);
 	}
 	if (res.status !== 0) {
