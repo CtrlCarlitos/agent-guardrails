@@ -122,12 +122,12 @@ func checkEgress(s Simple, pol *policy.Policy) *policy.Verdict {
 }
 
 // NormalizeWebFetchURL extracts the only persistent authorization value from a
-// direct web-fetch URL. Fragments and credentials can obscure the destination,
-// so they are rejected rather than normalized.
+// direct web-fetch URL. Ports, fragments, and credentials can obscure or widen
+// the destination, so they are rejected rather than normalized.
 func NormalizeWebFetchURL(raw string) (string, error) {
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
-		return "", fmt.Errorf("must be an absolute HTTP URL without fragment or credentials")
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" || parsed.Port() != "" {
+		return "", fmt.Errorf("must be an absolute HTTP URL without port, fragment, or credentials")
 	}
 	if !strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https") {
 		return "", fmt.Errorf("scheme must be http or https")
@@ -144,17 +144,28 @@ func checkWebFetch(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	if err != nil {
 		return &policy.Verdict{Decision: policy.Deny, RuleID: "web-fetch-invalid", Reason: "web fetch URL could not be verified: " + err.Error()}
 	}
-	if isLocalHost(host) {
+	finalHost, err := NormalizeWebFetchURL(tc.FinalURL)
+	if err != nil {
+		return &policy.Verdict{Decision: policy.Deny, RuleID: "web-fetch-redirect-unverified", Reason: "web fetch final redirect destination could not be verified"}
+	}
+	if webHostAllowed(host, pol) && webHostAllowed(finalHost, pol) {
 		return &policy.Verdict{Decision: policy.Allow}
+	}
+	return &policy.Verdict{Decision: policy.Ask, RuleID: "web-fetch-host", Reason: "web fetch to an unapproved host requires operator approval"}
+}
+
+func webHostAllowed(host string, pol *policy.Policy) bool {
+	if isLocalHost(host) {
+		return true
 	}
 	if pol != nil {
 		for _, allowed := range pol.Slots.WebHosts {
 			if host == allowed {
-				return &policy.Verdict{Decision: policy.Allow}
+				return true
 			}
 		}
 	}
-	return &policy.Verdict{Decision: policy.Ask, RuleID: "web-fetch-host", Reason: "web fetch to an unapproved host requires operator approval"}
+	return false
 }
 
 type networkOptionSpec struct {

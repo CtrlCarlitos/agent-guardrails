@@ -16,6 +16,7 @@ type ToolCall struct {
 	NativeTool string // original plane tool name for model-facing action guidance
 	Capability policy.Capability
 	URL        string
+	FinalURL   string // verified final URL after redirects; required for web fetch authorization
 	InputShape string
 	Command    string // shell command, when the tool is a shell
 	Paths      []string
