@@ -65,6 +65,24 @@ func TestPathCapabilitiesDenyWithoutPaths(t *testing.T) {
 	}
 }
 
+func TestPathCapabilitiesDenyEmptyPath(t *testing.T) {
+	for _, capability := range []policy.Capability{policy.CapabilityReadDiscovery, policy.CapabilityMutation} {
+		v := Evaluate(ToolCall{NativeTool: "path_tool", Capability: capability, Paths: []string{""}}, fullPol())
+		if v.Decision != policy.Deny {
+			t.Fatalf("%s with empty path = %+v, want deny", capability, v)
+		}
+	}
+}
+
+func TestWebFetchCapabilityDeniesMissingOrInvalidURL(t *testing.T) {
+	for _, rawURL := range []string{"", "not a URL", "ftp://example.com/file", "https://"} {
+		v := Evaluate(ToolCall{NativeTool: "webfetch", Capability: policy.CapabilityWebFetch, URL: rawURL}, fullPol())
+		if v.Decision != policy.Deny {
+			t.Fatalf("web_fetch %q = %+v, want deny", rawURL, v)
+		}
+	}
+}
+
 func TestCommandCapabilityDeniesWithoutCommand(t *testing.T) {
 	v := Evaluate(ToolCall{NativeTool: "command_tool", Capability: policy.CapabilityCommand}, fullPol())
 	if v.Decision != policy.Deny {

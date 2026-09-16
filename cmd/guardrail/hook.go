@@ -170,23 +170,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		v = prependVerdictReason(v, nightState.Banner())
 	}
 
-	rec := audit.Record{
-		SessionID:    tc.SessionID,
-		Plane:        tc.Plane,
-		Tool:         tc.Tool,
-		NativeTool:   tc.NativeTool,
-		Capability:   string(tc.Capability),
-		InputShape:   tc.InputShape,
-		AuditKind:    v.AuditKind,
-		Event:        tc.Event,
-		Command:      tc.Command,
-		Paths:        tc.Paths,
-		Decision:     string(v.Decision),
-		RuleID:       v.RuleID,
-		OriginRuleID: v.OriginRuleID,
-		Reason:       v.Reason,
-		Waivers:      policy.SortedWaivers(merged),
-	}
+	rec := auditRecord(tc, v, policy.SortedWaivers(merged))
 	if err := audit.Write(rec, audit.DefaultPath(merged.Slots.AuditLog)); err != nil {
 		highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: audit write failed (%v)", err))
 		if nightAllowed {
@@ -209,6 +193,29 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	default:
 		return 2
 	}
+}
+
+func auditRecord(tc engine.ToolCall, v policy.Verdict, waivers []string) audit.Record {
+	rec := audit.Record{
+		SessionID:    tc.SessionID,
+		Plane:        tc.Plane,
+		Tool:         tc.Tool,
+		NativeTool:   tc.NativeTool,
+		Capability:   string(tc.Capability),
+		InputShape:   tc.InputShape,
+		AuditKind:    v.AuditKind,
+		Event:        tc.Event,
+		Decision:     string(v.Decision),
+		RuleID:       v.RuleID,
+		OriginRuleID: v.OriginRuleID,
+		Reason:       v.Reason,
+		Waivers:      waivers,
+	}
+	if tc.Capability != policy.CapabilityUnknown {
+		rec.Command = tc.Command
+		rec.Paths = tc.Paths
+	}
+	return rec
 }
 
 func prependVerdictReason(v policy.Verdict, prefix string) policy.Verdict {

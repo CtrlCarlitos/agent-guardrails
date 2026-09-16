@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"net/url"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -28,8 +29,18 @@ func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 	if (tc.Capability == policy.CapabilityReadDiscovery || tc.Capability == policy.CapabilityMutation) && len(tc.Paths) == 0 {
 		return policy.Verdict{Decision: policy.Deny, RuleID: "capability-input-missing", Reason: "path capability call did not provide paths"}
 	}
+	if tc.Capability == policy.CapabilityReadDiscovery || tc.Capability == policy.CapabilityMutation {
+		for _, path := range tc.Paths {
+			if path == "" {
+				return policy.Verdict{Decision: policy.Deny, RuleID: "capability-input-missing", Reason: "path capability call provided an empty path"}
+			}
+		}
+	}
 	if tc.Capability == policy.CapabilityCommand && tc.Command == "" {
 		return policy.Verdict{Decision: policy.Deny, RuleID: "capability-input-missing", Reason: "command capability call did not provide a command"}
+	}
+	if tc.Capability == policy.CapabilityWebFetch && !validWebFetchURL(tc.URL) {
+		return policy.Verdict{Decision: policy.Deny, RuleID: "capability-input-invalid", Reason: "web fetch capability call did not provide a valid HTTP URL"}
 	}
 	switch tc.Capability {
 	case "", policy.CapabilityCommand, policy.CapabilityReadDiscovery, policy.CapabilityMutation, policy.CapabilityWebFetch:
@@ -69,6 +80,14 @@ func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 		return policy.Verdict{Decision: policy.Allow}
 	}
 	return *worst
+}
+
+func validWebFetchURL(raw string) bool {
+	parsed, err := url.ParseRequestURI(raw)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	return parsed.Scheme == "http" || parsed.Scheme == "https"
 }
 
 func matchOverlayRules(tc ToolCall, pol *policy.Policy) *policy.Verdict {

@@ -14,7 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/session"
 )
 
@@ -617,24 +619,28 @@ func TestHookAuditLogWritten(t *testing.T) {
 	}
 }
 
-func TestHookAuditRecordsNativeToolWithoutArguments(t *testing.T) {
-	state := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", state)
-	t.Setenv("GUARDRAIL_CONFIG", "")
-	payload := `{"session_id":"s1","event":"pre","tool":"new_tool","cwd":"/tmp","arguments":{"token":"raw-secret"}}`
-	var out, errb bytes.Buffer
-	if code := run([]string{"hook", "opencode"}, strings.NewReader(payload), &out, &errb); code != 0 {
-		t.Fatalf("exit=%d, stderr=%s", code, errb.String())
+func TestUnknownToolAuditRecordUsesBoundedMetadata(t *testing.T) {
+	tc := engine.ToolCall{
+		NativeTool: "new_tool",
+		Capability: policy.CapabilityUnknown,
+		InputShape: "opaque-object",
+		Command:    "raw-command-secret",
+		Paths:      []string{"/raw-path-secret"},
+		Arguments:  json.RawMessage(`{"token":"raw-argument-secret"}`),
 	}
-	raw, err := os.ReadFile(filepath.Join(state, "guardrail", "audit.jsonl"))
+	v := engine.Evaluate(tc, &policy.Policy{UnknownToolPosture: policy.UnknownAudit})
+	rec := auditRecord(tc, v, nil)
+	if rec.NativeTool != "new_tool" || rec.Capability != "unknown" || rec.InputShape != "opaque-object" || rec.AuditKind != "unknown-native-tool" {
+		t.Fatalf("unknown audit metadata = %+v", rec)
+	}
+	raw, err := json.Marshal(rec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), `"native_tool":"new_tool"`) {
-		t.Fatalf("audit record omitted native tool: %s", raw)
-	}
-	if strings.Contains(string(raw), "raw-secret") || strings.Contains(string(raw), `"arguments"`) {
-		t.Fatalf("audit record leaked raw input: %s", raw)
+	for _, secret := range []string{"raw-command-secret", "/raw-path-secret", "raw-argument-secret"} {
+		if strings.Contains(string(raw), secret) {
+			t.Fatalf("unknown audit record leaked %q: %s", secret, raw)
+		}
 	}
 }
 
