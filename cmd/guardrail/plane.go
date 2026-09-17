@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
@@ -65,12 +66,21 @@ func planeConfigPath(plane string) (string, error) {
 	}
 }
 
-// executePlaneApproval applies an approved plane lifecycle action: disable
-// removes only Guardrail-owned integration entries; enable regenerates and
-// merges them. Both are bound to one exact plane.
+// executePlaneApproval applies an approved plane lifecycle action for a batch
+// of exact planes: disable removes only Guardrail-owned integration entries;
+// enable regenerates and merges them.
 func executePlaneApproval(r approval.Request) error {
-	plane := r.Parameters["plane"]
-	if (r.Action != "plane-disable" && r.Action != "plane-enable") || !isSupportedPlane(plane) {
+	if r.Action != "plane-disable" && r.Action != "plane-enable" {
+		return fmt.Errorf("invalid approved plane action")
+	}
+	var planes []string
+	for _, plane := range strings.Split(r.Parameters["planes"], ",") {
+		if !isSupportedPlane(plane) {
+			return fmt.Errorf("invalid approved plane action")
+		}
+		planes = append(planes, plane)
+	}
+	if len(planes) == 0 {
 		return fmt.Errorf("invalid approved plane action")
 	}
 	alreadyCompleted, err := startActionAudit(r)
@@ -81,16 +91,20 @@ func executePlaneApproval(r approval.Request) error {
 		return nil
 	}
 	if r.Action == "plane-enable" {
-		if err := enablePlaneIntegration(plane); err != nil {
-			return err
+		for _, plane := range planes {
+			if err := enablePlaneIntegration(plane); err != nil {
+				return err
+			}
 		}
 	} else {
-		path, err := planeConfigPath(plane)
-		if err != nil {
-			return err
-		}
-		if err := genconfig.RemovePlaneFrom(path, plane); err != nil {
-			return err
+		for _, plane := range planes {
+			path, err := planeConfigPath(plane)
+			if err != nil {
+				return err
+			}
+			if err := genconfig.RemovePlaneFrom(path, plane); err != nil {
+				return err
+			}
 		}
 	}
 	_ = completeActionAudit(r)
@@ -199,6 +213,7 @@ func parsePlaneTargets(args []string, stdout, stderr io.Writer) (targets []strin
 }
 
 func cmdPlaneLifecycle(args []string, action, outcome string, terminal bool, stdout, stderr io.Writer) int {
+	verb := actionSuffix(action)
 	targets, all, ok := parsePlaneTargets(args, stdout, stderr)
 	if !ok {
 		return 2
@@ -208,11 +223,19 @@ func cmdPlaneLifecycle(args []string, action, outcome string, terminal bool, std
 		return 2
 	}
 	if !terminal {
-		fmt.Fprintf(stderr, "guardrail: plane %s requires an interactive local terminal\n", actionSuffix(action))
+		fmt.Fprintf(stderr, "guardrail: plane %s requires an interactive local terminal\n", verb)
 		return 2
 	}
 
-	failed := false
+	// Reconciliation: a plane already in the desired state never prompts.
+	var batch []string
+	for _, plane := range targets {
+		if planeIntegrationRegistered(plane) == (action == "plane-enable") {
+			fmt.Fprintf(stdout, "%s: already %s\n", plane, outcome)
+			continue
+		}
+		batch = append(batch, plane)
+	}
 	if all {
 		for _, plane := range supportedPlanes {
 			if !planeInstalled(plane) {
@@ -221,12 +244,10 @@ func cmdPlaneLifecycle(args []string, action, outcome string, terminal bool, std
 		}
 		fmt.Fprintln(stdout, "codex: unsupported")
 	}
-	for _, plane := range targets {
-		if !planeViaApproval(plane, action, outcome, stdout, stderr) {
-			failed = true
-		}
+	if len(batch) == 0 {
+		return 0
 	}
-	if failed {
+	if !planesViaApproval(batch, action, outcome, stdout, stderr) {
 		return 1
 	}
 	return 0
@@ -239,7 +260,9 @@ func actionSuffix(action string) string {
 	return "disable"
 }
 
-func planeViaApproval(plane, action, outcome string, stdout, stderr io.Writer) bool {
+// planesViaApproval submits ONE broker request for the whole batch, so a
+// single WebAuthn ceremony covers every plane.
+func planesViaApproval(planes []string, action, outcome string, stdout, stderr io.Writer) bool {
 	cwd, _ := os.Getwd()
 	request := approval.Request{
 		Plane:      "operator",
@@ -248,14 +271,16 @@ func planeViaApproval(plane, action, outcome string, stdout, stderr io.Writer) b
 		Scope:      approval.GlobalScope,
 		Reason:     "operator terminal plane " + actionSuffix(action),
 		Action:     action,
-		Parameters: map[string]string{"plane": plane},
+		Parameters: map[string]string{"planes": strings.Join(planes, ",")},
 	}
 	created, err := submitPlaneRequest(request)
 	if err != nil {
-		fmt.Fprintf(stderr, "guardrail: %s: approval request failed: %v\n", plane, err)
+		for _, plane := range planes {
+			fmt.Fprintf(stderr, "guardrail: %s: approval request failed: %v\n", plane, err)
+		}
 		return false
 	}
-	fmt.Fprintf(stdout, "%s: approval required; open %s\n", plane, created.ApprovalURL)
+	fmt.Fprintf(stdout, "%s: approval required; open %s\n", strings.Join(planes, ", "), created.ApprovalURL)
 
 	deadline := time.Now().Add(5 * time.Minute)
 	if created.ExpiresAt.After(time.Now()) && created.ExpiresAt.Before(deadline) {
@@ -265,19 +290,27 @@ func planeViaApproval(plane, action, outcome string, stdout, stderr io.Writer) b
 		time.Sleep(500 * time.Millisecond)
 		status, err := queryPlaneStatus(approval.DefaultSocketPath(), created.ID)
 		if err != nil {
-			fmt.Fprintf(stderr, "guardrail: %s: approval daemon unavailable\n", plane)
+			for _, plane := range planes {
+				fmt.Fprintf(stderr, "guardrail: %s: approval daemon unavailable\n", plane)
+			}
 			return false
 		}
 		switch status.Status {
 		case "approved":
-			fmt.Fprintf(stdout, "%s %s\n", plane, outcome)
+			for _, plane := range planes {
+				fmt.Fprintf(stdout, "%s %s\n", plane, outcome)
+			}
 			return true
 		case "denied", "expired":
-			fmt.Fprintf(stderr, "guardrail: %s: %s %s\n", plane, actionSuffix(action), status.Status)
+			for _, plane := range planes {
+				fmt.Fprintf(stderr, "guardrail: %s: %s %s\n", plane, actionSuffix(action), status.Status)
+			}
 			return false
 		}
 	}
-	fmt.Fprintf(stderr, "guardrail: %s: %s approval expired\n", plane, actionSuffix(action))
+	for _, plane := range planes {
+		fmt.Fprintf(stderr, "guardrail: %s: %s approval expired\n", plane, actionSuffix(action))
+	}
 	return false
 }
 
@@ -291,6 +324,38 @@ func cmdPlaneStatus(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stdout, "codex: unsupported")
 	return 0
+}
+
+// planeIntegrationRegistered reports whether Guardrail's integration is
+// present in the plane's global config. It drives reconciliation skipping.
+func planeIntegrationRegistered(plane string) bool {
+	if plane == "claude" {
+		return claudeSettingsState() == "guardrail hook registered"
+	}
+	path, err := planeConfigPath(plane)
+	if err != nil {
+		return false
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var doc map[string]any
+	if json.Unmarshal(raw, &doc) != nil {
+		return false
+	}
+	if plane == "opencode" {
+		if plugins, ok := doc["plugin"].([]any); ok {
+			for _, entry := range plugins {
+				if s, ok := entry.(string); ok && filepath.Base(s) == "guardrail.js" {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	_, ok := doc["guardrail"]
+	return ok
 }
 
 // planeStatusState reports whether Guardrail's integration is registered in
@@ -314,21 +379,7 @@ func planeStatusState(plane string) string {
 		return fmt.Sprintf("unreadable: %v", err)
 	}
 	var doc map[string]any
-	registered := false
-	if json.Unmarshal(raw, &doc) == nil {
-		if plane == "opencode" {
-			if plugins, ok := doc["plugin"].([]any); ok {
-				for _, entry := range plugins {
-					if s, ok := entry.(string); ok && filepath.Base(s) == "guardrail.js" {
-						registered = true
-					}
-				}
-			}
-		} else {
-			_, registered = doc["guardrail"]
-		}
-	}
-	if registered {
+	if json.Unmarshal(raw, &doc) == nil && planeIntegrationRegistered(plane) {
 		return "guardrail integration registered"
 	}
 	return "present, integration NOT registered"

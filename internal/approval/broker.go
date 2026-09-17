@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -59,6 +60,17 @@ type Request struct {
 	Transport             string
 	CredentialFingerprint string
 	ApprovalURL           string
+}
+
+// Summary renders the operator-facing detail line for the approval page:
+// the exact plane batch for lifecycle actions, empty otherwise.
+func (r Request) Summary() string {
+	if r.Action == "plane-enable" || r.Action == "plane-disable" {
+		if list := r.Parameters["planes"]; list != "" {
+			return "planes: " + list
+		}
+	}
+	return ""
 }
 
 type CompletionAttribution struct {
@@ -285,10 +297,26 @@ func validateRequest(r Request) error {
 	if r.Action == "night-on" && (len(r.Parameters) != 1 || r.Parameters["until"] == "") {
 		return ErrMalformed
 	}
-	if (r.Action == "plane-enable" || r.Action == "plane-disable") && (len(r.Parameters) != 1 || (r.Parameters["plane"] != "claude" && r.Parameters["plane"] != "opencode" && r.Parameters["plane"] != "antigravity")) {
+	if (r.Action == "plane-enable" || r.Action == "plane-disable") && !validPlaneList(r.Parameters) {
 		return ErrMalformed
 	}
 	return nil
+}
+
+func validPlaneList(params map[string]string) bool {
+	if len(params) != 1 {
+		return false
+	}
+	list := params["planes"]
+	if list == "" {
+		return false
+	}
+	for _, plane := range strings.Split(list, ",") {
+		if plane != "claude" && plane != "opencode" && plane != "antigravity" {
+			return false
+		}
+	}
+	return true
 }
 
 func canonicalNightExpiry(until string, now time.Time) (string, error) {
@@ -316,7 +344,7 @@ func durable(r Request) session.ApprovalRequest {
 		params["host"] = r.Host
 	}
 	if r.Action == "plane-enable" || r.Action == "plane-disable" {
-		params["plane"] = r.Parameters["plane"]
+		params["planes"] = r.Parameters["planes"]
 	}
 	return session.ApprovalRequest{ID: r.ID, Plane: r.Plane, SessionDigest: digest(r.SessionID), RepoRoot: filepath.Clean(r.RepoRoot), Host: r.Host, Scope: string(r.Scope), ReasonDigest: digest(r.Reason), Action: r.Action, Parameters: params, IssuedAt: r.IssuedAt, ExpiresAt: r.ExpiresAt, Status: r.Status}
 }

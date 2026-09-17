@@ -79,7 +79,7 @@ func TestExecutePlaneApprovalDisablesClaude(t *testing.T) {
 	settings := filepath.Join(home, ".claude", "settings.json")
 	writePlaneSettings(t, settings, `{"hooks":{"PreToolUse":[{"matcher":"Task","hooks":[{"type":"command","command":"my-own-hook"}]},{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[{"type":"command","command":"guardrail hook claude"}]}]}}`)
 
-	r := approval.Request{ID: "plane-disable-1", Plane: "operator", SessionID: "terminal", RepoRoot: home, Scope: approval.GlobalScope, Action: "plane-disable", Parameters: map[string]string{"plane": "claude"}}
+	r := approval.Request{ID: "plane-disable-1", Plane: "operator", SessionID: "terminal", RepoRoot: home, Scope: approval.GlobalScope, Action: "plane-disable", Parameters: map[string]string{"planes": "claude"}}
 	if err := executePlaneApproval(r); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestExecutePlaneApprovalDisablesOpenCodeAndAntigravity(t *testing.T) {
 	for i, plane := range []string{"opencode", "antigravity"} {
 		r := base
 		r.ID = "plane-disable-multi-" + plane
-		r.Parameters = map[string]string{"plane": plane}
+		r.Parameters = map[string]string{"planes": plane}
 		if err := executePlaneApproval(r); err != nil {
 			t.Fatalf("plane %s: %v", plane, err)
 		}
@@ -131,11 +131,11 @@ func TestExecutePlaneApprovalDisablesOpenCodeAndAntigravity(t *testing.T) {
 func TestExecutePlaneApprovalRejectsInvalidRequests(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	cases := []approval.Request{
-		{Action: "plane-enable", Parameters: map[string]string{"plane": "codex"}},
-		{Action: "plane-disable", Parameters: map[string]string{"plane": "codex"}},
-		{Action: "plane-disable", Parameters: map[string]string{"plane": ""}},
-		{Action: "night-on", Parameters: map[string]string{"plane": "claude"}},
-		{Action: "web-host-grant", Parameters: map[string]string{"plane": "claude"}},
+		{Action: "plane-enable", Parameters: map[string]string{"planes": "codex"}},
+		{Action: "plane-disable", Parameters: map[string]string{"planes": "codex"}},
+		{Action: "plane-disable", Parameters: map[string]string{"planes": ""}},
+		{Action: "night-on", Parameters: map[string]string{"planes": "claude"}},
+		{Action: "web-host-grant", Parameters: map[string]string{"planes": "claude"}},
 	}
 	for _, r := range cases {
 		if err := executePlaneApproval(r); err == nil {
@@ -189,8 +189,10 @@ func TestPlaneDisableRequiresInteractiveTerminal(t *testing.T) {
 }
 
 func TestPlaneDisableClaudeHappyPath(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
+	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]}}`)
 	restore := stubPlaneTransport([]string{"pending", "approved"})
 	defer restore()
 	origInstalled := planeInstalled
@@ -207,9 +209,12 @@ func TestPlaneDisableClaudeHappyPath(t *testing.T) {
 }
 
 func TestPlaneDisableAllSkipsMissingAndReportsCodexUnsupported(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	restore := stubPlaneTransport([]string{"approved", "approved", "approved"})
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
+	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]}}`)
+	writePlaneSettings(t, filepath.Join(home, ".gemini", "config", "hooks.json"), `{"guardrail":{"enabled":true}}`)
+	restore := stubPlaneTransport([]string{"approved"})
 	defer restore()
 	origInstalled := planeInstalled
 	installed := map[string]bool{"claude": true, "opencode": false, "antigravity": true}
@@ -233,8 +238,10 @@ func TestPlaneDisableAllSkipsMissingAndReportsCodexUnsupported(t *testing.T) {
 }
 
 func TestPlaneDisableDeniedApprovalFails(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
+	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]}}`)
 	restore := stubPlaneTransport([]string{"denied"})
 	defer restore()
 	origInstalled := planeInstalled
@@ -285,7 +292,7 @@ func TestExecutePlaneApprovalEnablesClaude(t *testing.T) {
 	settings := filepath.Join(home, ".claude", "settings.json")
 	writePlaneSettings(t, settings, `{"hooks":{"PreToolUse":[{"matcher":"Task","hooks":[{"type":"command","command":"my-own-hook"}]}]}}`)
 
-	r := approval.Request{ID: "plane-enable-1", Plane: "operator", SessionID: "terminal", RepoRoot: home, Scope: approval.GlobalScope, Action: "plane-enable", Parameters: map[string]string{"plane": "claude"}}
+	r := approval.Request{ID: "plane-enable-1", Plane: "operator", SessionID: "terminal", RepoRoot: home, Scope: approval.GlobalScope, Action: "plane-enable", Parameters: map[string]string{"planes": "claude"}}
 	if err := executePlaneApproval(r); err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +318,7 @@ func TestExecutePlaneApprovalEnablesOpenCode(t *testing.T) {
 	settings := filepath.Join(cfg, "opencode", "opencode.json")
 	writePlaneSettings(t, settings, `{"model":"keep"}`)
 
-	r := approval.Request{ID: "plane-enable-oc", Plane: "operator", SessionID: "terminal", RepoRoot: home, Scope: approval.GlobalScope, Action: "plane-enable", Parameters: map[string]string{"plane": "opencode"}}
+	r := approval.Request{ID: "plane-enable-oc", Plane: "operator", SessionID: "terminal", RepoRoot: home, Scope: approval.GlobalScope, Action: "plane-enable", Parameters: map[string]string{"planes": "opencode"}}
 	if err := executePlaneApproval(r); err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +344,7 @@ func TestExecutePlaneApprovalEnablesAntigravity(t *testing.T) {
 	hooks := filepath.Join(home, ".gemini", "config", "hooks.json")
 	writePlaneSettings(t, hooks, `{"user":{"hook":"keep"}}`)
 
-	r := approval.Request{ID: "plane-enable-agy", Plane: "operator", SessionID: "terminal", RepoRoot: home, Scope: approval.GlobalScope, Action: "plane-enable", Parameters: map[string]string{"plane": "antigravity"}}
+	r := approval.Request{ID: "plane-enable-agy", Plane: "operator", SessionID: "terminal", RepoRoot: home, Scope: approval.GlobalScope, Action: "plane-enable", Parameters: map[string]string{"planes": "antigravity"}}
 	if err := executePlaneApproval(r); err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +357,7 @@ func TestExecutePlaneApprovalEnablesAntigravity(t *testing.T) {
 
 func TestExecutePlaneApprovalRejectsEnableForUnknownPlane(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	r := approval.Request{Action: "plane-enable", Parameters: map[string]string{"plane": "codex"}}
+	r := approval.Request{Action: "plane-enable", Parameters: map[string]string{"planes": "codex"}}
 	if err := executePlaneApproval(r); err == nil {
 		t.Fatal("codex enable accepted")
 	}
@@ -429,5 +436,95 @@ func TestPlaneStatusReportsLifecycleStateWithoutTerminal(t *testing.T) {
 	}
 	if !strings.Contains(got, "codex: unsupported") {
 		t.Fatalf("codex line missing: %q", got)
+	}
+}
+
+func TestExecutePlaneApprovalAppliesBatch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]}}`)
+	writePlaneSettings(t, filepath.Join(home, ".gemini", "config", "hooks.json"), `{"guardrail":{"enabled":true}}`)
+
+	r := approval.Request{ID: "plane-batch-1", Plane: "operator", SessionID: "terminal", RepoRoot: home, Scope: approval.GlobalScope, Action: "plane-disable", Parameters: map[string]string{"planes": "claude,antigravity"}}
+	if err := executePlaneApproval(r); err != nil {
+		t.Fatal(err)
+	}
+	if got := readPlaneJSON(t, filepath.Join(home, ".claude", "settings.json")); strings.Contains(got, "guardrail-claude-pre") {
+		t.Fatalf("claude not disabled: %s", got)
+	}
+	if got := readPlaneJSON(t, filepath.Join(home, ".gemini", "config", "hooks.json")); strings.Contains(got, "guardrail") {
+		t.Fatalf("antigravity not disabled: %s", got)
+	}
+}
+
+func TestPlaneEnableAllBatchesOneApprovalAndSkipsSatisfied(t *testing.T) {
+	home := t.TempDir()
+	cfg := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	// claude already enabled; antigravity needs enabling; opencode not detected.
+	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]}}`)
+	origInstalled := planeInstalled
+	planeInstalled = func(plane string) bool { return plane != "opencode" }
+	defer func() { planeInstalled = origInstalled }()
+
+	var submitted []approval.Request
+	origSubmit, origQuery := submitPlaneRequest, queryPlaneStatus
+	submitPlaneRequest = func(request approval.Request) (approval.Request, error) {
+		submitted = append(submitted, request)
+		return approval.Request{ID: "stub-request", Status: "pending", ApprovalURL: "http://localhost:39169/approve"}, nil
+	}
+	queryPlaneStatus = func(socket, id string) (approval.Request, error) {
+		return approval.Request{Status: "approved"}, nil
+	}
+	defer func() { submitPlaneRequest, queryPlaneStatus = origSubmit, origQuery }()
+
+	var out, errb strings.Builder
+	if code := runPlaneTerminal([]string{"plane", "enable", "--all"}, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d, stderr %q", code, errb.String())
+	}
+	if len(submitted) != 1 {
+		t.Fatalf("submitted %d requests, want 1 batched: %+v", len(submitted), submitted)
+	}
+	if got := submitted[0].Parameters["planes"]; got != "antigravity" {
+		t.Fatalf("batch planes = %q, want only antigravity", got)
+	}
+	got := out.String()
+	if !strings.Contains(got, "claude: already enabled") || !strings.Contains(got, "opencode: not detected") {
+		t.Fatalf("stdout missing skip reports: %q", got)
+	}
+}
+
+func TestPlaneEnableAllSteadyStatePromptsNobody(t *testing.T) {
+	home := t.TempDir()
+	cfg := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]}}`)
+	writePlaneSettings(t, filepath.Join(cfg, "opencode", "opencode.json"), `{"plugin":["/x/guardrail.js"]}`)
+	writePlaneSettings(t, filepath.Join(home, ".gemini", "config", "hooks.json"), `{"guardrail":{"enabled":true}}`)
+	origInstalled := planeInstalled
+	planeInstalled = func(string) bool { return true }
+	defer func() { planeInstalled = origInstalled }()
+
+	origSubmit := submitPlaneRequest
+	submitPlaneRequest = func(request approval.Request) (approval.Request, error) {
+		t.Fatalf("steady-state enable must not submit: %+v", request)
+		return approval.Request{}, nil
+	}
+	defer func() { submitPlaneRequest = origSubmit }()
+
+	var out, errb strings.Builder
+	if code := runPlaneTerminal([]string{"plane", "enable", "--all"}, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d, stderr %q", code, errb.String())
+	}
+	for _, want := range []string{"claude: already enabled", "opencode: already enabled", "antigravity: already enabled"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("stdout missing %q: %q", want, out.String())
+		}
 	}
 }
