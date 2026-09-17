@@ -20,7 +20,7 @@ var opencodeTools = []ToolSpec{
 	{"question", "question", policy.CapabilitySafeControl},
 	{"skill", "skill", policy.CapabilitySafeControl},
 	{"todowrite", "todowrite", policy.CapabilitySafeControl},
-	{"task", "task", policy.CapabilityDeny},
+	{"task", "task", policy.CapabilityDelegation},
 }
 
 func OpencodeTool(nativeTool string) (ToolSpec, bool) {

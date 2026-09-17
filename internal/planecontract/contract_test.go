@@ -58,7 +58,7 @@ func TestOpenCodeAndAntigravityInventoriesClassifyCapabilityBoundary(t *testing.
 			"write": policy.CapabilityMutation, "apply_patch": policy.CapabilityMutation,
 			"skill": policy.CapabilitySafeControl, "todowrite": policy.CapabilitySafeControl,
 			"webfetch": policy.CapabilityWebFetch, "websearch": policy.CapabilityWebSearch,
-			"question": policy.CapabilitySafeControl, "task": policy.CapabilityDeny,
+			"question": policy.CapabilitySafeControl, "task": policy.CapabilityDelegation,
 		}},
 		{"antigravity", map[string]policy.Capability{
 			"run_command": policy.CapabilityCommand, "view_file": policy.CapabilityReadDiscovery,
