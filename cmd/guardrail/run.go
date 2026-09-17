@@ -40,6 +40,7 @@ usage:
 	guardrail plane disable <plane>|--all  remove Guardrail integration for a plane (operator approval)
 	      plane: claude | opencode | antigravity
 	guardrail fetch <URL>                 fetch normalized text through Guardrail
+	guardrail update <version>            self-update to an exact checksum-verified release
 `
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -73,6 +74,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "plane":
 		file, terminal := stdin.(*os.File)
 		return cmdPlane(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdout, stderr)
+	case "update":
+		return cmdUpdate(args[1:], stdout, stderr)
 	case "fetch":
 		return cmdFetch(args[1:], stdout, stderr)
 	default:

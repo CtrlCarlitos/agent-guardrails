@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/planecontract"
@@ -64,6 +65,15 @@ func ParseOpencode(r io.Reader) (engine.ToolCall, error) {
 	if tc.Capability == policy.CapabilityReadDiscovery || tc.Capability == policy.CapabilityMutation {
 		tc.InputShape = "path"
 	}
+	if p.Tool == "apply_patch" {
+		var input struct {
+			Patch string `json:"patch"`
+		}
+		if err := json.Unmarshal(p.Arguments, &input); err != nil {
+			return engine.ToolCall{}, err
+		}
+		tc.Paths = append(tc.Paths, patchPaths(input.Patch)...)
+	}
 	if tc.Capability == policy.CapabilityWebFetch {
 		var input struct {
 			URL string `json:"url"`
@@ -98,4 +108,22 @@ func EmitOpencode(v policy.Verdict, tc engine.ToolCall, stdout, stderr io.Writer
 		return 2
 	}
 	return 0
+}
+
+// patchPaths extracts the file paths named by an apply_patch payload
+// (*** Update File:, *** Add File:, *** Delete File:). Unparseable patches
+// yield no paths, and the engine fails closed on a path capability without
+// paths.
+func patchPaths(patch string) []string {
+	var paths []string
+	for _, line := range strings.Split(patch, "\n") {
+		for _, header := range []string{"*** Update File: ", "*** Add File: ", "*** Delete File: "} {
+			if strings.HasPrefix(line, header) {
+				if p := strings.TrimSpace(strings.TrimPrefix(line, header)); p != "" {
+					paths = append(paths, p)
+				}
+			}
+		}
+	}
+	return paths
 }
