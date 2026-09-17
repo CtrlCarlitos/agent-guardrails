@@ -95,6 +95,8 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintln(stdout, operatorApprovalStatus(runtime.GOOS == "windows", enrolled))
 
 	fmt.Fprintf(stdout, "claude settings: %s\n", safetext.SingleLine(claudeSettingsState()))
+	fmt.Fprintf(stdout, "opencode settings: %s\n", safetext.SingleLine(planeStatusState("opencode")))
+	fmt.Fprintf(stdout, "antigravity settings: %s\n", safetext.SingleLine(planeStatusState("antigravity")))
 	if home, err := os.UserHomeDir(); err == nil {
 		if raw, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json")); err == nil {
 			var doc map[string]any

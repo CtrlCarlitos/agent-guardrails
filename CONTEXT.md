@@ -95,9 +95,26 @@ authorized at designated write seams; the root itself and escapes remain protect
 A narrowly shaped out-of-repository directory owned by one plane for its working
 state. Authorization applies only to the named plane and designated write surfaces.
 
-**Approval memory**:
-OpenCode's ten-minute, exact-call, one-shot memory of an operator-approved Ask.
-Current Deny and Allow Verdicts always take precedence over remembered approval.
+**Operator authorization request**:
+A durable, exact request for an operator-controlled approval. It binds the
+plane, repository, action or domains, scope, expiry, and one-shot consumption.
+Only a host-owned Approve result or WebAuthn assertion can authorize it.
+
+**Egress authorization**:
+An operator's permission for an exact set of web-host domains. Repository scope
+persists through a matching Overlay request and Operator config grant; Global
+scope persists only in Operator config. It never authorizes a host wildcard or
+an unrelated domain.
+
+**Plane lifecycle**:
+The operator-controlled enabled or disabled state of Guardrail integration for a
+plane. The Guardrail binary remains installed while a plane is disabled, so an
+audited enable command can restore only Guardrail-owned configuration.
+
+**Recovery request**:
+A terminal-only Operator authorization request for a predefined repair of
+Guardrail-protected machinery. It shows the normalized repair, requires
+WebAuthn, and cannot execute arbitrary shell text supplied by a plane.
 
 **Autonomy posture**:
 Claude's SessionStart advisory describing the active operating posture, Waivers,

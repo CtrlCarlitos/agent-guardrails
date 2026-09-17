@@ -121,6 +121,23 @@ func TestWebHostActionPreservesRequestedScopeAndHost(t *testing.T) {
 	}
 }
 
+func TestPlaneLifecycleActionAcceptsSupportedPlane(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	broker := approval.New()
+	r := request()
+	r.Action = "plane-disable"
+	r.Scope = approval.GlobalScope
+	r.Parameters = map[string]string{"plane": "claude"}
+
+	created, err := broker.Create(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := broker.Request(created.ID); err != nil || got.Parameters["plane"] != "claude" {
+		t.Fatalf("restored request = %+v, error %v", got, err)
+	}
+}
+
 func TestApproveRejectsExpiredRequest(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	broker := approval.New()

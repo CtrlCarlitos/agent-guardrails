@@ -279,10 +279,13 @@ func validateRequest(r Request) error {
 	if r.Host != "" && policy.ValidateWebHost(r.Host) != nil {
 		return ErrMalformed
 	}
-	if r.Action != "" && r.Action != "night-on" && r.Action != "night-off" && r.Action != "web-host-grant" && r.Action != "web-host-revoke" {
+	if r.Action != "" && r.Action != "night-on" && r.Action != "night-off" && r.Action != "web-host-grant" && r.Action != "web-host-revoke" && r.Action != "plane-enable" && r.Action != "plane-disable" {
 		return ErrMalformed
 	}
 	if r.Action == "night-on" && (len(r.Parameters) != 1 || r.Parameters["until"] == "") {
+		return ErrMalformed
+	}
+	if (r.Action == "plane-enable" || r.Action == "plane-disable") && (len(r.Parameters) != 1 || (r.Parameters["plane"] != "claude" && r.Parameters["plane"] != "opencode" && r.Parameters["plane"] != "antigravity")) {
 		return ErrMalformed
 	}
 	return nil
@@ -311,6 +314,9 @@ func durable(r Request) session.ApprovalRequest {
 	if r.Action == "web-host-grant" || r.Action == "web-host-revoke" {
 		params["scope"] = string(r.Scope)
 		params["host"] = r.Host
+	}
+	if r.Action == "plane-enable" || r.Action == "plane-disable" {
+		params["plane"] = r.Parameters["plane"]
 	}
 	return session.ApprovalRequest{ID: r.ID, Plane: r.Plane, SessionDigest: digest(r.SessionID), RepoRoot: filepath.Clean(r.RepoRoot), Host: r.Host, Scope: string(r.Scope), ReasonDigest: digest(r.Reason), Action: r.Action, Parameters: params, IssuedAt: r.IssuedAt, ExpiresAt: r.ExpiresAt, Status: r.Status}
 }

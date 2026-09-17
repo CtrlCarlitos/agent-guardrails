@@ -90,3 +90,30 @@ func TestDefaultDaemonSupportsLongStateDirectory(t *testing.T) {
 		t.Fatalf("socket directory mode = %o, want 0700", info.Mode().Perm())
 	}
 }
+
+func TestQueryStatusReportsRequestState(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	daemon, err := approval.StartDaemon(socket, approval.New(), browserStore(t), func(string) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer daemon.Close()
+
+	created, err := approval.Submit(socket, request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := approval.QueryStatus(socket, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The approval URL is not durable: it is only attached to the submit
+	// reply; status polling reports lifecycle state and identity.
+	if got.ID != created.ID || got.Status != "pending" {
+		t.Fatalf("queried request = %+v, want pending %s", got, created.ID)
+	}
+	if _, err := approval.QueryStatus(socket, "missing"); err == nil {
+		t.Fatal("unknown request status succeeded")
+	}
+}
