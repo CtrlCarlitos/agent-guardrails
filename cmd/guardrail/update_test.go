@@ -144,3 +144,38 @@ func TestUpdateFailsClosedOnMissingRelease(t *testing.T) {
 		t.Fatalf("target was replaced despite download failure: %q", raw)
 	}
 }
+
+func TestUpdateSameVersionIsANoOp(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "guardrail")
+	if err := os.WriteFile(target, []byte("current"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	origVersion := version
+	version = "v0.19.3-dev"
+	t.Cleanup(func() { version = origVersion })
+	stubUpdateSeams(t, target)
+	server := updateTestServer(t, "should-not-download", updateSumsFor("x", updateAssetName()), http.StatusOK)
+	updateReleaseBase = server.URL + "/download"
+	updateHTTPClient = server.Client() // any request will be recorded by the mux below
+
+	var requested int
+	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested++
+		http.Error(w, "unexpected", http.StatusTeapot)
+	})
+
+	var out, errb strings.Builder
+	if code := run([]string{"update", "v0.19.3-dev"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("exit = %d, stderr %q", code, errb.String())
+	}
+	if requested != 0 {
+		t.Fatalf("same-version update performed %d network requests", requested)
+	}
+	raw, _ := os.ReadFile(target)
+	if string(raw) != "current" {
+		t.Fatalf("binary replaced on no-op: %q", raw)
+	}
+	if !strings.Contains(out.String(), "already") {
+		t.Fatalf("stdout missing no-op notice: %q", out.String())
+	}
+}
