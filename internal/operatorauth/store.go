@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 const (
@@ -23,12 +24,14 @@ type Credential struct {
 
 // Store persists the operator's public WebAuthn credential records.
 type Store struct {
-	root string
+	root       string
+	ceremonies map[string]ceremonyState
+	mu         *sync.Mutex
 }
 
 // NewStore returns a Store rooted at the operator state directory.
 func NewStore(root string) Store {
-	return Store{root: root}
+	return Store{root: root, ceremonies: make(map[string]ceremonyState), mu: &sync.Mutex{}}
 }
 
 // Path is the credential store path.
