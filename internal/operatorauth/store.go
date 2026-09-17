@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 )
 
 const (
@@ -129,34 +128,6 @@ func (s Store) commitInitialCredential(credential Credential) error {
 		return errors.New("initial registration requires no enrolled credentials")
 	}
 	return s.Replace([]Credential{credential})
-}
-
-func acquireEnrollmentLock(dir string) (func(), error) {
-	path := filepath.Join(dir, ".enrollment.lock")
-	for attempts := 0; attempts < 500; attempts++ {
-		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-		if err == nil {
-			if err := file.Close(); err != nil {
-				_ = os.Remove(path)
-				return nil, fmt.Errorf("close enrollment lock: %w", err)
-			}
-			return func() {
-				_ = os.Remove(path)
-				if parent, err := os.Open(dir); err == nil {
-					_ = parent.Sync()
-					_ = parent.Close()
-				}
-			}, nil
-		}
-		if !os.IsExist(err) {
-			return nil, fmt.Errorf("create enrollment lock: %w", err)
-		}
-		if err := validateRegularFile(path); err != nil {
-			return nil, fmt.Errorf("inspect enrollment lock: %w", err)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	return nil, errors.New("enrollment creation lock unavailable")
 }
 
 // ClearForRecovery removes the public credential store after a local recovery

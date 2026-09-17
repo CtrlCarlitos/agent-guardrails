@@ -63,3 +63,35 @@ registration ceremonies:
 ```
 
 The same focused command passed after the implementation.
+
+## Fix Round 2
+
+- Replaced the persistent `O_EXCL` enrollment-lock sentinel with a private
+  Unix advisory file lock. The lock file can persist safely after a process
+  exits because the kernel releases the held lock with the owning descriptor.
+  Privacy and regular-file validation still run before locking, and the lock
+  remains held through the credential reread and atomic persistence.
+- Added a build-tagged Windows implementation that returns a fail-closed error
+  until the native Windows broker/locking work is implemented and validated.
+- Added a subprocess-exit regression: a helper acquires the lock and exits
+  without unlocking; the parent then acquires the same lock. The stale
+  concurrent-ceremony enrollment regression remains covered.
+
+### Fix-Round Verification
+
+The new subprocess regression first failed against the persistent sentinel:
+
+```text
+lock remained held after holder exit: enrollment creation lock unavailable
+```
+
+It passes with the advisory lock. The full Task 5 gates also passed:
+
+```text
+/usr/local/go/bin/go test ./test -count=1
+/usr/local/go/bin/go test ./test/adversarial -count=1
+make check
+/usr/local/go/bin/go test ./... -count=1
+/usr/local/go/bin/go vet ./...
+GOOS=windows GOARCH=amd64 /usr/local/go/bin/go build -o /tmp/guardrail-windows-test.exe ./cmd/guardrail
+```
