@@ -43,9 +43,34 @@ func TestOperatorActionRecognizesOnlyCanonicalWebHostCommands(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.command, func(t *testing.T) {
 			action, ok := OperatorAction(ToolCall{Tool: "Bash", Command: tt.command})
-			if (ok && action.Name != tt.want) || (!ok && tt.want != "") || action.Parameters["scope"] != tt.scope || action.Parameters["host"] != tt.host {
+			if (ok && action.Name != tt.want) || (!ok && tt.want != "") || action.Parameters["scope"] != tt.scope || action.Parameters["hosts"] != tt.host {
 				t.Fatalf("OperatorAction(%q) = (%+v, %v), want %q %q %q", tt.command, action, ok, tt.want, tt.scope, tt.host)
 			}
 		})
+	}
+}
+
+func TestOperatorActionAcceptsBatchedEgressHosts(t *testing.T) {
+	tc := ToolCall{Tool: "Bash", Command: "guardrail egress grant --scope repo --host api.example.com,cdn.example.com"}
+	action, ok := OperatorAction(tc)
+	if !ok || action.Name != "web-host-grant" {
+		t.Fatalf("action = %+v ok=%v", action, ok)
+	}
+	if action.Parameters["scope"] != "repo" || action.Parameters["hosts"] != "api.example.com,cdn.example.com" {
+		t.Fatalf("parameters = %v", action.Parameters)
+	}
+}
+
+func TestOperatorActionRejectsMalformedHostBatches(t *testing.T) {
+	for _, cmd := range []string{
+		"guardrail egress grant --scope repo --host api.example.com,",
+		"guardrail egress grant --scope repo --host ,cdn.example.com",
+		"guardrail egress grant --scope repo --host api.example.com,,cdn.example.com",
+		"guardrail egress grant --scope repo --host api.example.com,BAD",
+		"guardrail egress revoke --scope global --host api.example.com,",
+	} {
+		if _, ok := OperatorAction(ToolCall{Tool: "Bash", Command: cmd}); ok {
+			t.Errorf("command accepted: %q", cmd)
+		}
 	}
 }

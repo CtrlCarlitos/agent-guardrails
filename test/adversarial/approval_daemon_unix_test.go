@@ -182,7 +182,7 @@ func TestAdversarialSocketApprovalCannotPersistEgressGrant(t *testing.T) {
 	}
 	defer daemon.Close()
 	repo := t.TempDir()
-	request, err := approval.Submit(approval.DefaultSocketPath(), approval.Request{Plane: "claude", SessionID: "socket-egress", RepoRoot: repo, Host: "socket.example.test", Scope: approval.RepoScope, Reason: "canonical operator action", Action: "web-host-grant"})
+	request, err := approval.Submit(approval.DefaultSocketPath(), approval.Request{Plane: "claude", SessionID: "socket-egress", RepoRoot: repo, Scope: approval.RepoScope, Reason: "canonical operator action", Action: "web-host-grant", Parameters: map[string]string{"scope": "repo", "hosts": "socket.example.test"}})
 	if err != nil {
 		t.Fatal(err)
 	}

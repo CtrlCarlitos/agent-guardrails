@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -16,7 +18,7 @@ import (
 func TestApprovedWebHostGrantAndRevokeMutateOnlyRequestedScope(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	repo := filepath.Join(t.TempDir(), "repo")
-	if err := executeWebHostApproval(approval.Request{RepoRoot: repo, Host: "api.example.test", Scope: approval.RepoScope, Action: "web-host-grant"}); err != nil {
+	if err := executeWebHostApproval(approval.Request{RepoRoot: repo, Parameters: map[string]string{"hosts": "api.example.test"}, Scope: approval.RepoScope, Action: "web-host-grant"}); err != nil {
 		t.Fatal(err)
 	}
 	op, err := policy.LoadOperatorConfig()
@@ -33,7 +35,7 @@ func TestApprovedWebHostGrantAndRevokeMutateOnlyRequestedScope(t *testing.T) {
 	if len(ov.WebHosts) != 1 || ov.WebHosts[0] != "api.example.test" {
 		t.Fatalf("overlay web hosts = %v", ov.WebHosts)
 	}
-	if err := executeWebHostApproval(approval.Request{RepoRoot: repo, Host: "api.example.test", Scope: approval.RepoScope, Action: "web-host-revoke"}); err != nil {
+	if err := executeWebHostApproval(approval.Request{RepoRoot: repo, Parameters: map[string]string{"hosts": "api.example.test"}, Scope: approval.RepoScope, Action: "web-host-revoke"}); err != nil {
 		t.Fatal(err)
 	}
 	op, err = policy.LoadOperatorConfig()
@@ -55,7 +57,7 @@ func TestApprovedWebHostGrantAndRevokeMutateOnlyRequestedScope(t *testing.T) {
 func TestApprovedGlobalWebHostGrantDoesNotModifyOverlay(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	repo := filepath.Join(t.TempDir(), "repo")
-	if err := executeWebHostApproval(approval.Request{RepoRoot: repo, Host: "global.example.test", Scope: approval.GlobalScope, Action: "web-host-grant"}); err != nil {
+	if err := executeWebHostApproval(approval.Request{RepoRoot: repo, Parameters: map[string]string{"hosts": "global.example.test"}, Scope: approval.GlobalScope, Action: "web-host-grant"}); err != nil {
 		t.Fatal(err)
 	}
 	op, err := policy.LoadOperatorConfig()
@@ -73,13 +75,13 @@ func TestApprovedGlobalWebHostGrantDoesNotModifyOverlay(t *testing.T) {
 func TestRejectedOverlayLeavesOperatorGrantUnchanged(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	repo := filepath.Join(t.TempDir(), "repo")
-	if err := executeWebHostApproval(approval.Request{RepoRoot: repo, Host: "existing.example.test", Scope: approval.RepoScope, Action: "web-host-grant"}); err != nil {
+	if err := executeWebHostApproval(approval.Request{RepoRoot: repo, Parameters: map[string]string{"hosts": "existing.example.test"}, Scope: approval.RepoScope, Action: "web-host-grant"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(repo, "guardrail.toml"), []byte("[slots\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := executeWebHostApproval(approval.Request{RepoRoot: repo, Host: "new.example.test", Scope: approval.RepoScope, Action: "web-host-grant"}); err == nil {
+	if err := executeWebHostApproval(approval.Request{RepoRoot: repo, Parameters: map[string]string{"hosts": "new.example.test"}, Scope: approval.RepoScope, Action: "web-host-grant"}); err == nil {
 		t.Fatal("invalid overlay was accepted")
 	}
 	op, err := policy.LoadOperatorConfig()
@@ -95,7 +97,7 @@ func TestCompletedWebHostMutationWritesAuditRecord(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	repo := filepath.Join(t.TempDir(), "repo")
-	if err := executeWebHostApproval(approval.Request{ID: "web-host-request", Plane: "opencode", RepoRoot: repo, Host: "api.example.test", Scope: approval.RepoScope, Action: "web-host-grant", CredentialFingerprint: "a1b2c3d4e5f60708", Transport: "webauthn"}); err != nil {
+	if err := executeWebHostApproval(approval.Request{ID: "web-host-request", Plane: "opencode", RepoRoot: repo, Parameters: map[string]string{"hosts": "api.example.test"}, Scope: approval.RepoScope, Action: "web-host-grant", CredentialFingerprint: "a1b2c3d4e5f60708", Transport: "webauthn"}); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(audit.DefaultPath(""))
@@ -118,7 +120,7 @@ func TestWebHostDoesNotMutateWhenAuditIntentFails(t *testing.T) {
 	previous := writeActionAudit
 	writeActionAudit = func(audit.Record, string) error { return os.ErrPermission }
 	t.Cleanup(func() { writeActionAudit = previous })
-	err := executeWebHostApproval(approval.Request{ID: "web-host-audit-intent", Plane: "opencode", RepoRoot: repo, Host: "api.example.test", Scope: approval.RepoScope, Action: "web-host-grant"})
+	err := executeWebHostApproval(approval.Request{ID: "web-host-audit-intent", Plane: "opencode", RepoRoot: repo, Parameters: map[string]string{"hosts": "api.example.test"}, Scope: approval.RepoScope, Action: "web-host-grant"})
 	if err == nil {
 		t.Fatal("web-host action succeeded despite an unwritable audit intent")
 	}
@@ -141,7 +143,7 @@ func TestWebHostCompletionAuditFailureKeepsCompletedActionRecoverable(t *testing
 		return audit.Write(rec, path)
 	}
 	t.Cleanup(func() { writeActionAudit = previous })
-	if err := executeWebHostApproval(approval.Request{ID: "web-host-audit-completion", Plane: "opencode", RepoRoot: repo, Host: "api.example.test", Scope: approval.RepoScope, Action: "web-host-grant"}); err != nil {
+	if err := executeWebHostApproval(approval.Request{ID: "web-host-audit-completion", Plane: "opencode", RepoRoot: repo, Parameters: map[string]string{"hosts": "api.example.test"}, Scope: approval.RepoScope, Action: "web-host-grant"}); err != nil {
 		t.Fatalf("mutated action was reported denied: %v", err)
 	}
 	op, err := policy.LoadOperatorConfig()
@@ -169,7 +171,7 @@ func TestWebHostRecoveryReplayIsStateIdempotent(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			r := approval.Request{ID: action + "-crash-window", Plane: "opencode", RepoRoot: repo, Host: host, Scope: approval.RepoScope, Action: action}
+			r := approval.Request{ID: action + "-crash-window", Plane: "opencode", RepoRoot: repo, Scope: approval.RepoScope, Action: action, Parameters: map[string]string{"hosts": host}}
 			if alreadyCompleted, err := startActionAudit(r); err != nil || alreadyCompleted {
 				t.Fatalf("start action audit = completed %t, error %v", alreadyCompleted, err)
 			}
@@ -209,7 +211,7 @@ func TestConcurrentRepositoryGrantsRetainEveryHost(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			errs <- executeWebHostApproval(approval.Request{RepoRoot: repo, Host: host, Scope: approval.RepoScope, Action: "web-host-grant"})
+			errs <- executeWebHostApproval(approval.Request{RepoRoot: repo, Scope: approval.RepoScope, Action: "web-host-grant", Parameters: map[string]string{"hosts": host}})
 		}()
 	}
 	close(start)
@@ -337,7 +339,7 @@ func TestUnsafeAllowanceJournalDirectoryIsRejected(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(journalPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := executeWebHostApproval(approval.Request{RepoRoot: repo, Host: "unsafe.example.test", Scope: approval.RepoScope, Action: "web-host-grant"}); err == nil {
+	if err := executeWebHostApproval(approval.Request{RepoRoot: repo, Parameters: map[string]string{"hosts": "unsafe.example.test"}, Scope: approval.RepoScope, Action: "web-host-grant"}); err == nil {
 		t.Fatal("grant accepted an unsafe journal directory")
 	}
 }
@@ -354,7 +356,7 @@ func TestConcurrentRepositoryGrantsAcrossReposRetainEveryHost(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			errs <- executeWebHostApproval(approval.Request{RepoRoot: repo, Host: host, Scope: approval.RepoScope, Action: "web-host-grant"})
+			errs <- executeWebHostApproval(approval.Request{RepoRoot: repo, Scope: approval.RepoScope, Action: "web-host-grant", Parameters: map[string]string{"hosts": host}})
 		}()
 	}
 	close(start)
@@ -381,8 +383,8 @@ func TestConcurrentGlobalAndRepositoryGrantsRetainEveryHost(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	repo := filepath.Join(t.TempDir(), "repo")
 	requests := []approval.Request{
-		{RepoRoot: repo, Host: "global.example.test", Scope: approval.GlobalScope, Action: "web-host-grant"},
-		{RepoRoot: repo, Host: "repo.example.test", Scope: approval.RepoScope, Action: "web-host-grant"},
+		{RepoRoot: repo, Parameters: map[string]string{"hosts": "global.example.test"}, Scope: approval.GlobalScope, Action: "web-host-grant"},
+		{RepoRoot: repo, Scope: approval.RepoScope, Action: "web-host-grant", Parameters: map[string]string{"hosts": "repo.example.test"}},
 	}
 	start := make(chan struct{})
 	errs := make(chan error, len(requests))
@@ -419,4 +421,43 @@ func mustJSON(t *testing.T, value any) []byte {
 		t.Fatal(err)
 	}
 	return raw
+}
+
+func TestExecuteWebHostApprovalGrantsHostBatchAtomically(t *testing.T) {
+	repo := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	r := approval.Request{ID: "web-host-batch-1", Plane: "opencode", RepoRoot: repo, Scope: approval.RepoScope, Action: "web-host-grant", Parameters: map[string]string{"scope": "repo", "hosts": "api.example.com,cdn.example.com"}}
+	if err := executeWebHostApproval(r); err != nil {
+		t.Fatal(err)
+	}
+	op, err := policy.LoadOperatorConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !op.AllowsWebHost(repo, "api.example.com") || !op.AllowsWebHost(repo, "cdn.example.com") {
+		t.Fatal("batch host not granted")
+	}
+	if err := executeWebHostApproval(r); err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+}
+
+func TestApplyWebHostBatchRollsBackAppliedHosts(t *testing.T) {
+	var calls []string
+	failOn := "cdn.example.com"
+	apply := func(host string, grant bool) error {
+		if host == failOn && grant {
+			return fmt.Errorf("simulated failure")
+		}
+		calls = append(calls, fmt.Sprintf("%s=%v", host, grant))
+		return nil
+	}
+	err := applyWebHostBatch([]string{"api.example.com", "cdn.example.com", "extra.example.com"}, true, apply)
+	if err == nil {
+		t.Fatal("batch error swallowed")
+	}
+	want := []string{"api.example.com=true", "api.example.com=false"}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("calls = %v, want apply then rollback of exactly the applied host: %v", calls, want)
+	}
 }

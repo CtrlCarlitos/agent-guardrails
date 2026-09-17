@@ -110,13 +110,13 @@ func TestWebHostActionPreservesRequestedScopeAndHost(t *testing.T) {
 	r := request()
 	r.Action = "web-host-grant"
 	r.Scope = approval.GlobalScope
-	r.Host = "api.example.test"
+	r.Parameters = map[string]string{"scope": "global", "hosts": "api.example.test"}
 	created, err := broker.Create(r)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got, err := broker.Request(created.ID)
-	if err != nil || got.Scope != approval.GlobalScope || got.Parameters["host"] != "api.example.test" {
+	if err != nil || got.Scope != approval.GlobalScope || got.Parameters["hosts"] != "api.example.test" {
 		t.Fatalf("restored request = %+v, error %v", got, err)
 	}
 }
@@ -254,5 +254,45 @@ func TestCreateCanonicalizesNightExpiryAndRejectsMalformedClock(t *testing.T) {
 	request.Parameters = map[string]string{"until": "8:00"}
 	if _, err := broker.Create(request); !errors.Is(err, approval.ErrMalformed) {
 		t.Fatalf("non-canonical clock = %v, want malformed request", err)
+	}
+}
+
+func TestWebHostActionAcceptsHostBatch(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	broker := approval.New()
+	r := request()
+	r.Action = "web-host-grant"
+	r.Scope = approval.RepoScope
+	r.Parameters = map[string]string{"scope": "repo", "hosts": "api.example.com,cdn.example.com"}
+	created, err := broker.Create(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := broker.Request(created.ID)
+	if err != nil || got.Parameters["hosts"] != "api.example.com,cdn.example.com" || got.Parameters["scope"] != "repo" {
+		t.Fatalf("restored = %+v err=%v", got, err)
+	}
+	if got.Summary() != "hosts: api.example.com,cdn.example.com (repo)" {
+		t.Fatalf("summary = %q", got.Summary())
+	}
+}
+
+func TestWebHostActionRejectsInvalidBatches(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	broker := approval.New()
+	for _, params := range []map[string]string{
+		{"scope": "repo", "hosts": ""},
+		{"scope": "repo", "hosts": "api.example.com,"},
+		{"scope": "repo", "hosts": "api.example.com,bad_host"},
+		{"scope": "repo", "hosts": "api.example.com", "extra": "x"},
+		{"scope": "repo", "host": "api.example.com"},
+	} {
+		r := request()
+		r.Action = "web-host-grant"
+		r.Scope = approval.RepoScope
+		r.Parameters = params
+		if _, err := broker.Create(r); !errors.Is(err, approval.ErrMalformed) {
+			t.Errorf("parameters %v accepted: %v", params, err)
+		}
 	}
 }
