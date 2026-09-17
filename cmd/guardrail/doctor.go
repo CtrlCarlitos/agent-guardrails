@@ -91,15 +91,8 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	}
 
 	fmt.Fprintf(stdout, "audit log: %s\n", safetext.SingleLine(audit.DefaultPath(merged.Slots.AuditLog)))
-	if runtime.GOOS != "windows" {
-		if enrolled, err := defaultOperatorAuthStore().Enrolled(); err == nil && enrolled {
-			fmt.Fprintln(stdout, "operator approvals: WebAuthn")
-		} else {
-			fmt.Fprintln(stdout, "operator approvals: disabled")
-		}
-	} else {
-		fmt.Fprintln(stdout, "operator approvals: disabled (Windows fail-closed)")
-	}
+	enrolled, _ := defaultOperatorAuthStore().Enrolled()
+	fmt.Fprintln(stdout, operatorApprovalStatus(runtime.GOOS == "windows", enrolled))
 
 	fmt.Fprintf(stdout, "claude settings: %s\n", safetext.SingleLine(claudeSettingsState()))
 	if home, err := os.UserHomeDir(); err == nil {
@@ -117,6 +110,16 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	return 0
+}
+
+func operatorApprovalStatus(windows, enrolled bool) string {
+	if windows {
+		return "operator approvals: disabled (Windows fail-closed)"
+	}
+	if enrolled {
+		return "operator approvals: WebAuthn"
+	}
+	return "operator approvals: disabled"
 }
 
 func claudeSettingsState() string {

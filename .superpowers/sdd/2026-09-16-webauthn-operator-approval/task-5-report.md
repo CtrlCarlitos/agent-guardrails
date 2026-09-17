@@ -35,3 +35,31 @@ GOOS=windows GOARCH=amd64 /usr/local/go/bin/go build -o /tmp/guardrail-windows-t
 Not run: successful enrollment and approval require a physical FIDO2 key or
 platform passkey on each supported browser/platform pair. The procedure is in
 `docs/operator-approvals.md`.
+
+## Fix Round 1
+
+- Initial registration now records whether a ceremony is initial enrollment.
+  After WebAuthn verification, it acquires a private exclusive creation lock,
+  rereads the credential store while holding that lock, and atomically persists
+  the first public credential only when the store remains empty. A stale second
+  ceremony cannot replace the first enrollment.
+- Recovery now writes a durable `requested` audit event before credential
+  removal and a `completed` event after. Failure to write the request event
+  leaves the credential store unchanged.
+- `add-authenticator` rejects an unenrolled store before it can start a browser
+  ceremony. `remove-authenticator` rejects the final credential before browser
+  launch; its underlying removal invariant remains in force after assertion.
+- Doctor's status formatting is factored into a platform predicate, with direct
+  Windows fail-closed coverage.
+
+### Fix-Round TDD Evidence
+
+The focused RED command failed with missing command test seams and status
+predicate, no initial-registration persistence, and two successful stale
+registration ceremonies:
+
+```text
+/usr/local/go/bin/go test ./internal/operatorauth ./cmd/guardrail -run 'Test(StaleInitialRegistration|RegistrationIsInitial|RecoveryDoesNot|RecoverReset|CredentialManagement|OperatorApprovalStatus)' -count=1
+```
+
+The same focused command passed after the implementation.

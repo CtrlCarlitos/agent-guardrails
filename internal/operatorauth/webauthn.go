@@ -90,10 +90,11 @@ type Ceremony struct {
 const ceremonyLifetime = 5 * time.Minute
 
 type ceremonyState struct {
-	ceremony Ceremony
-	verifier *webauthn.WebAuthn
-	session  webauthn.SessionData
-	user     operatorUser
+	ceremony          Ceremony
+	verifier          *webauthn.WebAuthn
+	session           webauthn.SessionData
+	user              operatorUser
+	initialEnrollment bool
 }
 
 type registrationGrant struct{ expiresAt time.Time }
@@ -114,7 +115,7 @@ func (s *Store) BeginRegistration(origin string) (Ceremony, error) {
 	if registered {
 		return Ceremony{}, errors.New("initial registration requires no enrolled credentials")
 	}
-	return s.beginRegistration(origin)
+	return s.beginRegistration(origin, true)
 }
 
 // BeginAdditionalRegistration consumes a grant issued by a verified enrolled
@@ -123,10 +124,10 @@ func (s *Store) BeginAdditionalRegistration(origin string) (Ceremony, error) {
 	if err := s.takeRegistrationGrant(); err != nil {
 		return Ceremony{}, err
 	}
-	return s.beginRegistration(origin)
+	return s.beginRegistration(origin, false)
 }
 
-func (s *Store) beginRegistration(origin string) (Ceremony, error) {
+func (s *Store) beginRegistration(origin string, initialEnrollment bool) (Ceremony, error) {
 	verifier, err := newVerifier(origin)
 	if err != nil {
 		return Ceremony{}, err
@@ -138,7 +139,7 @@ func (s *Store) beginRegistration(origin string) (Ceremony, error) {
 	}
 	ceremony := Ceremony{ID: ceremonyID(), ExpiresAt: time.Now().Add(ceremonyLifetime), Options: options}
 	session.Expires = ceremony.ExpiresAt
-	s.remember(ceremonyState{ceremony: ceremony, verifier: verifier, session: *session, user: user})
+	s.remember(ceremonyState{ceremony: ceremony, verifier: verifier, session: *session, user: user, initialEnrollment: initialEnrollment})
 	return ceremony, nil
 }
 
@@ -162,7 +163,16 @@ func (s *Store) FinishRegistration(ceremonyID string, response []byte) (Credenti
 	if err != nil {
 		return Credential{}, fmt.Errorf("verify registration response: %w", err)
 	}
-	return credentialRecord(*credential)
+	record, err := credentialRecord(*credential)
+	if err != nil {
+		return Credential{}, err
+	}
+	if state.initialEnrollment {
+		if err := s.commitInitialCredential(record); err != nil {
+			return Credential{}, err
+		}
+	}
+	return record, nil
 }
 
 // BeginAssertion starts a single-use, user-verified approval assertion.

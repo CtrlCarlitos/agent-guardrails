@@ -18,6 +18,8 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 )
 
+var runOperatorCeremonyFunc = runOperatorCeremony
+
 func cmdOperator(args []string, terminal bool, stdin io.Reader, stdout, stderr io.Writer) int {
 	return cmdOperatorInput(args, terminal, stdin, stdout, stderr)
 }
@@ -55,7 +57,11 @@ func cmdOperatorInput(args []string, terminal bool, stdin io.Reader, stdout, std
 		if len(args) != 1 {
 			return operatorUsage(stderr)
 		}
-		if err := runOperatorCeremony(store, "add", ""); err != nil {
+		if enrolled, err := store.Enrolled(); err != nil || !enrolled {
+			fmt.Fprintln(stderr, "guardrail: authenticator management requires an enrolled credential")
+			return 2
+		}
+		if err := runOperatorCeremonyFunc(store, "add", ""); err != nil {
 			fmt.Fprintln(stderr, "guardrail: authenticator addition did not complete")
 			return 1
 		}
@@ -65,7 +71,12 @@ func cmdOperatorInput(args []string, terminal bool, stdin io.Reader, stdout, std
 		if len(args) != 2 || args[1] == "" {
 			return operatorUsage(stderr)
 		}
-		if err := runOperatorCeremony(store, "remove", args[1]); err != nil {
+		credentials, err := store.Credentials()
+		if err != nil || len(credentials) < 2 {
+			fmt.Fprintln(stderr, "guardrail: cannot remove the final enrolled authenticator")
+			return 2
+		}
+		if err := runOperatorCeremonyFunc(store, "remove", args[1]); err != nil {
 			fmt.Fprintln(stderr, "guardrail: authenticator removal did not complete")
 			return 1
 		}
@@ -80,6 +91,10 @@ func cmdOperatorInput(args []string, terminal bool, stdin io.Reader, stdout, std
 		if _, err := fmt.Fscan(stdin, &confirmation); err != nil || confirmation != "RESET" {
 			fmt.Fprintln(stderr, "guardrail: recovery reset not confirmed")
 			return 2
+		}
+		if err := audit.Write(audit.Record{Plane: "operator", Tool: "guardrail", Event: "operator-auth-recovery", Decision: "requested", OperatorAction: "recover-reset"}, audit.DefaultPath("")); err != nil {
+			fmt.Fprintln(stderr, "guardrail: recovery reset audit failed")
+			return 1
 		}
 		if err := store.ClearForRecovery(); err != nil {
 			fmt.Fprintln(stderr, "guardrail: recovery reset failed")
@@ -209,11 +224,11 @@ func operatorOptions(options any) (any, string) {
 func (p *operatorPage) finish(response []byte) error {
 	switch p.operation {
 	case "enroll":
-		credential, err := p.store.FinishRegistration(p.ceremony.ID, response)
+		_, err := p.store.FinishRegistration(p.ceremony.ID, response)
 		if err != nil {
 			return err
 		}
-		return p.store.Replace([]operatorauth.Credential{credential})
+		return nil
 	case "add":
 		if _, ok := p.ceremony.Options.(*protocol.CredentialAssertion); ok {
 			if _, err := p.store.FinishAssertion(p.ceremony.ID, response); err != nil {

@@ -214,9 +214,6 @@ func TestRegistrationIsInitialOnlyAndPersistsTransportAttribution(t *testing.T) 
 	if got := credential.Attribution(); got.Fingerprint == "" || len(got.Transports) != 1 || got.Transports[0] != "usb" {
 		t.Fatalf("credential attribution = %#v", got)
 	}
-	if err := store.Replace([]operatorauth.Credential{credential}); err != nil {
-		t.Fatal(err)
-	}
 	persisted, err := os.ReadFile(store.Path())
 	if err != nil {
 		t.Fatal(err)
@@ -226,6 +223,52 @@ func TestRegistrationIsInitialOnlyAndPersistsTransportAttribution(t *testing.T) 
 	}
 	if _, err := store.BeginRegistration("http://localhost:12345"); err == nil {
 		t.Fatal("registration started despite an enrolled credential")
+	}
+}
+
+func TestStaleInitialRegistrationCannotReplaceFirstEnrollment(t *testing.T) {
+	store := operatorauth.NewStore(t.TempDir())
+	first, err := store.BeginRegistration("http://localhost:12345")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.BeginRegistration("http://localhost:12345")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstAuthenticator := newAuthenticator(t)
+	secondAuthenticator := newAuthenticator(t)
+	results := make(chan struct {
+		credential operatorauth.Credential
+		err        error
+	}, 2)
+	go func() {
+		credential, err := store.FinishRegistration(first.ID, firstAuthenticator.registrationResponse(t, first, "http://localhost:12345"))
+		results <- struct {
+			credential operatorauth.Credential
+			err        error
+		}{credential, err}
+	}()
+	go func() {
+		credential, err := store.FinishRegistration(second.ID, secondAuthenticator.registrationResponse(t, second, "http://localhost:12345"))
+		results <- struct {
+			credential operatorauth.Credential
+			err        error
+		}{credential, err}
+	}()
+	firstResult, secondResult := <-results, <-results
+	if (firstResult.err == nil) == (secondResult.err == nil) {
+		t.Fatalf("initial enrollment results = (%v, %v), want exactly one success", firstResult.err, secondResult.err)
+	}
+	credentials, err := store.Credentials()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(credentials) != 1 {
+		t.Fatalf("stored credentials = %d, want 1", len(credentials))
+	}
+	if credentials[0].ID != firstResult.credential.ID && credentials[0].ID != secondResult.credential.ID {
+		t.Fatal("stored credential did not match the sole successful enrollment")
 	}
 }
 

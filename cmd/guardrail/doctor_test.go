@@ -79,6 +79,15 @@ func TestDoctorBasics(t *testing.T) {
 	}
 }
 
+func TestOperatorApprovalStatusIsWindowsFailClosed(t *testing.T) {
+	if got := operatorApprovalStatus(true, true); got != "operator approvals: disabled (Windows fail-closed)" {
+		t.Fatalf("windows status = %q", got)
+	}
+	if got := operatorApprovalStatus(false, true); got != "operator approvals: WebAuthn" {
+		t.Fatalf("enrolled status = %q", got)
+	}
+}
+
 func TestDoctorPrintsActiveNightBannerFirst(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
