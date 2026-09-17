@@ -5,6 +5,91 @@ import (
 	"testing"
 )
 
+func TestDaemonRejectsCompletionMessages(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	broker := New()
+	request, err := broker.Create(Request{Plane: "opencode", SessionID: "completion-message", RepoRoot: "/repo", Scope: Allow, Reason: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	daemon, err := StartDaemon(socket, broker, nil, func(string) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer daemon.Close()
+
+	for _, message := range []daemonMessage{{Operation: "approve", ID: request.ID, Scope: RepoScope}, {Operation: "deny", ID: request.ID}, {Operation: "request", ID: request.ID}} {
+		var reply daemonReply
+		if err := send(socket, message, &reply); err != nil {
+			t.Fatal(err)
+		}
+		if reply.Error == "" {
+			t.Fatalf("%s accepted", message.Operation)
+		}
+		stored, err := broker.Request(request.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored.Status != "pending" {
+			t.Fatalf("%s changed request to %s", message.Operation, stored.Status)
+		}
+	}
+}
+
+func TestDaemonSubmitRedactsSensitiveRequestDetails(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	daemon, err := StartDaemon(socket, New(), nil, func(string) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer daemon.Close()
+
+	var reply daemonReply
+	if err := send(socket, daemonMessage{Operation: "submit", Request: Request{Plane: "opencode", SessionID: "submit-redaction", RepoRoot: "/secret/repo", Host: "secret.example", Scope: Allow, Reason: "secret reason", Action: "night-on", Parameters: map[string]string{"token": "secret"}}}, &reply); err != nil {
+		t.Fatal(err)
+	}
+	if reply.Error != "" {
+		t.Fatalf("submit reply = %q", reply.Error)
+	}
+	if reply.Request.ID == "" || reply.Request.Status != "pending" || reply.Request.ExpiresAt.IsZero() {
+		t.Fatalf("submit reply = %+v, want ID, pending status, and expiry", reply.Request)
+	}
+	if reply.Request.Plane != "" || reply.Request.RepoRoot != "" || reply.Request.Host != "" || reply.Request.Action != "" || reply.Request.Scope != "" || reply.Request.Reason != "" || reply.Request.Parameters != nil {
+		t.Fatalf("submit leaked sensitive request details: %+v", reply.Request)
+	}
+}
+
+func TestDaemonStatusRedactsSensitiveRequestDetails(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	broker := New()
+	request, err := broker.Create(Request{Plane: "opencode", SessionID: "status-redaction", RepoRoot: "/secret/repo", Host: "secret.example", Scope: Allow, Reason: "secret reason", Action: "night-on", Parameters: map[string]string{"token": "secret"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	daemon, err := StartDaemon(socket, broker, nil, func(string) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer daemon.Close()
+
+	var reply daemonReply
+	if err := send(socket, daemonMessage{Operation: "status", ID: request.ID}, &reply); err != nil {
+		t.Fatal(err)
+	}
+	if reply.Error != "" {
+		t.Fatalf("status reply = %q", reply.Error)
+	}
+	if reply.Request.ID != request.ID || reply.Request.Status != "pending" || !reply.Request.ExpiresAt.Equal(request.ExpiresAt) {
+		t.Fatalf("status reply = %+v, want ID, pending status, and expiry", reply.Request)
+	}
+	if reply.Request.Plane != "" || reply.Request.RepoRoot != "" || reply.Request.Host != "" || reply.Request.Action != "" || reply.Request.Scope != "" || reply.Request.Reason != "" || reply.Request.Parameters != nil {
+		t.Fatalf("status leaked sensitive request details: %+v", reply.Request)
+	}
+}
+
 func TestDaemonRecoversInterruptedAction(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	action := "night-off"
@@ -18,7 +103,7 @@ func TestDaemonRecoversInterruptedAction(t *testing.T) {
 		t.Fatal(err)
 	}
 	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
-	d, err := StartDaemon(socket, New(), func(string) error { return nil })
+	d, err := StartDaemon(socket, New(), nil, func(string) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +125,7 @@ func TestFailedDaemonStartDoesNotRecoverLiveActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
-	live, err := StartDaemon(socket, broker, func(string) error { return nil })
+	live, err := StartDaemon(socket, broker, nil, func(string) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +133,7 @@ func TestFailedDaemonStartDoesNotRecoverLiveActions(t *testing.T) {
 	if err := broker.transition(r.ID, "executing"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := StartDaemon(socket, New(), func(string) error { return nil }); err == nil {
+	if _, err := StartDaemon(socket, New(), nil, func(string) error { return nil }); err == nil {
 		t.Fatal("second daemon unexpectedly started")
 	}
 	got, err := broker.Request(r.ID)

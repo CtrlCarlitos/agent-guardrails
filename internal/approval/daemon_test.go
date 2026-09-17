@@ -8,13 +8,21 @@ import (
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/operatorauth"
 )
 
 func TestDaemonUsesPrivateSocketAndSubmitsRequestOnce(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	if err := os.Mkdir(filepath.Join(os.Getenv("XDG_STATE_HOME"), "guardrail"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := operatorauth.NewStore(filepath.Join(os.Getenv("XDG_STATE_HOME"), "guardrail")).Replace([]operatorauth.Credential{{ID: "AQI", PublicKey: "AQI", Algorithm: -7}}); err != nil {
+		t.Fatal(err)
+	}
 	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
 	var opened string
-	daemon, err := approval.StartDaemon(socket, approval.New(), func(rawURL string) error {
+	store := operatorauth.NewStore(filepath.Join(os.Getenv("XDG_STATE_HOME"), "guardrail"))
+	daemon, err := approval.StartDaemon(socket, approval.New(), &store, func(rawURL string) error {
 		opened = rawURL
 		return nil
 	})
@@ -37,18 +45,8 @@ func TestDaemonUsesPrivateSocketAndSubmitsRequestOnce(t *testing.T) {
 	if r.ID == "" || r.Status != "pending" {
 		t.Fatalf("submitted request = %+v, want pending request with identity", r)
 	}
-	if opened != "" {
-		t.Fatalf("opened URL = %q, want no browser until an assertion store is configured", opened)
-	}
-	if err := approval.Approve(socket, r.ID, approval.RepoScope); err == nil {
-		t.Fatal("socket approval succeeded without a WebAuthn assertion")
-	}
-	stored, err := approval.Lookup(socket, r.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stored.Status != "pending" {
-		t.Fatalf("request status = %q, want pending", stored.Status)
+	if opened == "" {
+		t.Fatal("default operator-auth store was not used to start the browser ceremony")
 	}
 }
 
@@ -58,12 +56,12 @@ func TestDaemonDoesNotReplaceALiveSocket(t *testing.T) {
 	}
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
-	first, err := approval.StartDaemon(socket, approval.New(), func(string) error { return nil })
+	first, err := approval.StartDaemon(socket, approval.New(), nil, func(string) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer first.Close()
-	second, err := approval.StartDaemon(socket, approval.New(), func(string) error { return nil })
+	second, err := approval.StartDaemon(socket, approval.New(), nil, func(string) error { return nil })
 	if err == nil {
 		second.Close()
 		t.Fatal("second daemon replaced the live socket")
@@ -76,7 +74,7 @@ func TestDaemonDoesNotReplaceALiveSocket(t *testing.T) {
 func TestDefaultDaemonSupportsLongStateDirectory(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", filepath.Join(t.TempDir(), strings.Repeat("state-", 30)))
 	socket := approval.DefaultSocketPath()
-	daemon, err := approval.StartDaemon(socket, approval.New(), func(string) error { return nil })
+	daemon, err := approval.StartDaemon(socket, approval.New(), nil, func(string) error { return nil })
 	if err != nil {
 		t.Fatalf("start daemon with long state directory: %v", err)
 	}

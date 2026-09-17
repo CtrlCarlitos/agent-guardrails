@@ -31,9 +31,10 @@ type daemonReply struct {
 // Daemon owns browser transports and the privileged action handlers. Its socket
 // listener is created only by the platform-specific private-listener function.
 type Daemon struct {
-	listener net.Listener
-	broker   *Broker
-	openURL  func(string) error
+	listener  net.Listener
+	broker    *Broker
+	authStore AssertionStore
+	openURL   func(string) error
 
 	mu       sync.Mutex
 	browsers map[string]*Browser
@@ -87,8 +88,8 @@ func SubmitOnDemand(request Request) (Request, error) {
 	return Request{}, errors.New("approval daemon unavailable")
 }
 
-func RunDefaultDaemon(openURL func(string) error) error {
-	d, err := StartDaemon(DefaultSocketPath(), New(), openURL)
+func RunDefaultDaemon(authStore AssertionStore, openURL func(string) error) error {
+	d, err := StartDaemon(DefaultSocketPath(), New(), authStore, openURL)
 	if err != nil {
 		return err
 	}
@@ -96,7 +97,7 @@ func RunDefaultDaemon(openURL func(string) error) error {
 	return nil
 }
 
-func StartDaemon(socket string, broker *Broker, openURL func(string) error) (*Daemon, error) {
+func StartDaemon(socket string, broker *Broker, authStore AssertionStore, openURL func(string) error) (*Daemon, error) {
 	if broker == nil || openURL == nil {
 		return nil, ErrMalformed
 	}
@@ -108,7 +109,7 @@ func StartDaemon(socket string, broker *Broker, openURL func(string) error) (*Da
 		_ = listener.Close()
 		return nil, err
 	}
-	d := &Daemon{listener: listener, broker: broker, openURL: openURL, browsers: map[string]*Browser{}, activity: time.Now(), closed: make(chan struct{})}
+	d := &Daemon{listener: listener, broker: broker, authStore: authStore, openURL: openURL, browsers: map[string]*Browser{}, activity: time.Now(), closed: make(chan struct{})}
 	go d.serve()
 	go d.stopWhenIdle()
 	return d, nil
@@ -158,7 +159,7 @@ func (d *Daemon) handle(conn net.Conn) {
 	case "submit":
 		r, err := d.broker.Create(message.Request)
 		if err == nil {
-			browser, url, startErr := StartBrowser(d.broker, nil, r.ID)
+			browser, url, startErr := StartBrowser(d.broker, d.authStore, r.ID)
 			if startErr == nil && d.openURL(url) == nil {
 				d.mu.Lock()
 				d.browsers[r.ID] = browser
@@ -170,14 +171,14 @@ func (d *Daemon) handle(conn net.Conn) {
 		if err != nil {
 			reply.Error = "approval request unavailable"
 		} else {
-			reply.Request = r
+			reply.Request = requestStatus(r)
 		}
-	case "request":
+	case "status":
 		r, err := d.broker.Request(message.ID)
 		if err != nil {
 			reply.Error = "approval request unavailable"
 		} else {
-			reply.Request = r
+			reply.Request = requestStatus(r)
 		}
 	default:
 		reply.Error = "approval request unavailable"
@@ -229,28 +230,8 @@ func Submit(socket string, request Request) (Request, error) {
 	return reply.Request, nil
 }
 
-func Approve(socket, id string, scope Scope) error {
-	var reply daemonReply
-	if err := send(socket, daemonMessage{Operation: "approve", ID: id, Scope: scope}, &reply); err != nil || reply.Error != "" {
-		return errors.New("approval daemon unavailable")
-	}
-	return nil
-}
-
-func Deny(socket, id string) error {
-	var reply daemonReply
-	if err := send(socket, daemonMessage{Operation: "deny", ID: id}, &reply); err != nil || reply.Error != "" {
-		return errors.New("approval daemon unavailable")
-	}
-	return nil
-}
-
-func Lookup(socket, id string) (Request, error) {
-	var reply daemonReply
-	if err := send(socket, daemonMessage{Operation: "request", ID: id}, &reply); err != nil || reply.Error != "" {
-		return Request{}, errors.New("approval daemon unavailable")
-	}
-	return reply.Request, nil
+func requestStatus(request Request) Request {
+	return Request{ID: request.ID, Status: request.Status, ExpiresAt: request.ExpiresAt}
 }
 
 func send(socket string, message daemonMessage, reply *daemonReply) error {
