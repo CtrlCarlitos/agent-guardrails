@@ -135,17 +135,13 @@ func (b *Browser) finish(req Request, assertion []byte) (CompletionAttribution, 
 		err = b.authStore.FinishApprovalAssertion(b.ceremony.ID, assertion)
 	}
 	if err != nil {
-		ceremony, beginErr := b.authStore.BeginApprovalAssertion(req, b.origin)
-		if beginErr == nil {
-			b.ceremony = ceremony
-		}
 		return CompletionAttribution{}, err
 	}
 	return attribution, nil
 }
 
 func browserHandler(browser *Browser) http.Handler {
-	page := template.Must(template.New("approval").Parse(`<!doctype html><title>Guardrail approval</title><h1>Guardrail approval</h1><dl><dt>Request</dt><dd>{{.RequestIDPrefix}}</dd><dt>Plane</dt><dd>{{.Plane}}</dd><dt>Repository</dt><dd>{{.RepoRoot}}</dd><dt>Host</dt><dd>{{.Host}}</dd><dt>Action</dt><dd>{{.Action}}</dd><dt>Scope</dt><dd>{{.Scope}}</dd><dt>Expires</dt><dd>{{.ExpiresAt}}</dd></dl><output id="status">Waiting for WebAuthn assertion</output><script>const publicKey = {{.Options}};const decode = value => Uint8Array.from(atob(value.replace(/-/g,"+").replace(/_/g,"/")), c => c.charCodeAt(0));const encode = value => btoa(String.fromCharCode(...new Uint8Array(value))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");publicKey.challenge = decode(publicKey.challenge);publicKey.allowCredentials = (publicKey.allowCredentials || []).map(credential => ({...credential, id: decode(credential.id)}));window.requestWebAuthnAssertion = () => navigator.credentials.get({publicKey}).then(credential => fetch("/assertion", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:credential.id,rawId:encode(credential.rawId),type:credential.type,response:{authenticatorData:encode(credential.response.authenticatorData),clientDataJSON:encode(credential.response.clientDataJSON),signature:encode(credential.response.signature),userHandle:credential.response.userHandle && encode(credential.response.userHandle)}})})).then(response => {if (response.ok) window.close();else location.reload();}).catch(() => document.getElementById("status").textContent="WebAuthn assertion unavailable");window.requestWebAuthnAssertion();</script>`))
+	page := template.Must(template.New("approval").Parse(`<!doctype html><title>Guardrail approval</title><h1>Guardrail approval</h1><dl><dt>Request</dt><dd>{{.RequestIDPrefix}}</dd><dt>Plane</dt><dd>{{.Plane}}</dd><dt>Repository</dt><dd>{{.RepoRoot}}</dd><dt>Host</dt><dd>{{.Host}}</dd><dt>Action</dt><dd>{{.Action}}</dd><dt>Scope</dt><dd>{{.Scope}}</dd><dt>Expires</dt><dd>{{.ExpiresAt}}</dd></dl><output id="status">Waiting for WebAuthn assertion</output><script>const publicKey = {{.Options}};const decode = value => Uint8Array.from(atob(value.replace(/-/g,"+").replace(/_/g,"/")), c => c.charCodeAt(0));const encode = value => btoa(String.fromCharCode(...new Uint8Array(value))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");publicKey.challenge = decode(publicKey.challenge);publicKey.allowCredentials = (publicKey.allowCredentials || []).map(credential => ({...credential, id: decode(credential.id)}));const status = document.getElementById("status");window.requestWebAuthnAssertion = () => navigator.credentials.get({publicKey}).then(credential => fetch("/assertion", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:credential.id,rawId:encode(credential.rawId),type:credential.type,response:{authenticatorData:encode(credential.response.authenticatorData),clientDataJSON:encode(credential.response.clientDataJSON),signature:encode(credential.response.signature),userHandle:credential.response.userHandle && encode(credential.response.userHandle)}})})).then(async response => status.textContent=await response.text()).catch(error => status.textContent="WebAuthn authentication was not completed (" + error.name + ")");window.requestWebAuthnAssertion();</script>`))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/":
@@ -208,17 +204,17 @@ func browserHandler(browser *Browser) http.Handler {
 		}
 		attribution, err := browser.finish(req, assertion)
 		if err != nil {
-			http.Error(w, "assertion verification failed", http.StatusForbidden)
+			http.Error(w, "Denied: "+err.Error(), http.StatusForbidden)
 			return
 		}
 		if attribution.Transport != "" && attribution.CredentialFingerprint != "" {
 			browser.broker.SetCompletionAttribution(browser.requestID, attribution)
 		}
 		if err := browser.broker.Approve(browser.requestID, req.Scope); err != nil {
-			http.Error(w, "request unavailable", http.StatusGone)
+			http.Error(w, "Denied: approval could not be completed", http.StatusGone)
 			return
 		}
-		fmt.Fprint(w, "completed")
+		fmt.Fprintf(w, "Approved: %s completed. You may close this page.", req.Action)
 		browser.closeAfterResponse()
 	})
 }

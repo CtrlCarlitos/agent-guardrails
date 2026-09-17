@@ -22,6 +22,7 @@ import (
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/adapter"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/engine"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/operatorauth"
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/recipe"
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/session"
@@ -167,6 +168,16 @@ func TestAdversarialCorpus(t *testing.T) {
 
 			stateHome := t.TempDir()
 			configHome := t.TempDir()
+			if runtime.GOOS != "windows" {
+				operatorState := filepath.Join(stateHome, "guardrail")
+				if err := os.MkdirAll(operatorState, 0o700); err != nil {
+					t.Fatalf("create Operator credential directory: %v", err)
+				}
+				store := operatorauth.NewStore(operatorState)
+				if err := store.Replace([]operatorauth.Credential{{ID: "AQI", PublicKey: "AQI", Algorithm: -7}}); err != nil {
+					t.Fatalf("seed Operator credential: %v", err)
+				}
+			}
 			config := filepath.Join(t.TempDir(), "guardrail.toml")
 			var overlay []byte
 			if len(e.Waive) > 0 {

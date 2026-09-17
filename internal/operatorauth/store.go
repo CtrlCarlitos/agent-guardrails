@@ -18,11 +18,13 @@ const (
 
 // Credential is the public record required to verify a WebAuthn assertion.
 type Credential struct {
-	ID         string   `json:"id"`
-	PublicKey  string   `json:"public_key"`
-	Algorithm  int      `json:"algorithm"`
-	SignCount  uint32   `json:"sign_count"`
-	Transports []string `json:"transports,omitempty"`
+	ID             string   `json:"id"`
+	PublicKey      string   `json:"public_key"`
+	Algorithm      int      `json:"algorithm"`
+	SignCount      uint32   `json:"sign_count"`
+	BackupEligible bool     `json:"backup_eligible"`
+	BackupState    bool     `json:"backup_state"`
+	Transports     []string `json:"transports,omitempty"`
 }
 
 // CredentialAttribution is the non-sensitive credential information suitable
@@ -185,6 +187,26 @@ func (s Store) Replace(credentials []Credential) error {
 		return fmt.Errorf("sync credential directory: %w", err)
 	}
 	return nil
+}
+
+func (s Store) updateCredential(updated Credential) error {
+	dir := filepath.Dir(s.Path())
+	release, err := acquireEnrollmentLock(dir)
+	if err != nil {
+		return err
+	}
+	defer release()
+	credentials, err := s.Credentials()
+	if err != nil {
+		return err
+	}
+	for i, credential := range credentials {
+		if credential.ID == updated.ID {
+			credentials[i] = updated
+			return s.Replace(credentials)
+		}
+	}
+	return errors.New("credential no longer enrolled")
 }
 
 func (s Store) commitInitialCredential(credential Credential) error {

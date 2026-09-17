@@ -131,7 +131,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if createErr != nil {
 			v = policy.Verdict{Decision: policy.Deny, RuleID: "operator-action-broker", Reason: "operator-action request could not be recorded; failing closed"}
 		} else {
-			v = policy.Verdict{Decision: policy.Complete, RuleID: "operator-action", Reason: "operator action requires broker approval", OperatorAction: operatorAction.Name, RequestID: r.ID}
+			v = policy.Verdict{Decision: policy.Complete, RuleID: "operator-action", Reason: "operator action requires broker approval", OperatorAction: operatorAction.Name, RequestID: r.ID, ApprovalURL: r.ApprovalURL}
 		}
 		stateApplied = true
 	} else if tc.Event == "pre" && needsState {

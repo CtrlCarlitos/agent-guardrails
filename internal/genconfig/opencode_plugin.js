@@ -13,6 +13,16 @@ const GUARDRAIL_BIN = "__GUARDRAIL_BIN__";
 // Adapter contract mirrored by maxOpencodeHookEnvelopeBytes in internal/adapter/opencode.go.
 const MAX_OPENCODE_HOOK_ENVELOPE_BYTES = 8 * 1024 * 1024;
 
+function isPendingOperatorAction(decision) {
+	if (decision?.decision !== "deny" || decision.status !== "pending" || typeof decision.operator_action !== "string" || !decision.operator_action || typeof decision.request_id !== "string" || !decision.request_id || typeof decision.approval_url !== "string") return false;
+	try {
+		const url = new URL(decision.approval_url);
+		return url.protocol === "http:" && url.hostname === "localhost" && /^[1-9][0-9]*$/.test(url.port) && Number(url.port) <= 65535 && !url.username && !url.password && (url.pathname === "" || url.pathname === "/") && !url.search && !url.hash;
+	} catch {
+		return false;
+	}
+}
+
 function callGuardrail(envelope) {
 	const serializedEnvelope = JSON.stringify(envelope);
 	if (Buffer.byteLength(serializedEnvelope, "utf8") > MAX_OPENCODE_HOOK_ENVELOPE_BYTES) {
@@ -38,11 +48,12 @@ function callGuardrail(envelope) {
 	if (res.stderr) {
 		process.stderr.write(res.stderr);
 	}
-	if (decision.decision !== "allow") {
+	const pendingOperatorAction = isPendingOperatorAction(decision);
+	if (decision.decision !== "allow" && !pendingOperatorAction) {
 		const reason = decision.reason || "no decision returned";
 		throw new Error(`guardrail: ${reason}`);
 	}
-	if (res.status !== 0) {
+	if (res.status !== 0 && !pendingOperatorAction) {
 		throw new Error(`guardrail: exited ${res.status}; failing closed`);
 	}
 	return decision;
@@ -75,6 +86,19 @@ export const GuardrailPlugin = async ({ directory, client }) => {
 				envelope.url = args.url;
 			}
 			const decision = callGuardrail(envelope);
+			if (isPendingOperatorAction(decision)) {
+				const message = `WebAuthn approval required for ${decision.operator_action}. Open ${decision.approval_url}`;
+				if (client?.tui?.showToast) {
+					try {
+						await client.tui.showToast({
+							body: { title: "Guardrail Approval Required", message, variant: "warning", duration: 15000 },
+						});
+					} catch {
+						process.stderr.write(`${message}\n`);
+					}
+				}
+				throw new Error(`guardrail: ${message}`);
+			}
 			if (decision.reason?.startsWith("NIGHT MODE until ")) {
 				const message = decision.reason.split(";", 1)[0];
 				if (client?.tui?.showToast) {

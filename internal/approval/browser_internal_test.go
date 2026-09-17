@@ -74,6 +74,9 @@ func TestBrowserHandlerCompletesValidSignedAssertionOnce(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("signed assertion status = %d, want %d", response.Code, http.StatusOK)
 	}
+	if !bytes.Contains(response.Body.Bytes(), []byte("Approved: night-off completed. You may close this page.")) {
+		t.Fatalf("signed assertion response = %q, want approval confirmation", response.Body.String())
+	}
 	if calls != 1 {
 		t.Fatalf("action calls = %d, want 1", calls)
 	}

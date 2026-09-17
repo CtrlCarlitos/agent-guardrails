@@ -160,12 +160,23 @@ func (d *Daemon) handle(conn net.Conn) {
 		r, err := d.broker.Create(message.Request)
 		if err == nil {
 			browser, url, startErr := StartBrowser(d.broker, d.authStore, r.ID)
-			if startErr == nil && d.openURL(url) == nil {
+			if startErr == nil {
+				startErr = d.openURL(url)
+			}
+			if startErr == nil {
 				d.mu.Lock()
 				d.browsers[r.ID] = browser
 				d.mu.Unlock()
-			} else if browser != nil {
-				_ = browser.Close()
+				r.ApprovalURL = url
+			} else {
+				if browser != nil {
+					_ = browser.Close()
+				}
+				if denyErr := d.broker.Deny(r.ID); denyErr != nil {
+					err = denyErr
+				} else {
+					err = startErr
+				}
 			}
 		}
 		if err != nil {
@@ -231,7 +242,7 @@ func Submit(socket string, request Request) (Request, error) {
 }
 
 func requestStatus(request Request) Request {
-	return Request{ID: request.ID, Status: request.Status, ExpiresAt: request.ExpiresAt}
+	return Request{ID: request.ID, Status: request.Status, ExpiresAt: request.ExpiresAt, ApprovalURL: request.ApprovalURL}
 }
 
 func send(socket string, message daemonMessage, reply *daemonReply) error {

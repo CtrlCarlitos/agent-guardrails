@@ -86,7 +86,7 @@ func TestBrowserReissuesCeremonyAfterMalformedAssertion(t *testing.T) {
 	}
 }
 
-func TestBrowserReissuesCeremonyAfterFailedAssertion(t *testing.T) {
+func TestBrowserDoesNotReissueCeremonyAfterFailedAssertion(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	broker := approval.New()
 	request, err := broker.Create(request())
@@ -109,8 +109,15 @@ func TestBrowserReissuesCeremonyAfterFailedAssertion(t *testing.T) {
 	if response.StatusCode != http.StatusForbidden {
 		t.Fatalf("failed assertion status = %d, want %d", response.StatusCode, http.StatusForbidden)
 	}
-	if store.begins != 2 {
-		t.Fatalf("ceremonies begun = %d, want 2", store.begins)
+	bodyText, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(bodyText, []byte("Denied: invalid assertion")) {
+		t.Fatalf("failed assertion response = %q, want denial confirmation", bodyText)
+	}
+	if store.begins != 1 {
+		t.Fatalf("ceremonies begun = %d, want 1", store.begins)
 	}
 	stored, err := broker.Request(request.ID)
 	if err != nil {
@@ -175,14 +182,14 @@ func TestBrowserLoopbackFailurePath(t *testing.T) {
 	if output, err := exec.Command(agentBrowser, "--session", session, "eval", `navigator.credentials.get = () => Promise.reject(new DOMException("stubbed credential rejection", "NotAllowedError")); window.requestWebAuthnAssertion();`).CombinedOutput(); err != nil {
 		t.Fatalf("stub WebAuthn credential request: %v\n%s", err, output)
 	}
-	if output, err := exec.Command(agentBrowser, "--session", session, "wait", "--text", "WebAuthn assertion unavailable").CombinedOutput(); err != nil {
+	if output, err := exec.Command(agentBrowser, "--session", session, "wait", "--text", "WebAuthn authentication was not completed (NotAllowedError)").CombinedOutput(); err != nil {
 		t.Fatalf("wait for WebAuthn rejection: %v\n%s", err, output)
 	}
 	output, err := exec.Command(agentBrowser, "--session", session, "read").CombinedOutput()
 	if err != nil {
 		t.Fatalf("read approval page: %v\n%s", err, output)
 	}
-	for _, want := range []string{"opencode", "/repo", "api.example.test", "WebAuthn assertion unavailable"} {
+	for _, want := range []string{"opencode", "/repo", "api.example.test", "WebAuthn authentication was not completed (NotAllowedError)"} {
 		if !bytes.Contains(output, []byte(want)) {
 			t.Fatalf("browser page does not present %q", want)
 		}

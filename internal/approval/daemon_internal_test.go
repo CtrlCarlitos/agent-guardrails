@@ -1,9 +1,18 @@
 package approval
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 )
+
+type daemonAuthStore struct{}
+
+func (daemonAuthStore) BeginApprovalAssertion(Request, string) (Assertion, error) {
+	return Assertion{ID: "test-ceremony", Options: map[string]any{"challenge": "AQI"}}, nil
+}
+
+func (daemonAuthStore) FinishApprovalAssertion(string, []byte) error { return nil }
 
 func TestDaemonRejectsCompletionMessages(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
@@ -40,7 +49,7 @@ func TestDaemonRejectsCompletionMessages(t *testing.T) {
 func TestDaemonSubmitRedactsSensitiveRequestDetails(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
-	daemon, err := StartDaemon(socket, New(), nil, func(string) error { return nil })
+	daemon, err := StartDaemon(socket, New(), daemonAuthStore{}, func(string) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,6 +67,24 @@ func TestDaemonSubmitRedactsSensitiveRequestDetails(t *testing.T) {
 	}
 	if reply.Request.Plane != "" || reply.Request.RepoRoot != "" || reply.Request.Host != "" || reply.Request.Action != "" || reply.Request.Scope != "" || reply.Request.Reason != "" || reply.Request.Parameters != nil {
 		t.Fatalf("submit leaked sensitive request details: %+v", reply.Request)
+	}
+}
+
+func TestDaemonRejectsRequestWhenApprovalPageCannotBePresented(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	broker := New()
+	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	daemon, err := StartDaemon(socket, broker, nil, func(string) error { return errors.New("presentation failed") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer daemon.Close()
+
+	if _, err := Submit(socket, Request{Plane: "opencode", SessionID: "presentation-failure", RepoRoot: "/repo", Scope: Allow, Reason: "test", Action: "night-on", Parameters: map[string]string{"until": "08:00"}}); err == nil {
+		t.Fatal("submission succeeded without an approval page")
+	}
+	if broker.hasPending() {
+		t.Fatal("unpresentable approval request remained pending")
 	}
 }
 
