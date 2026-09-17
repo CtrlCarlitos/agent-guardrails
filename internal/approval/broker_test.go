@@ -103,6 +103,28 @@ func TestCreateRejectsAnOverlongExpiry(t *testing.T) {
 	}
 }
 
+func TestCreateAssignsAndPersistsIssuedAt(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	broker := approval.New()
+	r := request()
+	r.IssuedAt = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	before := time.Now().UTC()
+	created, err := broker.Create(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.IssuedAt.Before(before) || created.IssuedAt.Equal(r.IssuedAt) {
+		t.Fatalf("created issued at = %s, want Broker.Create-assigned value", created.IssuedAt)
+	}
+	restored, err := broker.Request(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !restored.IssuedAt.Equal(created.IssuedAt) {
+		t.Fatalf("restored issued at = %s, want %s", restored.IssuedAt, created.IssuedAt)
+	}
+}
+
 func TestBrokerDoesNotPersistReasonOrParameters(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	broker := approval.New()

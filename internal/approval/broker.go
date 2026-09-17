@@ -53,6 +53,7 @@ type Request struct {
 	Reason     string
 	Action     string
 	Parameters map[string]string
+	IssuedAt   time.Time
 	ExpiresAt  time.Time
 	Status     string
 }
@@ -94,6 +95,7 @@ func (b *Broker) Create(r Request) (Request, error) {
 	} else if r.ExpiresAt.After(b.now().UTC().Add(requestTTL)) {
 		return Request{}, ErrMalformed
 	}
+	r.IssuedAt = b.now().UTC()
 	r.ExpiresAt = r.ExpiresAt.UTC()
 	r.Status = "pending"
 	record := durable(r)
@@ -253,11 +255,11 @@ func durable(r Request) session.ApprovalRequest {
 		params["scope"] = string(r.Scope)
 		params["host"] = r.Host
 	}
-	return session.ApprovalRequest{ID: r.ID, Plane: r.Plane, SessionDigest: digest(r.SessionID), RepoRoot: filepath.Clean(r.RepoRoot), Host: r.Host, Scope: string(r.Scope), ReasonDigest: digest(r.Reason), Action: r.Action, Parameters: params, ExpiresAt: r.ExpiresAt, Status: r.Status}
+	return session.ApprovalRequest{ID: r.ID, Plane: r.Plane, SessionDigest: digest(r.SessionID), RepoRoot: filepath.Clean(r.RepoRoot), Host: r.Host, Scope: string(r.Scope), ReasonDigest: digest(r.Reason), Action: r.Action, Parameters: params, IssuedAt: r.IssuedAt, ExpiresAt: r.ExpiresAt, Status: r.Status}
 }
 
 func restore(r session.ApprovalRequest) Request {
-	return Request{ID: r.ID, Plane: r.Plane, RepoRoot: r.RepoRoot, Host: r.Host, Scope: Scope(r.Scope), Reason: "operator action request", Action: r.Action, Parameters: maps.Clone(r.Parameters), ExpiresAt: r.ExpiresAt, Status: r.Status}
+	return Request{ID: r.ID, Plane: r.Plane, RepoRoot: r.RepoRoot, Host: r.Host, Scope: Scope(r.Scope), Reason: "operator action request", Action: r.Action, Parameters: maps.Clone(r.Parameters), IssuedAt: r.IssuedAt, ExpiresAt: r.ExpiresAt, Status: r.Status}
 }
 
 func prune(records map[string]session.ApprovalRequest, now time.Time) {

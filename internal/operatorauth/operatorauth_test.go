@@ -13,27 +13,30 @@ import (
 )
 
 func TestBindingUsesCanonicalAuthorizationFields(t *testing.T) {
+	issuedAt := time.Date(2026, 9, 16, 12, 33, 56, 789, time.FixedZone("UTC-7", -7*60*60))
 	expiresAt := time.Date(2026, 9, 16, 12, 34, 56, 789, time.FixedZone("UTC-7", -7*60*60))
 	request := approval.Request{
-		ID: "r1", Action: "web-host-grant", RepoRoot: "/repo", Host: "example.com", Scope: approval.RepoScope, ExpiresAt: expiresAt,
+		ID: "r1", IssuedAt: issuedAt, Action: "web-host-grant", Parameters: map[string]string{"scope": "repo", "host": "example.com"}, RepoRoot: "/repo", Host: "example.com", Scope: approval.RepoScope, ExpiresAt: expiresAt,
 	}
 
-	want := sha256.Sum256([]byte("guardrail-approval-v1\x00{\"request_id\":\"r1\",\"action\":\"web-host-grant\",\"repo_root\":\"/repo\",\"host\":\"example.com\",\"scope\":\"repo\",\"expires_at\":\"2026-09-16T19:34:56.000000789Z\"}"))
+	want := sha256.Sum256([]byte("guardrail-approval-v1\x00{\"request_id\":\"r1\",\"issued_at\":\"2026-09-16T19:33:56.000000789Z\",\"action\":\"web-host-grant\",\"parameters\":[{\"key\":\"host\",\"value\":\"example.com\"},{\"key\":\"scope\",\"value\":\"repo\"}],\"repo_root\":\"/repo\",\"host\":\"example.com\",\"scope\":\"repo\",\"expires_at\":\"2026-09-16T19:34:56.000000789Z\"}"))
 	if got := operatorauth.BindingFor(request).Digest(); got != want {
 		t.Fatalf("binding digest = %x, want %x", got, want)
 	}
 }
 
 func TestBindingChangesForEveryAuthorizationField(t *testing.T) {
-	base := approval.Request{ID: "r1", Action: "web-host-grant", RepoRoot: "/repo", Host: "example.com", Scope: approval.RepoScope, ExpiresAt: time.Now().Add(time.Minute)}
+	base := approval.Request{ID: "r1", IssuedAt: time.Now(), Action: "web-host-grant", Parameters: map[string]string{"host": "example.com"}, RepoRoot: "/repo", Host: "example.com", Scope: approval.RepoScope, ExpiresAt: time.Now().Add(time.Minute)}
 	want := operatorauth.BindingFor(base).Digest()
 	for _, changed := range []approval.Request{
-		{ID: "r2", Action: base.Action, RepoRoot: base.RepoRoot, Host: base.Host, Scope: base.Scope, ExpiresAt: base.ExpiresAt},
-		{ID: base.ID, Action: "web-host-revoke", RepoRoot: base.RepoRoot, Host: base.Host, Scope: base.Scope, ExpiresAt: base.ExpiresAt},
-		{ID: base.ID, Action: base.Action, RepoRoot: "/other", Host: base.Host, Scope: base.Scope, ExpiresAt: base.ExpiresAt},
-		{ID: base.ID, Action: base.Action, RepoRoot: base.RepoRoot, Host: "other.example", Scope: base.Scope, ExpiresAt: base.ExpiresAt},
-		{ID: base.ID, Action: base.Action, RepoRoot: base.RepoRoot, Host: base.Host, Scope: approval.GlobalScope, ExpiresAt: base.ExpiresAt},
-		{ID: base.ID, Action: base.Action, RepoRoot: base.RepoRoot, Host: base.Host, Scope: base.Scope, ExpiresAt: base.ExpiresAt.Add(time.Second)},
+		{ID: "r2", IssuedAt: base.IssuedAt, Action: base.Action, Parameters: base.Parameters, RepoRoot: base.RepoRoot, Host: base.Host, Scope: base.Scope, ExpiresAt: base.ExpiresAt},
+		{ID: base.ID, IssuedAt: base.IssuedAt.Add(time.Second), Action: base.Action, Parameters: base.Parameters, RepoRoot: base.RepoRoot, Host: base.Host, Scope: base.Scope, ExpiresAt: base.ExpiresAt},
+		{ID: base.ID, IssuedAt: base.IssuedAt, Action: "web-host-revoke", Parameters: base.Parameters, RepoRoot: base.RepoRoot, Host: base.Host, Scope: base.Scope, ExpiresAt: base.ExpiresAt},
+		{ID: base.ID, IssuedAt: base.IssuedAt, Action: base.Action, Parameters: map[string]string{"host": "other.example"}, RepoRoot: base.RepoRoot, Host: base.Host, Scope: base.Scope, ExpiresAt: base.ExpiresAt},
+		{ID: base.ID, IssuedAt: base.IssuedAt, Action: base.Action, Parameters: base.Parameters, RepoRoot: "/other", Host: base.Host, Scope: base.Scope, ExpiresAt: base.ExpiresAt},
+		{ID: base.ID, IssuedAt: base.IssuedAt, Action: base.Action, Parameters: base.Parameters, RepoRoot: base.RepoRoot, Host: "other.example", Scope: base.Scope, ExpiresAt: base.ExpiresAt},
+		{ID: base.ID, IssuedAt: base.IssuedAt, Action: base.Action, Parameters: base.Parameters, RepoRoot: base.RepoRoot, Host: base.Host, Scope: approval.GlobalScope, ExpiresAt: base.ExpiresAt},
+		{ID: base.ID, IssuedAt: base.IssuedAt, Action: base.Action, Parameters: base.Parameters, RepoRoot: base.RepoRoot, Host: base.Host, Scope: base.Scope, ExpiresAt: base.ExpiresAt.Add(time.Second)},
 	} {
 		if got := operatorauth.BindingFor(changed).Digest(); got == want {
 			t.Fatal("changed authorization field retained digest")

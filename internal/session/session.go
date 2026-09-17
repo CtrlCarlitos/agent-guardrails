@@ -62,6 +62,7 @@ type ApprovalRequest struct {
 	ReasonDigest  string            `json:"reason_digest"`
 	Action        string            `json:"action,omitempty"`
 	Parameters    map[string]string `json:"parameters,omitempty"`
+	IssuedAt      time.Time         `json:"issued_at"`
 	ExpiresAt     time.Time         `json:"expires_at"`
 	Status        string            `json:"status"`
 }
