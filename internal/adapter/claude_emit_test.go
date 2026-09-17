@@ -25,7 +25,7 @@ func TestEmitClaudeDeny(t *testing.T) {
 	}
 	var out, errb bytes.Buffer
 	code := EmitClaude(policy.Verdict{Decision: policy.Deny, Reason: "protected target"}, "pre", tc, &out, &errb)
-	if code != 2 || !strings.Contains(errb.String(), "Guardrail denied this action: protected target.") || !strings.Contains(errb.String(), "It cannot be authorized.") || !strings.Contains(errb.String(), "Choose a safe alternative.") {
+	if code != 2 || !strings.Contains(errb.String(), "Guardrail denied this action: protected target.") || !strings.Contains(errb.String(), "Do not retry this exact call.") || strings.Contains(errb.String(), "Choose a safe alternative.") {
 		t.Fatalf("deny: code=%d err=%q", code, errb.String())
 	}
 }

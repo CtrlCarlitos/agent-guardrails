@@ -173,7 +173,7 @@ func TestEmitOpencodeSanitizesReasonForEveryDecision(t *testing.T) {
 			if tt.decision == policy.Ask && (!strings.Contains(got["reason"], "Operator authorization required: needs approval.") || !strings.Contains(got["reason"], `Request authorization for this exact action: bash {"command":"chmod -R 777 /tmp","timeout":30}.`) || !strings.Contains(got["reason"], "If the operator approves, retry this exact tool call once.") || !strings.Contains(got["reason"], "Do not alter or broaden the action.")) {
 				t.Fatalf("ask guidance = %q", got["reason"])
 			}
-			if tt.decision == policy.Deny && (!strings.Contains(got["reason"], "Guardrail denied this action: needs approval.") || !strings.Contains(got["reason"], "It cannot be authorized.") || !strings.Contains(got["reason"], "Choose a safe alternative.")) {
+			if tt.decision == policy.Deny && (!strings.Contains(got["reason"], "Guardrail denied this action: needs approval.") || !strings.Contains(got["reason"], "Do not retry this exact call.") || strings.Contains(got["reason"], "Choose a safe alternative.")) {
 				t.Fatalf("deny guidance = %q", got["reason"])
 			}
 		})

@@ -22,10 +22,99 @@ func TestGuidanceAskRequiresAuthorizationForExactAction(t *testing.T) {
 	}
 }
 
-func TestGuidanceDenyCannotBeAuthorized(t *testing.T) {
-	v := policy.Verdict{Decision: policy.Deny, Reason: "destructive path is protected"}
-	got := Guidance(v, `bash {"command":"rm -rf /"}`)
-	if got != "Guardrail denied this action: destructive path is protected. It cannot be authorized. Choose a safe alternative." {
-		t.Fatalf("Guidance() = %q", got)
+func TestGuidanceDenyIsActionablePerRule(t *testing.T) {
+	cases := []struct {
+		ruleID string
+		reason string
+		wants  []string
+	}{
+		{
+			ruleID: "capability-deny",
+			wants:  []string{"unavailable on this plane", "perform the work yourself in this session", "continue"},
+		},
+		{
+			ruleID: "capability-delegation-unverified",
+			wants:  []string{"Do not delegate", "perform the work yourself in this session", "continue"},
+		},
+		{
+			ruleID: "unknown-native-tool",
+			wants:  []string{"unclassified", "supported tool", "continue"},
+		},
+		{
+			ruleID: "capability-input-missing",
+			wants:  []string{"could not be projected", "explicit file paths", "continue"},
+		},
+		{
+			ruleID: "capability-input-invalid",
+			wants:  []string{"could not be projected", "full HTTP URL", "continue"},
+		},
+		{
+			ruleID: "P4.secret-path",
+			wants:  []string{"secret_allow", "Exclude this path", "continue the rest of the task"},
+		},
+		{
+			ruleID: "P5.self-config",
+			wants:  []string{"Guardrail-protected", "operator", "Continue other work"},
+		},
+		{
+			ruleID: "P6.egress",
+			wants:  []string{"not authorized", "Batch the exact domains", "guardrail egress grant", "continue offline work"},
+		},
+		{
+			ruleID: "P1.rm-rf",
+			wants:  []string{"Destructive", "do not retry", "reversible alternative", "continue the task"},
+		},
+		{
+			ruleID: "P1.git-push-force",
+			wants:  []string{"Destructive", "do not retry", "continue the task"},
+		},
+		{
+			ruleID: "P2.git-reset-hard",
+			wants:  []string{"Protected git state", "git revert", "continue"},
+		},
+		{
+			ruleID: "P2.git-protected-path",
+			wants:  []string{"Protected git state", "continue"},
+		},
+		{
+			ruleID: "P4.symlink-escape",
+			wants:  []string{"Symlink escape", "real target path", "continue"},
+		},
+		{
+			ruleID: "P6.download-pipe-shell",
+			wants:  []string{"piped into a shell", "Download to a file", "separate reviewed step"},
+		},
+	}
+	for _, tc := range cases {
+		v := policy.Verdict{Decision: policy.Deny, RuleID: tc.ruleID, Reason: "unit-test reason"}
+		got := Guidance(v, `bash {"command":"x"}`)
+		prefix := "Guardrail denied this action: unit-test reason."
+		if !strings.HasPrefix(got, prefix) {
+			t.Errorf("%s: Guidance() = %q, want prefix %q", tc.ruleID, got, prefix)
+		}
+		if strings.Contains(got, "Choose a safe alternative") {
+			t.Errorf("%s: Guidance() = %q contains dead-end phrase", tc.ruleID, got)
+		}
+		for _, want := range tc.wants {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s: Guidance() = %q, missing %q", tc.ruleID, got, want)
+			}
+		}
+	}
+}
+
+func TestGuidanceDenyFallbackStillDirectsWork(t *testing.T) {
+	v := policy.Verdict{Decision: policy.Deny, RuleID: "P9.something-new", Reason: "future rule"}
+	got := Guidance(v, `bash {"command":"x"}`)
+	if !strings.Contains(got, "Guardrail denied this action: future rule.") {
+		t.Fatalf("Guidance() = %q, missing denial prefix", got)
+	}
+	if strings.Contains(got, "Choose a safe alternative") || strings.Contains(got, "It cannot be authorized.") {
+		t.Fatalf("Guidance() = %q, fallback is a dead end", got)
+	}
+	for _, want := range []string{"Do not retry this exact call", "other means", "operator"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("Guidance() = %q, missing %q", got, want)
+		}
 	}
 }
