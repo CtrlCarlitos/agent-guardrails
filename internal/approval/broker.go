@@ -96,6 +96,14 @@ func (b *Broker) Create(r Request) (Request, error) {
 	if err := validateRequest(r); err != nil {
 		return Request{}, err
 	}
+	now := b.now().UTC()
+	if r.Action == "night-on" {
+		expiresAt, err := canonicalNightExpiry(r.Parameters["until"], now)
+		if err != nil {
+			return Request{}, ErrMalformed
+		}
+		r.Parameters = map[string]string{"expires_at": expiresAt}
+	}
 	if r.ID == "" {
 		id, err := randomID()
 		if err != nil {
@@ -104,11 +112,11 @@ func (b *Broker) Create(r Request) (Request, error) {
 		r.ID = id
 	}
 	if r.ExpiresAt.IsZero() {
-		r.ExpiresAt = b.now().UTC().Add(requestTTL)
-	} else if r.ExpiresAt.After(b.now().UTC().Add(requestTTL)) {
+		r.ExpiresAt = now.Add(requestTTL)
+	} else if r.ExpiresAt.After(now.Add(requestTTL)) {
 		return Request{}, ErrMalformed
 	}
-	r.IssuedAt = b.now().UTC()
+	r.IssuedAt = now
 	r.ExpiresAt = r.ExpiresAt.UTC()
 	r.Status = "pending"
 	record := durable(r)
@@ -273,14 +281,30 @@ func validateRequest(r Request) error {
 	if r.Action != "" && r.Action != "night-on" && r.Action != "night-off" && r.Action != "web-host-grant" && r.Action != "web-host-revoke" {
 		return ErrMalformed
 	}
+	if r.Action == "night-on" && (len(r.Parameters) != 1 || r.Parameters["until"] == "") {
+		return ErrMalformed
+	}
 	return nil
+}
+
+func canonicalNightExpiry(until string, now time.Time) (string, error) {
+	clock, err := time.ParseInLocation("15:04", until, time.Local)
+	if err != nil || clock.Format("15:04") != until {
+		return "", ErrMalformed
+	}
+	localNow := now.In(time.Local)
+	expiresAt := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), clock.Hour(), clock.Minute(), 0, 0, time.Local)
+	if !expiresAt.After(localNow) {
+		expiresAt = expiresAt.AddDate(0, 0, 1)
+	}
+	return expiresAt.UTC().Format(time.RFC3339Nano), nil
 }
 
 func durable(r Request) session.ApprovalRequest {
 	params := make(map[string]string)
 	if r.Action == "night-on" {
-		if until := r.Parameters["until"]; until != "" {
-			params["until"] = until
+		if expiresAt := r.Parameters["expires_at"]; expiresAt != "" {
+			params["expires_at"] = expiresAt
 		}
 	}
 	if r.Action == "web-host-grant" || r.Action == "web-host-revoke" {

@@ -101,7 +101,7 @@ func TestBrowserClosesLoopbackAfterValidAssertion(t *testing.T) {
 	harness := newBrowserAssertionHarness(t)
 	broker := approval.New()
 	approval.RegisterAction("night-on", func(approval.Request) error { return nil })
-	request, err := broker.Create(approval.Request{Plane: "opencode", SessionID: "session-1", RepoRoot: "/repo", Scope: approval.RepoScope, Reason: "signed assertion", Action: "night-on"})
+	request, err := broker.Create(approval.Request{Plane: "opencode", SessionID: "session-1", RepoRoot: "/repo", Scope: approval.RepoScope, Reason: "signed assertion", Action: "night-on", Parameters: map[string]string{"until": "08:00"}})
 	if err != nil {
 		t.Fatal(err)
 	}

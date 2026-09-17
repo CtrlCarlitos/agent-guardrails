@@ -167,13 +167,13 @@ func TestCreateAssignsAndPersistsIssuedAt(t *testing.T) {
 	}
 }
 
-func TestBrokerDoesNotPersistReasonOrParameters(t *testing.T) {
+func TestBrokerDoesNotPersistReasonOrRawNightParameters(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	broker := approval.New()
 	r := request()
 	r.Reason = "super-secret-reason"
 	r.Action = "night-on"
-	r.Parameters = map[string]string{"until": "08:00", "token": "super-secret-parameter"}
+	r.Parameters = map[string]string{"until": "08:00"}
 	if _, err := broker.Create(r); err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,37 @@ func TestBrokerDoesNotPersistReasonOrParameters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(raw); strings.Contains(got, "super-secret") {
+	if got := string(raw); strings.Contains(got, "super-secret") || strings.Contains(got, `"until":"08:00"`) {
 		t.Fatalf("broker state contains raw sensitive input: %q", got)
+	}
+}
+
+func TestCreateCanonicalizesNightExpiryAndRejectsMalformedClock(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	broker := approval.New()
+	request := request()
+	request.Action = "night-on"
+	request.Parameters = map[string]string{"until": time.Now().Add(2 * time.Hour).Format("15:04")}
+	created, err := broker.Create(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Parameters["until"] != "" || created.Parameters["expires_at"] == "" {
+		t.Fatalf("created night parameters = %v, want canonical expires_at only", created.Parameters)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, created.Parameters["expires_at"]); err != nil {
+		t.Fatalf("canonical expiry = %q: %v", created.Parameters["expires_at"], err)
+	}
+	restored, err := broker.Request(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.Parameters["expires_at"] != created.Parameters["expires_at"] {
+		t.Fatalf("restored expiry = %q, want %q", restored.Parameters["expires_at"], created.Parameters["expires_at"])
+	}
+
+	request.Parameters = map[string]string{"until": "8:00"}
+	if _, err := broker.Create(request); !errors.Is(err, approval.ErrMalformed) {
+		t.Fatalf("non-canonical clock = %v, want malformed request", err)
 	}
 }

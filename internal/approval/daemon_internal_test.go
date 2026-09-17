@@ -47,7 +47,7 @@ func TestDaemonSubmitRedactsSensitiveRequestDetails(t *testing.T) {
 	defer daemon.Close()
 
 	var reply daemonReply
-	if err := send(socket, daemonMessage{Operation: "submit", Request: Request{Plane: "opencode", SessionID: "submit-redaction", RepoRoot: "/secret/repo", Host: "secret.example", Scope: Allow, Reason: "secret reason", Action: "night-on", Parameters: map[string]string{"token": "secret"}}}, &reply); err != nil {
+	if err := send(socket, daemonMessage{Operation: "submit", Request: Request{Plane: "opencode", SessionID: "submit-redaction", RepoRoot: "/secret/repo", Host: "secret.example", Scope: Allow, Reason: "secret reason", Action: "night-on", Parameters: map[string]string{"until": "08:00"}}}, &reply); err != nil {
 		t.Fatal(err)
 	}
 	if reply.Error != "" {
@@ -64,7 +64,7 @@ func TestDaemonSubmitRedactsSensitiveRequestDetails(t *testing.T) {
 func TestDaemonStatusRedactsSensitiveRequestDetails(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	broker := New()
-	request, err := broker.Create(Request{Plane: "opencode", SessionID: "status-redaction", RepoRoot: "/secret/repo", Host: "secret.example", Scope: Allow, Reason: "secret reason", Action: "night-on", Parameters: map[string]string{"token": "secret"}})
+	request, err := broker.Create(Request{Plane: "opencode", SessionID: "status-redaction", RepoRoot: "/secret/repo", Host: "secret.example", Scope: Allow, Reason: "secret reason", Action: "night-on", Parameters: map[string]string{"until": "08:00"}})
 	if err != nil {
 		t.Fatal(err)
 	}

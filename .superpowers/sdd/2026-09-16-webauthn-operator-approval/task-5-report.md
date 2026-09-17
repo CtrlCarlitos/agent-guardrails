@@ -113,3 +113,28 @@ make check
 /usr/local/go/bin/go vet ./...
 GOOS=windows GOARCH=amd64 /usr/local/go/bin/go build -o /tmp/guardrail-windows-test.exe ./cmd/guardrail
 ```
+
+## Final Correction
+
+- `night-on` now resolves its `HH:MM` clock exactly once when the broker creates
+  the operator-action request, persists only a canonical UTC `expires_at`, and
+  rejects malformed clocks or parameter shapes.
+- Execution accepts only that canonical timestamp. Crash-window replays therefore
+  retain the exact expiry bytes rather than resolving the wall clock again.
+- A mutation-before-`Mutated` recovery regression proves one requested/completed
+  logical action and unchanged expiry bytes. Grant and revoke crash-window
+  replays are also covered as state-idempotent.
+
+### Final-Correction Verification
+
+Passed:
+
+```text
+go test ./internal/approval ./cmd/guardrail -run 'Test(CreateCanonicalizesNightExpiryAndRejectsMalformedClock|NightRecoveryReplayPreservesCanonicalExpiryAndCompletesOnce|WebHostRecoveryReplayIsStateIdempotent|Daemon(Submit|Status)RedactsSensitiveRequestDetails|BrokerDoesNotPersistReasonOrRawNightParameters)' -count=1
+go test ./... -count=1
+go test -race ./... -count=1
+go vet ./...
+GOOS=windows GOARCH=amd64 go build -o /tmp/guardrail-windows-task5.exe ./cmd/guardrail
+make check
+git diff --check
+```

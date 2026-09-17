@@ -39,14 +39,9 @@ func executeNightApproval(r approval.Request) error {
 		_ = completeActionAudit(r)
 		return nil
 	}
-	clock, err := time.ParseInLocation("15:04", r.Parameters["until"], time.Local)
-	if err != nil {
+	until, err := time.Parse(time.RFC3339Nano, r.Parameters["expires_at"])
+	if err != nil || until.UTC().Format(time.RFC3339Nano) != r.Parameters["expires_at"] {
 		return fmt.Errorf("invalid approved night expiry")
-	}
-	now := time.Now()
-	until := time.Date(now.Year(), now.Month(), now.Day(), clock.Hour(), clock.Minute(), 0, 0, now.Location())
-	if !until.After(now) {
-		until = until.AddDate(0, 0, 1)
 	}
 	hostname, err := os.Hostname()
 	if err != nil {

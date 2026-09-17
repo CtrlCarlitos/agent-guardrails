@@ -154,6 +154,49 @@ func TestWebHostCompletionAuditFailureKeepsCompletedActionRecoverable(t *testing
 	}
 }
 
+func TestWebHostRecoveryReplayIsStateIdempotent(t *testing.T) {
+	for _, action := range []string{"web-host-grant", "web-host-revoke"} {
+		t.Run(action, func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			repo := filepath.Join(t.TempDir(), "repo")
+			host := "replay.example.test"
+			if err := os.MkdirAll(repo, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if action == "web-host-revoke" {
+				if err := applyRepoWebHost(repo, host, true); err != nil {
+					t.Fatal(err)
+				}
+			}
+			r := approval.Request{ID: action + "-crash-window", Plane: "opencode", RepoRoot: repo, Host: host, Scope: approval.RepoScope, Action: action}
+			if alreadyCompleted, err := startActionAudit(r); err != nil || alreadyCompleted {
+				t.Fatalf("start action audit = completed %t, error %v", alreadyCompleted, err)
+			}
+			if err := applyRepoWebHost(repo, host, action == "web-host-grant"); err != nil {
+				t.Fatal(err)
+			}
+			if err := executeWebHostApproval(r); err != nil {
+				t.Fatal(err)
+			}
+			op, err := policy.LoadOperatorConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := op.AllowsWebHost(repo, host), action == "web-host-grant"; got != want {
+				t.Fatalf("host grant after replay = %t, want %t", got, want)
+			}
+			raw, err := os.ReadFile(audit.DefaultPath(""))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Count(string(raw), `"request_id":"`+r.ID+`"`); got != 2 {
+				t.Fatalf("logical action audit records = %d, want requested and completed once", got)
+			}
+		})
+	}
+}
+
 func TestConcurrentRepositoryGrantsRetainEveryHost(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	repo := filepath.Join(t.TempDir(), "repo")
