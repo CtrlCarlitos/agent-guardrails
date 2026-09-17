@@ -218,7 +218,7 @@ func TestRegistrationIsInitialOnlyAndPersistsTransportAttribution(t *testing.T) 
 
 func TestVerifiedAssertionGrantsOneAdditionalRegistration(t *testing.T) {
 	store, authenticator := enrolledFixture(t)
-	request := approval.Request{ID: "manage", IssuedAt: time.Now(), Action: "add-authenticator", RepoRoot: "/repo", Scope: approval.RepoScope, ExpiresAt: time.Now().Add(time.Minute)}
+	request := approval.Request{ID: "manage", IssuedAt: time.Now(), Action: "authenticator-add", RepoRoot: "/repo", Scope: approval.RepoScope, ExpiresAt: time.Now().Add(time.Minute)}
 	assertion, err := store.BeginAssertion(request, "http://localhost:12345")
 	if err != nil {
 		t.Fatal(err)
@@ -231,6 +231,21 @@ func TestVerifiedAssertionGrantsOneAdditionalRegistration(t *testing.T) {
 	}
 	if _, err := store.BeginAdditionalRegistration("http://localhost:12345"); err == nil {
 		t.Fatal("additional-registration grant replayed")
+	}
+}
+
+func TestNonManagementAssertionCannotGrantAdditionalRegistration(t *testing.T) {
+	store, authenticator := enrolledFixture(t)
+	request := approval.Request{ID: "night", IssuedAt: time.Now(), Action: "night-mode", RepoRoot: "/repo", Scope: approval.RepoScope, ExpiresAt: time.Now().Add(time.Minute)}
+	assertion, err := store.BeginAssertion(request, "http://localhost:12345")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.FinishAssertion(assertion.ID, authenticator.assertionResponse(t, assertion, "http://localhost:12345", true, "localhost")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.BeginAdditionalRegistration("http://localhost:12345"); err == nil {
+		t.Fatal("non-management assertion issued an additional-registration grant")
 	}
 }
 

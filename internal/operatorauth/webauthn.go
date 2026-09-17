@@ -219,7 +219,9 @@ func (s *Store) FinishAssertion(ceremonyID string, response []byte) (Credential,
 	if err != nil {
 		return Credential{}, err
 	}
-	s.issueRegistrationGrant(state.ceremony.ExpiresAt)
+	if state.ceremony.Binding.Action == "authenticator-add" {
+		s.issueRegistrationGrant(state.ceremony.ExpiresAt)
+	}
 	return result, nil
 }
 
