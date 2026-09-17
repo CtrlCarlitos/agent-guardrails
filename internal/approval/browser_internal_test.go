@@ -7,9 +7,13 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/operatorauth"
@@ -119,8 +123,26 @@ func TestBrowserClosesLoopbackAfterValidAssertion(t *testing.T) {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("signed assertion status = %d, want %d", response.StatusCode, http.StatusOK)
 	}
-	if _, err := http.Get(origin); err == nil {
-		t.Fatal("loopback listener accepted a request after successful completion")
+	deadline := time.Now().Add(time.Second)
+	if testDeadline, ok := t.Deadline(); ok && testDeadline.Before(deadline) {
+		deadline = testDeadline
+	}
+	var lastErr error
+	for {
+		response, err := http.Get(origin)
+		if errors.Is(err, syscall.ECONNREFUSED) {
+			return
+		}
+		if err != nil {
+			lastErr = err
+		} else {
+			response.Body.Close()
+			lastErr = fmt.Errorf("loopback listener returned %s", response.Status)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("loopback listener did not refuse connections before deadline: %v", lastErr)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
