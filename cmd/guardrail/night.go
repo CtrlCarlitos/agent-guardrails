@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
-	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 )
@@ -21,6 +20,13 @@ func init() {
 }
 
 func executeNightApproval(r approval.Request) error {
+	alreadyCompleted, err := startActionAudit(r)
+	if err != nil {
+		return err
+	}
+	if alreadyCompleted {
+		return nil
+	}
 	path, err := night.DefaultPath()
 	if err != nil {
 		return err
@@ -29,7 +35,8 @@ func executeNightApproval(r approval.Request) error {
 		if err := night.Remove(path); err != nil {
 			return err
 		}
-		writeNightAudit(r)
+		// The mutation is durable; leave completion audit recovery pending on failure.
+		_ = completeActionAudit(r)
 		return nil
 	}
 	clock, err := time.ParseInLocation("15:04", r.Parameters["until"], time.Local)
@@ -48,12 +55,8 @@ func executeNightApproval(r approval.Request) error {
 	if err := night.Write(path, night.Marker{Until: until, SetBy: fmt.Sprintf("%s:%d", hostname, os.Getpid())}); err != nil {
 		return err
 	}
-	writeNightAudit(r)
+	_ = completeActionAudit(r)
 	return nil
-}
-
-func writeNightAudit(r approval.Request) {
-	_ = audit.Write(audit.Record{Plane: r.Plane, Tool: "guardrail", Event: "operator-action", Decision: "completed", OperatorAction: r.Action, RequestID: r.ID, Transport: r.Transport, CredentialFingerprint: r.CredentialFingerprint}, audit.DefaultPath(""))
 }
 
 const nightUsage = `usage:

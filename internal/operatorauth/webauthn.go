@@ -95,6 +95,8 @@ type ceremonyState struct {
 	session           webauthn.SessionData
 	user              operatorUser
 	initialEnrollment bool
+	generation        uint64
+	credentialDigest  [32]byte
 }
 
 type registrationGrant struct{ expiresAt time.Time }
@@ -128,6 +130,14 @@ func (s *Store) BeginAdditionalRegistration(origin string) (Ceremony, error) {
 }
 
 func (s *Store) beginRegistration(origin string, initialEnrollment bool) (Ceremony, error) {
+	generation, err := s.generation()
+	if err != nil {
+		return Ceremony{}, err
+	}
+	credentialDigest, err := s.credentialDigest()
+	if err != nil {
+		return Ceremony{}, err
+	}
 	verifier, err := newVerifier(origin)
 	if err != nil {
 		return Ceremony{}, err
@@ -139,7 +149,7 @@ func (s *Store) beginRegistration(origin string, initialEnrollment bool) (Ceremo
 	}
 	ceremony := Ceremony{ID: ceremonyID(), ExpiresAt: time.Now().Add(ceremonyLifetime), Options: options}
 	session.Expires = ceremony.ExpiresAt
-	s.remember(ceremonyState{ceremony: ceremony, verifier: verifier, session: *session, user: user, initialEnrollment: initialEnrollment})
+	s.remember(ceremonyState{ceremony: ceremony, verifier: verifier, session: *session, user: user, initialEnrollment: initialEnrollment, generation: generation, credentialDigest: credentialDigest})
 	return ceremony, nil
 }
 
@@ -154,6 +164,9 @@ func (s *Store) FinishRegistration(ceremonyID string, response []byte) (Credenti
 	}
 	if time.Now().After(state.ceremony.ExpiresAt) {
 		return Credential{}, errors.New("registration ceremony expired")
+	}
+	if err := s.verifyCeremonyState(state); err != nil {
+		return Credential{}, err
 	}
 	parsed, err := protocol.ParseCredentialCreationResponseBytes(response)
 	if err != nil {
@@ -180,6 +193,14 @@ func (s *Store) BeginAssertion(request approval.Request, origin string) (Ceremon
 	if !time.Now().Before(request.ExpiresAt) {
 		return Ceremony{}, errors.New("approval request expired")
 	}
+	generation, err := s.generation()
+	if err != nil {
+		return Ceremony{}, err
+	}
+	credentialDigest, err := s.credentialDigest()
+	if err != nil {
+		return Ceremony{}, err
+	}
 	verifier, err := newVerifier(origin)
 	if err != nil {
 		return Ceremony{}, err
@@ -201,7 +222,7 @@ func (s *Store) BeginAssertion(request approval.Request, origin string) (Ceremon
 	}
 	ceremony := Ceremony{ID: ceremonyID(), Binding: binding, ExpiresAt: request.ExpiresAt, Options: options}
 	session.Expires = ceremony.ExpiresAt
-	s.remember(ceremonyState{ceremony: ceremony, verifier: verifier, session: *session, user: user})
+	s.remember(ceremonyState{ceremony: ceremony, verifier: verifier, session: *session, user: user, generation: generation, credentialDigest: credentialDigest})
 	return ceremony, nil
 }
 
@@ -216,6 +237,9 @@ func (s *Store) FinishAssertion(ceremonyID string, response []byte) (Credential,
 	}
 	if time.Now().After(state.ceremony.ExpiresAt) {
 		return Credential{}, errors.New("assertion ceremony expired")
+	}
+	if err := s.verifyCeremonyState(state); err != nil {
+		return Credential{}, err
 	}
 	parsed, err := protocol.ParseCredentialRequestResponseBytes(response)
 	if err != nil {
@@ -233,6 +257,21 @@ func (s *Store) FinishAssertion(ceremonyID string, response []byte) (Credential,
 		s.issueRegistrationGrant(state.ceremony.ExpiresAt)
 	}
 	return result, nil
+}
+
+func (s *Store) verifyCeremonyState(state ceremonyState) error {
+	generation, err := s.generation()
+	if err != nil {
+		return err
+	}
+	digest, err := s.credentialDigest()
+	if err != nil {
+		return err
+	}
+	if generation != state.generation || digest != state.credentialDigest {
+		return errors.New("operator authorization state changed during ceremony")
+	}
+	return nil
 }
 
 // BeginApprovalAssertion adapts an assertion ceremony for the approval browser.

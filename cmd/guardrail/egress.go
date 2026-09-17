@@ -9,7 +9,6 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
-	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
@@ -22,12 +21,19 @@ func executeWebHostApproval(r approval.Request) error {
 	if (r.Action != "web-host-grant" && r.Action != "web-host-revoke") || policy.ValidateWebHost(r.Host) != nil || !filepath.IsAbs(r.RepoRoot) || (r.Scope != approval.RepoScope && r.Scope != approval.GlobalScope) {
 		return fmt.Errorf("invalid approved web-host action")
 	}
+	alreadyCompleted, err := startActionAudit(r)
+	if err != nil {
+		return err
+	}
+	if alreadyCompleted {
+		return nil
+	}
 	grant := r.Action == "web-host-grant"
 	if r.Scope == approval.GlobalScope {
 		if err := applyGlobalWebHost(r.Host, grant); err != nil {
 			return err
 		}
-		writeWebHostAudit(r)
+		_ = completeActionAudit(r)
 		return nil
 	}
 	if err := os.MkdirAll(r.RepoRoot, 0o755); err != nil {
@@ -36,7 +42,7 @@ func executeWebHostApproval(r approval.Request) error {
 	if err := applyRepoWebHost(filepath.Clean(r.RepoRoot), r.Host, grant); err != nil {
 		return err
 	}
-	writeWebHostAudit(r)
+	_ = completeActionAudit(r)
 	return nil
 }
 
@@ -123,10 +129,6 @@ func overlayWebHostContent(path, host string, grant bool) ([]byte, os.FileMode, 
 		return nil, 0, nil, false, err
 	}
 	return out.Bytes(), mode, previous, existed, nil
-}
-
-func writeWebHostAudit(r approval.Request) {
-	_ = audit.Write(audit.Record{Plane: r.Plane, Tool: "guardrail", Event: "operator-action", Decision: "completed", OperatorAction: r.Action, RequestID: r.ID, Transport: r.Transport, CredentialFingerprint: r.CredentialFingerprint}, audit.DefaultPath(""))
 }
 
 func writePrivateFile(path string, content []byte, mode os.FileMode) error {

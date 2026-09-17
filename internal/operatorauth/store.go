@@ -1,6 +1,7 @@
 package operatorauth
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 const (
 	operatorAuthDirectory = "operator-auth"
 	credentialFilename    = "authenticators.json"
+	generationFilename    = "generation.json"
 )
 
 // Credential is the public record required to verify a WebAuthn assertion.
@@ -46,6 +48,84 @@ func NewStore(root string) Store {
 // Path is the credential store path.
 func (s Store) Path() string {
 	return filepath.Join(s.root, operatorAuthDirectory, credentialFilename)
+}
+
+func (s Store) generationPath() string {
+	return filepath.Join(s.root, operatorAuthDirectory, generationFilename)
+}
+
+func (s Store) generation() (uint64, error) {
+	dir := filepath.Dir(s.Path())
+	if err := ensurePrivateDir(dir, true); err != nil {
+		return 0, err
+	}
+	raw, err := os.ReadFile(s.generationPath())
+	if os.IsNotExist(err) {
+		if err := s.writeGeneration(0); err != nil {
+			return 0, err
+		}
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read operator generation: %w", err)
+	}
+	var generation uint64
+	if err := json.Unmarshal(raw, &generation); err != nil {
+		return 0, fmt.Errorf("decode operator generation: %w", err)
+	}
+	return generation, nil
+}
+
+func (s Store) writeGeneration(generation uint64) error {
+	dir := filepath.Dir(s.Path())
+	raw, err := json.Marshal(generation)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".generation-*")
+	if err != nil {
+		return fmt.Errorf("create generation temporary file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(raw); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, s.generationPath()); err != nil {
+		return fmt.Errorf("replace operator generation: %w", err)
+	}
+	parent, err := os.Open(dir)
+	if err != nil {
+		return fmt.Errorf("open operator directory: %w", err)
+	}
+	defer parent.Close()
+	return parent.Sync()
+}
+
+func (s Store) credentialDigest() ([32]byte, error) {
+	if _, err := s.Credentials(); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return sha256.Sum256(nil), nil
+		}
+		return [32]byte{}, err
+	}
+	raw, err := os.ReadFile(s.Path())
+	if err != nil {
+		return [32]byte{}, err
+	}
+	return sha256.Sum256(raw), nil
 }
 
 // Replace atomically replaces all credential records. An empty replacement is
@@ -134,28 +214,40 @@ func (s Store) commitInitialCredential(credential Credential) error {
 // confirmation. It intentionally does not reuse Replace, whose empty-set
 // rejection protects normal credential management from disabling approvals.
 func (s Store) ClearForRecovery() error {
-	if _, err := os.Lstat(s.Path()); os.IsNotExist(err) {
-		return nil
-	} else if err != nil {
-		return fmt.Errorf("inspect credential store: %w", err)
-	}
 	dir := filepath.Dir(s.Path())
-	if err := ensurePrivateDir(dir, false); err != nil {
+	if err := ensurePrivateDir(dir, true); err != nil {
 		return err
 	}
-	if err := validateRegularFile(s.Path()); err != nil {
-		return err
-	}
-	if err := os.Remove(s.Path()); err != nil {
-		return fmt.Errorf("clear credential store: %w", err)
-	}
-	parent, err := os.Open(dir)
+	release, err := acquireEnrollmentLock(dir)
 	if err != nil {
-		return fmt.Errorf("open credential directory: %w", err)
+		return err
 	}
-	defer parent.Close()
-	if err := parent.Sync(); err != nil {
-		return fmt.Errorf("sync credential directory: %w", err)
+	defer release()
+	generation, err := s.generation()
+	if err != nil {
+		return err
+	}
+	if err := s.writeGeneration(generation + 1); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(s.Path()); !os.IsNotExist(err) {
+		if err != nil {
+			return fmt.Errorf("inspect credential store: %w", err)
+		}
+		if err := validateRegularFile(s.Path()); err != nil {
+			return err
+		}
+		if err := os.Remove(s.Path()); err != nil {
+			return fmt.Errorf("clear credential store: %w", err)
+		}
+		parent, err := os.Open(dir)
+		if err != nil {
+			return fmt.Errorf("open credential directory: %w", err)
+		}
+		defer parent.Close()
+		if err := parent.Sync(); err != nil {
+			return fmt.Errorf("sync credential directory: %w", err)
+		}
 	}
 	s.mu.Lock()
 	s.ceremonies = make(map[string]ceremonyState)

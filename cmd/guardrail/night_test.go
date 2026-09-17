@@ -60,11 +60,55 @@ func TestNightRequestCompletesOnlyThroughBroker(t *testing.T) {
 		t.Fatal(err)
 	}
 	var rec audit.Record
-	if err := json.Unmarshal(raw, &rec); err != nil {
+	if err := json.Unmarshal([]byte(strings.Split(strings.TrimSpace(string(raw)), "\n")[1]), &rec); err != nil {
 		t.Fatal(err)
 	}
 	if rec.OperatorAction != "night-on" || rec.Decision != "completed" || rec.RequestID != r.ID {
 		t.Fatalf("audit record = %+v, want completed night mutation", rec)
+	}
+}
+
+func TestNightDoesNotMutateWhenAuditIntentFails(t *testing.T) {
+	path := isolateNightConfig(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	previous := writeActionAudit
+	writeActionAudit = func(audit.Record, string) error { return errors.New("audit unavailable") }
+	t.Cleanup(func() { writeActionAudit = previous })
+	err := executeNightApproval(approval.Request{ID: "night-audit-intent", Plane: "opencode", RepoRoot: "/repo", Scope: approval.Allow, Action: "night-on", Parameters: map[string]string{"until": time.Now().Add(time.Hour).Format("15:04")}})
+	if err == nil {
+		t.Fatal("night action succeeded despite an unwritable audit intent")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("night marker exists after intent failure: %v", err)
+	}
+}
+
+func TestNightCompletionAuditFailureKeepsCompletedActionRecoverable(t *testing.T) {
+	path := isolateNightConfig(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	previous := writeActionAudit
+	calls := 0
+	writeActionAudit = func(rec audit.Record, path string) error {
+		calls++
+		if rec.Decision == "completed" && calls == 2 {
+			return errors.New("audit unavailable")
+		}
+		return audit.Write(rec, path)
+	}
+	t.Cleanup(func() { writeActionAudit = previous })
+	if err := executeNightApproval(approval.Request{ID: "night-audit-completion", Plane: "opencode", RepoRoot: "/repo", Scope: approval.Allow, Action: "night-on", Parameters: map[string]string{"until": time.Now().Add(time.Hour).Format("15:04")}}); err != nil {
+		t.Fatalf("mutated action was reported denied: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("night marker missing after completed action: %v", err)
+	}
+	writeActionAudit = audit.Write
+	if err := recoverActionAudits(); err != nil {
+		t.Fatalf("recover completion audit: %v", err)
+	}
+	raw, err := os.ReadFile(audit.DefaultPath(""))
+	if err != nil || !strings.Contains(string(raw), `"request_id":"night-audit-completion"`) || !strings.Contains(string(raw), `"decision":"completed"`) {
+		t.Fatalf("recovered audit = %q, error %v", raw, err)
 	}
 }
 

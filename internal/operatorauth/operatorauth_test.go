@@ -117,6 +117,39 @@ func TestClearForRecoveryRemovesOnlyAValidCredentialStore(t *testing.T) {
 	}
 }
 
+func TestRecoveryInAnotherStoreInvalidatesAnOutstandingAssertion(t *testing.T) {
+	store, authenticator := enrolledFixture(t)
+	request := approval.Request{ID: "approve", IssuedAt: time.Now(), Action: "web-host-grant", Parameters: map[string]string{"host": "example.com"}, RepoRoot: "/repo", Host: "example.com", Scope: approval.RepoScope, ExpiresAt: time.Now().Add(time.Minute)}
+	ceremony, err := store.BeginAssertion(request, "http://localhost:12345")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := authenticator.assertionResponse(t, ceremony, "http://localhost:12345", true, "localhost")
+	other := operatorauth.NewStore(filepath.Dir(filepath.Dir(store.Path())))
+	if err := other.ClearForRecovery(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.FinishAssertion(ceremony.ID, response); err == nil {
+		t.Fatal("assertion begun before cross-process recovery was accepted")
+	}
+}
+
+func TestRecoveryOnAnEmptyStoreInvalidatesAnOutstandingRegistration(t *testing.T) {
+	root := t.TempDir()
+	store := operatorauth.NewStore(root)
+	ceremony, err := store.BeginRegistration("http://localhost:12345")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := newAuthenticator(t).registrationResponse(t, ceremony, "http://localhost:12345")
+	if err := operatorauth.NewStore(root).ClearForRecovery(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.FinishRegistration(ceremony.ID, response); err == nil {
+		t.Fatal("registration begun before recovery was accepted")
+	}
+}
+
 func TestBeginRegistrationRequiresExactLoopbackOriginAndUserVerification(t *testing.T) {
 	store := operatorauth.NewStore(t.TempDir())
 	ceremony, err := store.BeginRegistration("http://localhost:12345")

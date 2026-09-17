@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -102,11 +103,54 @@ func TestCompletedWebHostMutationWritesAuditRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	var rec audit.Record
-	if err := json.Unmarshal(raw, &rec); err != nil {
+	if err := json.Unmarshal([]byte(strings.Split(strings.TrimSpace(string(raw)), "\n")[1]), &rec); err != nil {
 		t.Fatal(err)
 	}
 	if rec.OperatorAction != "web-host-grant" || rec.Decision != "completed" || rec.RequestID != "web-host-request" || rec.CredentialFingerprint != "a1b2c3d4e5f60708" || rec.Transport != "webauthn" {
 		t.Fatalf("audit record = %+v, want completed web-host mutation", rec)
+	}
+}
+
+func TestWebHostDoesNotMutateWhenAuditIntentFails(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	repo := filepath.Join(t.TempDir(), "repo")
+	previous := writeActionAudit
+	writeActionAudit = func(audit.Record, string) error { return os.ErrPermission }
+	t.Cleanup(func() { writeActionAudit = previous })
+	err := executeWebHostApproval(approval.Request{ID: "web-host-audit-intent", Plane: "opencode", RepoRoot: repo, Host: "api.example.test", Scope: approval.RepoScope, Action: "web-host-grant"})
+	if err == nil {
+		t.Fatal("web-host action succeeded despite an unwritable audit intent")
+	}
+	if _, err := os.Stat(filepath.Join(repo, "guardrail.toml")); !os.IsNotExist(err) {
+		t.Fatalf("overlay exists after intent failure: %v", err)
+	}
+}
+
+func TestWebHostCompletionAuditFailureKeepsCompletedActionRecoverable(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	repo := filepath.Join(t.TempDir(), "repo")
+	previous := writeActionAudit
+	calls := 0
+	writeActionAudit = func(rec audit.Record, path string) error {
+		calls++
+		if rec.Decision == "completed" && calls == 2 {
+			return os.ErrPermission
+		}
+		return audit.Write(rec, path)
+	}
+	t.Cleanup(func() { writeActionAudit = previous })
+	if err := executeWebHostApproval(approval.Request{ID: "web-host-audit-completion", Plane: "opencode", RepoRoot: repo, Host: "api.example.test", Scope: approval.RepoScope, Action: "web-host-grant"}); err != nil {
+		t.Fatalf("mutated action was reported denied: %v", err)
+	}
+	op, err := policy.LoadOperatorConfig()
+	if err != nil || !op.AllowsWebHost(repo, "api.example.test") {
+		t.Fatalf("web-host mutation missing after completion audit failure: %v", err)
+	}
+	writeActionAudit = audit.Write
+	if err := recoverActionAudits(); err != nil {
+		t.Fatalf("recover completion audit: %v", err)
 	}
 }
 

@@ -30,6 +30,24 @@ make check
 GOOS=windows GOARCH=amd64 /usr/local/go/bin/go build -o /tmp/guardrail-windows-test.exe ./cmd/guardrail
 ```
 
+## Final Review Fix Wave
+
+- Added a durable operator-auth generation independent of the credential file.
+  Registration and assertion ceremonies snapshot both the generation and the
+  durable credential digest; Finish rereads both and consumes stale ceremonies
+  after cross-process recovery or credential changes. Recovery holds the
+  enrollment lock, atomically advances the generation, then clears credentials.
+- Added a durable operator-action audit protocol for night and egress actions.
+  The `requested` audit intent and a private completion journal are written
+  before mutation. After mutation, a failed completion audit leaves the journal
+  for recovery but reports the action completed to the broker, never denied.
+  Recovery completes the audit without replaying the persistent action.
+- Added focused red/green regressions for cross-store stale assertion and
+  registration ceremonies, audit-intent failures that leave night/egress
+  unchanged, and post-mutation completion-audit recovery. Existing concurrent
+  egress coverage also proves journal scans tolerate only the known atomic
+  temporary-write artifact while rejecting unexpected entries.
+
 ## Manual Smoke Test
 
 Not run: successful enrollment and approval require a physical FIDO2 key or
