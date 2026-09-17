@@ -14,11 +14,22 @@ planes, from a trusted local terminal run:
 guardrail operator enroll
 ```
 
-This opens a loopback `localhost` page and requires WebAuthn user verification.
-Guardrail supports platform passkeys, password-manager passkeys, and physical
-FIDO2 security keys. A physical key is the predictable choice when using one
-credential on several computers; synced passkeys depend on browser and platform
-cross-device support.
+The command prints a loopback `localhost` page URL and waits for WebAuthn user
+verification. Open that URL yourself in the browser you trust; Guardrail never
+launches a browser automatically. Guardrail supports platform passkeys,
+password-manager passkeys, and physical FIDO2 security keys. A physical key is
+the predictable choice when using one credential on several computers; synced
+passkeys depend on browser and platform cross-device support.
+
+For a remote SSH session, forward the printed port from a second local terminal,
+then open the same URL locally. For example, if Guardrail prints port `39169`:
+
+```
+ssh -L 39169:127.0.0.1:39169 user@remote-host
+```
+
+The browser remains on your local machine while the SSH tunnel reaches the
+remote loopback-only listener. No external service is involved.
 
 `guardrail operator add-authenticator` requires a verified enrolled
 authenticator before it opens a registration ceremony. `guardrail operator

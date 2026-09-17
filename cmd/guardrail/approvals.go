@@ -4,26 +4,19 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/operatorauth"
 )
 
 func openApprovalBrowser(rawURL string) error {
-	var command string
-	var args []string
-	switch runtime.GOOS {
-	case "darwin":
-		command, args = "open", []string{rawURL}
-	case "windows":
-		command, args = "rundll32", []string{"url.dll,FileProtocolHandler", rawURL}
-	default:
-		command, args = "xdg-open", []string{rawURL}
-	}
-	return exec.Command(command, args...).Start()
+	return printOperatorURL(os.Stderr, rawURL)
+}
+
+func printOperatorURL(output io.Writer, rawURL string) error {
+	_, err := fmt.Fprintf(output, "guardrail: open operator approval page:\n%s\n", rawURL)
+	return err
 }
 
 func cmdApprovals(args []string, operatorTerminal bool, stdout, stderr io.Writer) int {
