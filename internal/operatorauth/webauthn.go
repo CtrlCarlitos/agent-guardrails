@@ -253,6 +253,9 @@ func (s *Store) FinishAssertion(ceremonyID string, response []byte) (Credential,
 	if err != nil {
 		return Credential{}, err
 	}
+	if err := s.updateCredential(result); err != nil {
+		return Credential{}, err
+	}
 	if state.ceremony.Binding.Action == "authenticator-add" {
 		s.issueRegistrationGrant(state.ceremony.ExpiresAt)
 	}
@@ -364,7 +367,7 @@ func (s *Store) user() (operatorUser, error) {
 		for index, transport := range credential.Transports {
 			transports[index] = protocol.AuthenticatorTransport(transport)
 		}
-		credentials = append(credentials, webauthn.Credential{ID: id, PublicKey: publicKey, Transport: transports, Authenticator: webauthn.Authenticator{SignCount: credential.SignCount}})
+		credentials = append(credentials, webauthn.Credential{ID: id, PublicKey: publicKey, Transport: transports, Flags: webauthn.CredentialFlags{BackupEligible: credential.BackupEligible, BackupState: credential.BackupState}, Authenticator: webauthn.Authenticator{SignCount: credential.SignCount}})
 	}
 	return operatorUser{credentials: credentials}, nil
 }
@@ -379,11 +382,13 @@ func credentialRecord(credential webauthn.Credential) (Credential, error) {
 		transports[index] = string(transport)
 	}
 	return Credential{
-		ID:         base64.RawURLEncoding.EncodeToString(credential.ID),
-		PublicKey:  base64.RawURLEncoding.EncodeToString(credential.PublicKey),
-		Algorithm:  int(publicKey.Algorithm),
-		SignCount:  credential.Authenticator.SignCount,
-		Transports: transports,
+		ID:             base64.RawURLEncoding.EncodeToString(credential.ID),
+		PublicKey:      base64.RawURLEncoding.EncodeToString(credential.PublicKey),
+		Algorithm:      int(publicKey.Algorithm),
+		SignCount:      credential.Authenticator.SignCount,
+		BackupEligible: credential.Flags.BackupEligible,
+		BackupState:    credential.Flags.BackupState,
+		Transports:     transports,
 	}, nil
 }
 

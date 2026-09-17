@@ -15,7 +15,19 @@ import (
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/operatorauth"
 )
+
+func enrollDaemonTestCredential(t *testing.T, stateHome string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(stateHome, "guardrail"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store := operatorauth.NewStore(filepath.Join(stateHome, "guardrail"))
+	if err := store.Replace([]operatorauth.Credential{{ID: "AQI", PublicKey: "AQI", Algorithm: -7}}); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestApprovalDaemonBinaryCompletesAdversarialNightRequest(t *testing.T) {
 	bin := buildAdversarialBinary(t)
@@ -23,6 +35,7 @@ func TestApprovalDaemonBinaryCompletesAdversarialNightRequest(t *testing.T) {
 	configHome := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", stateHome)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
+	enrollDaemonTestCredential(t, stateHome)
 	daemon := exec.Command(bin, "approvals", "daemon")
 	daemon.Env = append(os.Environ(), "XDG_STATE_HOME="+stateHome, "XDG_CONFIG_HOME="+configHome)
 	if err := daemon.Start(); err != nil {
@@ -82,6 +95,7 @@ func TestSubmitOnDemandReexecsProductionDaemon(t *testing.T) {
 	configHome := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", stateHome)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
+	enrollDaemonTestCredential(t, stateHome)
 	socket := approval.DefaultSocketPath()
 
 	repo := t.TempDir()
@@ -160,7 +174,9 @@ func TestAdversarialSocketApprovalCannotPersistEgressGrant(t *testing.T) {
 	configHome := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", stateHome)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
-	daemon, err := approval.StartDaemon(approval.DefaultSocketPath(), approval.New(), nil, func(string) error { return nil })
+	enrollDaemonTestCredential(t, stateHome)
+	store := operatorauth.NewStore(filepath.Join(stateHome, "guardrail"))
+	daemon, err := approval.StartDaemon(approval.DefaultSocketPath(), approval.New(), &store, func(string) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}

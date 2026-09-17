@@ -48,6 +48,9 @@ func TestDaemonUsesPrivateSocketAndSubmitsRequestOnce(t *testing.T) {
 	if opened == "" {
 		t.Fatal("default operator-auth store was not used to start the browser ceremony")
 	}
+	if r.ApprovalURL != opened {
+		t.Fatalf("approval URL = %q, want %q", r.ApprovalURL, opened)
+	}
 }
 
 func TestDaemonDoesNotReplaceALiveSocket(t *testing.T) {
@@ -56,7 +59,7 @@ func TestDaemonDoesNotReplaceALiveSocket(t *testing.T) {
 	}
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
-	first, err := approval.StartDaemon(socket, approval.New(), nil, func(string) error { return nil })
+	first, err := approval.StartDaemon(socket, approval.New(), browserStore(t), func(string) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}

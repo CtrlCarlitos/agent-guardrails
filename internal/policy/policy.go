@@ -77,6 +77,7 @@ type Verdict struct {
 	AuditKind      string
 	OperatorAction string
 	RequestID      string
+	ApprovalURL    string
 }
 
 func (v Verdict) IsZero() bool { return v.Decision == "" }

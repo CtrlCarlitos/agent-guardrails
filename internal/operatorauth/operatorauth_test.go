@@ -422,7 +422,7 @@ func (a authenticatorFixture) registrationResponse(t *testing.T, ceremony operat
 	t.Helper()
 	options := ceremony.Options.(*protocol.CredentialCreation)
 	clientData := clientData(t, "webauthn.create", options.Response.Challenge.String(), origin)
-	authData := a.authenticatorData(t, "localhost", protocol.FlagUserPresent|protocol.FlagUserVerified|protocol.FlagAttestedCredentialData, true)
+	authData := a.authenticatorData(t, "localhost", protocol.FlagUserPresent|protocol.FlagUserVerified|protocol.FlagBackupEligible|protocol.FlagAttestedCredentialData, true)
 	attestation, err := cbor.Marshal(map[string]any{"fmt": "none", "authData": authData, "attStmt": map[string]any{}})
 	if err != nil {
 		t.Fatal(err)
@@ -442,7 +442,7 @@ func (a authenticatorFixture) assertionResponse(t *testing.T, ceremony operatora
 func (a authenticatorFixture) assertionResponseForChallenge(t *testing.T, ceremony operatorauth.Ceremony, origin string, uv bool, rpID string, challenge []byte) []byte {
 	t.Helper()
 	clientData := clientData(t, "webauthn.get", base64.RawURLEncoding.EncodeToString(challenge), origin)
-	flags := protocol.FlagUserPresent
+	flags := protocol.FlagUserPresent | protocol.FlagBackupEligible
 	if uv {
 		flags |= protocol.FlagUserVerified
 	}

@@ -86,7 +86,7 @@ func ParseOpencode(r io.Reader) (engine.ToolCall, error) {
 
 func EmitOpencode(v policy.Verdict, tc engine.ToolCall, stdout, stderr io.Writer) int {
 	if v.Decision == policy.Complete {
-		payload := map[string]any{"decision": "deny", "operator_action": v.OperatorAction, "request_id": v.RequestID, "status": "pending"}
+		payload := map[string]any{"decision": "deny", "operator_action": v.OperatorAction, "request_id": v.RequestID, "status": "pending", "approval_url": v.ApprovalURL}
 		b, _ := json.Marshal(payload)
 		stdout.Write(append(b, '\n'))
 		return 2

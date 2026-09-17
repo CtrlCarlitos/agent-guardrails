@@ -58,6 +58,7 @@ type Request struct {
 	Status                string
 	Transport             string
 	CredentialFingerprint string
+	ApprovalURL           string
 }
 
 type CompletionAttribution struct {
