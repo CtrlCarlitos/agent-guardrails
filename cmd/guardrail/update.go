@@ -33,6 +33,15 @@ var (
 
 var updateVersionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
 
+// safeVersionString reports the running binary's version, tolerating a dev
+// build whose version string can never match a release tag.
+func safeVersionString() string {
+	if strings.HasPrefix(version, "v") {
+		return version
+	}
+	return ""
+}
+
 // cmdUpdate self-updates the guardrail binary to an exact release:
 // checksum-verified, run-verified, and replaced by same-directory rename.
 // Implicit "latest" is deliberately unsupported; version authority stays
@@ -43,6 +52,10 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	version := args[0]
+	if version == safeVersionString() {
+		fmt.Fprintf(stdout, "guardrail already at %s; nothing to do\n", version)
+		return 0
+	}
 
 	exe, err := updateTargetPath()
 	if err != nil {
