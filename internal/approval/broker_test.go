@@ -2,6 +2,8 @@ package approval_test
 
 import (
 	"errors"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/operatorauth"
 )
 
 func request() approval.Request {
@@ -18,6 +21,15 @@ func request() approval.Request {
 	}
 }
 
+func browserStore(t *testing.T) *operatorauth.Store {
+	t.Helper()
+	store := operatorauth.NewStore(t.TempDir())
+	if err := store.Replace([]operatorauth.Credential{{ID: "AQI", PublicKey: "AQI", Algorithm: -7}}); err != nil {
+		t.Fatal(err)
+	}
+	return &store
+}
+
 func TestBrowserBindsOnlyLoopback(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	broker := approval.New()
@@ -25,13 +37,43 @@ func TestBrowserBindsOnlyLoopback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, url, err := approval.StartBrowser(broker, r.ID)
+	server, url, err := approval.StartBrowser(broker, browserStore(t), r.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer server.Close()
-	if !strings.HasPrefix(url, "http://127.0.0.1:") {
-		t.Fatalf("browser URL = %q, want loopback address", url)
+	if !strings.HasPrefix(url, "http://localhost:") {
+		t.Fatalf("browser URL = %q, want localhost WebAuthn origin", url)
+	}
+}
+
+func TestBrowserNeverCompletesFromFormChoice(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	broker := approval.New()
+	r, err := broker.Create(request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, pageURL, err := approval.StartBrowser(broker, browserStore(t), r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	response, err := http.PostForm(pageURL, url.Values{"choice": {"approve"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("form approval status = %d, want %d", response.StatusCode, http.StatusNotFound)
+	}
+	stored, err := broker.Request(r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "pending" {
+		t.Fatalf("request status = %q, want pending", stored.Status)
 	}
 }
 

@@ -158,7 +158,7 @@ func (d *Daemon) handle(conn net.Conn) {
 	case "submit":
 		r, err := d.broker.Create(message.Request)
 		if err == nil {
-			browser, url, startErr := StartBrowser(d.broker, r.ID)
+			browser, url, startErr := StartBrowser(d.broker, nil, r.ID)
 			if startErr == nil && d.openURL(url) == nil {
 				d.mu.Lock()
 				d.browsers[r.ID] = browser
@@ -171,18 +171,6 @@ func (d *Daemon) handle(conn net.Conn) {
 			reply.Error = "approval request unavailable"
 		} else {
 			reply.Request = r
-		}
-	case "approve":
-		if err := d.broker.Approve(message.ID, message.Scope); err != nil {
-			reply.Error = "approval request unavailable"
-		} else {
-			d.closeBrowser(message.ID)
-		}
-	case "deny":
-		if err := d.broker.Deny(message.ID); err != nil {
-			reply.Error = "approval request unavailable"
-		} else {
-			d.closeBrowser(message.ID)
 		}
 	case "request":
 		r, err := d.broker.Request(message.ID)

@@ -1,7 +1,6 @@
 package approval_test
 
 import (
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -38,18 +37,18 @@ func TestDaemonUsesPrivateSocketAndSubmitsRequestOnce(t *testing.T) {
 	if r.ID == "" || r.Status != "pending" {
 		t.Fatalf("submitted request = %+v, want pending request with identity", r)
 	}
-	if opened == "" || !strings.HasPrefix(opened, "http://127.0.0.1:") {
-		t.Fatalf("opened URL = %q, want loopback browser URL", opened)
-	}
-	parsed, err := url.Parse(opened)
-	if err != nil || len(parsed.Query().Get("token")) != 64 {
-		t.Fatalf("browser URL lacks a 256-bit token: %q", opened)
-	}
-	if err := approval.Approve(socket, r.ID, approval.RepoScope); err != nil {
-		t.Fatal(err)
+	if opened != "" {
+		t.Fatalf("opened URL = %q, want no browser until an assertion store is configured", opened)
 	}
 	if err := approval.Approve(socket, r.ID, approval.RepoScope); err == nil {
-		t.Fatal("replayed approval succeeded")
+		t.Fatal("socket approval succeeded without a WebAuthn assertion")
+	}
+	stored, err := approval.Lookup(socket, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "pending" {
+		t.Fatalf("request status = %q, want pending", stored.Status)
 	}
 }
 

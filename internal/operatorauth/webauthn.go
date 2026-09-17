@@ -225,6 +225,21 @@ func (s *Store) FinishAssertion(ceremonyID string, response []byte) (Credential,
 	return result, nil
 }
 
+// BeginApprovalAssertion adapts an assertion ceremony for the approval browser.
+func (s *Store) BeginApprovalAssertion(request approval.Request, origin string) (approval.Assertion, error) {
+	ceremony, err := s.BeginAssertion(request, origin)
+	if err != nil {
+		return approval.Assertion{}, err
+	}
+	return approval.Assertion{ID: ceremony.ID, Options: ceremony.Options}, nil
+}
+
+// FinishApprovalAssertion verifies the browser response without exposing credentials.
+func (s *Store) FinishApprovalAssertion(ceremonyID string, response []byte) error {
+	_, err := s.FinishAssertion(ceremonyID, response)
+	return err
+}
+
 func newVerifier(origin string) (*webauthn.WebAuthn, error) {
 	parsed, err := url.Parse(origin)
 	if err != nil || parsed.Scheme != "http" || parsed.Hostname() != "localhost" || parsed.Port() == "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.User != nil {
