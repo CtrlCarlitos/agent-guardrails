@@ -459,3 +459,33 @@ func TestDoctorNoSettingsFile(t *testing.T) {
 		t.Errorf("want 'no settings.json':\n%s", out.String())
 	}
 }
+
+func TestDoctorReportsEachPlaneLifecycleState(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	writeClaudeSettings(t, home, `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[{"type":"command","command":"guardrail hook claude"}]}]}}`)
+	ocDir := filepath.Join(home, ".config", "opencode")
+	if err := os.MkdirAll(ocDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ocDir, "opencode.json"), []byte(`{"permission":{"bash":{"*":"allow"}},"plugin":["/x/guardrail.js"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb strings.Builder
+	if code := run([]string{"doctor"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("doctor exit = %d, stderr %q", code, errb.String())
+	}
+	got := out.String()
+	for _, want := range []string{
+		"claude settings: guardrail hook registered",
+		"opencode settings: guardrail integration registered",
+		"antigravity settings: no hooks.json",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("doctor output missing %q:\n%s", want, got)
+		}
+	}
+}

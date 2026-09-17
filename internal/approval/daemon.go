@@ -241,6 +241,16 @@ func Submit(socket string, request Request) (Request, error) {
 	return reply.Request, nil
 }
 
+// QueryStatus reports the durable status of a submitted request without
+// creating or mutating it.
+func QueryStatus(socket, id string) (Request, error) {
+	var reply daemonReply
+	if err := send(socket, daemonMessage{Operation: "status", ID: id}, &reply); err != nil || reply.Error != "" {
+		return Request{}, errors.New("approval daemon unavailable")
+	}
+	return reply.Request, nil
+}
+
 func requestStatus(request Request) Request {
 	return Request{ID: request.ID, Status: request.Status, ExpiresAt: request.ExpiresAt, ApprovalURL: request.ApprovalURL}
 }

@@ -35,6 +35,10 @@ usage:
 	guardrail night status
 	guardrail operator enroll|add-authenticator|remove-authenticator|recover-reset
 	guardrail doctor                      print resolved policy/overlay/audit/hook state
+	guardrail plane status                 print per-plane Guardrail integration state
+	guardrail plane enable <plane>|--all   (re)register Guardrail integration for a plane (operator approval)
+	guardrail plane disable <plane>|--all  remove Guardrail integration for a plane (operator approval)
+	      plane: claude | opencode | antigravity
 	guardrail fetch <URL>                 fetch normalized text through Guardrail
 `
 
@@ -66,6 +70,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdOperator(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdin, stdout, stderr)
 	case "doctor":
 		return cmdDoctor(args[1:], stdout, stderr)
+	case "plane":
+		file, terminal := stdin.(*os.File)
+		return cmdPlane(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdout, stderr)
 	case "fetch":
 		return cmdFetch(args[1:], stdout, stderr)
 	default:

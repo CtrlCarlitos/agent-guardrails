@@ -29,6 +29,63 @@ func MergePlaneInto(path, plane string, frag Fragment) error {
 	}
 }
 
+// RemovePlaneFrom removes only Guardrail-owned integration entries for a plane.
+// It is intentionally idempotent so declarative installers can reconcile off state.
+func RemovePlaneFrom(path, plane string) error {
+	if plane != "claude" && plane != "opencode" && plane != "antigravity" {
+		return fmt.Errorf("unsupported plane %q", plane)
+	}
+
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var existing map[string]any
+	if err := json.Unmarshal(raw, &existing); err != nil || existing == nil {
+		return fmt.Errorf("%s is not a JSON object; refusing to overwrite", path)
+	}
+
+	switch plane {
+	case "claude":
+		hooks, _ := existing["hooks"].(map[string]any)
+		for event, value := range hooks {
+			groups, ok := value.([]any)
+			if !ok {
+				continue
+			}
+			kept := groups[:0]
+			for _, group := range groups {
+				if !ownedByGuardrail(group) {
+					kept = append(kept, group)
+				}
+			}
+			if len(kept) == 0 {
+				delete(hooks, event)
+			} else {
+				hooks[event] = kept
+			}
+		}
+		if len(hooks) == 0 {
+			delete(existing, "hooks")
+		}
+	case "opencode":
+		delete(existing, "permission")
+		delete(existing, "plugin")
+	case "antigravity":
+		delete(existing, "guardrail")
+	}
+
+	out, err := json.MarshalIndent(existing, "", "  ")
+	if err != nil {
+		return err
+	}
+	out = append(out, '\n')
+	return os.WriteFile(path, out, 0o600)
+}
+
 func mergeInto(path, plane string, frag Fragment) error {
 	existing := map[string]any{}
 	if raw, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(raw)) > 0 {

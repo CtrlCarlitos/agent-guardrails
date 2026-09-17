@@ -56,3 +56,19 @@ exact-host grant, check the displayed canonical fields, complete user
 verification, confirm one WebAuthn-attributed audit completion per action, and
 confirm replayed or expired pages fail. Dotfiles integration may later guide
 this enrollment; it must never initiate enrollment automatically.
+
+## Plane Lifecycle Actions
+
+`guardrail plane enable|disable <plane>` (claude, opencode, or antigravity)
+manages Guardrail's integration in that plane's global config through broker
+approval: the command requires an interactive local terminal, submits a
+`plane-enable`/`plane-disable` request bound to the exact plane, and applies
+only after a WebAuthn approval. Enable regenerates and merges the Guardrail
+floor (hooks, permissions, plugin); disable removes only Guardrail-owned
+entries, preserving unrelated configuration. Both take `--all`, which acts on
+detected supported planes, reports undetected planes, and always reports codex
+as unsupported. `guardrail plane status` is read-only and needs no approval;
+`guardrail doctor` prints the same per-plane state. The Guardrail binary stays
+installed while planes are disabled, so re-enabling is local and verified.
+Applied actions write `operator-action` audit records; a replayed approved
+request completes idempotently without a second mutation.

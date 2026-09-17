@@ -178,6 +178,60 @@ func TestMergeHooksPreservesUserGroups(t *testing.T) {
 	}
 }
 
+func TestRemovePlaneFromClaudePreservesUserHooks(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "settings.json")
+	os.WriteFile(p, []byte(`{"hooks":{"PreToolUse":[{"matcher":"Task","hooks":[{"type":"command","command":"my-own-hook"}]},{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[{"type":"command","command":"guardrail hook claude"}]}]}}`), 0o644)
+
+	if err := RemovePlaneFrom(p, "claude"); err != nil {
+		t.Fatal(err)
+	}
+
+	g := preGroups(t, p)
+	if len(g) != 1 {
+		t.Fatalf("want only user group after removal, got %d: %v", len(g), g)
+	}
+	if m := g[0].(map[string]any); m["matcher"] != "Task" {
+		t.Fatalf("remaining group = %v, want user group", m)
+	}
+}
+
+func TestRemovePlaneFromOpenCodeRemovesGeneratedIntegration(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "opencode.json")
+	os.WriteFile(p, []byte(`{"permission":{"bash":{"*":"allow"},"read":{"**/.env":"deny"}},"plugin":["/x/guardrail.js"],"model":"user-choice"}`), 0o644)
+
+	if err := RemovePlaneFrom(p, "opencode"); err != nil {
+		t.Fatal(err)
+	}
+
+	got := readJSON(t, p)
+	if _, ok := got["permission"]; ok {
+		t.Fatalf("permission remains after disable: %v", got)
+	}
+	if _, ok := got["plugin"]; ok {
+		t.Fatalf("plugin remains after disable: %v", got)
+	}
+	if got["model"] != "user-choice" {
+		t.Fatalf("unrelated configuration changed: %v", got)
+	}
+}
+
+func TestRemovePlaneFromAntigravityRemovesGuardrailSection(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "hooks.json")
+	os.WriteFile(p, []byte(`{"guardrail":{"enabled":true,"PreToolUse":[]},"user":{"hook":"keep"}}`), 0o644)
+
+	if err := RemovePlaneFrom(p, "antigravity"); err != nil {
+		t.Fatal(err)
+	}
+
+	got := readJSON(t, p)
+	if _, ok := got["guardrail"]; ok {
+		t.Fatalf("guardrail section remains after disable: %v", got)
+	}
+	if got["user"].(map[string]any)["hook"] != "keep" {
+		t.Fatalf("unrelated configuration changed: %v", got)
+	}
+}
+
 func TestPermissionsStillUnionAppend(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "settings.json")
 	os.WriteFile(p, []byte(`{"permissions":{"deny":["Bash(foo)"]}}`), 0o644)
