@@ -5,6 +5,7 @@ package adversarial
 import (
 	"bytes"
 	"encoding/json"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -72,5 +73,84 @@ func TestApprovalDaemonBinaryCompletesAdversarialNightRequest(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), `"operator_action":"night-off"`) || !strings.Contains(stdout.String(), `"permissionDecision":"deny"`) {
 		t.Fatalf("night request output = %s, want completion verdict", stdout.String())
+	}
+}
+
+func TestSubmitOnDemandReexecsProductionDaemon(t *testing.T) {
+	bin := buildAdversarialBinary(t)
+	stateHome := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	socket := approval.DefaultSocketPath()
+
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(map[string]any{
+		"session_id":      "reexec-production-daemon",
+		"cwd":             repo,
+		"hook_event_name": "PreToolUse",
+		"tool_name":       "Bash",
+		"tool_input":      map[string]string{"command": "guardrail night off"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook := exec.Command(bin, "hook", "claude")
+	hook.Stdin = bytes.NewReader(payload)
+	hook.Env = append(os.Environ(), "XDG_STATE_HOME="+stateHome, "XDG_CONFIG_HOME="+configHome)
+	hook.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var stdout, stderr bytes.Buffer
+	hook.Stdout, hook.Stderr = &stdout, &stderr
+	if err := hook.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = syscall.Kill(-hook.Process.Pid, syscall.SIGTERM)
+		deadline := time.Now().Add(time.Second)
+		for {
+			conn, err := net.DialTimeout("unix", socket, 10*time.Millisecond)
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+			if time.Now().After(deadline) {
+				t.Error("re-execed daemon remained reachable after cleanup")
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	})
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, err := os.Stat(socket); err == nil {
+			break
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("inspect re-execed daemon socket: %v", err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("SubmitOnDemand did not re-exec a daemon socket")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := hook.Wait(); err != nil {
+		t.Fatalf("night request hook failed: %v (stderr=%s)", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"operator_action":"night-off"`) {
+		t.Fatalf("night request output = %s, want completion verdict", stdout.String())
+	}
+
+	request, err := approval.Submit(socket, approval.Request{
+		Plane: "claude", SessionID: "reexec-daemon-client", RepoRoot: repo,
+		Scope: approval.Allow, Reason: "production daemon request", Action: "night-off",
+	})
+	if err != nil {
+		t.Fatalf("re-execed daemon did not handle submission: %v", err)
+	}
+	if request.ID == "" || request.Status != "pending" || request.ExpiresAt.IsZero() {
+		t.Fatalf("re-execed daemon reply = %+v, want pending request status", request)
 	}
 }
