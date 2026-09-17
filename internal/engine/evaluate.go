@@ -52,6 +52,10 @@ func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 	case policy.CapabilityWebSearch:
 		return policy.Verdict{Decision: policy.Ask, RuleID: "capability-web-search", Reason: "web search requires operator approval"}
 	case policy.CapabilityDelegation:
+		if delegationInheritsEnforcement(tc.Plane) {
+			return policy.Verdict{Decision: policy.Allow, RuleID: "delegation-inherited",
+				Reason: "child tool calls are mediated by this plane's Guardrail adapter"}
+		}
 		return policy.Verdict{Decision: policy.Deny, RuleID: "capability-delegation-unverified", Reason: "delegation requires verified child guardrail inheritance"}
 	default:
 		return policy.Verdict{Decision: policy.Deny, RuleID: "capability-invalid", Reason: "native tool capability is invalid"}
@@ -86,6 +90,14 @@ func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 func validWebFetchURL(raw string) bool {
 	_, err := NormalizeWebFetchURL(raw)
 	return err == nil
+}
+
+// delegationInheritsEnforcement reports whether a plane's runtime mediates
+// every tool call — including subagent calls — through the same Guardrail
+// adapter as the parent. On such planes delegation inherits enforcement by
+// construction; every child call is still evaluated individually.
+func delegationInheritsEnforcement(plane string) bool {
+	return plane == "opencode" || plane == "claude"
 }
 
 func matchOverlayRules(tc ToolCall, pol *policy.Policy) *policy.Verdict {

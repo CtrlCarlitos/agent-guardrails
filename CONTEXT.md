@@ -111,6 +111,12 @@ The operator-controlled enabled or disabled state of Guardrail integration for a
 plane. The Guardrail binary remains installed while a plane is disabled, so an
 audited enable command can restore only Guardrail-owned configuration.
 
+**Delegation inheritance**:
+A plane property: every tool call, subagents included, is mediated by that
+plane's Guardrail adapter. On such planes (OpenCode, Claude) delegation is
+allowed because each child call is still evaluated; other planes deny
+delegation with proceed-inline guidance. See ADR-0013.
+
 **Recovery request**:
 A terminal-only Operator authorization request for a predefined repair of
 Guardrail-protected machinery. It shows the normalized repair, requires
@@ -122,4 +128,4 @@ and warnings. It is model-facing context, not a Verdict mode.
 
 **Containment posture**:
 A proposed operator-selected `host` or `contained` enforcement posture described
-by candidate ADR-0013. It is not implemented.
+by candidate ADR-0014. It is not implemented.
