@@ -240,6 +240,16 @@ func (s *Store) FinishApprovalAssertion(ceremonyID string, response []byte) erro
 	return err
 }
 
+// FinishApprovalAssertionAttribution verifies the assertion and returns only
+// its privacy-safe audit attribution.
+func (s *Store) FinishApprovalAssertionAttribution(ceremonyID string, response []byte) (approval.CompletionAttribution, error) {
+	credential, err := s.FinishAssertion(ceremonyID, response)
+	if err != nil {
+		return approval.CompletionAttribution{}, err
+	}
+	return approval.CompletionAttribution{Transport: "webauthn", CredentialFingerprint: credential.Attribution().Fingerprint}, nil
+}
+
 func newVerifier(origin string) (*webauthn.WebAuthn, error) {
 	parsed, err := url.Parse(origin)
 	if err != nil || parsed.Scheme != "http" || parsed.Hostname() != "localhost" || parsed.Port() == "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.User != nil {
@@ -350,6 +360,9 @@ func (s *Store) hasCredentials() (bool, error) {
 	}
 	return true, nil
 }
+
+// Enrolled reports whether a valid credential set is present.
+func (s *Store) Enrolled() (bool, error) { return s.hasCredentials() }
 
 func (s *Store) issueRegistrationGrant(expiresAt time.Time) {
 	s.mu.Lock()

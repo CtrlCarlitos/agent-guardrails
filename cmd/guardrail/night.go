@@ -53,7 +53,7 @@ func executeNightApproval(r approval.Request) error {
 }
 
 func writeNightAudit(r approval.Request) {
-	_ = audit.Write(audit.Record{Plane: r.Plane, Tool: "guardrail", Event: "operator-action", Decision: "completed", OperatorAction: r.Action, RequestID: r.ID}, audit.DefaultPath(""))
+	_ = audit.Write(audit.Record{Plane: r.Plane, Tool: "guardrail", Event: "operator-action", Decision: "completed", OperatorAction: r.Action, RequestID: r.ID, Transport: r.Transport, CredentialFingerprint: r.CredentialFingerprint}, audit.DefaultPath(""))
 }
 
 const nightUsage = `usage:

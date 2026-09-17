@@ -44,23 +44,36 @@ var (
 )
 
 type Request struct {
-	ID         string
-	Plane      string
-	SessionID  string
-	RepoRoot   string
-	Host       string
-	Scope      Scope
-	Reason     string
-	Action     string
-	Parameters map[string]string
-	IssuedAt   time.Time
-	ExpiresAt  time.Time
-	Status     string
+	ID                    string
+	Plane                 string
+	SessionID             string
+	RepoRoot              string
+	Host                  string
+	Scope                 Scope
+	Reason                string
+	Action                string
+	Parameters            map[string]string
+	IssuedAt              time.Time
+	ExpiresAt             time.Time
+	Status                string
+	Transport             string
+	CredentialFingerprint string
 }
 
-type Broker struct{ now func() time.Time }
+type CompletionAttribution struct {
+	Transport             string
+	CredentialFingerprint string
+}
 
-func New() *Broker { return &Broker{now: time.Now} }
+type Broker struct {
+	now         func() time.Time
+	mu          sync.Mutex
+	attribution map[string]CompletionAttribution
+}
+
+func New() *Broker {
+	return &Broker{now: time.Now, attribution: make(map[string]CompletionAttribution)}
+}
 
 func StatePath() string { return session.Path(requestSessionID) }
 
@@ -178,6 +191,13 @@ func (b *Broker) Approve(id string, scope Scope) error {
 	if err != nil {
 		return err
 	}
+	b.mu.Lock()
+	if attribution, ok := b.attribution[id]; ok {
+		request.Transport = attribution.Transport
+		request.CredentialFingerprint = attribution.CredentialFingerprint
+		delete(b.attribution, id)
+	}
+	b.mu.Unlock()
 	if request.Action == "" {
 		return b.complete(id, "approved")
 	}
@@ -189,6 +209,18 @@ func (b *Broker) Approve(id string, scope Scope) error {
 		return errors.New("approved action could not be completed")
 	}
 	return b.complete(id, "completed")
+}
+
+// SetCompletionAttribution associates privacy-safe WebAuthn attribution with
+// the exact pending request. Browser verification calls this immediately
+// before approval; it is intentionally process-local and never durable state.
+func (b *Broker) SetCompletionAttribution(id string, attribution CompletionAttribution) {
+	if b == nil || id == "" || attribution.Transport == "" || attribution.CredentialFingerprint == "" {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.attribution[id] = attribution
 }
 
 func (b *Broker) Deny(id string) error { return b.transition(id, "denied") }

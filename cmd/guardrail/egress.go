@@ -126,7 +126,7 @@ func overlayWebHostContent(path, host string, grant bool) ([]byte, os.FileMode, 
 }
 
 func writeWebHostAudit(r approval.Request) {
-	_ = audit.Write(audit.Record{Plane: r.Plane, Tool: "guardrail", Event: "operator-action", Decision: "completed", OperatorAction: r.Action, RequestID: r.ID}, audit.DefaultPath(""))
+	_ = audit.Write(audit.Record{Plane: r.Plane, Tool: "guardrail", Event: "operator-action", Decision: "completed", OperatorAction: r.Action, RequestID: r.ID, Transport: r.Transport, CredentialFingerprint: r.CredentialFingerprint}, audit.DefaultPath(""))
 }
 
 func writePrivateFile(path string, content []byte, mode os.FileMode) error {

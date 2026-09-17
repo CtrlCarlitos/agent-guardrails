@@ -39,6 +39,12 @@ type AssertionStore interface {
 	FinishApprovalAssertion(string, []byte) error
 }
 
+// AttributingAssertionStore supplies safe completion audit attribution without
+// revealing WebAuthn artifacts to the browser or daemon protocol.
+type AttributingAssertionStore interface {
+	FinishApprovalAssertionAttribution(string, []byte) (CompletionAttribution, error)
+}
+
 func StartBrowser(broker *Broker, authStore AssertionStore, requestID string) (*Browser, string, error) {
 	if broker == nil || authStore == nil || requestID == "" {
 		return nil, "", ErrMalformed
@@ -118,17 +124,24 @@ func publicKeyOptions(options any) any {
 	return assertion.Response
 }
 
-func (b *Browser) finish(req Request, assertion []byte) error {
+func (b *Browser) finish(req Request, assertion []byte) (CompletionAttribution, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if err := b.authStore.FinishApprovalAssertion(b.ceremony.ID, assertion); err != nil {
+	var attribution CompletionAttribution
+	var err error
+	if store, ok := b.authStore.(AttributingAssertionStore); ok {
+		attribution, err = store.FinishApprovalAssertionAttribution(b.ceremony.ID, assertion)
+	} else {
+		err = b.authStore.FinishApprovalAssertion(b.ceremony.ID, assertion)
+	}
+	if err != nil {
 		ceremony, beginErr := b.authStore.BeginApprovalAssertion(req, b.origin)
 		if beginErr == nil {
 			b.ceremony = ceremony
 		}
-		return err
+		return CompletionAttribution{}, err
 	}
-	return nil
+	return attribution, nil
 }
 
 func browserHandler(browser *Browser) http.Handler {
@@ -193,9 +206,13 @@ func browserHandler(browser *Browser) http.Handler {
 			}
 			return
 		}
-		if err := browser.finish(req, assertion); err != nil {
+		attribution, err := browser.finish(req, assertion)
+		if err != nil {
 			http.Error(w, "assertion verification failed", http.StatusForbidden)
 			return
+		}
+		if attribution.Transport != "" && attribution.CredentialFingerprint != "" {
+			browser.broker.SetCompletionAttribution(browser.requestID, attribution)
 		}
 		if err := browser.broker.Approve(browser.requestID, req.Scope); err != nil {
 			http.Error(w, "request unavailable", http.StatusGone)

@@ -154,3 +154,38 @@ func TestSubmitOnDemandReexecsProductionDaemon(t *testing.T) {
 		t.Fatalf("re-execed daemon reply = %+v, want pending request status", request)
 	}
 }
+
+func TestAdversarialSocketApprovalCannotPersistEgressGrant(t *testing.T) {
+	stateHome := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	daemon, err := approval.StartDaemon(approval.DefaultSocketPath(), approval.New(), nil, func(string) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer daemon.Close()
+	repo := t.TempDir()
+	request, err := approval.Submit(approval.DefaultSocketPath(), approval.Request{Plane: "claude", SessionID: "socket-egress", RepoRoot: repo, Host: "socket.example.test", Scope: approval.RepoScope, Reason: "canonical operator action", Action: "web-host-grant"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := net.Dial("unix", approval.DefaultSocketPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := json.NewEncoder(conn).Encode(map[string]string{"operation": "approve", "id": request.ID}); err != nil {
+		t.Fatal(err)
+	}
+	var reply map[string]any
+	if err := json.NewDecoder(conn).Decode(&reply); err != nil {
+		t.Fatal(err)
+	}
+	if reply["error"] == "" {
+		t.Fatalf("raw socket approval accepted: %#v", reply)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "guardrail.toml")); !os.IsNotExist(err) {
+		t.Fatalf("socket approval persisted an overlay grant: %v", err)
+	}
+}

@@ -36,13 +36,19 @@ func (h *browserAssertionHarness) FinishApprovalAssertion(id string, response []
 	return h.store.FinishApprovalAssertion(id, response)
 }
 
+func (h *browserAssertionHarness) FinishApprovalAssertionAttribution(id string, response []byte) (approval.CompletionAttribution, error) {
+	return h.store.FinishApprovalAssertionAttribution(id, response)
+}
+
 func TestBrowserHandlerCompletesValidSignedAssertionOnce(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	harness := newBrowserAssertionHarness(t)
 	broker := approval.New()
 	calls := 0
-	approval.RegisterAction("night-off", func(approval.Request) error {
+	var completed approval.Request
+	approval.RegisterAction("night-off", func(request approval.Request) error {
 		calls++
+		completed = request
 		return nil
 	})
 	request, err := broker.Create(approval.Request{Plane: "opencode", SessionID: "session-1", RepoRoot: "/repo", Scope: approval.RepoScope, Reason: "signed assertion", Action: "night-off"})
@@ -66,6 +72,9 @@ func TestBrowserHandlerCompletesValidSignedAssertionOnce(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("action calls = %d, want 1", calls)
+	}
+	if completed.Transport != "webauthn" || completed.CredentialFingerprint == "" {
+		t.Fatalf("completion attribution = %+v, want WebAuthn fingerprint", completed)
 	}
 	stored, err := broker.Request(request.ID)
 	if err != nil {

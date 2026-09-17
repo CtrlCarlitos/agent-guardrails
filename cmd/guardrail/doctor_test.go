@@ -69,7 +69,7 @@ func TestDoctorBasics(t *testing.T) {
 		t.Fatalf("doctor exit = %d, want 0", code)
 	}
 	s := out.String()
-	for _, want := range []string{"guardrail ", "GUARDRAIL_CONFIG:", "overlay:", "policy warnings: none", "audit log:", "claude settings:"} {
+	for _, want := range []string{"guardrail ", "GUARDRAIL_CONFIG:", "overlay:", "policy warnings: none", "audit log:", "claude settings:", "operator approvals: disabled"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("doctor output missing %q\n---\n%s", want, s)
 		}

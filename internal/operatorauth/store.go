@@ -107,6 +107,98 @@ func (s Store) Replace(credentials []Credential) error {
 	return nil
 }
 
+// ClearForRecovery removes the public credential store after a local recovery
+// confirmation. It intentionally does not reuse Replace, whose empty-set
+// rejection protects normal credential management from disabling approvals.
+func (s Store) ClearForRecovery() error {
+	if _, err := os.Lstat(s.Path()); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("inspect credential store: %w", err)
+	}
+	dir := filepath.Dir(s.Path())
+	if err := ensurePrivateDir(dir, false); err != nil {
+		return err
+	}
+	if err := validateRegularFile(s.Path()); err != nil {
+		return err
+	}
+	if err := os.Remove(s.Path()); err != nil {
+		return fmt.Errorf("clear credential store: %w", err)
+	}
+	parent, err := os.Open(dir)
+	if err != nil {
+		return fmt.Errorf("open credential directory: %w", err)
+	}
+	defer parent.Close()
+	if err := parent.Sync(); err != nil {
+		return fmt.Errorf("sync credential directory: %w", err)
+	}
+	s.mu.Lock()
+	s.ceremonies = make(map[string]ceremonyState)
+	s.grant = nil
+	s.mu.Unlock()
+	return nil
+}
+
+// Credentials returns the validated public credential records.
+func (s Store) Credentials() ([]Credential, error) {
+	if err := ensurePrivateDir(filepath.Dir(s.Path()), false); err != nil {
+		return nil, err
+	}
+	if err := validateRegularFile(s.Path()); err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(s.Path())
+	if err != nil {
+		return nil, fmt.Errorf("read credential store: %w", err)
+	}
+	var credentials []Credential
+	if err := json.Unmarshal(data, &credentials); err != nil {
+		return nil, fmt.Errorf("decode credential store: %w", err)
+	}
+	if err := validateCredentials(credentials); err != nil {
+		return nil, err
+	}
+	return credentials, nil
+}
+
+// AddCredential persists one verified registration without replacing existing
+// authenticators.
+func (s Store) AddCredential(credential Credential) error {
+	credentials, err := s.Credentials()
+	if err != nil {
+		return err
+	}
+	return s.Replace(append(credentials, credential))
+}
+
+// RemoveCredentialFingerprint removes one credential only when another
+// credential remains enrolled. Callers must complete a management assertion
+// before invoking it.
+func (s Store) RemoveCredentialFingerprint(fingerprint string) error {
+	credentials, err := s.Credentials()
+	if err != nil {
+		return err
+	}
+	if len(credentials) < 2 {
+		return errors.New("cannot remove the final enrolled authenticator")
+	}
+	filtered := make([]Credential, 0, len(credentials)-1)
+	removed := false
+	for _, credential := range credentials {
+		if credential.Attribution().Fingerprint == fingerprint {
+			removed = true
+			continue
+		}
+		filtered = append(filtered, credential)
+	}
+	if !removed {
+		return errors.New("credential fingerprint not found")
+	}
+	return s.Replace(filtered)
+}
+
 func validateCredentials(credentials []Credential) error {
 	if len(credentials) == 0 {
 		return errors.New("credential set must not be empty")

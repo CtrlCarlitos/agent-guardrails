@@ -104,6 +104,19 @@ func TestStoreReplaceRejectsNonPrivateAndSymlinkedPaths(t *testing.T) {
 	}
 }
 
+func TestClearForRecoveryRemovesOnlyAValidCredentialStore(t *testing.T) {
+	store := enrolledStore(t)
+	if err := store.ClearForRecovery(); err != nil {
+		t.Fatalf("clear for recovery: %v", err)
+	}
+	if _, err := os.Lstat(store.Path()); !os.IsNotExist(err) {
+		t.Fatalf("credential store still exists or could not be inspected: %v", err)
+	}
+	if _, err := store.BeginRegistration("http://localhost:12345"); err != nil {
+		t.Fatalf("recovery did not restore initial enrollment posture: %v", err)
+	}
+}
+
 func TestBeginRegistrationRequiresExactLoopbackOriginAndUserVerification(t *testing.T) {
 	store := operatorauth.NewStore(t.TempDir())
 	ceremony, err := store.BeginRegistration("http://localhost:12345")

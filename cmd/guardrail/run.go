@@ -32,7 +32,8 @@ usage:
       --binary <path>      guardrail path to register in hook commands (default "guardrail")
   guardrail night on [--until HH:MM | --for 8h]
   guardrail night off
-  guardrail night status
+	guardrail night status
+	guardrail operator enroll|add-authenticator|remove-authenticator|recover-reset
 	guardrail doctor                      print resolved policy/overlay/audit/hook state
 	guardrail fetch <URL>                 fetch normalized text through Guardrail
 `
@@ -60,6 +61,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdNight(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdout, stderr)
 	case "approvals":
 		return cmdApprovals(args[1:], false, stdout, stderr)
+	case "operator":
+		file, terminal := stdin.(*os.File)
+		return cmdOperator(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdin, stdout, stderr)
 	case "doctor":
 		return cmdDoctor(args[1:], stdout, stderr)
 	case "fetch":

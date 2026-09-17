@@ -94,7 +94,7 @@ func TestCompletedWebHostMutationWritesAuditRecord(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	repo := filepath.Join(t.TempDir(), "repo")
-	if err := executeWebHostApproval(approval.Request{ID: "web-host-request", Plane: "opencode", RepoRoot: repo, Host: "api.example.test", Scope: approval.RepoScope, Action: "web-host-grant"}); err != nil {
+	if err := executeWebHostApproval(approval.Request{ID: "web-host-request", Plane: "opencode", RepoRoot: repo, Host: "api.example.test", Scope: approval.RepoScope, Action: "web-host-grant", CredentialFingerprint: "a1b2c3d4e5f60708", Transport: "webauthn"}); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(audit.DefaultPath(""))
@@ -105,7 +105,7 @@ func TestCompletedWebHostMutationWritesAuditRecord(t *testing.T) {
 	if err := json.Unmarshal(raw, &rec); err != nil {
 		t.Fatal(err)
 	}
-	if rec.OperatorAction != "web-host-grant" || rec.Decision != "completed" || rec.RequestID != "web-host-request" {
+	if rec.OperatorAction != "web-host-grant" || rec.Decision != "completed" || rec.RequestID != "web-host-request" || rec.CredentialFingerprint != "a1b2c3d4e5f60708" || rec.Transport != "webauthn" {
 		t.Fatalf("audit record = %+v, want completed web-host mutation", rec)
 	}
 }
