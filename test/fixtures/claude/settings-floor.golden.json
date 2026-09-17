@@ -22,7 +22,7 @@
           }
         ],
         "id": "guardrail-claude-pre",
-        "matcher": "Bash|Read|Edit|Write|MultiEdit"
+        "matcher": "*"
       }
     ],
     "SessionStart": [

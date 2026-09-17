@@ -22,7 +22,7 @@ func TestParseAntigravityBash(t *testing.T) {
 }
 
 func TestParseAntigravityFileTool(t *testing.T) {
-	raw := `{"conversationId":"c1","toolCall":{"name":"write_to_file","args":{"AbsolutePath":"/tmp/.env"}}}`
+	raw := `{"conversationId":"c1","toolCall":{"name":"write_to_file","args":{"TargetFile":"/tmp/.env"}}}`
 	tc, err := ParseAntigravity("pre", strings.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
@@ -53,13 +53,67 @@ func TestParseAntigravityCWDFallsBackToWorkspacePaths(t *testing.T) {
 	}
 }
 
-func TestParseAntigravityUnknownToolPassesThrough(t *testing.T) {
-	tc, err := ParseAntigravity("pre", strings.NewReader(`{"toolCall":{"name":"grep_search","args":{}}}`))
+func TestParseAntigravityGrepSearchIsDiscovery(t *testing.T) {
+	tc, err := ParseAntigravity("pre", strings.NewReader(`{"toolCall":{"name":"grep_search","args":{"SearchPath":"/repo","Query":"guardrail"}}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tc.Tool != "grep_search" {
-		t.Fatalf("Tool = %q, want passthrough grep_search", tc.Tool)
+	if tc.Tool != "Grep" || tc.Capability != policy.CapabilityReadDiscovery {
+		t.Fatalf("ToolCall = %+v, want Grep read discovery", tc)
+	}
+}
+
+func TestParseAntigravityClassifiesAndExtractsTypedInputs(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		raw      string
+		wantCap  policy.Capability
+		wantURL  string
+		wantPath string
+	}{
+		{"list", `{"toolCall":{"name":"list_dir","args":{"DirectoryPath":"/repo/.env"}}}`, policy.CapabilityReadDiscovery, "", "/repo/.env"},
+		{"find", `{"toolCall":{"name":"find_by_name","args":{"SearchDirectory":"/repo/.env","Pattern":"*.go"}}}`, policy.CapabilityReadDiscovery, "", "/repo/.env"},
+		{"search", `{"toolCall":{"name":"grep_search","args":{"SearchPath":"/repo/.env","Query":"guardrail"}}}`, policy.CapabilityReadDiscovery, "", "/repo/.env"},
+		{"fetch", `{"toolCall":{"name":"read_url_content","args":{"Url":"https://example.test/docs"}}}`, policy.CapabilityWebFetch, "https://example.test/docs", ""},
+		{"web search", `{"toolCall":{"name":"search_web","args":{"Query":"guardrails"}}}`, policy.CapabilityWebSearch, "", ""},
+		{"custom", `{"toolCall":{"name":"custom","args":{}}}`, policy.CapabilityDeny, "", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tc, err := ParseAntigravity("pre", strings.NewReader(tt.raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.Capability != tt.wantCap || tc.URL != tt.wantURL {
+				t.Fatalf("ToolCall = %+v, want capability %q and URL %q", tc, tt.wantCap, tt.wantURL)
+			}
+			if tt.wantPath != "" && (len(tc.Paths) != 1 || tc.Paths[0] != tt.wantPath) {
+				t.Fatalf("paths = %q, want %q", tc.Paths, tt.wantPath)
+			}
+		})
+	}
+}
+
+func TestParseAntigravityRejectsConflictingOrMissingDocumentedPath(t *testing.T) {
+	for _, raw := range []string{
+		`{"toolCall":{"name":"list_dir","args":{"DirectoryPath":"/repo","TargetFile":"/home/u/.ssh/id_rsa"}}}`,
+		`{"toolCall":{"name":"grep_search","args":{"AbsolutePath":"/repo"}}}`,
+		`{"toolCall":{"name":"view_file","args":{}}}`,
+	} {
+		if _, err := ParseAntigravity("pre", strings.NewReader(raw)); err == nil {
+			t.Fatalf("ParseAntigravity(%s) succeeded", raw)
+		}
+	}
+}
+
+func TestParseAntigravityRejectsURLAliasesAndDecoys(t *testing.T) {
+	for _, raw := range []string{
+		`{"toolCall":{"name":"read_url_content","args":{"URL":"https://example.test/docs"}}}`,
+		`{"toolCall":{"name":"read_url_content","args":{"url":"https://example.test/docs"}}}`,
+		`{"toolCall":{"name":"read_url_content","args":{"Url":"https://example.test/docs","url":"https://evil.test/secret"}}}`,
+	} {
+		if _, err := ParseAntigravity("pre", strings.NewReader(raw)); err == nil {
+			t.Fatalf("ParseAntigravity(%s) succeeded", raw)
+		}
 	}
 }
 

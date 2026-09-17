@@ -23,12 +23,14 @@ type RepoGrant struct {
 	SecretAllow     bool     `toml:"secret_allow"`
 	AuditLog        bool     `toml:"audit_log"`
 	EgressAllowlist []string `toml:"egress_allowlist"`
+	WebHosts        []string `toml:"web_hosts"`
 }
 
 // OperatorConfig is machine-scoped authorization living outside any repo.
 // Grants are keyed by absolute repo path and never transfer between repos.
 type OperatorConfig struct {
-	Repos map[string]RepoGrant
+	GlobalWebHosts []string
+	Repos          map[string]RepoGrant
 }
 
 func OperatorConfigPath() string {
@@ -86,15 +88,34 @@ func LoadOperatorConfig() (*OperatorConfig, error) {
 		return emptyOperatorConfig(), fmt.Errorf("reading operator config %s: %w", path, err)
 	}
 
+	var global struct {
+		WebHosts struct {
+			Global []string `toml:"global"`
+		} `toml:"web_hosts"`
+	}
+	if err := toml.Unmarshal(raw, &global); err != nil {
+		return emptyOperatorConfig(), fmt.Errorf("parsing operator config %s: %w", path, err)
+	}
+	for _, host := range global.WebHosts.Global {
+		if err := ValidateWebHost(host); err != nil {
+			return emptyOperatorConfig(), err
+		}
+	}
 	var repos map[string]RepoGrant
 	if err := toml.Unmarshal(raw, &repos); err != nil {
 		return emptyOperatorConfig(), fmt.Errorf("parsing operator config %s: %w", path, err)
 	}
+	delete(repos, "web_hosts")
 	normalized := make(map[string]RepoGrant, len(repos))
 	rawPaths := make(map[string]string, len(repos))
 	for repo, grant := range repos {
 		if !filepath.IsAbs(repo) {
 			return emptyOperatorConfig(), fmt.Errorf("operator config repository path %q must be absolute", repo)
+		}
+		for _, host := range grant.WebHosts {
+			if err := ValidateWebHost(host); err != nil {
+				return emptyOperatorConfig(), err
+			}
 		}
 		cleaned := filepath.Clean(repo)
 		if previous, ok := rawPaths[cleaned]; ok {
@@ -103,7 +124,7 @@ func LoadOperatorConfig() (*OperatorConfig, error) {
 		rawPaths[cleaned] = repo
 		normalized[cleaned] = grant
 	}
-	return &OperatorConfig{Repos: normalized}, nil
+	return &OperatorConfig{GlobalWebHosts: global.WebHosts.Global, Repos: normalized}, nil
 }
 
 func (o *OperatorConfig) grant(repoRoot string) (RepoGrant, bool) {
@@ -135,4 +156,13 @@ func (o *OperatorConfig) AllowsAuditLog(repoRoot string) bool {
 func (o *OperatorConfig) AllowsEgress(repoRoot, entry string) bool {
 	grant, ok := o.grant(repoRoot)
 	return ok && slices.Contains(grant.EgressAllowlist, entry)
+}
+
+func (o *OperatorConfig) AllowsGlobalWebHost(host string) bool {
+	return o != nil && ValidateWebHost(host) == nil && slices.Contains(o.GlobalWebHosts, host)
+}
+
+func (o *OperatorConfig) AllowsWebHost(repoRoot, host string) bool {
+	grant, ok := o.grant(repoRoot)
+	return ok && ValidateWebHost(host) == nil && slices.Contains(grant.WebHosts, host)
 }

@@ -69,13 +69,22 @@ func TestDoctorBasics(t *testing.T) {
 		t.Fatalf("doctor exit = %d, want 0", code)
 	}
 	s := out.String()
-	for _, want := range []string{"guardrail ", "GUARDRAIL_CONFIG:", "overlay:", "policy warnings: none", "audit log:", "claude settings:"} {
+	for _, want := range []string{"guardrail ", "GUARDRAIL_CONFIG:", "overlay:", "policy warnings: none", "audit log:", "claude settings:", "operator approvals: disabled"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("doctor output missing %q\n---\n%s", want, s)
 		}
 	}
 	if countDoctorLine(s, "policy warnings: none") != 1 || countDoctorLine(s, "policy warnings:") != 0 {
 		t.Errorf("doctor output must contain exactly one policy warning section:\n%s", s)
+	}
+}
+
+func TestOperatorApprovalStatusIsWindowsFailClosed(t *testing.T) {
+	if got := operatorApprovalStatus(true, true); got != "operator approvals: disabled (Windows fail-closed)" {
+		t.Fatalf("windows status = %q", got)
+	}
+	if got := operatorApprovalStatus(false, true); got != "operator approvals: WebAuthn" {
+		t.Fatalf("enrolled status = %q", got)
 	}
 }
 

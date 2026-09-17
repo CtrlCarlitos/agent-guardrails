@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/planecontract"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
@@ -44,19 +45,48 @@ func ParseClaude(r io.Reader) (engine.ToolCall, error) {
 	case "SessionStart":
 		event = "session-start"
 	}
+	spec, known := planecontract.ClaudeTool(p.ToolName)
+	if !known {
+		spec = planecontract.ToolSpec{NativeTool: p.ToolName, Tool: p.ToolName, Capability: policy.CapabilityUnknown}
+	}
 	tc := engine.ToolCall{
 		Plane:      "claude",
 		Event:      event,
-		Tool:       p.ToolName,
+		Tool:       spec.Tool,
 		NativeTool: p.ToolName,
+		Capability: spec.Capability,
 		Command:    p.ToolInput.Command,
 		SessionID:  p.SessionID,
 		CWD:        p.CWD,
 		Arguments:  native.ToolInput,
 		Raw:        raw,
 	}
-	if p.ToolInput.FilePath != "" {
-		tc.Paths = []string{p.ToolInput.FilePath}
+	var input map[string]any
+	if len(native.ToolInput) != 0 {
+		if err := json.Unmarshal(native.ToolInput, &input); err != nil {
+			return engine.ToolCall{}, err
+		}
+	}
+	if tc.Capability == policy.CapabilityCommand {
+		tc.InputShape = "command"
+	}
+	if tc.Capability == policy.CapabilityReadDiscovery || tc.Capability == policy.CapabilityMutation {
+		for _, key := range []string{"file_path", "path", "notebook_path"} {
+			if path, ok := input[key].(string); ok && path != "" {
+				tc.Paths = []string{path}
+				break
+			}
+		}
+		tc.InputShape = "path"
+	}
+	if tc.Capability == policy.CapabilityWebFetch {
+		if url, ok := input["url"].(string); ok {
+			tc.URL = url
+		}
+		tc.InputShape = "url"
+	}
+	if tc.InputShape == "" {
+		tc.InputShape = "opaque-object"
 	}
 	tc.RepoRoot = repoRoot(p.CWD)
 	return tc, nil
@@ -79,6 +109,11 @@ func nativeAction(tool string, arguments any) string {
 
 func EmitClaude(v policy.Verdict, event string, tc engine.ToolCall, stdout, stderr io.Writer) int {
 	switch v.Decision {
+	case policy.Complete:
+		payload := map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PreToolUse", "permissionDecision": "deny", "additionalContext": "operator action pending", "operator_action": v.OperatorAction, "request_id": v.RequestID}}
+		b, _ := json.Marshal(payload)
+		stdout.Write(append(b, '\n'))
+		return 0
 	case policy.Deny:
 		fmt.Fprintf(stderr, "guardrail: %s\n", guidanceForModel(v, nativeAction(tc.NativeTool, tc.Arguments)))
 		return 2

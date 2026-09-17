@@ -14,6 +14,48 @@ func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 				Reason: "guardrail hit an internal error; failing closed to ask"}
 		}
 	}()
+	if tc.Capability == policy.CapabilityUnknown {
+		v := policy.Verdict{AuditKind: "unknown-native-tool"}
+		if pol.UnknownToolPosture == policy.UnknownDeny {
+			v.Decision = policy.Deny
+			v.RuleID = "unknown-native-tool"
+			v.Reason = "unclassified native tool; failing closed"
+			return v
+		}
+		v.Decision = policy.Allow
+		return v
+	}
+	if (tc.Capability == policy.CapabilityReadDiscovery || tc.Capability == policy.CapabilityMutation) && len(tc.Paths) == 0 {
+		return policy.Verdict{Decision: policy.Deny, RuleID: "capability-input-missing", Reason: "path capability call did not provide paths"}
+	}
+	if tc.Capability == policy.CapabilityReadDiscovery || tc.Capability == policy.CapabilityMutation {
+		for _, path := range tc.Paths {
+			if path == "" {
+				return policy.Verdict{Decision: policy.Deny, RuleID: "capability-input-missing", Reason: "path capability call provided an empty path"}
+			}
+		}
+	}
+	if tc.Capability == policy.CapabilityCommand && tc.Command == "" {
+		return policy.Verdict{Decision: policy.Deny, RuleID: "capability-input-missing", Reason: "command capability call did not provide a command"}
+	}
+	if tc.Capability == policy.CapabilityWebFetch && !validWebFetchURL(tc.URL) {
+		return policy.Verdict{Decision: policy.Deny, RuleID: "capability-input-invalid", Reason: "web fetch capability call did not provide a valid HTTP URL"}
+	}
+	switch tc.Capability {
+	case "", policy.CapabilityCommand, policy.CapabilityReadDiscovery, policy.CapabilityMutation:
+	case policy.CapabilityWebFetch:
+		return *checkWebFetch(tc, pol)
+	case policy.CapabilitySafeControl:
+		return policy.Verdict{Decision: policy.Allow}
+	case policy.CapabilityDeny:
+		return policy.Verdict{Decision: policy.Deny, RuleID: "capability-deny", Reason: "native tool capability is unsupported"}
+	case policy.CapabilityWebSearch:
+		return policy.Verdict{Decision: policy.Ask, RuleID: "capability-web-search", Reason: "web search requires operator approval"}
+	case policy.CapabilityDelegation:
+		return policy.Verdict{Decision: policy.Deny, RuleID: "capability-delegation-unverified", Reason: "delegation requires verified child guardrail inheritance"}
+	default:
+		return policy.Verdict{Decision: policy.Deny, RuleID: "capability-invalid", Reason: "native tool capability is invalid"}
+	}
 
 	var bash *bashAnalysis
 	var bashVerdict *policy.Verdict
@@ -39,6 +81,11 @@ func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 		return policy.Verdict{Decision: policy.Allow}
 	}
 	return *worst
+}
+
+func validWebFetchURL(raw string) bool {
+	_, err := NormalizeWebFetchURL(raw)
+	return err == nil
 }
 
 func matchOverlayRules(tc ToolCall, pol *policy.Policy) *policy.Verdict {

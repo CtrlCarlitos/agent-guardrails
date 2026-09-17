@@ -14,7 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/session"
 )
 
@@ -486,15 +488,15 @@ func TestHookClaudeSessionStartPrintsNightBannerFirst(t *testing.T) {
 	}
 }
 
-func TestHookNightControlIsP5DenyAcrossPlanes(t *testing.T) {
+func TestHookCanonicalNightControlCreatesBrokerRequestAcrossPlanes(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    []string
 		payload string
 	}{
-		{name: "claude", args: []string{"hook", "claude"}, payload: `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"guardrail night off"}}`},
-		{name: "opencode", args: []string{"hook", "opencode"}, payload: `{"event":"pre","tool":"bash","command":"guardrail night off","cwd":"/tmp"}`},
-		{name: "antigravity", args: []string{"hook", "antigravity", "pre"}, payload: `{"toolCall":{"name":"run_command","args":{"CommandLine":"guardrail night off","Cwd":"/tmp"}}}`},
+		{name: "claude", args: []string{"hook", "claude"}, payload: `{"session_id":"night-broker","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"guardrail night off"}}`},
+		{name: "opencode", args: []string{"hook", "opencode"}, payload: `{"session_id":"night-broker","event":"pre","tool":"bash","command":"guardrail night off","cwd":"/tmp"}`},
+		{name: "antigravity", args: []string{"hook", "antigravity", "pre"}, payload: `{"conversationId":"night-broker","toolCall":{"name":"run_command","args":{"CommandLine":"guardrail night off","Cwd":"/tmp"}}}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -505,12 +507,12 @@ func TestHookNightControlIsP5DenyAcrossPlanes(t *testing.T) {
 			enableNightForHook(t)
 			var stdout, stderr bytes.Buffer
 			code := run(tt.args, strings.NewReader(tt.payload), &stdout, &stderr)
-			if code != 2 && tt.name != "antigravity" {
+			if code != 2 && tt.name == "opencode" {
 				t.Fatalf("exit = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
 			}
 			records := readApprovalAudit(t, stateHome)
-			if len(records) != 1 || records[0].Decision != "deny" || records[0].RuleID != "P5.self-config" {
-				t.Fatalf("audit = %+v, want deny/P5.self-config", records)
+			if len(records) != 1 || records[0].Decision != "complete" || records[0].RuleID != "operator-action" {
+				t.Fatalf("audit = %+v, want complete/operator-action", records)
 			}
 		})
 	}
@@ -587,6 +589,13 @@ func TestHookClaudeSecretDeny(t *testing.T) {
 	}
 }
 
+func TestHookClaudeShareOnboardingGuideDeny(t *testing.T) {
+	code, _, _ := runHook(t, "share-onboarding-guide.json")
+	if code != 2 {
+		t.Fatalf("ShareOnboardingGuide: exit %d, want 2", code)
+	}
+}
+
 func TestHookClaudeGitCommitAllowedForNow(t *testing.T) {
 	// P2 (git-safety) lands in a later plan; until then git commit is not gated.
 	code, _, _ := runHook(t, "bash-git-commit.json")
@@ -614,6 +623,58 @@ func TestHookAuditLogWritten(t *testing.T) {
 	run([]string{"hook", "claude"}, f, &out, &errb)
 	if _, err := os.Stat(filepath.Join(state, "guardrail", "audit.jsonl")); err != nil {
 		t.Fatalf("audit log not written: %v", err)
+	}
+}
+
+func TestUnknownToolAuditRecordUsesBoundedMetadata(t *testing.T) {
+	tc := engine.ToolCall{
+		NativeTool: "new_tool",
+		Capability: policy.CapabilityUnknown,
+		InputShape: "opaque-object",
+		Command:    "raw-command-secret",
+		Paths:      []string{"/raw-path-secret"},
+		Arguments:  json.RawMessage(`{"token":"raw-argument-secret"}`),
+	}
+	v := engine.Evaluate(tc, &policy.Policy{UnknownToolPosture: policy.UnknownAudit})
+	rec := auditRecord(tc, v, nil)
+	if rec.NativeTool != "new_tool" || rec.Capability != "unknown" || rec.InputShape != "opaque-object" || rec.AuditKind != "unknown-native-tool" {
+		t.Fatalf("unknown audit metadata = %+v", rec)
+	}
+	raw, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"raw-command-secret", "/raw-path-secret", "raw-argument-secret"} {
+		if strings.Contains(string(raw), secret) {
+			t.Fatalf("unknown audit record leaked %q: %s", secret, raw)
+		}
+	}
+}
+
+func TestUnknownToolDenyPostureBlocksOpenCodeAndAntigravity(t *testing.T) {
+	overlay := filepath.Join(t.TempDir(), "guardrail.toml")
+	if err := os.WriteFile(overlay, []byte("unknown_tool_posture = \"deny\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name    string
+		args    []string
+		payload string
+		wantOut string
+	}{
+		{"opencode", []string{"hook", "opencode"}, `{"event":"pre","tool":"future_tool","cwd":"/tmp","arguments":{}}`, `"decision":"deny"`},
+		{"antigravity", []string{"hook", "antigravity", "pre"}, `{"toolCall":{"name":"future_tool","args":{}}}`, `"decision":"deny"`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			t.Setenv("GUARDRAIL_CONFIG", overlay)
+			var out, errb bytes.Buffer
+			code := run(tt.args, strings.NewReader(tt.payload), &out, &errb)
+			if (tt.name == "opencode" && code != 2) || !strings.Contains(out.String(), tt.wantOut) {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errb.String())
+			}
+		})
 	}
 }
 
@@ -1326,7 +1387,6 @@ func TestOpenCodeApprovalMemoryRequiresExactIdentity(t *testing.T) {
 	}{
 		{name: "session", changedSession: "approval-other-session"},
 		{name: "CWD bytes", changedCWD: "/tmp/"},
-		{name: "normalized tool", changedTool: "read"},
 		{name: "arguments", changedArgument: `{"value":"changed"}`},
 	}
 	for _, test := range tests {
@@ -1378,7 +1438,11 @@ func TestOpenCodeApprovalMemoryRejectsIncompleteIdentity(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			stateHome, _ := configureApprovalTest(t, approvalAskOverlay(""))
-			assertApprovalDecision(t, runOpenCodeApprovalHook(t, test.payload), "ask")
+			want := "ask"
+			if test.name == "tool" {
+				want = "allow" // Unclassified calls follow the base audit posture.
+			}
+			assertApprovalDecision(t, runOpenCodeApprovalHook(t, test.payload), want)
 			if test.sessionID != "" {
 				state, _ := readApprovalState(t, test.sessionID)
 				if len(state.PendingApprovals) != 0 {

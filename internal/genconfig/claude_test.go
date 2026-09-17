@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/planecontract"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/bmatcuk/doublestar/v4"
 )
@@ -204,7 +205,7 @@ func TestClaudeTempDeleteReachesExistingBashPreHook(t *testing.T) {
 	}
 	hooks := frag["hooks"].(map[string]any)["PreToolUse"].([]any)
 	matcher := hooks[0].(map[string]any)["matcher"].(string)
-	if !strings.Contains(matcher, "Bash") {
+	if matcher != planecontract.ClaudePreHookMatcher() || !planecontract.ClaudePreMatcherMatches("Bash") {
 		t.Fatalf("PreToolUse matcher %q does not deliver Bash calls to the Engine", matcher)
 	}
 }
@@ -314,7 +315,7 @@ func TestClaudeHooks(t *testing.T) {
 	if pre["id"] != "guardrail-claude-pre" {
 		t.Errorf("pre id = %v, want guardrail-claude-pre", pre["id"])
 	}
-	if pre["matcher"].(string) != "Bash|Read|Edit|Write|MultiEdit" {
+	if pre["matcher"].(string) != "*" {
 		t.Errorf("matcher = %v", pre["matcher"])
 	}
 	hk := pre["hooks"].([]any)[0].(map[string]any)
@@ -324,6 +325,17 @@ func TestClaudeHooks(t *testing.T) {
 	post := h["PostToolUse"].([]any)[0].(map[string]any)
 	if post["id"] != "guardrail-claude-post" {
 		t.Errorf("post id = %v", post["id"])
+	}
+}
+
+func TestClaudePreHookCoversShareOnboardingGuide(t *testing.T) {
+	spec, ok := planecontract.ClaudeTool("ShareOnboardingGuide")
+	if !ok || spec.Capability != policy.CapabilityDeny {
+		t.Fatalf("ShareOnboardingGuide = %#v, %v; want deny", spec, ok)
+	}
+	pre := claudeHooks("guardrail")["PreToolUse"].([]any)[0].(map[string]any)
+	if pre["matcher"] != planecontract.ClaudePreHookMatcher() || !planecontract.ClaudePreMatcherMatches(spec.NativeTool) {
+		t.Fatalf("PreToolUse does not cover %s", spec.NativeTool)
 	}
 }
 

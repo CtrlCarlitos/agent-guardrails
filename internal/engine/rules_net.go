@@ -121,6 +121,28 @@ func checkEgress(s Simple, pol *policy.Policy) *policy.Verdict {
 	return nil
 }
 
+// NormalizeWebFetchURL extracts the only persistent authorization value from a
+// direct web-fetch URL. Ports, fragments, and credentials can obscure or widen
+// the destination, so they are rejected rather than normalized.
+func NormalizeWebFetchURL(raw string) (string, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" || parsed.Port() != "" {
+		return "", fmt.Errorf("must be an absolute HTTP URL without port, fragment, or credentials")
+	}
+	if !strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https") {
+		return "", fmt.Errorf("scheme must be http or https")
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if err := policy.ValidateWebHost(host); err != nil {
+		return "", err
+	}
+	return host, nil
+}
+
+func checkWebFetch(tc ToolCall, pol *policy.Policy) *policy.Verdict {
+	return &policy.Verdict{Decision: policy.Deny, RuleID: "web-fetch-native-deny", Reason: "native web fetch cannot verify redirect destinations; use guardrail fetch"}
+}
+
 type networkOptionSpec struct {
 	shortFlags         string
 	shortValues        string

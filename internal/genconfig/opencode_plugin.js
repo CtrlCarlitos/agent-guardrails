@@ -62,9 +62,17 @@ export const GuardrailPlugin = async ({ directory, client }) => {
 			};
 			if (tool === "bash") {
 				envelope.command = args.command;
-			} else {
-				const p = args.filePath ?? args.path ?? args.dirPath ?? args.directory;
+			} else if (["read", "edit", "write"].includes(tool)) {
+				const p = args.filePath;
 				if (p) envelope.paths = [p];
+			} else if (["glob", "grep"].includes(tool)) {
+				const p = args.path;
+				if (p) envelope.paths = [p];
+			} else if (tool === "lsp") {
+				const p = args.filePath;
+				if (p) envelope.paths = [p];
+			} else if (tool === "webfetch") {
+				envelope.url = args.url;
 			}
 			const decision = callGuardrail(envelope);
 			if (decision.reason?.startsWith("NIGHT MODE until ")) {

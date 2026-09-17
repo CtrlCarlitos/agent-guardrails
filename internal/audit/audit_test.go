@@ -70,6 +70,31 @@ func TestWriteIncludesOriginRuleIDOnlyWhenPresent(t *testing.T) {
 	}
 }
 
+func TestWriteIncludesBoundedCapabilityMetadata(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "audit.jsonl")
+	rec := Record{
+		Plane:      "opencode",
+		Tool:       "read",
+		NativeTool: "glob",
+		Capability: "read_discovery",
+		InputShape: "path-pattern",
+		AuditKind:  "unknown-native-tool",
+		Decision:   "allow",
+	}
+	if err := Write(rec, p); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"native_tool":"glob"`, `"capability":"read_discovery"`, `"input_shape":"path-pattern"`, `"audit_kind":"unknown-native-tool"`} {
+		if !strings.Contains(string(raw), field) {
+			t.Fatalf("audit record missing %s: %s", field, raw)
+		}
+	}
+}
+
 func TestWriteRejectsNonRegularDestination(t *testing.T) {
 	err := Write(Record{Plane: "claude", Tool: "Bash", Decision: "allow"}, os.DevNull)
 	if err == nil {

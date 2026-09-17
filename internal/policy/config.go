@@ -14,17 +14,19 @@ import (
 const maxOverlayBytes = 1 << 20
 
 type Overlay struct {
-	EngineMinVersion string
-	AuditLog         string
-	SafeRoots        []string
-	SecretDirs       []string
-	SecretGlobs      []string
-	SecretAskGlobs   []string
-	SecretAllow      []string
-	EgressAllowlist  []string
-	Rules            []Rule
-	Waive            []string
-	Path             string
+	EngineMinVersion   string
+	AuditLog           string
+	UnknownToolPosture UnknownToolPosture
+	SafeRoots          []string
+	SecretDirs         []string
+	SecretGlobs        []string
+	SecretAskGlobs     []string
+	SecretAllow        []string
+	EgressAllowlist    []string
+	WebHosts           []string
+	Rules              []Rule
+	Waive              []string
+	Path               string
 }
 
 func FindOverlayPath(cwd string) (path string, ok bool, warn string) {
@@ -75,16 +77,18 @@ func LoadOverlay(pth string) (*Overlay, error) {
 		return nil, fmt.Errorf("overlay %s is over the %d limit; refusing to parse", pth, maxOverlayBytes)
 	}
 	var f struct {
-		EngineMinVersion string   `toml:"engine_min_version"`
-		AuditLog         string   `toml:"audit_log"`
-		Waive            []string `toml:"waive"`
-		Slots            struct {
+		EngineMinVersion   string   `toml:"engine_min_version"`
+		AuditLog           string   `toml:"audit_log"`
+		UnknownToolPosture string   `toml:"unknown_tool_posture"`
+		Waive              []string `toml:"waive"`
+		Slots              struct {
 			SafeRoots       []string `toml:"safe_roots"`
 			SecretDirs      []string `toml:"secret_dirs"`
 			SecretGlobs     []string `toml:"secret_globs"`
 			SecretAskGlobs  []string `toml:"secret_ask_globs"`
 			SecretAllow     []string `toml:"secret_allow"`
 			EgressAllowlist []string `toml:"egress_allowlist"`
+			WebHosts        []string `toml:"web_hosts"`
 		} `toml:"slots"`
 		Rules []struct {
 			ID       string   `toml:"id"`
@@ -98,17 +102,26 @@ func LoadOverlay(pth string) (*Overlay, error) {
 	if err := toml.Unmarshal(raw, &f); err != nil {
 		return nil, fmt.Errorf("parsing overlay %s: %w", pth, err)
 	}
+	var unknownToolPosture UnknownToolPosture
+	if f.UnknownToolPosture != "" {
+		unknownToolPosture, err = ParseUnknownToolPosture(f.UnknownToolPosture)
+		if err != nil {
+			return nil, fmt.Errorf("parsing overlay %s: %w", pth, err)
+		}
+	}
 	ov := &Overlay{
-		EngineMinVersion: f.EngineMinVersion,
-		AuditLog:         f.AuditLog,
-		SafeRoots:        f.Slots.SafeRoots,
-		SecretDirs:       f.Slots.SecretDirs,
-		SecretGlobs:      f.Slots.SecretGlobs,
-		SecretAskGlobs:   f.Slots.SecretAskGlobs,
-		SecretAllow:      f.Slots.SecretAllow,
-		EgressAllowlist:  f.Slots.EgressAllowlist,
-		Waive:            f.Waive,
-		Path:             pth,
+		EngineMinVersion:   f.EngineMinVersion,
+		AuditLog:           f.AuditLog,
+		UnknownToolPosture: unknownToolPosture,
+		SafeRoots:          f.Slots.SafeRoots,
+		SecretDirs:         f.Slots.SecretDirs,
+		SecretGlobs:        f.Slots.SecretGlobs,
+		SecretAskGlobs:     f.Slots.SecretAskGlobs,
+		SecretAllow:        f.Slots.SecretAllow,
+		EgressAllowlist:    f.Slots.EgressAllowlist,
+		WebHosts:           f.Slots.WebHosts,
+		Waive:              f.Waive,
+		Path:               pth,
 	}
 	for _, r := range f.Rules {
 		ov.Rules = append(ov.Rules, Rule{

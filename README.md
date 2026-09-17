@@ -30,6 +30,11 @@ but may be waived with Operator authorization; ambiguous secrets Ask inside the
 repository and Deny outside it. A `secret_allow` entry cannot override a
 directory secret.
 
+Operator actions use a local, browser-mediated WebAuthn ceremony. Before
+starting a coding plane, enroll an authenticator with `guardrail operator
+enroll`; see [Operator approvals](./docs/operator-approvals.md). Unix, WSL,
+and macOS are supported. Windows operator actions remain fail-closed.
+
 The original plan series is complete: Plans 1–6 + the git -C/-c hotfix (v0.4.1) +
 the deployment plan, and Plan 7 (P8 recipes + `guardrail sync`) finished it off.
 `guardrail hook claude` enforces P1/P2/P4/P5/P6, escalates via a two-signal P7

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
 )
 
@@ -28,6 +31,125 @@ func isolateNightConfig(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func TestNightRequestCompletesOnlyThroughBroker(t *testing.T) {
+	isolateNightConfig(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	broker := approval.New()
+	r, err := broker.Create(approval.Request{
+		Plane: "opencode", SessionID: "night-request", RepoRoot: "/repo", Scope: approval.Allow,
+		Reason: "canonical operator action", Action: "night-on", Parameters: map[string]string{"until": time.Now().Add(time.Hour).Format("15:04")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := broker.Approve(r.ID, approval.Allow); err != nil {
+		t.Fatal(err)
+	}
+	path, err := night.DefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := night.Load(path, time.Now())
+	if err != nil || !state.Active {
+		t.Fatalf("night state = %+v, error %v; want active after broker action", state, err)
+	}
+	raw, err := os.ReadFile(audit.DefaultPath(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec audit.Record
+	if err := json.Unmarshal([]byte(strings.Split(strings.TrimSpace(string(raw)), "\n")[1]), &rec); err != nil {
+		t.Fatal(err)
+	}
+	if rec.OperatorAction != "night-on" || rec.Decision != "completed" || rec.RequestID != r.ID {
+		t.Fatalf("audit record = %+v, want completed night mutation", rec)
+	}
+}
+
+func TestNightDoesNotMutateWhenAuditIntentFails(t *testing.T) {
+	path := isolateNightConfig(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	previous := writeActionAudit
+	writeActionAudit = func(audit.Record, string) error { return errors.New("audit unavailable") }
+	t.Cleanup(func() { writeActionAudit = previous })
+	err := executeNightApproval(approval.Request{ID: "night-audit-intent", Plane: "opencode", RepoRoot: "/repo", Scope: approval.Allow, Action: "night-on", Parameters: map[string]string{"expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano)}})
+	if err == nil {
+		t.Fatal("night action succeeded despite an unwritable audit intent")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("night marker exists after intent failure: %v", err)
+	}
+}
+
+func TestNightCompletionAuditFailureKeepsCompletedActionRecoverable(t *testing.T) {
+	path := isolateNightConfig(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	previous := writeActionAudit
+	calls := 0
+	writeActionAudit = func(rec audit.Record, path string) error {
+		calls++
+		if rec.Decision == "completed" && calls == 2 {
+			return errors.New("audit unavailable")
+		}
+		return audit.Write(rec, path)
+	}
+	t.Cleanup(func() { writeActionAudit = previous })
+	if err := executeNightApproval(approval.Request{ID: "night-audit-completion", Plane: "opencode", RepoRoot: "/repo", Scope: approval.Allow, Action: "night-on", Parameters: map[string]string{"expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano)}}); err != nil {
+		t.Fatalf("mutated action was reported denied: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("night marker missing after completed action: %v", err)
+	}
+	writeActionAudit = audit.Write
+	if err := recoverActionAudits(); err != nil {
+		t.Fatalf("recover completion audit: %v", err)
+	}
+	raw, err := os.ReadFile(audit.DefaultPath(""))
+	if err != nil || !strings.Contains(string(raw), `"request_id":"night-audit-completion"`) || !strings.Contains(string(raw), `"decision":"completed"`) {
+		t.Fatalf("recovered audit = %q, error %v", raw, err)
+	}
+}
+
+func TestNightRecoveryReplayPreservesCanonicalExpiryAndCompletesOnce(t *testing.T) {
+	path := isolateNightConfig(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	until := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339Nano)
+	r := approval.Request{ID: "night-crash-window", Plane: "opencode", RepoRoot: "/repo", Scope: approval.Allow, Action: "night-on", Parameters: map[string]string{"expires_at": until}}
+	if alreadyCompleted, err := startActionAudit(r); err != nil || alreadyCompleted {
+		t.Fatalf("start action audit = completed %t, error %v", alreadyCompleted, err)
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, until)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := night.Write(path, night.Marker{Until: parsed, SetBy: "crashed:1"}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := executeNightApproval(r); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeExpiry := bytes.SplitN(before, []byte("\n"), 2)[0]
+	afterExpiry := bytes.SplitN(after, []byte("\n"), 2)[0]
+	if !bytes.Equal(afterExpiry, beforeExpiry) {
+		t.Fatalf("replayed expiry changed\nbefore: %q\nafter:  %q", beforeExpiry, afterExpiry)
+	}
+	raw, err := os.ReadFile(audit.DefaultPath(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(raw), `"request_id":"night-crash-window"`); got != 2 {
+		t.Fatalf("logical action audit records = %d, want requested and completed once", got)
+	}
 }
 
 func runNightCommand(t *testing.T, args ...string) (int, string, string) {

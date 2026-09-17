@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/fetch"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"golang.org/x/term"
 )
 
@@ -29,8 +32,10 @@ usage:
       --binary <path>      guardrail path to register in hook commands (default "guardrail")
   guardrail night on [--until HH:MM | --for 8h]
   guardrail night off
-  guardrail night status
-  guardrail doctor                      print resolved policy/overlay/audit/hook state
+	guardrail night status
+	guardrail operator enroll|add-authenticator|remove-authenticator|recover-reset
+	guardrail doctor                      print resolved policy/overlay/audit/hook state
+	guardrail fetch <URL>                 fetch normalized text through Guardrail
 `
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -54,10 +59,63 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "night":
 		file, terminal := stdin.(*os.File)
 		return cmdNight(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdout, stderr)
+	case "approvals":
+		return cmdApprovals(args[1:], false, stdout, stderr)
+	case "operator":
+		file, terminal := stdin.(*os.File)
+		return cmdOperator(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdin, stdout, stderr)
 	case "doctor":
 		return cmdDoctor(args[1:], stdout, stderr)
+	case "fetch":
+		return cmdFetch(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "guardrail: unknown subcommand %q\n", args[0])
 		return 2
 	}
+}
+
+func cmdFetch(args []string, stdout, stderr io.Writer) int {
+	if len(args) != 1 {
+		fmt.Fprintln(stderr, "guardrail: fetch requires exactly one URL")
+		return 2
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(stderr, "guardrail: fetch: cannot determine working directory")
+		return 2
+	}
+	base, err := policy.LoadBase()
+	if err != nil {
+		fmt.Fprintln(stderr, "guardrail: fetch: cannot load base policy")
+		return 2
+	}
+	root, ok := policy.FindRepoRoot(cwd)
+	if !ok {
+		root = cwd
+	}
+	var ov *policy.Overlay
+	if p, ok, _ := policy.FindOverlayPath(cwd); ok {
+		ov, err = policy.LoadOverlay(p)
+		if err != nil {
+			fmt.Fprintln(stderr, "guardrail: fetch: cannot load overlay")
+			return 2
+		}
+	}
+	op, _ := policy.LoadOperatorConfig()
+	pol, _, err := policy.Merge(base, ov, version, op, root)
+	if err != nil {
+		fmt.Fprintln(stderr, "guardrail: fetch: cannot merge policy")
+		return 2
+	}
+	body, verdict, err := fetch.Fetch(context.Background(), args[0], pol)
+	if err != nil {
+		fmt.Fprintln(stderr, "guardrail: fetch failed")
+		return 1
+	}
+	if verdict.Decision != policy.Allow {
+		fmt.Fprintln(stderr, verdict.Reason)
+		return 1
+	}
+	fmt.Fprint(stdout, body)
+	return 0
 }

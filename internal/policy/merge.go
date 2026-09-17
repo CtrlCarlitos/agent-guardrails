@@ -10,6 +10,20 @@ import (
 )
 
 func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, repoRoot string) (*Policy, []string, error) {
+	unknownToolPosture := base.UnknownToolPosture
+	if unknownToolPosture == "" {
+		unknownToolPosture = UnknownAudit
+	}
+	if _, err := ParseUnknownToolPosture(string(unknownToolPosture)); err != nil {
+		return nil, nil, err
+	}
+	if ov != nil && ov.UnknownToolPosture != "" {
+		var err error
+		unknownToolPosture, err = ParseUnknownToolPosture(string(ov.UnknownToolPosture))
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 	m := &Policy{
 		Slots: Slots{
 			SafeRoots:       append([]string{}, base.Slots.SafeRoots...),
@@ -18,10 +32,19 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 			SecretAskGlobs:  append([]string{}, base.Slots.SecretAskGlobs...),
 			SecretAllow:     append([]string{}, base.Slots.SecretAllow...),
 			EgressAllowlist: append([]string{}, base.Slots.EgressAllowlist...),
+			WebHosts:        append([]string{}, base.Slots.WebHosts...),
 			AuditLog:        base.Slots.AuditLog,
 		},
-		Rules:  append([]Rule{}, base.Rules...),
-		Waived: map[string]bool{},
+		Rules:              append([]Rule{}, base.Rules...),
+		Waived:             map[string]bool{},
+		UnknownToolPosture: unknownToolPosture,
+	}
+	if op != nil {
+		for _, host := range op.GlobalWebHosts {
+			if ValidateWebHost(host) == nil {
+				m.Slots.WebHosts = append(m.Slots.WebHosts, host)
+			}
+		}
 	}
 	for k, v := range base.Waived {
 		m.Waived[k] = v
@@ -77,6 +100,14 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 			continue
 		}
 		m.Slots.EgressAllowlist = append(m.Slots.EgressAllowlist, entry)
+	}
+	for _, host := range ov.WebHosts {
+		if err := ValidateWebHost(host); err != nil || !op.AllowsWebHost(repoRoot, host) {
+			warns = append(warns, "guardrail: repo requested web_hosts entry "+host+
+				", which is NOT authorized in "+OperatorConfigPath()+" — DROPPED")
+			continue
+		}
+		m.Slots.WebHosts = append(m.Slots.WebHosts, host)
 	}
 
 	if len(ov.SecretAllow) > 0 {

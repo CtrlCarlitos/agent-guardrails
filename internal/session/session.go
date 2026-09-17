@@ -50,11 +50,29 @@ type PendingApproval struct {
 	ExpiresAt    time.Time `json:"expires_at"`
 }
 
+// ApprovalRequest is the durable, non-sensitive portion of an operator request.
+// Free-form tool input is represented only by its digest.
+type ApprovalRequest struct {
+	ID            string            `json:"id"`
+	Plane         string            `json:"plane"`
+	SessionDigest string            `json:"session_digest"`
+	RepoRoot      string            `json:"repo_root"`
+	Host          string            `json:"host,omitempty"`
+	Scope         string            `json:"scope"`
+	ReasonDigest  string            `json:"reason_digest"`
+	Action        string            `json:"action,omitempty"`
+	Parameters    map[string]string `json:"parameters,omitempty"`
+	IssuedAt      time.Time         `json:"issued_at"`
+	ExpiresAt     time.Time         `json:"expires_at"`
+	Status        string            `json:"status"`
+}
+
 type State struct {
 	SawPrivateRead         bool                       `json:"saw_private_read"`
 	SawNetworkCall         bool                       `json:"saw_network_call"`
 	PendingApprovals       map[string]PendingApproval `json:"pending_approvals,omitempty"`
 	NightModeAnnouncements map[string]string          `json:"night_mode_announcements,omitempty"`
+	ApprovalRequests       map[string]ApprovalRequest `json:"approval_requests,omitempty"`
 	UpdatedAt              string                     `json:"updated_at"`
 }
 

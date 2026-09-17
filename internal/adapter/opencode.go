@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/planecontract"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
@@ -41,11 +41,16 @@ func ParseOpencode(r io.Reader) (engine.ToolCall, error) {
 	if event != "pre" && event != "post" {
 		event = "pre"
 	}
+	spec, known := planecontract.OpencodeTool(p.Tool)
+	if !known {
+		spec = planecontract.ToolSpec{NativeTool: p.Tool, Tool: p.Tool, Capability: policy.CapabilityUnknown}
+	}
 	tc := engine.ToolCall{
 		Plane:      "opencode",
 		Event:      event,
-		Tool:       normalizeOpencodeTool(p.Tool),
+		Tool:       spec.Tool,
 		NativeTool: p.Tool,
+		Capability: spec.Capability,
 		Command:    p.Command,
 		Paths:      p.Paths,
 		Arguments:  p.Arguments,
@@ -53,28 +58,39 @@ func ParseOpencode(r io.Reader) (engine.ToolCall, error) {
 		CWD:        p.CWD,
 		Raw:        raw,
 	}
+	if tc.Capability == policy.CapabilityCommand {
+		tc.InputShape = "command"
+	}
+	if tc.Capability == policy.CapabilityReadDiscovery || tc.Capability == policy.CapabilityMutation {
+		tc.InputShape = "path"
+	}
+	if tc.Capability == policy.CapabilityWebFetch {
+		var input struct {
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal(p.Arguments, &input); err != nil {
+			return engine.ToolCall{}, err
+		}
+		tc.URL = input.URL
+		tc.InputShape = "url"
+	}
+	if tc.Capability == policy.CapabilityWebSearch {
+		tc.InputShape = "query"
+	}
+	if tc.InputShape == "" {
+		tc.InputShape = "opaque-object"
+	}
 	tc.RepoRoot = repoRoot(p.CWD)
 	return tc, nil
 }
 
-func normalizeOpencodeTool(t string) string {
-	switch strings.ToLower(t) {
-	case "bash":
-		return "Bash"
-	case "read":
-		return "Read"
-	case "edit":
-		return "Edit"
-	case "write":
-		return "Write"
-	case "list":
-		return "List"
-	default:
-		return t
-	}
-}
-
 func EmitOpencode(v policy.Verdict, tc engine.ToolCall, stdout, stderr io.Writer) int {
+	if v.Decision == policy.Complete {
+		payload := map[string]any{"decision": "deny", "operator_action": v.OperatorAction, "request_id": v.RequestID, "status": "pending"}
+		b, _ := json.Marshal(payload)
+		stdout.Write(append(b, '\n'))
+		return 2
+	}
 	payload := map[string]any{"decision": string(v.Decision), "reason": guidanceForModel(v, nativeAction(tc.NativeTool, tc.Arguments))}
 	b, _ := json.Marshal(payload)
 	stdout.Write(append(b, '\n'))

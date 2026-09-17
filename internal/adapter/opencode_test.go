@@ -55,6 +55,37 @@ func TestParseOpencodeFileTool(t *testing.T) {
 	}
 }
 
+func TestParseOpencodeClassifiesAndExtractsTypedInputs(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		raw      string
+		wantCap  policy.Capability
+		wantURL  string
+		wantPath string
+	}{
+		{"grep", `{"tool":"grep","paths":["/repo/.env"],"arguments":{"path":"/repo/.env"}}`, policy.CapabilityReadDiscovery, "", "/repo/.env"},
+		{"glob", `{"tool":"glob","paths":["/repo/.env"],"arguments":{"path":"/repo/.env"}}`, policy.CapabilityReadDiscovery, "", "/repo/.env"},
+		{"lsp", `{"tool":"lsp","paths":["/repo/a.go"],"arguments":{"filePath":"/repo/a.go","operation":"goToDefinition"}}`, policy.CapabilityReadDiscovery, "", "/repo/a.go"},
+		{"webfetch", `{"tool":"webfetch","arguments":{"url":"https://example.test/docs"}}`, policy.CapabilityWebFetch, "https://example.test/docs", ""},
+		{"apply patch", `{"tool":"apply_patch","arguments":{"patch":"*** Update File: /repo/a.go"}}`, policy.CapabilityMutation, "", ""},
+		{"custom", `{"tool":"custom","arguments":{}}`, policy.CapabilityDeny, "", ""},
+		{"task", `{"tool":"task","arguments":{}}`, policy.CapabilityDeny, "", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tc, err := ParseOpencode(strings.NewReader(tt.raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.Capability != tt.wantCap || tc.URL != tt.wantURL {
+				t.Fatalf("ToolCall = %+v, want capability %q and URL %q", tc, tt.wantCap, tt.wantURL)
+			}
+			if tt.wantPath != "" && (len(tc.Paths) != 1 || tc.Paths[0] != tt.wantPath) {
+				t.Fatalf("paths = %q, want %q", tc.Paths, tt.wantPath)
+			}
+		})
+	}
+}
+
 func TestParseOpencodeCarriesCompleteNativeArguments(t *testing.T) {
 	raw := `{"session_id":"s1","event":"pre","tool":"custom","cwd":"/repo","arguments":{"z":1,"nested":{"b":true,"a":null},"items":[2,1]}}`
 	tc, err := ParseOpencode(strings.NewReader(raw))
@@ -192,6 +223,17 @@ func TestEmitOpencodeAskRetainsMandatoryContentWhenReasonExceedsBound(t *testing
 		if !strings.Contains(got["reason"], want) {
 			t.Fatalf("Ask guidance = %q, missing %q", got["reason"], want)
 		}
+	}
+}
+
+func TestEmitOpencodeOperatorActionIsNotRetryableAsk(t *testing.T) {
+	var out, errb bytes.Buffer
+	code := EmitOpencode(policy.Verdict{Decision: policy.Complete, OperatorAction: "night-off", RequestID: "request-1"}, engine.ToolCall{}, &out, &errb)
+	if code != 2 {
+		t.Fatalf("exit = %d, want blocked action", code)
+	}
+	if strings.Contains(out.String(), `"decision":"ask"`) || !strings.Contains(out.String(), `"operator_action":"night-off"`) {
+		t.Fatalf("operator-action response = %s", out.String())
 	}
 }
 

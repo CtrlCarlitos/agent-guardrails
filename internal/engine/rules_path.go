@@ -13,8 +13,15 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-func isFileTool(tool string) bool {
-	switch strings.ToLower(tool) {
+func isFileTool(tc ToolCall) bool {
+	switch tc.Capability {
+	case policy.CapabilityReadDiscovery, policy.CapabilityMutation:
+		return true
+	case "":
+	default:
+		return false
+	}
+	switch strings.ToLower(tc.Tool) {
 	case "read", "edit", "write", "multiedit":
 		return true
 	}
@@ -25,8 +32,15 @@ func isFileTool(tool string) bool {
 // Bash calls are excluded here on purpose: their write intent is carried by
 // redirect targets (and, after the writeCandidates work, by argv), not by the
 // tool name.
-func isWriteToolCall(tool string) bool {
-	switch strings.ToLower(tool) {
+func isWriteToolCall(tc ToolCall) bool {
+	switch tc.Capability {
+	case policy.CapabilityMutation:
+		return true
+	case "":
+	default:
+		return false
+	}
+	switch strings.ToLower(tc.Tool) {
 	case "edit", "write", "multiedit":
 		return true
 	}
@@ -99,7 +113,7 @@ func parsePrivatePaths(tc ToolCall) privatePathParseResult {
 func parsePrivatePathsAnalysis(tc ToolCall, bash *bashAnalysis) privatePathParseResult {
 	var candidates []pathCandidate
 	uncertaintyReason := ""
-	if isFileTool(tc.Tool) {
+	if isFileTool(tc) {
 		for _, path := range tc.Paths {
 			candidates = append(candidates, pathCandidate{path: path, cwd: tc.CWD, repoRoot: tc.RepoRoot})
 		}
@@ -535,7 +549,7 @@ func writeCandidates(tc ToolCall) []pathCandidate {
 
 func writeCandidatesAnalysis(tc ToolCall, bash *bashAnalysis) []pathCandidate {
 	var out []pathCandidate
-	if isWriteToolCall(tc.Tool) {
+	if isWriteToolCall(tc) {
 		for _, path := range tc.Paths {
 			out = append(out, pathCandidate{path: path, cwd: tc.CWD, repoRoot: tc.RepoRoot})
 		}
@@ -560,7 +574,7 @@ func writeCandidatesAnalysis(tc ToolCall, bash *bashAnalysis) []pathCandidate {
 }
 
 func checkGitProtectedPaths(tc ToolCall) *policy.Verdict {
-	if isFileTool(tc.Tool) && !isWriteToolCall(tc.Tool) {
+	if isFileTool(tc) && !isWriteToolCall(tc) {
 		return nil
 	}
 	return checkGitProtectedPathCandidates(writeCandidates(tc))
@@ -603,7 +617,7 @@ var selfConfigGlobs = []string{
 var selfConfigRootOnly = []string{"CLAUDE.md", "AGENTS.md", ".mcp.json"}
 
 func checkSelfConfig(tc ToolCall) *policy.Verdict {
-	if isFileTool(tc.Tool) && !isWriteToolCall(tc.Tool) {
+	if isFileTool(tc) && !isWriteToolCall(tc) {
 		return nil
 	}
 	return checkSelfConfigCandidates(tc, writeCandidates(tc))
@@ -766,11 +780,11 @@ var ciInfraRootOnly = []string{
 }
 
 func checkCIInfraLockfile(tc ToolCall) *policy.Verdict {
-	if !isFileTool(tc.Tool) && !tc.IsBash() {
+	if !isFileTool(tc) && !tc.IsBash() {
 		return nil
 	}
 	// only Write/Edit — reading these is fine
-	if isFileTool(tc.Tool) && !isWriteToolCall(tc.Tool) {
+	if isFileTool(tc) && !isWriteToolCall(tc) {
 		return nil
 	}
 	return checkCIInfraLockfileCandidates(tc, writeCandidates(tc))
@@ -860,7 +874,7 @@ func checkOutOfRepoWrite(tc ToolCall) *policy.Verdict {
 	if tc.RepoRoot == "" {
 		return nil
 	}
-	if !strings.EqualFold(tc.Tool, "edit") && !strings.EqualFold(tc.Tool, "write") && !strings.EqualFold(tc.Tool, "multiedit") {
+	if !isWriteToolCall(tc) {
 		return nil
 	}
 	for _, p := range tc.Paths {

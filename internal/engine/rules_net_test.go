@@ -15,6 +15,13 @@ func evalNet(t *testing.T, cmd string, pol *policy.Policy) *policy.Verdict {
 	return checkBash(ToolCall{Tool: "Bash", Command: cmd, CWD: "/repo", RepoRoot: "/repo"}, pol)
 }
 
+func TestNativeWebFetchDenies(t *testing.T) {
+	v := checkWebFetch(ToolCall{URL: "https://pkg.go.dev/net"}, &policy.Policy{})
+	if v == nil || v.Decision != policy.Deny {
+		t.Fatalf("web fetch = %+v, want deny", v)
+	}
+}
+
 func TestEgressDenied(t *testing.T) {
 	pol := netPol("api.github.com")
 	deny := []string{

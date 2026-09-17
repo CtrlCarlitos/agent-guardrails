@@ -223,6 +223,34 @@ egress_allowlist = ["api.example.com", "*.trusted.example"]
 	}
 }
 
+func TestOperatorConfigWebHostsAreExactAndScoped(t *testing.T) {
+	writeOperatorConfig(t, `
+[web_hosts]
+global = ["pkg.go.dev"]
+
+["/home/u/trusted"]
+web_hosts = ["repo.example.com"]
+`)
+	o, err := LoadOperatorConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !o.AllowsGlobalWebHost("pkg.go.dev") || o.AllowsGlobalWebHost("sub.pkg.go.dev") {
+		t.Fatalf("global web hosts were not exact")
+	}
+	if !o.AllowsWebHost("/home/u/trusted/./", "repo.example.com") || o.AllowsWebHost("/home/u/trusted/subrepo", "repo.example.com") {
+		t.Fatalf("repository web host grant crossed its exact scope")
+	}
+}
+
+func TestWebHostAllowanceRejectsURLAndWildcard(t *testing.T) {
+	for _, host := range []string{"https://pkg.go.dev", "*.example.com", "pkg.go.dev:443", "Pkg.Go.Dev"} {
+		if err := ValidateWebHost(host); err == nil {
+			t.Errorf("ValidateWebHost(%q) accepted an invalid allowance", host)
+		}
+	}
+}
+
 func TestOperatorConfigRejectsNonAbsoluteRepoGrant(t *testing.T) {
 	writeOperatorConfig(t, `
 ["relative/repo"]

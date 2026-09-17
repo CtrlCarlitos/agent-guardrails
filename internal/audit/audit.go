@@ -13,18 +13,26 @@ import (
 )
 
 type Record struct {
-	TS           string   `json:"ts"`
-	SessionID    string   `json:"session_id,omitempty"`
-	Plane        string   `json:"plane"`
-	Tool         string   `json:"tool"`
-	Event        string   `json:"event,omitempty"`
-	Command      string   `json:"command,omitempty"`
-	Paths        []string `json:"paths,omitempty"`
-	Decision     string   `json:"decision"`
-	RuleID       string   `json:"rule_id,omitempty"`
-	OriginRuleID string   `json:"origin_rule_id,omitempty"`
-	Reason       string   `json:"reason,omitempty"`
-	Waivers      []string `json:"waivers,omitempty"`
+	TS                    string   `json:"ts"`
+	SessionID             string   `json:"session_id,omitempty"`
+	Plane                 string   `json:"plane"`
+	Tool                  string   `json:"tool"`
+	NativeTool            string   `json:"native_tool,omitempty"`
+	Capability            string   `json:"capability,omitempty"`
+	InputShape            string   `json:"input_shape,omitempty"`
+	AuditKind             string   `json:"audit_kind,omitempty"`
+	Event                 string   `json:"event,omitempty"`
+	Command               string   `json:"command,omitempty"`
+	Paths                 []string `json:"paths,omitempty"`
+	Decision              string   `json:"decision"`
+	RuleID                string   `json:"rule_id,omitempty"`
+	OriginRuleID          string   `json:"origin_rule_id,omitempty"`
+	Reason                string   `json:"reason,omitempty"`
+	Waivers               []string `json:"waivers,omitempty"`
+	OperatorAction        string   `json:"operator_action,omitempty"`
+	RequestID             string   `json:"request_id,omitempty"`
+	Transport             string   `json:"transport,omitempty"`
+	CredentialFingerprint string   `json:"credential_fingerprint,omitempty"`
 }
 
 func DefaultPath(override string) string {

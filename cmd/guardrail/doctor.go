@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -90,6 +91,8 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	}
 
 	fmt.Fprintf(stdout, "audit log: %s\n", safetext.SingleLine(audit.DefaultPath(merged.Slots.AuditLog)))
+	enrolled, _ := defaultOperatorAuthStore().Enrolled()
+	fmt.Fprintln(stdout, operatorApprovalStatus(runtime.GOOS == "windows", enrolled))
 
 	fmt.Fprintf(stdout, "claude settings: %s\n", safetext.SingleLine(claudeSettingsState()))
 	if home, err := os.UserHomeDir(); err == nil {
@@ -107,6 +110,16 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	return 0
+}
+
+func operatorApprovalStatus(windows, enrolled bool) string {
+	if windows {
+		return "operator approvals: disabled (Windows fail-closed)"
+	}
+	if enrolled {
+		return "operator approvals: WebAuthn"
+	}
+	return "operator approvals: disabled"
 }
 
 func claudeSettingsState() string {

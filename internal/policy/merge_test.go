@@ -419,6 +419,38 @@ func TestMergeEgressGrantDoesNotTransferAcrossEntryOrRepo(t *testing.T) {
 	}
 }
 
+func TestMergeWebHostsRequiresExactRepositoryGrant(t *testing.T) {
+	base := &Policy{Slots: Slots{WebHosts: []string{"base.example.com"}}, Waived: map[string]bool{}}
+	ov := &Overlay{WebHosts: []string{"repo.example.com", "*.example.com"}}
+	op := &OperatorConfig{Repos: map[string]RepoGrant{
+		"/repo": {WebHosts: []string{"repo.example.com"}},
+	}}
+
+	m, warns, err := Merge(base, ov, "1.0.0", op, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(m.Slots.WebHosts, []string{"base.example.com", "repo.example.com"}) {
+		t.Fatalf("WebHosts = %v", m.Slots.WebHosts)
+	}
+	if len(warns) != 1 || !strings.Contains(warns[0], "*.example.com") {
+		t.Fatalf("warnings = %v", warns)
+	}
+}
+
+func TestMergeIncludesOperatorGlobalWebHosts(t *testing.T) {
+	base := &Policy{Slots: Slots{WebHosts: []string{"base.example.com"}}, Waived: map[string]bool{}}
+	op := &OperatorConfig{GlobalWebHosts: []string{"pkg.go.dev"}}
+
+	m, warns, err := Merge(base, nil, "1.0.0", op, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(m.Slots.WebHosts, []string{"base.example.com", "pkg.go.dev"}) || len(warns) != 0 {
+		t.Fatalf("merged web hosts = %v, warnings = %v", m.Slots.WebHosts, warns)
+	}
+}
+
 func TestMergeEgressCannotBeAuthorizedByOtherGrants(t *testing.T) {
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)

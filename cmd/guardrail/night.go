@@ -7,11 +7,52 @@ import (
 	"os"
 	"time"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 )
 
 const defaultNightDuration = 8 * time.Hour
+
+func init() {
+	approval.RegisterAction("night-on", executeNightApproval)
+	approval.RegisterAction("night-off", executeNightApproval)
+}
+
+func executeNightApproval(r approval.Request) error {
+	alreadyCompleted, err := startActionAudit(r)
+	if err != nil {
+		return err
+	}
+	if alreadyCompleted {
+		return nil
+	}
+	path, err := night.DefaultPath()
+	if err != nil {
+		return err
+	}
+	if r.Action == "night-off" {
+		if err := night.Remove(path); err != nil {
+			return err
+		}
+		// The mutation is durable; leave completion audit recovery pending on failure.
+		_ = completeActionAudit(r)
+		return nil
+	}
+	until, err := time.Parse(time.RFC3339Nano, r.Parameters["expires_at"])
+	if err != nil || until.UTC().Format(time.RFC3339Nano) != r.Parameters["expires_at"] {
+		return fmt.Errorf("invalid approved night expiry")
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		return fmt.Errorf("resolving hostname: %w", err)
+	}
+	if err := night.Write(path, night.Marker{Until: until, SetBy: fmt.Sprintf("%s:%d", hostname, os.Getpid())}); err != nil {
+		return err
+	}
+	_ = completeActionAudit(r)
+	return nil
+}
 
 const nightUsage = `usage:
   guardrail night on [--until HH:MM | --for 8h]

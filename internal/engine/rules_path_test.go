@@ -222,6 +222,37 @@ func TestCheckPathsFileTool(t *testing.T) {
 	}
 }
 
+func TestReadDiscoveryUsesReadSecretTiers(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+	}{
+		{name: "directory secret", path: "/home/u/.ssh/id_rsa"},
+		{name: "file secret", path: "/repo/.env"},
+		{name: "ambiguous secret", path: "/repo/cert.pem"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			read := checkPaths(ToolCall{Tool: "Read", Paths: []string{tt.path}, CWD: "/repo", RepoRoot: "/repo"}, pathPol())
+			discovery := checkPaths(ToolCall{Tool: "List", Capability: policy.CapabilityReadDiscovery, Paths: []string{tt.path}, CWD: "/repo", RepoRoot: "/repo"}, pathPol())
+			if discovery == nil || read == nil || discovery.Decision != read.Decision || discovery.RuleID != read.RuleID {
+				t.Fatalf("read_discovery %q = %+v, Read = %+v", tt.path, discovery, read)
+			}
+		})
+	}
+}
+
+func TestMutationUsesWriteProtections(t *testing.T) {
+	cases := []string{"/repo/.git/config", "/outside/new.txt"}
+	for _, path := range cases {
+		write := checkPaths(ToolCall{Tool: "Write", Paths: []string{path}, CWD: "/repo", RepoRoot: "/repo"}, pathPol())
+		mutation := checkPaths(ToolCall{Tool: "apply_patch", Capability: policy.CapabilityMutation, Paths: []string{path}, CWD: "/repo", RepoRoot: "/repo"}, pathPol())
+		if mutation == nil || write == nil || mutation.Decision != write.Decision || mutation.RuleID != write.RuleID {
+			t.Fatalf("mutation %q = %+v, Write = %+v", path, mutation, write)
+		}
+	}
+}
+
 func TestGlobMatchingIgnoresDotSegments(t *testing.T) {
 	pol := pathPol()
 	deny := []string{
