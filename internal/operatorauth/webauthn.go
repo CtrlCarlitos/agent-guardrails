@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/go-webauthn/webauthn/protocol/webauthncbor"
+	"github.com/go-webauthn/webauthn/protocol/webauthncose"
 	webauthn "github.com/go-webauthn/webauthn/webauthn"
 )
 
@@ -93,6 +96,8 @@ type ceremonyState struct {
 	user     operatorUser
 }
 
+type registrationGrant struct{ expiresAt time.Time }
+
 type operatorUser struct{ credentials []webauthn.Credential }
 
 func (u operatorUser) WebAuthnID() []byte                         { return []byte("guardrail-operator") }
@@ -102,6 +107,26 @@ func (u operatorUser) WebAuthnCredentials() []webauthn.Credential { return u.cre
 
 // BeginRegistration starts a single-use, user-verified enrollment ceremony.
 func (s *Store) BeginRegistration(origin string) (Ceremony, error) {
+	registered, err := s.hasCredentials()
+	if err != nil {
+		return Ceremony{}, err
+	}
+	if registered {
+		return Ceremony{}, errors.New("initial registration requires no enrolled credentials")
+	}
+	return s.beginRegistration(origin)
+}
+
+// BeginAdditionalRegistration consumes a grant issued by a verified enrolled
+// authenticator assertion and starts one registration ceremony.
+func (s *Store) BeginAdditionalRegistration(origin string) (Ceremony, error) {
+	if err := s.takeRegistrationGrant(); err != nil {
+		return Ceremony{}, err
+	}
+	return s.beginRegistration(origin)
+}
+
+func (s *Store) beginRegistration(origin string) (Ceremony, error) {
 	verifier, err := newVerifier(origin)
 	if err != nil {
 		return Ceremony{}, err
@@ -137,7 +162,7 @@ func (s *Store) FinishRegistration(ceremonyID string, response []byte) (Credenti
 	if err != nil {
 		return Credential{}, fmt.Errorf("verify registration response: %w", err)
 	}
-	return credentialRecord(*credential), nil
+	return credentialRecord(*credential)
 }
 
 // BeginAssertion starts a single-use, user-verified approval assertion.
@@ -190,7 +215,12 @@ func (s *Store) FinishAssertion(ceremonyID string, response []byte) (Credential,
 	if err != nil {
 		return Credential{}, fmt.Errorf("verify assertion response: %w", err)
 	}
-	return credentialRecord(*credential), nil
+	result, err := credentialRecord(*credential)
+	if err != nil {
+		return Credential{}, err
+	}
+	s.issueRegistrationGrant(state.ceremony.ExpiresAt)
+	return result, nil
 }
 
 func newVerifier(origin string) (*webauthn.WebAuthn, error) {
@@ -254,18 +284,71 @@ func (s *Store) user() (operatorUser, error) {
 	for _, credential := range stored {
 		id, _ := base64.RawURLEncoding.DecodeString(credential.ID)
 		publicKey, _ := base64.RawURLEncoding.DecodeString(credential.PublicKey)
-		credentials = append(credentials, webauthn.Credential{ID: id, PublicKey: publicKey, Authenticator: webauthn.Authenticator{SignCount: credential.SignCount}})
+		transports := make([]protocol.AuthenticatorTransport, len(credential.Transports))
+		for index, transport := range credential.Transports {
+			transports[index] = protocol.AuthenticatorTransport(transport)
+		}
+		credentials = append(credentials, webauthn.Credential{ID: id, PublicKey: publicKey, Transport: transports, Authenticator: webauthn.Authenticator{SignCount: credential.SignCount}})
 	}
 	return operatorUser{credentials: credentials}, nil
 }
 
-func credentialRecord(credential webauthn.Credential) Credential {
-	return Credential{
-		ID:        base64.RawURLEncoding.EncodeToString(credential.ID),
-		PublicKey: base64.RawURLEncoding.EncodeToString(credential.PublicKey),
-		Algorithm: int(credential.Attestation.PublicKeyAlgorithm),
-		SignCount: credential.Authenticator.SignCount,
+func credentialRecord(credential webauthn.Credential) (Credential, error) {
+	var publicKey webauthncose.PublicKeyData
+	if err := webauthncbor.Unmarshal(credential.PublicKey, &publicKey); err != nil {
+		return Credential{}, fmt.Errorf("decode credential public key: %w", err)
 	}
+	transports := make([]string, len(credential.Transport))
+	for index, transport := range credential.Transport {
+		transports[index] = string(transport)
+	}
+	return Credential{
+		ID:         base64.RawURLEncoding.EncodeToString(credential.ID),
+		PublicKey:  base64.RawURLEncoding.EncodeToString(credential.PublicKey),
+		Algorithm:  int(publicKey.Algorithm),
+		SignCount:  credential.Authenticator.SignCount,
+		Transports: transports,
+	}, nil
+}
+
+// Attribution returns a stable credential fingerprint and transport metadata
+// without exposing the credential ID or public key to audit callers.
+func (c Credential) Attribution() CredentialAttribution {
+	id, err := base64.RawURLEncoding.DecodeString(c.ID)
+	if err != nil {
+		return CredentialAttribution{Transports: append([]string(nil), c.Transports...)}
+	}
+	digest := sha256.Sum256(id)
+	return CredentialAttribution{Fingerprint: hex.EncodeToString(digest[:8]), Transports: append([]string(nil), c.Transports...)}
+}
+
+func (s *Store) hasCredentials() (bool, error) {
+	if _, err := os.Lstat(s.Path()); os.IsNotExist(err) {
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("inspect credential store: %w", err)
+	}
+	if _, err := s.user(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *Store) issueRegistrationGrant(expiresAt time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.grant = &registrationGrant{expiresAt: expiresAt}
+}
+
+func (s *Store) takeRegistrationGrant() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.grant == nil || !time.Now().Before(s.grant.expiresAt) {
+		s.grant = nil
+		return errors.New("no valid additional-registration grant")
+	}
+	s.grant = nil
+	return nil
 }
 
 func ceremonyID() string {

@@ -16,16 +16,25 @@ const (
 
 // Credential is the public record required to verify a WebAuthn assertion.
 type Credential struct {
-	ID        string `json:"id"`
-	PublicKey string `json:"public_key"`
-	Algorithm int    `json:"algorithm"`
-	SignCount uint32 `json:"sign_count"`
+	ID         string   `json:"id"`
+	PublicKey  string   `json:"public_key"`
+	Algorithm  int      `json:"algorithm"`
+	SignCount  uint32   `json:"sign_count"`
+	Transports []string `json:"transports,omitempty"`
+}
+
+// CredentialAttribution is the non-sensitive credential information suitable
+// for an audit record.
+type CredentialAttribution struct {
+	Fingerprint string
+	Transports  []string
 }
 
 // Store persists the operator's public WebAuthn credential records.
 type Store struct {
 	root       string
 	ceremonies map[string]ceremonyState
+	grant      *registrationGrant
 	mu         *sync.Mutex
 }
 

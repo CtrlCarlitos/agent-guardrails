@@ -5,6 +5,7 @@ go 1.24.0
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/bmatcuk/doublestar/v4 v4.10.0
+	github.com/fxamacker/cbor/v2 v2.9.0
 	github.com/go-webauthn/webauthn v0.15.0
 	github.com/gofrs/flock v0.12.1
 	golang.org/x/term v0.36.0
@@ -12,7 +13,6 @@ require (
 )
 
 require (
-	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/go-webauthn/x v0.1.26 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
