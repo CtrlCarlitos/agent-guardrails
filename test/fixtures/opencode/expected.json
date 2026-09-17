@@ -23,6 +23,9 @@
  "read-env.json": {
   "exit": 2
  },
+ "task.json": {
+  "exit": 0
+ },
  "webfetch.json": {
   "exit": 2
  },
