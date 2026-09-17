@@ -33,7 +33,7 @@ func denyNextStep(ruleID string) string {
 	case "P5.self-config":
 		return "This is Guardrail-protected machinery: never edit it from a session. If it genuinely needs repair, tell the operator to run the Guardrail terminal recovery command. Continue other work."
 	case "P6.egress":
-		return "Egress to this host is not authorized. Batch the exact domains the task needs and request an operator grant (guardrail egress grant --scope repo --host <domain>); continue offline work meanwhile."
+		return "Egress to this host is not authorized. Batch the exact domains the task needs into one operator grant (guardrail egress grant --scope repo --host api.example.com,cdn.example.com) — a single approval covers the whole batch; continue offline work meanwhile."
 	case "P1.rm-rf", "P1.dd", "P1.mkfs", "P1.shred", "P1.privesc", "P1.docker-down", "P1.docker-prune", "P1.docker-substituted", "P1.git-push-force", "P1.git-clean":
 		return "Destructive operation: do not retry it. Use a scoped, reversible alternative, or ask the operator to run it manually; then continue the task."
 	case "P2.git-reset-hard", "P2.git-config-write", "P2.git-protected-path":

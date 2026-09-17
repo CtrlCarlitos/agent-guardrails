@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
@@ -18,7 +19,17 @@ func init() {
 }
 
 func executeWebHostApproval(r approval.Request) error {
-	if (r.Action != "web-host-grant" && r.Action != "web-host-revoke") || policy.ValidateWebHost(r.Host) != nil || !filepath.IsAbs(r.RepoRoot) || (r.Scope != approval.RepoScope && r.Scope != approval.GlobalScope) {
+	if (r.Action != "web-host-grant" && r.Action != "web-host-revoke") || !filepath.IsAbs(r.RepoRoot) || (r.Scope != approval.RepoScope && r.Scope != approval.GlobalScope) {
+		return fmt.Errorf("invalid approved web-host action")
+	}
+	var hosts []string
+	for _, host := range strings.Split(r.Parameters["hosts"], ",") {
+		if policy.ValidateWebHost(host) != nil {
+			return fmt.Errorf("invalid approved web-host action")
+		}
+		hosts = append(hosts, host)
+	}
+	if len(hosts) == 0 {
 		return fmt.Errorf("invalid approved web-host action")
 	}
 	alreadyCompleted, err := startActionAudit(r)
@@ -29,20 +40,37 @@ func executeWebHostApproval(r approval.Request) error {
 		return nil
 	}
 	grant := r.Action == "web-host-grant"
+	repo := filepath.Clean(r.RepoRoot)
+	var apply func(host string, grant bool) error
 	if r.Scope == approval.GlobalScope {
-		if err := applyGlobalWebHost(r.Host, grant); err != nil {
+		apply = func(host string, grant bool) error { return applyGlobalWebHost(host, grant) }
+	} else {
+		if err := os.MkdirAll(repo, 0o755); err != nil {
 			return err
 		}
-		_ = completeActionAudit(r)
-		return nil
+		apply = func(host string, grant bool) error { return applyRepoWebHost(repo, host, grant) }
 	}
-	if err := os.MkdirAll(r.RepoRoot, 0o755); err != nil {
-		return err
-	}
-	if err := applyRepoWebHost(filepath.Clean(r.RepoRoot), r.Host, grant); err != nil {
+	if err := applyWebHostBatch(hosts, grant, apply); err != nil {
 		return err
 	}
 	_ = completeActionAudit(r)
+	return nil
+}
+
+// applyWebHostBatch applies the batch host-by-host and rolls back every
+// already-applied host if any application fails, so an approved batch never
+// lands half-granted.
+func applyWebHostBatch(hosts []string, grant bool, apply func(host string, grant bool) error) error {
+	var applied []string
+	for _, host := range hosts {
+		if err := apply(host, grant); err != nil {
+			for i := len(applied) - 1; i >= 0; i-- {
+				_ = apply(applied[i], !grant)
+			}
+			return err
+		}
+		applied = append(applied, host)
+	}
 	return nil
 }
 

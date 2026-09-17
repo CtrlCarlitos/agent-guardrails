@@ -63,11 +63,17 @@ type Request struct {
 }
 
 // Summary renders the operator-facing detail line for the approval page:
-// the exact plane batch for lifecycle actions, empty otherwise.
+// the exact plane batch for lifecycle actions and the exact host batch for
+// egress actions, empty otherwise.
 func (r Request) Summary() string {
 	if r.Action == "plane-enable" || r.Action == "plane-disable" {
 		if list := r.Parameters["planes"]; list != "" {
 			return "planes: " + list
+		}
+	}
+	if r.Action == "web-host-grant" || r.Action == "web-host-revoke" {
+		if list := r.Parameters["hosts"]; list != "" {
+			return "hosts: " + list + " (" + r.Parameters["scope"] + ")"
 		}
 	}
 	return ""
@@ -297,10 +303,35 @@ func validateRequest(r Request) error {
 	if r.Action == "night-on" && (len(r.Parameters) != 1 || r.Parameters["until"] == "") {
 		return ErrMalformed
 	}
+	if (r.Action == "web-host-grant" || r.Action == "web-host-revoke") && !validWebHostParameters(r) {
+		return ErrMalformed
+	}
 	if (r.Action == "plane-enable" || r.Action == "plane-disable") && !validPlaneList(r.Parameters) {
 		return ErrMalformed
 	}
 	return nil
+}
+
+func validWebHostParameters(r Request) bool {
+	if len(r.Parameters) != 2 {
+		return false
+	}
+	if r.Parameters["scope"] != "repo" && r.Parameters["scope"] != "global" {
+		return false
+	}
+	if Scope(r.Parameters["scope"]) != r.Scope {
+		return false
+	}
+	list := r.Parameters["hosts"]
+	if list == "" {
+		return false
+	}
+	for _, host := range strings.Split(list, ",") {
+		if policy.ValidateWebHost(host) != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func validPlaneList(params map[string]string) bool {
@@ -341,7 +372,7 @@ func durable(r Request) session.ApprovalRequest {
 	}
 	if r.Action == "web-host-grant" || r.Action == "web-host-revoke" {
 		params["scope"] = string(r.Scope)
-		params["host"] = r.Host
+		params["hosts"] = r.Parameters["hosts"]
 	}
 	if r.Action == "plane-enable" || r.Action == "plane-disable" {
 		params["planes"] = r.Parameters["planes"]
