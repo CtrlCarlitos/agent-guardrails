@@ -121,20 +121,44 @@ func TestWebHostActionPreservesRequestedScopeAndHost(t *testing.T) {
 	}
 }
 
-func TestPlaneLifecycleActionAcceptsSupportedPlane(t *testing.T) {
+func TestPlaneLifecycleActionAcceptsSupportedPlanes(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	broker := approval.New()
 	r := request()
 	r.Action = "plane-disable"
 	r.Scope = approval.GlobalScope
-	r.Parameters = map[string]string{"plane": "claude"}
+	r.Parameters = map[string]string{"planes": "claude,opencode,antigravity"}
 
 	created, err := broker.Create(r)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := broker.Request(created.ID); err != nil || got.Parameters["plane"] != "claude" {
+	got, err := broker.Request(created.ID)
+	if err != nil || got.Parameters["planes"] != "claude,opencode,antigravity" {
 		t.Fatalf("restored request = %+v, error %v", got, err)
+	}
+	if got.Summary() != "planes: claude,opencode,antigravity" {
+		t.Fatalf("summary = %q", got.Summary())
+	}
+}
+
+func TestPlaneLifecycleActionRejectsInvalidPlaneLists(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	broker := approval.New()
+	for _, params := range []map[string]string{
+		{"planes": "claude,codex"},
+		{"planes": ""},
+		{"planes": "claude,,opencode"},
+		{"plane": "claude"},
+		{"planes": "claude", "extra": "1"},
+	} {
+		r := request()
+		r.Action = "plane-enable"
+		r.Scope = approval.GlobalScope
+		r.Parameters = params
+		if _, err := broker.Create(r); !errors.Is(err, approval.ErrMalformed) {
+			t.Errorf("parameters %v accepted: %v", params, err)
+		}
 	}
 }
 
