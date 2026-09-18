@@ -113,7 +113,10 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	// so the next approval spawns a daemon from the new binary.
 	_ = shutdownApprovalDaemon(approval.DefaultSocketPath())
 	fmt.Fprintf(stdout, "guardrail updated to %s at %s\n", version, exe)
-	fmt.Fprintln(stdout, "run `guardrail doctor` to verify plane wiring")
+	// Update closes with verification instead of suggesting it: drift and
+	// wiring problems surface at the moment they can be attributed to the
+	// new binary.
+	_ = printDoctor(stdout, stderr)
 	return 0
 }
 

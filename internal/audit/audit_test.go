@@ -171,3 +171,39 @@ func TestDefaultPath(t *testing.T) {
 		t.Fatalf("override ignored: %q", got)
 	}
 }
+
+func TestWriteRotatesWhenOverLimit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+	auditRotateBytes = 200
+	t.Cleanup(func() { auditRotateBytes = 20 << 20 })
+
+	for i := 0; i < 5; i++ {
+		if err := Write(Record{Plane: "opencode", Tool: "Bash", Event: "pre", Decision: "allow", Command: strings.Repeat("x", 60)}, path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rotated, err := filepath.Glob(filepath.Join(dir, "audit-*.jsonl"))
+	if err != nil || len(rotated) == 0 {
+		t.Fatalf("no rotated segment: %v %v", rotated, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > 200 {
+		t.Fatalf("current segment = %d bytes, want rotated under limit", info.Size())
+	}
+	// Records survive across segments.
+	total := 0
+	for _, segment := range append(rotated, path) {
+		raw, err := os.ReadFile(segment)
+		if err != nil {
+			t.Fatal(err)
+		}
+		total += strings.Count(string(raw), "\n")
+	}
+	if total != 5 {
+		t.Fatalf("records across segments = %d, want 5", total)
+	}
+}

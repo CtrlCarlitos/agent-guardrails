@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"time"
 )
 
@@ -65,6 +66,14 @@ func redact(s string) string {
 	return s
 }
 
+// auditRotateBytes is the per-segment size limit; on crossing it the current
+// segment rotates to audit-<utc>.jsonl and audit.jsonl starts fresh. The
+// audit log is telemetry: unbounded growth is a slow-burn problem, and
+// rotation keeps `guardrail audit` fast without losing history.
+var auditRotateBytes int64 = 20 << 20
+
+const auditRotatedKeep = 3
+
 func Write(rec Record, path string) (err error) {
 	if rec.TS == "" {
 		rec.TS = time.Now().UTC().Format(time.RFC3339)
@@ -74,7 +83,32 @@ func Write(rec Record, path string) (err error) {
 	if err != nil {
 		return err
 	}
-	return appendLine(path, append(line, '\n'), nil)
+	if err := appendLine(path, append(line, '\n'), nil); err != nil {
+		return err
+	}
+	return rotateIfOverLimit(path)
+}
+
+func rotateIfOverLimit(path string) error {
+	info, err := os.Stat(path)
+	if err != nil || info.Size() <= auditRotateBytes {
+		return err
+	}
+	segment := fmt.Sprintf("%s-%s.jsonl", path[:len(path)-len(".jsonl")], time.Now().UTC().Format("20060102-150405.000000000"))
+	if err := os.Rename(path, segment); err != nil {
+		return err
+	}
+	rotated, err := filepath.Glob(path[:len(path)-len(".jsonl")] + "-*.jsonl")
+	if err != nil {
+		return err
+	}
+	sort.Strings(rotated)
+	for excess := 0; len(rotated)-auditRotatedKeep-excess > 0; excess++ {
+		if err := os.Remove(rotated[excess]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func appendLine(path string, line []byte, afterAppend func() error) (err error) {
@@ -133,4 +167,73 @@ func validateRegularDestination(path string, f *os.File, before os.FileInfo) err
 		return errors.New("audit destination changed or is not a regular file")
 	}
 	return nil
+}
+
+// Segments returns the current audit path plus its rotated siblings, oldest
+// first, for whole-history summarization.
+func Segments(path string) ([]string, error) {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	base := path[:len(path)-len(".jsonl")]
+	rotated, err := filepath.Glob(base + "-*.jsonl")
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(rotated)
+	return append(rotated, path), nil
+}
+
+// Summarize aggregates every record across segments: totals, decisions,
+// planes, non-allow rules, and unclassified tool names.
+func Summarize(segments []string) (total int, byDecision, byPlane, byRule map[string]int, unknownTools []string) {
+	byDecision = map[string]int{}
+	byPlane = map[string]int{}
+	byRule = map[string]int{}
+	unknown := map[string]bool{}
+	for _, segment := range segments {
+		raw, err := os.ReadFile(segment)
+		if err != nil {
+			continue
+		}
+		for _, line := range splitLines(raw) {
+			var rec Record
+			if json.Unmarshal(line, &rec) != nil {
+				continue
+			}
+			total++
+			byDecision[rec.Decision]++
+			byPlane[rec.Plane]++
+			if rec.Decision != "allow" && rec.RuleID != "" {
+				byRule[rec.RuleID]++
+			}
+			if rec.RuleID == "unknown-native-tool" && rec.NativeTool != "" {
+				unknown[rec.NativeTool] = true
+			}
+		}
+	}
+	unknownTools = make([]string, 0, len(unknown))
+	for name := range unknown {
+		unknownTools = append(unknownTools, name)
+	}
+	sort.Strings(unknownTools)
+	return total, byDecision, byPlane, byRule, unknownTools
+}
+
+func splitLines(raw []byte) [][]byte {
+	var lines [][]byte
+	for len(raw) > 0 {
+		i := 0
+		for i < len(raw) && raw[i] != '\n' {
+			i++
+		}
+		if i > 0 {
+			lines = append(lines, raw[:i])
+		}
+		raw = raw[min(i+1, len(raw)):]
+	}
+	return lines
 }

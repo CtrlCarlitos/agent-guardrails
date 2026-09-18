@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 )
 
 // selftestProbe is one direct hook invocation with its expected verdict.
@@ -74,11 +75,16 @@ func cmdSelftest(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "guardrail: selftest takes no arguments")
 		return 2
 	}
+	// A unique session suffix per invocation keeps selftest idempotent: a
+	// repeated ask probe must never consume a prior run's approval-memory
+	// entry and report allow (the double-run lesson from codex).
+	sessionSuffix := fmt.Sprintf("selftest-%d", time.Now().UnixNano())
 	passed := map[string]int{}
 	failed := map[string]int{}
 	for _, probe := range selftestProbes {
+		payload := strings.ReplaceAll(probe.Payload, "selftest", sessionSuffix)
 		var out, errb strings.Builder
-		code := run(append([]string{"hook"}, probe.Args...), strings.NewReader(probe.Payload), &out, &errb)
+		code := run(append([]string{"hook"}, probe.Args...), strings.NewReader(payload), &out, &errb)
 		decision, ruleID := parseSelftestVerdict(code, out.String(), errb.String())
 		if decision == probe.WantDecision && (probe.WantRuleID == "" || ruleID == probe.WantRuleID) {
 			passed[probe.Plane]++

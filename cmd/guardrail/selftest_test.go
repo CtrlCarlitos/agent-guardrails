@@ -50,3 +50,15 @@ func TestSelftestFailsWhenAProbeVerdictDrifts(t *testing.T) {
 		t.Fatalf("output missing failure report:\n%s", out.String())
 	}
 }
+
+func TestSelftestIsIdempotentAcrossRuns(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	for run := 0; run < 2; run++ {
+		var out, errb strings.Builder
+		if code := runSelftest(t, &out, &errb); code != 0 {
+			t.Fatalf("run %d exit = %d; stdout %q stderr %q", run, code, out.String(), errb.String())
+		}
+	}
+}
