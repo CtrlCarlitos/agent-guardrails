@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"manage_task","args":{"Action":"status","TaskId":"t1","toolAction":"Checking task status","toolSummary":"Check task status"}}}

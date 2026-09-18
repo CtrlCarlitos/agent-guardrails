@@ -361,3 +361,30 @@ func TestEmitAntigravityRunCommandParityGuidance(t *testing.T) {
 		})
 	}
 }
+
+func TestParseAntigravityCompanionTools(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		raw     string
+		wantCap policy.Capability
+	}{
+		{"send_message", `{"toolCall":{"name":"send_message","args":{"Recipient":"conv-1","Message":"hello"}}}`, policy.CapabilityDelegation},
+		{"manage_subagents list", `{"toolCall":{"name":"manage_subagents","args":{"Action":"list"}}}`, policy.CapabilityDelegation},
+		{"manage_subagents kill", `{"toolCall":{"name":"manage_subagents","args":{"Action":"kill","ConversationIds":["conv-1"]}}}`, policy.CapabilityDelegation},
+		{"manage_task status", `{"toolCall":{"name":"manage_task","args":{"Action":"status","TaskId":"t1"}}}`, policy.CapabilitySafeControl},
+		{"manage_task list", `{"toolCall":{"name":"manage_task","args":{"Action":"list"}}}`, policy.CapabilitySafeControl},
+		{"manage_task kill", `{"toolCall":{"name":"manage_task","args":{"Action":"kill","TaskId":"t1"}}}`, policy.CapabilitySafeControl},
+		{"manage_task send_input", `{"toolCall":{"name":"manage_task","args":{"Action":"send_input","TaskId":"t1","Input":"y\n"}}}`, policy.CapabilityDeny},
+		{"manage_task invalid action", `{"toolCall":{"name":"manage_task","args":{"Action":"unsupported"}}}`, policy.CapabilityDeny},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tc, err := ParseAntigravity("pre", strings.NewReader(tt.raw))
+			if err != nil {
+				t.Fatalf("unexpected parse error: %v", err)
+			}
+			if tc.Capability != tt.wantCap {
+				t.Fatalf("tc.Capability = %q, want %q", tc.Capability, tt.wantCap)
+			}
+		})
+	}
+}

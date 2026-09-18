@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"send_message","args":{"Recipient":"c2","Message":"hello","toolAction":"Sending message","toolSummary":"Send message"}}}
