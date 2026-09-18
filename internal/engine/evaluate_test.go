@@ -229,3 +229,14 @@ func TestDelegationInheritsEnforcementOnInProcessPlanes(t *testing.T) {
 		}
 	}
 }
+
+func TestUnknownToolAsksOnOpencodeAndAllowsOnClaude(t *testing.T) {
+	oc := Evaluate(ToolCall{Plane: "opencode", NativeTool: "future_unknown_tool", Capability: policy.CapabilityUnknown}, fullPol())
+	if oc.Decision != policy.Ask || oc.RuleID != "unknown-native-tool" {
+		t.Fatalf("opencode unknown = %+v, want ask/unknown-native-tool", oc)
+	}
+	cl := Evaluate(ToolCall{Plane: "claude", NativeTool: "future_unknown_tool", Capability: policy.CapabilityUnknown}, fullPol())
+	if cl.Decision != policy.Allow {
+		t.Fatalf("claude unknown = %+v, want allow (posture audit)", cl)
+	}
+}

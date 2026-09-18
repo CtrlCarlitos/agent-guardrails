@@ -44,9 +44,19 @@ func ParseOpencode(r io.Reader) (engine.ToolCall, error) {
 	if event != "pre" && event != "post" {
 		event = "pre"
 	}
+	var mcpPaths []string
 	spec, known := planecontract.OpencodeTool(p.Tool)
-	if !known {
-		spec = planecontract.ToolSpec{NativeTool: p.Tool, Tool: p.Tool, Capability: policy.CapabilityUnknown}
+	if !known || spec.Capability == policy.CapabilityDeny {
+		// Known MCP families are typed with projected paths (ADR-0017),
+		// outranking the mcp/custom prefix deny; everything else stays
+		// Unknown and the Engine asks.
+		if mcp, ok := planecontract.MatchMCPTool(p.Tool); ok {
+			spec = planecontract.ToolSpec{NativeTool: p.Tool, Tool: mcp.Tool, Capability: mcp.Capability}
+			known = true
+			mcpPaths = projectMCPPaths(mcp, p.Arguments)
+		} else if !known {
+			spec = planecontract.ToolSpec{NativeTool: p.Tool, Tool: p.Tool, Capability: policy.CapabilityUnknown}
+		}
 	}
 	tc := engine.ToolCall{
 		Plane:        "opencode",
@@ -68,6 +78,9 @@ func ParseOpencode(r io.Reader) (engine.ToolCall, error) {
 	}
 	if tc.Capability == policy.CapabilityReadDiscovery || tc.Capability == policy.CapabilityMutation {
 		tc.InputShape = "path"
+	}
+	if len(mcpPaths) > 0 {
+		tc.Paths = append(tc.Paths, mcpPaths...)
 	}
 	if p.Tool == "apply_patch" {
 		var input struct {
@@ -112,6 +125,27 @@ func EmitOpencode(v policy.Verdict, tc engine.ToolCall, stdout, stderr io.Writer
 		return 2
 	}
 	return 0
+}
+
+// projectMCPPaths extracts the file paths an MCP tool names, per its
+// registry spec: each PathArgs value, prefixed when the argument names an
+// opaque id (serena memories). Paths stay as provided; the Engine resolves
+// them against the call's working directory.
+func projectMCPPaths(mcp planecontract.MCPToolSpec, arguments json.RawMessage) []string {
+	if len(mcp.PathArgs) == 0 {
+		return nil
+	}
+	var args map[string]any
+	if err := json.Unmarshal(arguments, &args); err != nil {
+		return nil
+	}
+	var paths []string
+	for _, name := range mcp.PathArgs {
+		if value, ok := args[name].(string); ok && value != "" {
+			paths = append(paths, mcp.PathPrefix+value)
+		}
+	}
+	return paths
 }
 
 // patchPaths extracts the file paths named by an apply_patch payload
