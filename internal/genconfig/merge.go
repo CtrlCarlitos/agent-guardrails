@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -454,8 +455,10 @@ func unionAppend(dst, src []any) []any {
 }
 
 // unmarkedGuardrailGroup reports a hook group without a guardrail- marker id
-// whose body references the guardrail hook command: a legacy pre-marker entry
-// (ADR-0004) that the marker merge absorbs instead of forking around.
+// whose body invokes the guardrail hook command under any binary form —
+// released binary, absolute path, Windows exe, or a test binary. These are
+// legacy pre-marker entries (ADR-0004) that the marker merge absorbs instead
+// of forking around.
 func unmarkedGuardrailGroup(group any) bool {
 	m, ok := group.(map[string]any)
 	if !ok {
@@ -465,8 +468,12 @@ func unmarkedGuardrailGroup(group any) bool {
 		return false
 	}
 	raw, err := json.Marshal(m)
-	return err == nil && strings.Contains(string(raw), "guardrail hook ")
+	return err == nil && guardrailHookCommand.MatchString(string(raw))
 }
+
+// guardrailHookCommand matches "<anything>guardrail<non-space-suffix> hook claude"
+// in any of its binary forms: bare name, absolute path, .exe, or .test.
+var guardrailHookCommand = regexp.MustCompile(`guardrail\S* hook claude`)
 
 // CountUnmarkedGuardrailGroups counts legacy unmarked guardrail hook groups in
 // a Claude settings document; doctor and lifecycle reconciliation use it.

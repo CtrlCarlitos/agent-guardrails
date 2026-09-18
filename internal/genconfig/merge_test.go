@@ -788,3 +788,37 @@ func TestCountUnmarkedGuardrailGroups(t *testing.T) {
 		t.Fatalf("unmarked count = %d, want 1", n)
 	}
 }
+
+func TestUnmarkedDetectionCoversTestAndWindowsBinaryForms(t *testing.T) {
+	doc := map[string]any{"hooks": map[string]any{
+		"PreToolUse": []any{
+			map[string]any{"matcher": "*", "hooks": []any{map[string]any{"command": "/tmp/go-build3456764698/b001/guardrail.test hook claude"}}},
+			map[string]any{"matcher": "*", "hooks": []any{map[string]any{"command": `C:\bin\guardrail.exe hook claude`}}},
+			map[string]any{"matcher": "*", "hooks": []any{map[string]any{"command": "/home/u/.local/bin/guardrail hook claude"}}},
+			map[string]any{"matcher": "*", "hooks": []any{map[string]any{"command": "my-own-hook"}}},
+		},
+	}}
+	if n := CountUnmarkedGuardrailGroups(doc); n != 3 {
+		t.Fatalf("unmarked count = %d, want 3 (test-binary, windows, abs-path)", n)
+	}
+}
+
+func TestMergeAbsorbsTestBinaryUnmarkedGroups(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "settings.json")
+	os.WriteFile(p, []byte(`{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"/tmp/go-build1/b001/guardrail.test hook claude","timeout":10}]},{"matcher":"Task","hooks":[{"type":"command","command":"my-own-hook"}]}]}}`), 0o644)
+
+	if err := MergeInto(p, hookFrag("/x/guardrail")); err != nil {
+		t.Fatal(err)
+	}
+
+	g := preGroups(t, p)
+	if len(g) != 2 {
+		t.Fatalf("want user + owned = 2, got %d", len(g))
+	}
+	var doc map[string]any
+	raw, _ := os.ReadFile(p)
+	json.Unmarshal(raw, &doc)
+	if n := CountUnmarkedGuardrailGroups(doc); n != 0 {
+		t.Fatalf("%d unmarked remain after merge", n)
+	}
+}
