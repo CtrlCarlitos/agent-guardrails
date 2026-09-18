@@ -296,7 +296,9 @@ func planesViaApproval(planes []string, action, outcome string, stdout, stderr i
 			return false
 		}
 		switch status.Status {
-		case "approved":
+		case "approved", "completed":
+			// "completed" is the daemon's post-application terminal state;
+			// "approved" is the pre-dispatch window for handler-less actions.
 			for _, plane := range planes {
 				fmt.Fprintf(stdout, "%s %s\n", plane, outcome)
 			}

@@ -528,3 +528,24 @@ func TestPlaneEnableAllSteadyStatePromptsNobody(t *testing.T) {
 		}
 	}
 }
+
+func TestPlaneEnableObservesCompletedStatus(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"stale","matcher":"Task","hooks":[]}]}}`)
+	restore := stubPlaneTransport([]string{"executing", "completed"})
+	defer restore()
+	origInstalled := planeInstalled
+	planeInstalled = func(string) bool { return true }
+	defer func() { planeInstalled = origInstalled }()
+
+	var out, errb strings.Builder
+	if code := runPlaneTerminal([]string{"plane", "enable", "claude"}, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d, stderr %q", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "claude enabled") {
+		t.Fatalf("stdout missing outcome: %q", out.String())
+	}
+}
