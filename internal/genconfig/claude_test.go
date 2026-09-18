@@ -354,3 +354,19 @@ func TestClaudeHooksSessionStart(t *testing.T) {
 		t.Errorf("command = %q", cmd)
 	}
 }
+
+// Claude Code's auto-mode classifier rejects `guardrail fetch` as
+// self-modification unless a permission rule allows it; the Engine already
+// gates fetch by the egress allowlist, so the floor may pre-approve exactly
+// that command form and nothing else.
+func TestClaudeFloorAllowsOnlyGuardrailFetch(t *testing.T) {
+	frag := ClaudeConfig(secretPol(), "guardrail")
+	perms := frag["permissions"].(map[string]any)
+	allow, ok := perms["allow"].([]string)
+	if !ok {
+		t.Fatalf("permissions.allow missing: %v", perms)
+	}
+	if len(allow) != 1 || allow[0] != "Bash(guardrail fetch:*)" {
+		t.Fatalf("allow = %v, want exactly Bash(guardrail fetch:*)", allow)
+	}
+}
