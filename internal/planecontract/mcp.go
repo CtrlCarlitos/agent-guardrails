@@ -17,44 +17,49 @@ type MCPToolSpec struct {
 	// PathPrefix is joined before each PathArgs value when the argument names
 	// an opaque id rather than a path (serena memories).
 	PathPrefix string
+	// DefaultPath is projected when no PathArgs value is present, scoping
+	// pathless queries ("." = the call's working directory) so the path
+	// policy governs them instead of failing closed. Mutations never set it.
+	DefaultPath string
 }
 
 // mcpRegistry is keyed by the tool's own name, unqualified by server: MCP
 // tool names are unique across the families we type. Entries carry the
 // family for matching convenience only.
 var mcpRegistry = map[string]MCPToolSpec{
-	// serena — code intelligence (paths are project-relative).
-	"replace_content":          {"serena", "replace_content", policy.CapabilityMutation, []string{"relative_path"}, ""},
-	"replace_in_files":         {"serena", "replace_in_files", policy.CapabilityMutation, []string{"relative_path"}, ""},
-	"replace_symbol_body":      {"serena", "replace_symbol_body", policy.CapabilityMutation, []string{"relative_path"}, ""},
-	"insert_after_symbol":      {"serena", "insert_after_symbol", policy.CapabilityMutation, []string{"relative_path"}, ""},
-	"insert_before_symbol":     {"serena", "insert_before_symbol", policy.CapabilityMutation, []string{"relative_path"}, ""},
-	"rename_symbol":            {"serena", "rename_symbol", policy.CapabilityMutation, []string{"relative_path"}, ""},
-	"safe_delete_symbol":       {"serena", "safe_delete_symbol", policy.CapabilityMutation, []string{"relative_path"}, ""},
-	"find_symbol":              {"serena", "find_symbol", policy.CapabilityReadDiscovery, []string{"relative_path"}, ""},
-	"find_declaration":         {"serena", "find_declaration", policy.CapabilityReadDiscovery, []string{"relative_path"}, ""},
-	"find_implementations":     {"serena", "find_implementations", policy.CapabilityReadDiscovery, []string{"relative_path"}, ""},
-	"find_referencing_symbols": {"serena", "find_referencing_symbols", policy.CapabilityReadDiscovery, []string{"relative_path"}, ""},
-	"get_symbols_overview":     {"serena", "get_symbols_overview", policy.CapabilityReadDiscovery, []string{"relative_path"}, ""},
-	"get_diagnostics_for_file": {"serena", "get_diagnostics_for_file", policy.CapabilityReadDiscovery, []string{"relative_path", "filePath"}, ""},
-	// serena — memories (opaque names resolve under the memory store).
-	"write_memory":  {"serena", "write_memory", policy.CapabilityMutation, []string{"memory_name"}, ".serena/memories/"},
-	"edit_memory":   {"serena", "edit_memory", policy.CapabilityMutation, []string{"memory_name"}, ".serena/memories/"},
-	"rename_memory": {"serena", "rename_memory", policy.CapabilityMutation, []string{"memory_name", "new_name"}, ".serena/memories/"},
-	"delete_memory": {"serena", "delete_memory", policy.CapabilityMutation, []string{"memory_name"}, ".serena/memories/"},
-	"read_memory":   {"serena", "read_memory", policy.CapabilityReadDiscovery, []string{"memory_name"}, ".serena/memories/"},
-	// serena — session-scope introspection and control.
-	"list_memories":        {"serena", "list_memories", policy.CapabilitySafeControl, nil, ""},
-	"get_current_config":   {"serena", "get_current_config", policy.CapabilitySafeControl, nil, ""},
-	"initial_instructions": {"serena", "initial_instructions", policy.CapabilitySafeControl, nil, ""},
-	"onboarding":           {"serena", "onboarding", policy.CapabilitySafeControl, nil, ""},
-	"activate_project":     {"serena", "activate_project", policy.CapabilityExternal, nil, ""},
-	// graft — code-graph index queries.
-	"graft_find_code":   {"graft", "graft_find_code", policy.CapabilityReadDiscovery, []string{"relative_path", "path", "file_path"}, ""},
-	"graft_find_all":    {"graft", "graft_find_all", policy.CapabilityReadDiscovery, []string{"relative_path", "path", "file_path"}, ""},
-	"graft_trace_calls": {"graft", "graft_trace_calls", policy.CapabilityReadDiscovery, []string{"relative_path", "path", "file_path"}, ""},
-	"graft_file_api":    {"graft", "graft_file_api", policy.CapabilityReadDiscovery, []string{"relative_path", "path", "file_path"}, ""},
-	"graft_repo_map":    {"graft", "graft_repo_map", policy.CapabilityReadDiscovery, []string{"relative_path", "path", "file_path"}, ""},
+	// serena mutators
+	"replace_content":      {Family: "serena", Tool: "replace_content", Capability: policy.CapabilityMutation, PathArgs: []string{"relative_path"}},
+	"replace_in_files":     {Family: "serena", Tool: "replace_in_files", Capability: policy.CapabilityMutation, PathArgs: []string{"relative_path"}},
+	"replace_symbol_body":  {Family: "serena", Tool: "replace_symbol_body", Capability: policy.CapabilityMutation, PathArgs: []string{"relative_path"}},
+	"insert_after_symbol":  {Family: "serena", Tool: "insert_after_symbol", Capability: policy.CapabilityMutation, PathArgs: []string{"relative_path"}},
+	"insert_before_symbol": {Family: "serena", Tool: "insert_before_symbol", Capability: policy.CapabilityMutation, PathArgs: []string{"relative_path"}},
+	"rename_symbol":        {Family: "serena", Tool: "rename_symbol", Capability: policy.CapabilityMutation, PathArgs: []string{"relative_path"}},
+	"safe_delete_symbol":   {Family: "serena", Tool: "safe_delete_symbol", Capability: policy.CapabilityMutation, PathArgs: []string{"relative_path"}},
+	// serena readers
+	"find_symbol":              {Family: "serena", Tool: "find_symbol", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path"}, DefaultPath: "."},
+	"find_declaration":         {Family: "serena", Tool: "find_declaration", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path"}, DefaultPath: "."},
+	"find_implementations":     {Family: "serena", Tool: "find_implementations", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path"}, DefaultPath: "."},
+	"find_referencing_symbols": {Family: "serena", Tool: "find_referencing_symbols", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path"}, DefaultPath: "."},
+	"get_symbols_overview":     {Family: "serena", Tool: "get_symbols_overview", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path"}, DefaultPath: "."},
+	"get_diagnostics_for_file": {Family: "serena", Tool: "get_diagnostics_for_file", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path", "filePath"}, DefaultPath: "."},
+	// serena memories
+	"write_memory":  {Family: "serena", Tool: "write_memory", Capability: policy.CapabilityMutation, PathArgs: []string{"memory_name"}, PathPrefix: ".serena/memories/"},
+	"edit_memory":   {Family: "serena", Tool: "edit_memory", Capability: policy.CapabilityMutation, PathArgs: []string{"memory_name"}, PathPrefix: ".serena/memories/"},
+	"rename_memory": {Family: "serena", Tool: "rename_memory", Capability: policy.CapabilityMutation, PathArgs: []string{"memory_name", "new_name"}, PathPrefix: ".serena/memories/"},
+	"delete_memory": {Family: "serena", Tool: "delete_memory", Capability: policy.CapabilityMutation, PathArgs: []string{"memory_name"}, PathPrefix: ".serena/memories/"},
+	"read_memory":   {Family: "serena", Tool: "read_memory", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"memory_name"}, PathPrefix: ".serena/memories/"},
+	// serena session-scope
+	"list_memories":        {Family: "serena", Tool: "list_memories", Capability: policy.CapabilitySafeControl, PathArgs: nil},
+	"get_current_config":   {Family: "serena", Tool: "get_current_config", Capability: policy.CapabilitySafeControl, PathArgs: nil},
+	"initial_instructions": {Family: "serena", Tool: "initial_instructions", Capability: policy.CapabilitySafeControl, PathArgs: nil},
+	"onboarding":           {Family: "serena", Tool: "onboarding", Capability: policy.CapabilitySafeControl, PathArgs: nil},
+	"activate_project":     {Family: "serena", Tool: "activate_project", Capability: policy.CapabilityExternal, PathArgs: nil},
+	// graft
+	"graft_find_code":   {Family: "graft", Tool: "graft_find_code", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path", "path", "file_path"}, DefaultPath: "."},
+	"graft_find_all":    {Family: "graft", Tool: "graft_find_all", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path", "path", "file_path"}, DefaultPath: "."},
+	"graft_trace_calls": {Family: "graft", Tool: "graft_trace_calls", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path", "path", "file_path"}, DefaultPath: "."},
+	"graft_file_api":    {Family: "graft", Tool: "graft_file_api", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path", "path", "file_path"}, DefaultPath: "."},
+	"graft_repo_map":    {Family: "graft", Tool: "graft_repo_map", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path", "path", "file_path"}, DefaultPath: "."},
 }
 
 // MatchMCPTool resolves a native MCP tool name in any plane's naming —

@@ -145,6 +145,11 @@ func projectMCPPaths(mcp planecontract.MCPToolSpec, arguments json.RawMessage) [
 			paths = append(paths, mcp.PathPrefix+value)
 		}
 	}
+	if len(paths) == 0 && mcp.DefaultPath != "" {
+		// Pathless queries scope to the call's working directory; the path
+		// policy governs the scope instead of failing closed.
+		paths = []string{mcp.DefaultPath}
+	}
 	return paths
 }
 

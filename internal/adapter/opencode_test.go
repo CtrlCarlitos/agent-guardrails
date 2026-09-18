@@ -299,3 +299,28 @@ func TestParseOpencodeUnknownBareNameStaysUnknown(t *testing.T) {
 		t.Fatalf("capability = %q, want unknown (engine asks)", tc.Capability)
 	}
 }
+
+func TestParseOpencodePathlessSymbolSearchDefaultsToWorkingDirectory(t *testing.T) {
+	raw := `{"session_id":"s1","event":"pre","tool":"serena_find_symbol","cwd":"/repo","arguments":{"name_path_pattern":"Foo/bar"}}`
+	tc, err := ParseOpencode(strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc.Capability != policy.CapabilityReadDiscovery {
+		t.Fatalf("capability = %q, want read", tc.Capability)
+	}
+	if len(tc.Paths) != 1 || tc.Paths[0] != "." {
+		t.Fatalf("paths = %v, want working-directory default", tc.Paths)
+	}
+}
+
+func TestParseOpencodePathlessMutationStillFailsClosed(t *testing.T) {
+	raw := `{"session_id":"s1","event":"pre","tool":"serena_replace_content","cwd":"/repo","arguments":{"content":"x"}}`
+	tc, err := ParseOpencode(strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc.Capability != policy.CapabilityMutation || len(tc.Paths) != 0 {
+		t.Fatalf("mutation without target = %+v paths=%v, want fail-closed projection", tc, tc.Paths)
+	}
+}
