@@ -43,6 +43,7 @@ usage: guardrail <command> [arguments]
   approvals approve <id>               re-open an approval ceremony and wait
       subcommands: enroll | add-authenticator | remove-authenticator | recover-reset
   selftest                           probe installed enforcement per plane
+  audit [--path <file>]              summarize the audit log (decisions, rules, drift)
   doctor [flags]                    print resolved policy/overlay/audit/hook state
       --coverage claude    diff the installed Claude Code tool surface against the contract
       --bundle <path>      scan this bundle instead of the claude on PATH
@@ -87,6 +88,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "operator":
 		file, terminal := stdin.(*os.File)
 		return cmdOperator(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdin, stdout, stderr)
+	case "audit":
+		return cmdAudit(args[1:], stdout, stderr)
 	case "selftest":
 		return cmdSelftest(args[1:], stdout, stderr)
 	case "doctor":
