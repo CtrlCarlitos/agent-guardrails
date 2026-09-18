@@ -2,6 +2,7 @@ package approval
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -21,7 +22,7 @@ func TestDaemonRejectsCompletionMessages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	socket := shortSocketPath(t)
 	daemon, err := StartDaemon(socket, broker, nil, func(string) error { return nil })
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +49,7 @@ func TestDaemonRejectsCompletionMessages(t *testing.T) {
 
 func TestDaemonSubmitRedactsSensitiveRequestDetails(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	socket := shortSocketPath(t)
 	daemon, err := StartDaemon(socket, New(), daemonAuthStore{}, func(string) error { return nil })
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +74,7 @@ func TestDaemonSubmitRedactsSensitiveRequestDetails(t *testing.T) {
 func TestDaemonRejectsRequestWhenApprovalPageCannotBePresented(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	broker := New()
-	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	socket := shortSocketPath(t)
 	daemon, err := StartDaemon(socket, broker, nil, func(string) error { return errors.New("presentation failed") })
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +96,7 @@ func TestDaemonStatusRedactsSensitiveRequestDetails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	socket := shortSocketPath(t)
 	daemon, err := StartDaemon(socket, broker, nil, func(string) error { return nil })
 	if err != nil {
 		t.Fatal(err)
@@ -129,7 +130,7 @@ func TestDaemonRecoversInterruptedAction(t *testing.T) {
 	if err := broker.transition(r.ID, "executing"); err != nil {
 		t.Fatal(err)
 	}
-	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	socket := shortSocketPath(t)
 	d, err := StartDaemon(socket, New(), nil, func(string) error { return nil })
 	if err != nil {
 		t.Fatal(err)
@@ -151,7 +152,7 @@ func TestFailedDaemonStartDoesNotRecoverLiveActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	socket := shortSocketPath(t)
 	live, err := StartDaemon(socket, broker, nil, func(string) error { return nil })
 	if err != nil {
 		t.Fatal(err)
@@ -170,4 +171,16 @@ func TestFailedDaemonStartDoesNotRecoverLiveActions(t *testing.T) {
 	if got.Status != "executing" {
 		t.Fatalf("live action status = %q, want executing", got.Status)
 	}
+}
+
+// shortSocketPath mirrors the external test package's helper: darwin caps
+// unix socket paths near 104 chars and runner temp dirs exceed it.
+func shortSocketPath(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "grdsock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return filepath.Join(dir, "broker", "approvals.sock")
 }

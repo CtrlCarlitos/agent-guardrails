@@ -94,6 +94,13 @@ func systemTempRoots() []string {
 		}
 		seen[root] = true
 		roots = append(roots, root)
+		// Darwin: /tmp is a symlink to /private/tmp, so paths resolved for
+		// policy no longer string-match the literal root. Carry the resolved
+		// form too; containment then matches either spelling.
+		if resolved, err := filepath.EvalSymlinks(root); err == nil && resolved != root && !seen[resolved] {
+			seen[resolved] = true
+			roots = append(roots, resolved)
+		}
 	}
 	return roots
 }

@@ -20,7 +20,7 @@ func TestDaemonUsesPrivateSocketAndSubmitsRequestOnce(t *testing.T) {
 	if err := operatorauth.NewStore(filepath.Join(os.Getenv("XDG_STATE_HOME"), "guardrail")).Replace([]operatorauth.Credential{{ID: "AQI", PublicKey: "AQI", Algorithm: -7}}); err != nil {
 		t.Fatal(err)
 	}
-	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	socket := shortSocketPath(t)
 	var opened string
 	store := operatorauth.NewStore(filepath.Join(os.Getenv("XDG_STATE_HOME"), "guardrail"))
 	daemon, err := approval.StartDaemon(socket, approval.New(), &store, func(rawURL string) error {
@@ -59,7 +59,7 @@ func TestDaemonDoesNotReplaceALiveSocket(t *testing.T) {
 		t.Skip("persistent approvals are unavailable on Windows")
 	}
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	socket := shortSocketPath(t)
 	first, err := approval.StartDaemon(socket, approval.New(), browserStore(t), func(string) error { return nil })
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +94,7 @@ func TestDefaultDaemonSupportsLongStateDirectory(t *testing.T) {
 
 func TestQueryStatusReportsRequestState(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	socket := shortSocketPath(t)
 	daemon, err := approval.StartDaemon(socket, approval.New(), browserStore(t), func(string) error { return nil })
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +121,7 @@ func TestQueryStatusReportsRequestState(t *testing.T) {
 
 func TestShutdownDaemonClosesALiveDaemon(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	socket := shortSocketPath(t)
 	_, err := approval.StartDaemon(socket, approval.New(), browserStore(t), func(string) error { return nil })
 	if err != nil {
 		t.Fatal(err)
@@ -144,7 +144,7 @@ func TestShutdownDaemonClosesALiveDaemon(t *testing.T) {
 
 func TestDaemonListsAndPresentsPendingRequests(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	socket := shortSocketPath(t)
 	presented := make(chan string, 4)
 	daemon, err := approval.StartDaemon(socket, approval.New(), browserStore(t), func(rawURL string) error {
 		presented <- rawURL
@@ -194,4 +194,18 @@ func TestDaemonListsAndPresentsPendingRequests(t *testing.T) {
 	if err := approval.PresentApproval(socket, "missing"); err == nil {
 		t.Fatal("unknown id presented")
 	}
+}
+
+// shortSocketPath returns a socket path within darwin's ~104-char unix
+// socket limit: runner temp dirs (/var/folders/...) exceed it, so tests
+// hand-roll short paths the way DefaultSocketPath's fallback does in
+// production.
+func shortSocketPath(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "grdsock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return filepath.Join(dir, "broker", "approvals.sock")
 }
