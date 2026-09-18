@@ -3,9 +3,11 @@
 No model service or credentials; all tool effects stay in a disposable directory.
 Usage: python3 test/smoke/codex_probe.py /absolute/path/to/guardrail
 """
+import argparse
 import http.server
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import shutil
@@ -17,8 +19,18 @@ for required in ("codex", "git", "gofmt"):
     if shutil.which(required) is None:
         print(f"SKIP: {required} is required", file=sys.stderr)
         sys.exit(77)
-binary = str(Path(sys.argv[1]).resolve())
-code_mode = "--code-mode" in sys.argv[2:]
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("binary", help="Guardrail executable")
+parser.add_argument("--code-mode", action="store_true", help="Exercise nested tools")
+parser.add_argument("--mediation", action="store_true", help="Check stdin hook coverage and hosted web-search availability")
+parser.add_argument("--restricted", action="store_true", help="With --mediation, disable shell tools and web search")
+options = parser.parse_args()
+binary = str(Path(options.binary).resolve())
+code_mode = options.code_mode
+mediation = options.mediation
+restricted = options.restricted
+if restricted and not mediation:
+    parser.error("--restricted requires --mediation")
 root = Path(tempfile.mkdtemp(prefix="guardrail-codex-native-"))
 workspace = root / "workspace"
 workspace.mkdir()
@@ -57,6 +69,20 @@ calls = [
 ]
 if code_mode:
     calls = [call for call in calls if call[0] not in ("spawn_agent", "future_tool", "request_user_input")]
+if mediation:
+    calls = [
+        ("exec_command", {"cmd": "cat > stdin.txt", "tty": True, "yield_time_ms": 1000}, None if restricted else 0),
+        ("write_stdin", {"session_id": 0, "chars": "codex-stdin-fixture\n", "yield_time_ms": 1000}, None),
+        ("write_stdin", {"session_id": 0, "chars": "", "yield_time_ms": 1000}, None),
+        ("write_stdin", {"session_id": 0, "chars": "\u0004", "yield_time_ms": 1000}, None),
+        ("apply_patch", "*** Begin Patch\n*** Add File: edit-only.txt\n+fixture edit\n*** End Patch", 0),
+    ]
+def output_text(item):
+    output = item.get("output", "")
+    if isinstance(output, list):
+        return "\n".join(part.get("text", "") for part in output)
+    return str(output)
+
 requests = []
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_):
@@ -67,6 +93,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         index = len(requests) - 1
         if index < len(calls):
             name, args, _ = calls[index]
+            if name == "write_stdin":
+                outputs = "\n".join(output_text(i) for i in request.get("input", [])
+                                    if i.get("type", "").endswith("_output"))
+                matches = re.findall(r'(?:session ID |"session_id":\s*)(\d+)', outputs)
+                args = {**args, "session_id": int(matches[-1]) if matches else 0}
             if code_mode:
                 code = "text(await tools." + name + "(" + json.dumps(args) + "));"
                 item = {"type": "custom_tool_call", "id": f"item_{index}", "call_id": f"call_{index}", "name": "exec", "input": code, "status": "completed"}
@@ -98,6 +129,7 @@ if code_mode:
     catalog["models"][0]["tool_mode"] = "code_mode_only"
 catalog_path.write_text(json.dumps(catalog))
 (config / "config.toml").write_text(f'''model = "codex-fixture"
+web_search = "{'disabled' if restricted else 'cached'}"
 model_provider = "fixture"
 model_catalog_json = "{catalog_path}"
 [model_providers.fixture]
@@ -107,6 +139,7 @@ wire_api = "responses"
 requires_openai_auth = false
 [features]
 shell_snapshot = false
+shell_tool = {'false' if restricted else 'true'}
 [mcp_servers.fixture]
 command = "python3"
 args = [{json.dumps(str(Path(__file__).resolve().parents[1] / "fixtures/codex/mcp_server.py"))}, {json.dumps(str(root / "mcp-executed"))}]
@@ -124,7 +157,7 @@ try:
     pre = [e for e in events if e["input"]["hook_event_name"] == "PreToolUse"]
     errors = []
     rules_checked = 0
-    if not code_mode:
+    if not code_mode and not mediation:
         rules_path = config / "rules/guardrail.rules"
         for line in rules_path.read_text().splitlines():
             if not line.startswith("prefix_rule("):
@@ -136,6 +169,67 @@ try:
             rules_checked += 1
     if result.returncode != 0:
         errors.append(f"Codex exited {result.returncode}: {result.stderr[-2000:]}")
+    if mediation:
+        # Hosted execution happens at the provider. Inspect the outgoing request;
+        # do not fabricate a hosted result and call it an enforcement test.
+        advertised = requests[0].get("tools", []) if requests else []
+        (root / "tools.json").write_text(json.dumps(advertised, indent=2))
+        def tool_names(specs):
+            names = set()
+            for spec in specs:
+                names.add(spec.get("name", spec.get("type")))
+                names.update(tool_names(spec.get("tools", [])))
+            return names
+        names = tool_names(advertised)
+        web_enabled = any(str(name).startswith("web_search") for name in names)
+        if web_enabled == restricted:
+            errors.append(f"Expected web_search enabled={not restricted}, tools={sorted(names)}")
+        outputs = {}
+        for request in requests:
+            for item in request.get("input", []):
+                if item.get("type", "").endswith("_output"):
+                    outputs[item.get("call_id")] = output_text(item)
+        if len(requests) != len(calls) + 1:
+            errors.append(f"Expected {len(calls) + 1} provider requests, got {len(requests)}")
+        expected_names = ["apply_patch"] if restricted else ["Bash", "apply_patch"]
+        if [event["input"]["tool_name"] for event in pre] != expected_names or any(event["exit"] != 0 for event in pre):
+            errors.append(f"Expected allowed hooks {expected_names}, got {pre}")
+        if restricted:
+            # Direct tool specs can be inspected; code-mode exposure is checked
+            # by forcing nested calls and requiring an executor rejection.
+            if {"exec_command", "write_stdin"} & names:
+                errors.append("Disabled shell tools remain advertised")
+            for i in range(4):
+                output = outputs.get(f"call_{i}", "")
+                rejection = f"tools.{calls[i][0]} is not a function" if code_mode else f"unsupported call: {calls[i][0]}"
+                if rejection not in output:
+                    errors.append(f"Disabled tool case {i} was not rejected: {output}")
+            if (workspace / "stdin.txt").exists():
+                errors.append("Disabled shell tool executed")
+        else:
+            for i in range(4):
+                output = outputs.get(f"call_{i}", "")
+                if ('"chunk_id"' if code_mode else "Chunk ID:") not in output:
+                    errors.append(f"Stdin case {i} did not execute: {output}")
+            finished = '"exit_code":0' if code_mode else "Process exited with code 0"
+            if finished not in outputs.get("call_3", ""):
+                errors.append("Interactive process did not exit cleanly after EOF")
+            path = workspace / "stdin.txt"
+            if not path.exists() or path.read_text() != "codex-stdin-fixture\n":
+                errors.append("Stdin bytes did not reach the approved command")
+        path = workspace / "edit-only.txt"
+        if not path.exists() or path.read_text() != "fixture edit\n":
+            errors.append("Allowed patch failed in mediation fixture")
+        report = {
+            "codex": subprocess.check_output(["codex", "--version"], text=True).strip(),
+            "code_mode": code_mode, "restricted": restricted, "cases": len(calls),
+            "pre_hooks": len(pre), "stdin_pre_hooks": sum(e["input"]["tool_name"] == "write_stdin" for e in pre),
+            "web_search_advertised": web_enabled, "hosted_execution_tested": False,
+            "errors": errors, "artifacts": str(root),
+        }
+        (root / "report.json").write_text(json.dumps(report, indent=2))
+        print(json.dumps(report, indent=2))
+        sys.exit(bool(errors))
     expected_hooks = sum(expected is not None for _, _, expected in calls)
     if len(pre) != expected_hooks:
         errors.append(f"Expected {expected_hooks} native pre-hooks, observed {len(pre)}")

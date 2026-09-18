@@ -1,7 +1,7 @@
 # agent-guardrails
 
 One guardrail policy, enforced across every AI coding-agent host ("plane") — Claude
-Code, opencode, Antigravity (Codex planned). A shared Go decision engine
+Code, opencode, Antigravity, and Codex. A shared Go decision engine
 (`guardrail`) plus a generated native-config floor where the plane supports one;
 thin idiomatic adapters.
 Installed globally via dotfiles; each project layers its own rules in a committed
@@ -107,3 +107,16 @@ Delegation is denied pending child enforcement evidence. Hosted tools and
 continued `write_stdin` input have runtime hook gaps; registration is not proof
 of hook trust or complete containment. See [ADR-0014](docs/adr/0014-codex-native-hooks-and-blocked-asks.md)
 and [ADR-0016](docs/adr/0016-codex-native-escalation-floor.md).
+
+For sessions that can work without shell commands or web search, Codex 0.154.0
+supports an optional restriction:
+
+```sh
+codex -c 'web_search="disabled"' --disable shell_tool
+```
+
+This removes shell execution (including `write_stdin`) and hosted web search;
+hooked patches remain available. It does not disable every hosted integration
+or establish complete containment. Guardrail does not apply these settings on
+plane enable. See the [mediation follow-up probes](docs/research/2026-09-17-codex-mediation-probes.md)
+for native evidence, the loss of command execution, and remaining runtime work.
