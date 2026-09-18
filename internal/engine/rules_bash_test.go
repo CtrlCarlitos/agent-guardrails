@@ -39,7 +39,9 @@ func TestGuardrailNightInvocationIsSelfConfigDeny(t *testing.T) {
 	commands := []string{
 		"guardrail night on --for 8h",
 		"/home/operator/.local/bin/guardrail night off",
-		"guardrail.exe night status",
+		"guardrail.exe night off",
+		"guardrail night status --for 8h",
+		"guardrail night status on",
 		`"$(command -v guardrail)" night off`,
 		`python3 -c "import subprocess; subprocess.run(['guardrail', 'night', 'off'])"`,
 		`python3 -c "import os; os.system('guardrail night off')"`,
@@ -53,6 +55,27 @@ func TestGuardrailNightInvocationIsSelfConfigDeny(t *testing.T) {
 		if v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
 			t.Errorf("%q -> %+v, want deny/P5.self-config", command, v)
 		}
+	}
+}
+
+// The exact read-only status query changes nothing and is allowed from a
+// session; on/off stay operator actions, and anything beyond the exact
+// three-word form stays denied.
+func TestReadOnlyNightStatusIsAllowedFromSessions(t *testing.T) {
+	for _, command := range []string{
+		"guardrail night status",
+		"/home/operator/.local/bin/guardrail night status",
+		"guardrail.exe night status",
+		"guardrail night status | head -1",
+		"guardrail night status > /tmp/night.txt",
+		"GUARDRAIL_NIGHT=1 guardrail night status",
+	} {
+		if v := evalBash(t, command); v != nil {
+			t.Errorf("%q -> %+v, want allow", command, v)
+		}
+	}
+	if v := evalBash(t, "guardrail night status; guardrail night off"); v == nil || v.Decision != policy.Deny {
+		t.Errorf("a status query must not launder an off in the same command line: %+v", v)
 	}
 }
 

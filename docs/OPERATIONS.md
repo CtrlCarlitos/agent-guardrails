@@ -41,7 +41,7 @@ recognise. If all three are clean, the problem is not Guardrail.
 - **A `printf` or heredoc containing a secret path is denied** (`P4.secret-in-text`) even though nothing was accessed: interpreter input is opaque to the static boundary (ADR-0012). The guidance says to use the editor tool; that is the fix.
 - **A python heredoc that merely mentions the night control is denied** for the same reason.
 - **Re-running an approved `egress grant` says "already authorized"** instead of asking again — the broker applied it the moment you approved; the command is never re-run.
-- **`guardrail night status` from inside a session is denied.** The direct-invocation rule catches every `guardrail night …`; run status from a terminal.
+- **`guardrail night on` / `off` from inside a session is denied**, and so is anything longer than the exact three-word `guardrail night status` (which is read-only and allowed). Changing the posture is an operator action: run on/off from a terminal.
 - **`plane enable` says `already enabled`** and a session still reports floor drift → the installed release predates the floor-drift check (#33); `guardrail update` to current.
 
 ## What a healthy update looks like

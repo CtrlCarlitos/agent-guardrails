@@ -155,6 +155,11 @@ const NightMentionReason = "interpreter input mentions guardrail night control; 
 func checkNightControlInvocation(s Simple, command string) *policy.Verdict {
 	direct := len(s.Argv) >= 2 && strings.EqualFold(s.Argv[1], "night") &&
 		(head(s.Argv) == "guardrail" || s.wordUnresolved(0) && mentionsExecutable(s.Argv[0], "guardrail"))
+	if direct && readOnlyNightStatus(s.Argv) {
+		// The exact status query changes nothing; only on/off are operator
+		// actions. Any extra word keeps the deny — status is not a prefix.
+		direct = false
+	}
 	var opaque bool
 	if len(s.Argv) >= 1 && isOpaqueExecutor(head(s.Argv)) {
 		opaque = mentionsCommand([]string{command}, "guardrail", "night")
@@ -177,6 +182,12 @@ func checkNightControlInvocation(s Simple, command string) *policy.Verdict {
 		}
 	}
 	return nil
+}
+
+// readOnlyNightStatus matches exactly `<guardrail> night status` and nothing
+// longer: the head is already known to be guardrail when this is consulted.
+func readOnlyNightStatus(argv []string) bool {
+	return len(argv) == 3 && strings.EqualFold(argv[1], "night") && strings.EqualFold(argv[2], "status")
 }
 
 func mentionsExecutable(value, executable string) bool {

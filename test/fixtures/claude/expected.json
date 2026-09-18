@@ -42,6 +42,10 @@
     "decision": "allow",
     "exit": 0
   },
+  "bash-night-status.json": {
+    "decision": "allow",
+    "exit": 0
+  },
   "bash-output.json": {
     "decision": "allow",
     "exit": 0
