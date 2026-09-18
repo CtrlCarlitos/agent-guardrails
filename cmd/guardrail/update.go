@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -116,10 +117,31 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	// Update closes with verification instead of suggesting it: drift and
 	// wiring problems surface at the moment they can be attributed to the
 	// new binary, and a passing selftest here clears the SessionStart nudge
-	// before it ever appears (#53).
-	_ = printDoctor(stdout, stderr)
-	if selftestCode := cmdSelftest([]string{}, stdout, stderr); selftestCode != 0 {
+	// before it ever appears (#53). Both must run the binary just installed
+	// — this process is still the superseded release, and its in-process
+	// doctor and selftest would report on, and record a pass for, the old
+	// version.
+	_ = runInstalledBinary(exe, []string{"doctor"}, stdout, stderr)
+	if selftestCode := runInstalledBinary(exe, []string{"selftest"}, stdout, stderr); selftestCode != 0 {
 		fmt.Fprintln(stderr, "guardrail: selftest failed on the new binary; investigate before continuing")
+	}
+	return 0
+}
+
+// runInstalledBinary executes the freshly installed guardrail with the given
+// arguments, streaming its output. A binary that cannot be started is
+// reported and counts as a failed step; the update itself has already
+// succeeded and is never rolled back here.
+var runInstalledBinary = func(exe string, args []string, stdout, stderr io.Writer) int {
+	cmd := exec.Command(exe, args...)
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	if err := cmd.Run(); err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return exit.ExitCode()
+		}
+		fmt.Fprintf(stderr, "guardrail: cannot run the installed binary for %s: %v\n", strings.Join(args, " "), err)
+		return 1
 	}
 	return 0
 }
