@@ -1,0 +1,42 @@
+{
+  "bash-rm-rf-drive.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P1.rm-rf"
+  },
+  "bash-type-ssh-key.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P4.secret-path"
+  },
+  "edit-repo-file.json": {
+    "decision": "allow",
+    "exit": 0,
+    "paths": [
+      "C:\\repo\\internal\\a.go"
+    ]
+  },
+  "multiedit-secret.json": {
+    "decision": "deny",
+    "exit": 2,
+    "paths": [
+      "C:\\repo\\a.go",
+      "C:\\repo\\b.go",
+      "C:\\Users\\u\\.ssh\\id_ed25519"
+    ],
+    "rule": "P4.secret-path"
+  },
+  "read-ssh-key.json": {
+    "decision": "deny",
+    "exit": 2,
+    "paths": [
+      "C:\\Users\\u\\.ssh\\id_ed25519"
+    ],
+    "rule": "P4.secret-path"
+  },
+  "write-dotenv.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P4.secret-path"
+  }
+}

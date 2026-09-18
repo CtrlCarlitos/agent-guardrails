@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -260,11 +259,8 @@ func claudeCoveragePosture() string {
 func claudePlanePosture() string {
 	unmarked := 0
 	if home, err := os.UserHomeDir(); err == nil {
-		if raw, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json")); err == nil {
-			var doc map[string]any
-			if json.Unmarshal(raw, &doc) == nil {
-				unmarked = genconfig.CountUnmarkedGuardrailGroups(doc)
-			}
+		if doc, err := genconfig.ReadJSONObject(filepath.Join(home, ".claude", "settings.json")); err == nil {
+			unmarked = genconfig.CountUnmarkedGuardrailGroups(doc)
 		}
 	}
 	return adapter.PlaneLifecycleLine("claude", claudeSettingsState(), unmarked)

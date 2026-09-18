@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -161,5 +163,79 @@ func TestSelftestIsDeterministicUnderActiveNightMarker(t *testing.T) {
 	var out, errb strings.Builder
 	if code := runSelftest(t, &out, &errb); code != 0 || !strings.Contains(out.String(), "selftest: all probes passed") {
 		t.Fatalf("exit = %d under an active night marker\n%s", code, out.String())
+	}
+}
+
+// Windows hosts send drive-lettered, backslash paths; the Engine normalises
+// them only there. The Windows probes are appended on Windows and stay out
+// of the POSIX matrix, but their shape is checked everywhere.
+func TestWindowsSelftestProbesAreWellFormed(t *testing.T) {
+	probes := windowsSelftestProbes()
+	if len(probes) < 3 {
+		t.Fatalf("windows probes = %d, want at least secret read, benign edit, destructive rm", len(probes))
+	}
+	want := map[string]string{
+		"windows secret read denies":  "deny",
+		"windows benign edit allows":  "allow",
+		"windows rm -rf drive denies": "deny",
+	}
+	for _, p := range probes {
+		if p.Plane != "claude" {
+			t.Fatalf("%s: plane %q", p.Name, p.Plane)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(p.Payload), &payload); err != nil {
+			t.Fatalf("%s: payload is not JSON: %v", p.Name, err)
+		}
+		if !strings.Contains(p.Payload, `C:\\`) {
+			t.Fatalf("%s: payload carries no drive-lettered path", p.Name)
+		}
+		if w, ok := want[p.Name]; ok && p.WantDecision != w {
+			t.Fatalf("%s: wants %s, want %s", p.Name, p.WantDecision, w)
+		}
+		delete(want, p.Name)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing windows probes: %v", want)
+	}
+	onMatrix := 0
+	for _, p := range selftestProbes {
+		if strings.HasPrefix(p.Name, "windows ") {
+			onMatrix++
+		}
+	}
+	if runtime.GOOS == "windows" && onMatrix != len(probes) {
+		t.Fatalf("on windows the probes must be on the matrix: %d of %d", onMatrix, len(probes))
+	}
+	if runtime.GOOS != "windows" && onMatrix != 0 {
+		t.Fatalf("on %s the windows probes must stay off the matrix: %d", runtime.GOOS, onMatrix)
+	}
+}
+
+// On a Windows host the Windows probes run through the real hook path and
+// their rule IDs are read from the audit record, exactly as selftest does.
+// Skipped elsewhere: containment for drive paths is host-owned.
+func TestWindowsSelftestProbesPassOnWindowsHost(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows probes are evaluated on a windows host")
+	}
+	state := t.TempDir()
+	t.Setenv("LOCALAPPDATA", state)
+	t.Setenv("APPDATA", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	suffix := "selftest-windows-" + t.Name()
+	for _, probe := range windowsSelftestProbes() {
+		payload := strings.ReplaceAll(probe.Payload, "selftest", suffix)
+		var out, errb strings.Builder
+		code := run(append([]string{"hook"}, probe.Args...), strings.NewReader(payload), &out, &errb)
+		decision, rule := parseSelftestVerdict(code, out.String(), errb.String())
+		if rule == "" && probe.WantRuleID != "" {
+			rule = selftestRuleFromAudit(suffix)
+		}
+		if decision != probe.WantDecision || (probe.WantRuleID != "" && rule != probe.WantRuleID) {
+			t.Errorf("%s: got %s/%s (exit %d, stderr %q), want %s/%s", probe.Name, decision, rule, code, errb.String(), probe.WantDecision, probe.WantRuleID)
+		}
 	}
 }

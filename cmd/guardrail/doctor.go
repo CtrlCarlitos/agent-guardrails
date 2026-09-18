@@ -293,9 +293,8 @@ func printDoctor(stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "codex settings: %s\n", safetext.SingleLine(planeStatusState("codex")))
 	fmt.Fprintf(stdout, "antigravity settings: %s\n", safetext.SingleLine(planeStatusState("antigravity")))
 	if home, err := os.UserHomeDir(); err == nil {
-		if raw, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json")); err == nil {
-			var doc map[string]any
-			if json.Unmarshal(raw, &doc) == nil {
+		if doc, err := genconfig.ReadJSONObject(filepath.Join(home, ".claude", "settings.json")); err == nil {
+			{
 				if n := unmarkedGuardrailGroups(doc); n > 0 {
 					plural := "entry"
 					if n > 1 {
@@ -347,20 +346,22 @@ func claudeSettingsState() string {
 		return "unknown (no home dir)"
 	}
 	p := filepath.Join(home, ".claude", "settings.json")
-	raw, err := os.ReadFile(p)
+	doc, err := genconfig.ReadJSONObject(p)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return "no settings.json"
 		}
-		return fmt.Sprintf("unreadable: %v", err)
+		if _, statErr := os.Stat(p); statErr != nil {
+			return fmt.Sprintf("unreadable: %v", statErr)
+		}
 	}
-	var doc map[string]any
-	if json.Unmarshal(raw, &doc) == nil {
+	if err == nil {
 		if hooksHaveOwnedGroup(doc) {
 			return "guardrail hook registered"
 		}
 		return "present, hook NOT registered"
 	}
+	raw, _ := os.ReadFile(p)
 	if strings.Contains(string(raw), "guardrail hook claude") {
 		return "guardrail hook registered (unparsed match)"
 	}

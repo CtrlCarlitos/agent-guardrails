@@ -357,12 +357,8 @@ func planeIntegrationRegistered(plane string) bool {
 		if err != nil {
 			return false
 		}
-		raw, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
+		doc, err := genconfig.ReadJSONObject(filepath.Join(home, ".claude", "settings.json"))
 		if err != nil {
-			return false
-		}
-		var doc map[string]any
-		if json.Unmarshal(raw, &doc) != nil {
 			return false
 		}
 		return genconfig.CountUnmarkedGuardrailGroups(doc) == 0
@@ -449,12 +445,8 @@ func planeFloorDrift(plane string) int {
 	if err != nil {
 		return 0
 	}
-	raw, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
+	doc, err := genconfig.ReadJSONObject(filepath.Join(home, ".claude", "settings.json"))
 	if err != nil {
-		return 0
-	}
-	var doc map[string]any
-	if json.Unmarshal(raw, &doc) != nil {
 		return 0
 	}
 	base, err := policy.LoadBase()

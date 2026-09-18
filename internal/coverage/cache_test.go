@@ -130,6 +130,7 @@ func TestClaudeDriftScansOnceThenAnswersFromCache(t *testing.T) {
 
 func TestClaudeDriftWithoutBundleIsAnError(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
 	if _, err := ClaudeDrift(contracted, "v1"); err == nil {
 		t.Fatal("expected an error without claude on PATH")
