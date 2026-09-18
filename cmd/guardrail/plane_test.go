@@ -10,6 +10,7 @@ import (
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
 // guardTestHome fails the test unless HOME is sandboxed under the system temp
@@ -486,8 +487,8 @@ func TestPlaneEnableAllBatchesOneApprovalAndSkipsSatisfied(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", cfg)
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	// claude already enabled; antigravity needs enabling; opencode not detected.
-	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]}}`)
+	// claude already enabled (hooks + current floor); antigravity needs enabling; opencode not detected.
+	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), claudeEnabledSettings(t))
 	origInstalled := planeInstalled
 	planeInstalled = func(plane string) bool { return plane != "opencode" }
 	defer func() { planeInstalled = origInstalled }()
@@ -525,7 +526,7 @@ func TestPlaneEnableAllSteadyStatePromptsNobody(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", cfg)
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]}}`)
+	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), claudeEnabledSettings(t))
 	writePlaneSettings(t, filepath.Join(cfg, "opencode", "opencode.json"), `{"plugin":["/x/guardrail.js"]}`)
 	writePlaneSettings(t, filepath.Join(home, ".gemini", "config", "hooks.json"), `{"guardrail":{"enabled":true}}`)
 	if err := genconfig.WriteCodexRules(filepath.Join(home, ".codex", "hooks.json")); err != nil {
@@ -711,5 +712,82 @@ func TestPlaneEnableHealsAntigravityUnmarkedAndDisabled(t *testing.T) {
 	guardrail, _ := doc["guardrail"].(map[string]any)
 	if enabled, _ := guardrail["enabled"].(bool); !enabled {
 		t.Fatalf("guardrail was not enabled after enable: %v", guardrail)
+	}
+}
+
+// claudeEnabledSettings is a settings.json in the fully reconciled state:
+// owned hook groups plus the current permissions floor.
+func claudeEnabledSettings(t *testing.T) string {
+	t.Helper()
+	base, err := policy.LoadBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	frag := genconfig.ClaudeConfig(base, "guardrail")
+	raw, err := json.Marshal(map[string]any{
+		"hooks":       map[string]any{"PreToolUse": []any{map[string]any{"id": "guardrail-claude-pre", "matcher": "Bash", "hooks": []any{}}}},
+		"permissions": frag["permissions"],
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+// A registered hook with a stale permissions floor is drift, not "already
+// enabled": a released floor change (a new allow, deny, or ask entry) must
+// land on the next plane enable, and the merge is idempotent.
+func TestPlaneEnableClaudeReMergesWhenFloorDrifted(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]},"permissions":{"deny":["Bash(rm -rf /)"]}}`)
+	origInstalled := planeInstalled
+	planeInstalled = func(string) bool { return true }
+	defer func() { planeInstalled = origInstalled }()
+
+	var submitted []approval.Request
+	origSubmit, origQuery := submitPlaneRequest, queryPlaneStatus
+	submitPlaneRequest = func(request approval.Request) (approval.Request, error) {
+		submitted = append(submitted, request)
+		return approval.Request{ID: "stub-request", Status: "pending", ApprovalURL: "http://localhost:39169/approve"}, nil
+	}
+	queryPlaneStatus = func(socket, id string) (approval.Request, error) {
+		return approval.Request{Status: "approved"}, nil
+	}
+	defer func() { submitPlaneRequest, queryPlaneStatus = origSubmit, origQuery }()
+
+	var out, errb strings.Builder
+	if code := runPlaneTerminal(t, []string{"plane", "enable", "claude"}, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d, stderr %q", code, errb.String())
+	}
+	if len(submitted) != 1 || submitted[0].Parameters["planes"] != "claude" {
+		t.Fatalf("submitted = %+v, want one claude enable", submitted)
+	}
+	if strings.Contains(out.String(), "already enabled") || !strings.Contains(out.String(), "claude: permissions floor drifted") {
+		t.Fatalf("stdout = %q", out.String())
+	}
+}
+
+func TestPlaneEnableClaudeSkipsWhenHooksAndFloorAreCurrent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), claudeEnabledSettings(t))
+	origInstalled := planeInstalled
+	planeInstalled = func(string) bool { return true }
+	defer func() { planeInstalled = origInstalled }()
+	origSubmit := submitPlaneRequest
+	submitPlaneRequest = func(request approval.Request) (approval.Request, error) {
+		t.Fatalf("unexpected request: %+v", request)
+		return approval.Request{}, nil
+	}
+	defer func() { submitPlaneRequest = origSubmit }()
+
+	var out, errb strings.Builder
+	if code := runPlaneTerminal(t, []string{"plane", "enable", "claude"}, &out, &errb); code != 0 || !strings.Contains(out.String(), "claude: already enabled") {
+		t.Fatalf("exit = %d, stdout %q, stderr %q", code, out.String(), errb.String())
 	}
 }
