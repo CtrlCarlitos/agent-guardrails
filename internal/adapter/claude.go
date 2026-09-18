@@ -45,7 +45,20 @@ func ParseClaude(r io.Reader) (engine.ToolCall, error) {
 	case "SessionStart":
 		event = "session-start"
 	}
+	var mcpPaths []string
+	isMCP := false
 	spec, known := planecontract.ClaudeTool(p.ToolName)
+	if strings.HasPrefix(p.ToolName, "mcp__") {
+		// Known MCP families are typed with projected paths (ADR-0017),
+		// outranking the mcp__ prefix rule; unknown families keep its
+		// External posture.
+		if mcp, ok := planecontract.MatchMCPTool(p.ToolName); ok {
+			spec = planecontract.ToolSpec{NativeTool: p.ToolName, Tool: mcp.Tool, Capability: mcp.Capability}
+			known = true
+			isMCP = true
+			mcpPaths = projectMCPPaths(mcp, native.ToolInput)
+		}
+	}
 	if !known {
 		spec = planecontract.ToolSpec{NativeTool: p.ToolName, Tool: p.ToolName, Capability: policy.CapabilityUnknown}
 	}
@@ -71,7 +84,11 @@ func ParseClaude(r io.Reader) (engine.ToolCall, error) {
 		tc.InputShape = "command"
 	}
 	if tc.Capability == policy.CapabilityReadDiscovery || tc.Capability == policy.CapabilityMutation {
-		tc.Paths = claudeInputPaths(input)
+		if isMCP {
+			tc.Paths = mcpPaths
+		} else {
+			tc.Paths = claudeInputPaths(input)
+		}
 		tc.InputShape = "path"
 	}
 	if tc.Capability == policy.CapabilityWebFetch {

@@ -1,0 +1,1 @@
+{"session_id":"s1","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"ArtifactData","tool_input":{"action":"write_db","url":"https://claude.ai/code/artifact/abc","rows":[{"k":"v"}]}}

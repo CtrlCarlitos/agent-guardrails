@@ -53,6 +53,9 @@ func TestParseClaudeClassifiesCapabilityInputs(t *testing.T) {
 		{"powershell", "PowerShell", `{"command":"Remove-Item safe.txt"}`, policy.CapabilityCommand, "", ""},
 		{"glob", "Glob", `{"pattern":"**/*.go","path":"/repo"}`, policy.CapabilityReadDiscovery, "/repo", ""},
 		{"notebook", "NotebookEdit", `{"notebook_path":"/repo/a.ipynb"}`, policy.CapabilityMutation, "/repo/a.ipynb", ""},
+		{"notebook read", "NotebookRead", `{"notebook_path":"/repo/a.ipynb","cell_id":"c1"}`, policy.CapabilityReadDiscovery, "/repo/a.ipynb", ""},
+		{"artifact comments", "ArtifactComments", `{"url":"https://claude.ai/artifact/x"}`, policy.CapabilityExternal, "", ""},
+		{"kill shell", "KillShell", `{"shell_id":"s1"}`, policy.CapabilitySafeControl, "", ""},
 		{"fetch", "WebFetch", `{"url":"https://example.test/docs"}`, policy.CapabilityWebFetch, "", "https://example.test/docs"},
 		{"search", "WebSearch", `{"query":"guardrails"}`, policy.CapabilityWebSearch, "", ""},
 		{"mcp", "mcp__server__unsafe", `{}`, policy.CapabilityExternal, "", ""},
@@ -224,5 +227,51 @@ func TestPlaneLifecycleLineSanitizesState(t *testing.T) {
 	got := PlaneLifecycleLine("claude", "unreadable: forged\nline\x7f", 0)
 	if strings.Contains(got, "\n") || strings.Contains(got, "\x7f") {
 		t.Fatalf("state was not sanitized: %q", got)
+	}
+}
+
+// Known MCP families are consulted before the mcp__ prefix rule (ADR-0017):
+// a serena mutator carries a real capability and projects its relative_path,
+// so a secret-tier target reaches the Engine's path policy as a Deny rather
+// than the prefix rule's Ask.
+func TestParseClaudeTypesKnownMCPWithProjectedPaths(t *testing.T) {
+	raw := `{"session_id":"s1","cwd":"/repo","hook_event_name":"PreToolUse","tool_name":"mcp__serena__replace_content","tool_input":{"relative_path":".env","content":"LEAKED=1"}}`
+	tc, err := ParseClaude(strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc.Capability != policy.CapabilityMutation || tc.InputShape != "path" || tc.Tool != "replace_content" {
+		t.Fatalf("ToolCall = %+v, want mutation/path/replace_content", tc)
+	}
+	if len(tc.Paths) != 1 || tc.Paths[0] != ".env" {
+		t.Fatalf("paths = %v, want projected relative_path", tc.Paths)
+	}
+}
+
+func TestParseClaudeMemoryMCPToolsProjectUnderMemoryStore(t *testing.T) {
+	raw := `{"session_id":"s1","cwd":"/repo","hook_event_name":"PreToolUse","tool_name":"mcp__serena__write_memory","tool_input":{"memory_name":"core","content":"x"}}`
+	tc, err := ParseClaude(strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc.Capability != policy.CapabilityMutation || len(tc.Paths) != 1 || tc.Paths[0] != ".serena/memories/core" {
+		t.Fatalf("ToolCall = %+v, want mutation under the memory store", tc)
+	}
+}
+
+func TestParseClaudeSafeMCPControlAllowsAndUnknownFamilyStaysExternal(t *testing.T) {
+	safe, err := ParseClaude(strings.NewReader(`{"cwd":"/repo","hook_event_name":"PreToolUse","tool_name":"mcp__serena__list_memories","tool_input":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if safe.Capability != policy.CapabilitySafeControl {
+		t.Fatalf("list_memories = %q, want safe control", safe.Capability)
+	}
+	unknown, err := ParseClaude(strings.NewReader(`{"cwd":"/repo","hook_event_name":"PreToolUse","tool_name":"mcp__claude_ai_Gmail__authenticate","tool_input":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unknown.Capability != policy.CapabilityExternal || unknown.InputShape != "opaque-object" {
+		t.Fatalf("unknown family = %+v, want external/opaque", unknown)
 	}
 }

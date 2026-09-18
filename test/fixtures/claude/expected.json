@@ -4,6 +4,21 @@
     "exit": 0,
     "rule": "delegation-inherited"
   },
+  "artifact-check.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "capability-external"
+  },
+  "artifact-comments.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "capability-external"
+  },
+  "artifact-data.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "capability-external"
+  },
   "artifact.json": {
     "decision": "ask",
     "exit": 0,
@@ -27,6 +42,15 @@
     "decision": "allow",
     "exit": 0
   },
+  "bash-output.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "bash-printf-secret-in-text.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P4.secret-in-text"
+  },
   "bash-rm-rf.json": {
     "decision": "deny",
     "exit": 2,
@@ -38,6 +62,11 @@
     "rule": "P1.privesc"
   },
   "cron-create.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "capability-external"
+  },
+  "design-sync.json": {
     "decision": "ask",
     "exit": 0,
     "rule": "capability-external"
@@ -73,7 +102,16 @@
     "decision": "deny",
     "exit": 2
   },
+  "kill-shell.json": {
+    "decision": "allow",
+    "exit": 0
+  },
   "mcp-tool.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "capability-input-missing"
+  },
+  "mcp-unknown-family.json": {
     "decision": "ask",
     "exit": 0,
     "rule": "capability-external"
@@ -93,6 +131,26 @@
     "exit": 0,
     "paths": [
       "/tmp/a.txt"
+    ]
+  },
+  "notebook-read-no-path.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "capability-input-missing"
+  },
+  "notebook-read-secret.json": {
+    "decision": "deny",
+    "exit": 2,
+    "paths": [
+      "/home/u/.ssh/notes.ipynb"
+    ],
+    "rule": "P4.secret-path"
+  },
+  "notebook-read.json": {
+    "decision": "allow",
+    "exit": 0,
+    "paths": [
+      "/tmp/n.ipynb"
     ]
   },
   "notebookedit-secret.json": {
@@ -122,6 +180,11 @@
     "exit": 2,
     "rule": "P4.secret-path"
   },
+  "read-mcp-resource-dir.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "capability-external"
+  },
   "read-ssh-key.json": {
     "decision": "deny",
     "exit": 2,
@@ -131,6 +194,33 @@
     "decision": "deny",
     "exit": 2,
     "rule": "capability-deny"
+  },
+  "serena-mcp-memory.json": {
+    "decision": "allow",
+    "exit": 0,
+    "paths": [
+      ".serena/memories/core"
+    ]
+  },
+  "serena-mcp-safe.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "serena-mcp-secret.json": {
+    "decision": "deny",
+    "exit": 2,
+    "paths": [
+      ".env"
+    ],
+    "rule": "P4.secret-path"
+  },
+  "sleep.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "structured-output.json": {
+    "decision": "allow",
+    "exit": 0
   },
   "task-legacy.json": {
     "decision": "allow",
@@ -145,6 +235,5 @@
   "write-claude-md.json": {
     "decision": "deny",
     "exit": 2
-  },
-  "bash-printf-secret-in-text.json": {"exit": 2, "decision": "deny", "rule": "P4.secret-in-text"}
+  }
 }

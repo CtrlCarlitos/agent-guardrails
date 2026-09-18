@@ -1,0 +1,1 @@
+{"session_id":"s1","cwd":"/tmp/repo","hook_event_name":"PreToolUse","tool_name":"mcp__serena__write_memory","tool_input":{"memory_name":"core","content":"x"}}
