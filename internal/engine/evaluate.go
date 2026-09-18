@@ -9,11 +9,6 @@ import (
 )
 
 func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
-	// Darwin temp-symlink divergence: CWD/RepoRoot may arrive in the
-	// /var/folders spelling while resolved paths come back /private/var/...
-	// Canonicalize once so every containment comparison shares one spelling.
-	tc.CWD = canonicalExistingPath(tc.CWD)
-	tc.RepoRoot = canonicalExistingPath(tc.RepoRoot)
 	defer func() {
 		if r := recover(); r != nil {
 			out = policy.Verdict{Decision: policy.Ask, RuleID: "panic-recovered",

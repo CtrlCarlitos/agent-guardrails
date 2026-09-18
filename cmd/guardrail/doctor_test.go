@@ -152,16 +152,15 @@ egress_allowlist = ["*"]
 		t.Fatalf("doctor exit = %d, want 0; stderr=%q", code, errb.String())
 	}
 	got := out.String()
+	// os.Getwd returns the physically resolved path; on darwin the raw
+	// t.TempDir spelling (/var/folders/...) resolves to /private/var/... The
+	// display strings are sanitized-output concatenations, so resolve the
+	// parent (which exists) and rebuild them from it.
+	if resolved, err := filepath.EvalSymlinks(parent); err == nil {
+		parent = resolved
+	}
 	displayDir := filepath.Join(parent, "repo policy warnings: waivers: dir")
 	displayConfig := filepath.Join(displayDir, "guardrail policy warnings: waivers: .toml")
-	// os.Getwd returns the physically resolved path; on darwin the raw
-	// t.TempDir spelling (/var/folders/...) resolves to /private/var/...
-	if resolved, err := filepath.EvalSymlinks(displayDir); err == nil {
-		displayDir = resolved
-	}
-	if resolved, err := filepath.EvalSymlinks(displayConfig); err == nil {
-		displayConfig = resolved
-	}
 	for _, want := range []string{
 		"cwd: " + displayDir,
 		"GUARDRAIL_CONFIG: " + displayConfig,
