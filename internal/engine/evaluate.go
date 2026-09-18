@@ -100,7 +100,7 @@ func validWebFetchURL(raw string) bool {
 // adapter as the parent. On such planes delegation inherits enforcement by
 // construction; every child call is still evaluated individually.
 func delegationInheritsEnforcement(plane string) bool {
-	return plane == "opencode" || plane == "claude"
+	return plane == "opencode" || plane == "claude" || plane == "antigravity"
 }
 
 func matchOverlayRules(tc ToolCall, pol *policy.Policy) *policy.Verdict {

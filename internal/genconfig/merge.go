@@ -395,7 +395,8 @@ func mergeHooks(dst, src map[string]any) {
 	for event, sv := range src {
 		sGroups, ok := toAnySlice(sv)
 		if !ok {
-			continue // non-array values (e.g. a named wrapper's "enabled" bool) are not groups
+			dst[event] = sv // update non-array values (e.g. named wrapper's "enabled" bool)
+			continue
 		}
 		dGroups, _ := toAnySlice(dst[event])
 
@@ -471,9 +472,9 @@ func unmarkedGuardrailGroup(group any) bool {
 	return err == nil && guardrailHookCommand.MatchString(string(raw))
 }
 
-// guardrailHookCommand matches "<anything>guardrail<non-space-suffix> hook claude"
+// guardrailHookCommand matches "<anything>guardrail<non-space-suffix> hook (claude|antigravity)"
 // in any of its binary forms: bare name, absolute path, .exe, or .test.
-var guardrailHookCommand = regexp.MustCompile(`guardrail\S* hook claude`)
+var guardrailHookCommand = regexp.MustCompile(`guardrail\S* hook (?:claude|antigravity)`)
 
 // CountUnmarkedGuardrailGroups counts legacy unmarked guardrail hook groups in
 // a Claude settings document; doctor and lifecycle reconciliation use it.
@@ -492,6 +493,35 @@ func CountUnmarkedGuardrailGroups(doc map[string]any) int {
 			if unmarkedGuardrailGroup(g) {
 				n++
 			}
+		}
+	}
+	return n
+}
+
+// CountUnmarkedAntigravityGroups counts legacy unmarked guardrail hook groups in
+// an Antigravity hooks.json document; doctor and lifecycle reconciliation use it.
+func CountUnmarkedAntigravityGroups(doc map[string]any) int {
+	n := 0
+	checkGroupSlice := func(v any) {
+		groups, ok := toAnySlice(v)
+		if !ok {
+			return
+		}
+		for _, g := range groups {
+			if unmarkedGuardrailGroup(g) {
+				n++
+			}
+		}
+	}
+
+	if guardrail, ok := doc["guardrail"].(map[string]any); ok {
+		for _, ev := range guardrail {
+			checkGroupSlice(ev)
+		}
+	}
+	if hooks, ok := doc["hooks"].(map[string]any); ok {
+		for _, ev := range hooks {
+			checkGroupSlice(ev)
 		}
 	}
 	return n

@@ -381,8 +381,50 @@ func planeIntegrationRegistered(plane string) bool {
 		}
 		return false
 	}
+	if plane == "antigravity" {
+		guardrail, ok := doc["guardrail"].(map[string]any)
+		if !ok {
+			return false
+		}
+		enabled, ok := guardrail["enabled"].(bool)
+		if !ok || !enabled {
+			return false
+		}
+		if antigravityHasHookGroups(guardrail) && !antigravityHooksHaveOwnedGroup(guardrail) {
+			return false
+		}
+		return genconfig.CountUnmarkedAntigravityGroups(doc) == 0
+	}
 	_, ok := doc["guardrail"]
 	return ok
+}
+
+func antigravityHasHookGroups(guardrail map[string]any) bool {
+	for _, ev := range guardrail {
+		if groups, ok := ev.([]any); ok && len(groups) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func antigravityHooksHaveOwnedGroup(guardrail map[string]any) bool {
+	for _, ev := range guardrail {
+		groups, ok := ev.([]any)
+		if !ok {
+			continue
+		}
+		for _, g := range groups {
+			m, ok := g.(map[string]any)
+			if !ok {
+				continue
+			}
+			if id, _ := m["id"].(string); strings.HasPrefix(id, "guardrail-") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // planeStatusState reports whether Guardrail's integration is registered in
@@ -406,7 +448,17 @@ func planeStatusState(plane string) string {
 		return fmt.Sprintf("unreadable: %v", err)
 	}
 	var doc map[string]any
-	if json.Unmarshal(raw, &doc) == nil && planeIntegrationRegistered(plane) {
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return fmt.Sprintf("unparseable (%v)", err)
+	}
+	if plane == "antigravity" {
+		if guardrail, ok := doc["guardrail"].(map[string]any); ok {
+			if enabled, ok := guardrail["enabled"].(bool); ok && !enabled {
+				return "present, disabled"
+			}
+		}
+	}
+	if planeIntegrationRegistered(plane) {
 		if plane == "codex" {
 			return "guardrail hooks registered; verify trust in /hooks; coverage limited (ADR-0014)"
 		}

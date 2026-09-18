@@ -114,7 +114,7 @@ audited enable command can restore only Guardrail-owned configuration.
 
 **Delegation inheritance**:
 A plane property: every tool call, subagents included, is mediated by that
-plane's Guardrail adapter. On such planes (OpenCode, Claude) delegation is
+plane's Guardrail adapter. On such planes (OpenCode, Claude, Antigravity) delegation is
 allowed because each child call is still evaluated; other planes deny
 delegation with proceed-inline guidance. See ADR-0013.
 

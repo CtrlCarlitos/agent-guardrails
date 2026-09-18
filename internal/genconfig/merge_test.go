@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -229,6 +230,112 @@ func TestRemovePlaneFromAntigravityRemovesGuardrailSection(t *testing.T) {
 	}
 	if got["user"].(map[string]any)["hook"] != "keep" {
 		t.Fatalf("unrelated configuration changed: %v", got)
+	}
+}
+
+func TestCountUnmarkedAntigravityGroups(t *testing.T) {
+	doc := map[string]any{
+		"guardrail": map[string]any{
+			"enabled": true,
+			"PreToolUse": []any{
+				map[string]any{
+					"id":      "guardrail-antigravity-pre",
+					"matcher": "*",
+					"hooks":   []any{map[string]any{"command": "guardrail hook antigravity pre"}},
+				},
+				map[string]any{
+					"matcher": "*",
+					"hooks":   []any{map[string]any{"command": "/home/user/.local/bin/guardrail hook antigravity pre"}},
+				},
+			},
+			"PostToolUse": []any{
+				map[string]any{
+					"matcher": "write_to_file",
+					"hooks":   []any{map[string]any{"command": "guardrail hook antigravity post"}},
+				},
+			},
+		},
+		"user": map[string]any{
+			"hooks": []any{
+				map[string]any{"command": "echo hello"},
+			},
+		},
+	}
+	if n := CountUnmarkedAntigravityGroups(doc); n != 2 {
+		t.Fatalf("CountUnmarkedAntigravityGroups = %d, want 2", n)
+	}
+}
+
+func TestMergePlaneIntoAntigravityAbsorbsUnmarkedLegacyHooks(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "hooks.json")
+	existing := `{
+  "guardrail": {
+    "enabled": true,
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [{"command": "/old/guardrail hook antigravity pre", "type": "command"}]
+      },
+      {
+        "matcher": "*",
+        "hooks": [{"command": "my-custom-hook", "type": "command"}]
+      }
+    ]
+  }
+}`
+	if err := os.WriteFile(p, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	frag := AntigravityConfig("/new/guardrail")
+	if err := MergePlaneInto(p, "antigravity", frag); err != nil {
+		t.Fatal(err)
+	}
+
+	m := readJSON(t, p)
+	if n := CountUnmarkedAntigravityGroups(m); n != 0 {
+		t.Fatalf("CountUnmarkedAntigravityGroups after merge = %d, want 0", n)
+	}
+	pre := m["guardrail"].(map[string]any)["PreToolUse"].([]any)
+	if len(pre) != 2 {
+		t.Fatalf("PreToolUse len = %d, want 2 (custom hook + marked hook): %v", len(pre), pre)
+	}
+	hasMarked, hasCustom := false, false
+	for _, raw := range pre {
+		group := raw.(map[string]any)
+		if id, _ := group["id"].(string); id == "guardrail-antigravity-pre" {
+			hasMarked = true
+		}
+		rawJSON, _ := json.Marshal(group)
+		if strings.Contains(string(rawJSON), "my-custom-hook") {
+			hasCustom = true
+		}
+	}
+	if !hasMarked || !hasCustom {
+		t.Fatalf("missing marked or custom hook in PreToolUse: %v", pre)
+	}
+}
+
+func TestMergePlaneIntoAntigravityReenablesDisabledConfig(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "hooks.json")
+	existing := `{"guardrail":{"enabled":false,"PreToolUse":[]}}`
+	if err := os.WriteFile(p, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	frag := AntigravityConfig("/opt/guardrail")
+	if err := MergePlaneInto(p, "antigravity", frag); err != nil {
+		t.Fatal(err)
+	}
+
+	m := readJSON(t, p)
+	guardrail, ok := m["guardrail"].(map[string]any)
+	if !ok {
+		t.Fatalf("guardrail section missing: %v", m)
+	}
+	enabled, ok := guardrail["enabled"].(bool)
+	if !ok || !enabled {
+		t.Fatalf("guardrail.enabled = %v, want true", guardrail["enabled"])
 	}
 }
 

@@ -112,6 +112,28 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 				}
 			}
 		}
+		agPath := filepath.Join(home, ".gemini", "config", "hooks.json")
+		if raw, err := os.ReadFile(agPath); err == nil {
+			var doc map[string]any
+			if err := json.Unmarshal(raw, &doc); err != nil {
+				fmt.Fprintf(stdout, "  WARNING: Antigravity has no declarative floor (ADR-0008); hooks.json is unparseable so Antigravity runs completely unguarded. Run `guardrail plane enable antigravity`.\n")
+			} else {
+				if guardrail, ok := doc["guardrail"].(map[string]any); ok {
+					if enabled, ok := guardrail["enabled"].(bool); ok && !enabled {
+						fmt.Fprintf(stdout, "  WARNING: Antigravity has no declarative floor (ADR-0008); guardrail is disabled in hooks.json so Antigravity runs completely unguarded. Run `guardrail plane enable antigravity`.\n")
+					}
+				}
+				if n := genconfig.CountUnmarkedAntigravityGroups(doc); n > 0 {
+					plural := "entry"
+					if n > 1 {
+						plural = "entries"
+					}
+					fmt.Fprintf(stdout, "  WARNING: %d unmarked guardrail-like hook %s in hooks.json — legacy pre-marker entries. `guardrail plane enable antigravity` absorbs them; re-running the installer also will.\n", n, plural)
+				}
+			}
+		} else if errors.Is(err, fs.ErrNotExist) && planeInstalled("antigravity") {
+			fmt.Fprintf(stdout, "  WARNING: Antigravity has no declarative floor (ADR-0008); without hooks.json, Antigravity runs completely unguarded. Run `guardrail plane enable antigravity`.\n")
+		}
 	}
 	return 0
 }
