@@ -30,6 +30,10 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	switch opts.coverage {
+	case "codex":
+		if covCode := cmdDoctorCodexCoverage(args, stdout, stderr); covCode != 0 {
+			return covCode
+		}
 	case "claude":
 		if covCode := printClaudeCoverage(opts.bundle, stdout, stderr); covCode != 0 {
 			return covCode
@@ -43,6 +47,7 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 }
 
 type doctorOptions struct {
+	schema   string // captured Responses tool schema (codex)
 	coverage string // plane to inventory; "" means none
 	bundle   string // explicit bundle path; "" resolves the installed one (claude)
 	config   string // explicit mcp_config.json path; "" resolves default (antigravity)
@@ -55,7 +60,7 @@ func parseDoctorArgs(args []string, stderr io.Writer) (doctorOptions, bool) {
 		switch args[i] {
 		case "--coverage":
 			if i+1 >= len(args) {
-				fmt.Fprintln(stderr, "guardrail: doctor --coverage needs a plane (claude, antigravity)")
+				fmt.Fprintln(stderr, "guardrail: doctor --coverage needs a plane (claude, antigravity, codex)")
 				return opts, false
 			}
 			i++
@@ -74,6 +79,13 @@ func parseDoctorArgs(args []string, stderr io.Writer) (doctorOptions, bool) {
 			}
 			i++
 			opts.config = args[i]
+		case "--schema":
+			if i+1 >= len(args) {
+				fmt.Fprintln(stderr, "guardrail: doctor --schema needs a path")
+				return opts, false
+			}
+			i++
+			opts.schema = args[i]
 		case "--schemas":
 			if i+1 >= len(args) {
 				fmt.Fprintln(stderr, "guardrail: doctor --schemas needs a path")
@@ -86,6 +98,14 @@ func parseDoctorArgs(args []string, stderr io.Writer) (doctorOptions, bool) {
 			return opts, false
 		}
 	}
+	if opts.schema != "" && opts.coverage != "codex" {
+		fmt.Fprintln(stderr, "guardrail: doctor --schema only applies with --coverage codex")
+		return opts, false
+	}
+	if opts.coverage == "codex" && opts.schema == "" {
+		fmt.Fprintln(stderr, "guardrail: doctor --coverage codex requires --schema <Responses-tools.json>")
+		return opts, false
+	}
 	if opts.bundle != "" && opts.coverage != "claude" {
 		fmt.Fprintln(stderr, "guardrail: doctor --bundle only applies with --coverage claude")
 		return opts, false
@@ -94,8 +114,8 @@ func parseDoctorArgs(args []string, stderr io.Writer) (doctorOptions, bool) {
 		fmt.Fprintln(stderr, "guardrail: doctor --config and --schemas only apply with --coverage antigravity")
 		return opts, false
 	}
-	if opts.coverage != "" && opts.coverage != "claude" && opts.coverage != "antigravity" {
-		fmt.Fprintf(stderr, "guardrail: doctor --coverage supports claude, antigravity (got %q)\n", safetext.SingleLine(opts.coverage))
+	if opts.coverage != "" && opts.coverage != "claude" && opts.coverage != "antigravity" && opts.coverage != "codex" {
+		fmt.Fprintf(stderr, "guardrail: doctor --coverage supports claude, antigravity, codex (got %q)\n", safetext.SingleLine(opts.coverage))
 		return opts, false
 	}
 	return opts, true

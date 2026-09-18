@@ -1,0 +1,87 @@
+[
+  {
+    "type": "function",
+    "name": "exec_command",
+    "parameters": {}
+  },
+  {
+    "type": "function",
+    "name": "write_stdin",
+    "parameters": {}
+  },
+  {
+    "type": "function",
+    "name": "list_mcp_resources",
+    "parameters": {}
+  },
+  {
+    "type": "function",
+    "name": "list_mcp_resource_templates",
+    "parameters": {}
+  },
+  {
+    "type": "function",
+    "name": "read_mcp_resource",
+    "parameters": {}
+  },
+  {
+    "type": "function",
+    "name": "request_user_input",
+    "parameters": {}
+  },
+  {
+    "type": "custom",
+    "name": "apply_patch",
+    "format": {}
+  },
+  {
+    "type": "function",
+    "name": "view_image",
+    "parameters": {}
+  },
+  {
+    "type": "namespace",
+    "name": "multi_agent_v1",
+    "tools": [
+      {
+        "type": "function",
+        "name": "close_agent",
+        "parameters": {}
+      },
+      {
+        "type": "function",
+        "name": "resume_agent",
+        "parameters": {}
+      },
+      {
+        "type": "function",
+        "name": "send_input",
+        "parameters": {}
+      },
+      {
+        "type": "function",
+        "name": "spawn_agent",
+        "parameters": {}
+      },
+      {
+        "type": "function",
+        "name": "wait_agent",
+        "parameters": {}
+      }
+    ]
+  },
+  {
+    "type": "namespace",
+    "name": "mcp__fixture",
+    "tools": [
+      {
+        "type": "function",
+        "name": "read",
+        "parameters": {}
+      }
+    ]
+  },
+  {
+    "type": "web_search"
+  }
+]
