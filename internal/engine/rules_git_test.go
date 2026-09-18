@@ -1115,3 +1115,48 @@ func TestGitReadOnlyStillAllowed(t *testing.T) {
 		}
 	}
 }
+
+func TestDiscoverGitDirectoryStopsAtTempRootBoundary(t *testing.T) {
+	fakeRoot := t.TempDir()
+	// Stray repository AT the temp root itself.
+	if err := os.MkdirAll(filepath.Join(fakeRoot, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	work := filepath.Join(fakeRoot, "proj", "dynamic")
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Discovery from a strict descendant must not claim the root's stray repo.
+	if gitDir, ok := discoverGitDirectoryWithRoots(work, []string{fakeRoot}); ok {
+		t.Fatalf("discovered %q from below the temp-root boundary; want none", gitDir)
+	}
+
+	// A repository owned by the working directory itself is still discovered.
+	if err := os.MkdirAll(filepath.Join(work, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if gitDir, ok := discoverGitDirectoryWithRoots(work, []string{fakeRoot}); !ok || filepath.Dir(gitDir) != work {
+		t.Fatalf("own repository not discovered: %q ok=%v", gitDir, ok)
+	}
+}
+
+func TestDiscoverGitDirectoryUnaffectedOutsideTempRoots(t *testing.T) {
+	base := t.TempDir()
+	outer := filepath.Join(base, "repo")
+	if err := os.MkdirAll(filepath.Join(outer, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inner := filepath.Join(outer, "sub")
+	if err := os.MkdirAll(inner, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeRoot := filepath.Join(base, "unrelated-root")
+	if err := os.MkdirAll(fakeRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Walking up from a non-temp path must still find the enclosing repository.
+	if gitDir, ok := discoverGitDirectoryWithRoots(inner, []string{fakeRoot}); !ok || filepath.Dir(gitDir) != outer {
+		t.Fatalf("enclosing repository not discovered: %q ok=%v", gitDir, ok)
+	}
+}

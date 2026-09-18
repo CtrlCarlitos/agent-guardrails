@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -48,15 +49,53 @@ func FindOverlayPath(cwd string) (path string, ok bool, warn string) {
 }
 
 func FindRepoRoot(cwd string) (string, bool) {
+	return findRepoRootWithCeilings(cwd, systemTempRoots())
+}
+
+// findRepoRootWithCeilings resolves the repository enclosing cwd. Discovery
+// ceilings stop git's upward walk at the System temp root boundary so a stray
+// repository at the root itself cannot capture resolution for strict
+// descendants (the /tmp/.git lesson).
+func findRepoRootWithCeilings(cwd string, ceilings []string) (string, bool) {
 	if cwd == "" {
 		return "", false
 	}
-	out, err := exec.Command("git", "-C", cwd, "rev-parse", "--show-toplevel").Output()
+	cmd := exec.Command("git", "-C", cwd, "rev-parse", "--show-toplevel")
+	if len(ceilings) > 0 {
+		cmd.Env = append(os.Environ(), "GIT_CEILING_DIRECTORIES="+strings.Join(ceilings, string(os.PathListSeparator)))
+	}
+	out, err := cmd.Output()
 	if err != nil {
 		return "", false
 	}
 	root := strings.TrimSpace(string(out))
 	return root, root != ""
+}
+
+// systemTempRoots mirrors the engine's System temp root set: the platform
+// temp dir plus the Unix conventional roots, filtered to existing absolute
+// directories that are not filesystem roots themselves.
+func systemTempRoots() []string {
+	candidates := []string{os.TempDir()}
+	if runtime.GOOS != "windows" {
+		candidates = append(candidates, "/tmp", "/var/tmp")
+	}
+	seen := make(map[string]bool, len(candidates))
+	roots := make([]string, 0, len(candidates))
+	for _, root := range candidates {
+		root = filepath.Clean(root)
+		volumeRoot := filepath.VolumeName(root) + string(filepath.Separator)
+		if !filepath.IsAbs(root) || root == volumeRoot || seen[root] {
+			continue
+		}
+		info, err := os.Stat(root)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		seen[root] = true
+		roots = append(roots, root)
+	}
+	return roots
 }
 
 func LoadOverlay(pth string) (*Overlay, error) {

@@ -345,3 +345,23 @@ func TestLoadOverlayPreservesReadErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestFindRepoRootStopsAtTempRootBoundary(t *testing.T) {
+	base := t.TempDir()
+	// A REAL stray repository at the fake temp root.
+	if err := exec.Command("git", "-C", base, "init", "-q").Run(); err != nil {
+		t.Skipf("git unavailable: %v", err)
+	}
+	work := filepath.Join(base, "proj", "dynamic")
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if root, ok := findRepoRootWithCeilings(work, []string{base}); ok {
+		t.Fatalf("repo root %q discovered across the temp-root boundary; want none", root)
+	}
+	// Without the ceiling, discovery would find the stray root — proving the ceiling matters.
+	if root, ok := findRepoRootWithCeilings(work, nil); !ok || root != base {
+		t.Fatalf("control case: discovery = %q ok=%v, want the stray root", root, ok)
+	}
+}
