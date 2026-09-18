@@ -55,3 +55,31 @@ func TestSimRepoRelativeToleratesSpelling(t *testing.T) {
 		t.Fatalf("repoRelative(%q, root=%q) not inside", resolvedAlias, root)
 	}
 }
+
+// Git can report the physical repository root while a native tool still uses
+// its symlinked spelling. A secret allowance must not hide an actual escape.
+func TestSymlinkEscapeWithPhysicalRootAndAliasedCandidate(t *testing.T) {
+	alias := symlinkedTempTree(t)
+	physical, err := filepath.EvalSymlinks(alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "note.txt"), []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(alias, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	pol := fullPol()
+	pol.Slots.SecretAllow = []string{"**/note.txt"}
+	for _, roots := range [][2]string{{alias, physical}, {physical, alias}} {
+		for _, file := range []string{"note.txt", "not-created-yet.txt"} {
+			tc := ToolCall{Tool: "Write", Paths: []string{filepath.Join(roots[0], "escape", file)}, CWD: roots[0], RepoRoot: roots[1]}
+			v := Evaluate(tc, pol)
+			if v.Decision != policy.Deny || v.RuleID != "P4.symlink-escape" {
+				t.Fatalf("candidate %q root %q: %+v, want deny/P4.symlink-escape", tc.Paths[0], tc.RepoRoot, v)
+			}
+		}
+	}
+}

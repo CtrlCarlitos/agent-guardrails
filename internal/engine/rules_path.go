@@ -1043,41 +1043,28 @@ func matchesScoped(c pathCandidate, anywhere, rootOnly []string) bool {
 
 func checkSymlinkEscape(candidate pathCandidate, tc ToolCall) *policy.Verdict {
 	cand := strings.TrimPrefix(strings.TrimPrefix(candidate.path, "~/"), "~")
-	if candidate.cwdUnknown && !filepath.IsAbs(cand) {
-		return nil
-	}
-	// Only guard paths that claim to be inside the repo. The claim must
-	// survive spelling divergence: darwin temp trees mean the candidate may
-	// arrive in the /var/folders spelling while the canonical repo root is
-	// /private/var/... (or the reverse), so accept either spelling on both
-	// sides rather than a single lexical prefix.
-	rootRaw := filepath.Clean(tc.RepoRoot)
-	rootCanon := canonicalExistingPath(rootRaw)
-	insideSpelling := func(p string) bool {
-		p = filepath.Clean(p)
-		if p == rootRaw || strings.HasPrefix(p, rootRaw+string(filepath.Separator)) {
-			return true
-		}
-		return rootCanon != rootRaw && (p == rootCanon || strings.HasPrefix(p, rootCanon+string(filepath.Separator)))
-	}
-	if tc.RepoRoot == "" {
-		return nil
-	}
-	if filepath.IsAbs(cand) && !insideSpelling(cand) {
+	if tc.RepoRoot == "" || candidate.cwdUnknown && !filepath.IsAbs(cand) {
 		return nil
 	}
 	abs := cand
 	if !filepath.IsAbs(abs) {
 		abs = filepath.Join(candidate.cwd, cand)
 	}
-	if !insideSpelling(abs) {
+	// Walk candidate ancestors by file identity to recognize the repository
+	// boundary even when Git and the tool use different spellings of it.
+	// Do not resolve the whole candidate before establishing that boundary:
+	// doing so would erase the evidence of a symlink escaping from inside it.
+	claim := pathRelationBetween(abs, tc.RepoRoot)
+	if !claim.equal && !claim.within {
 		return nil
 	}
-	resolved, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return nil // nonexistent target: nothing to resolve yet
+	resolved, pathOK := resolveExistingPath(abs, "")
+	root, rootOK := resolveExistingPath(tc.RepoRoot, "")
+	if !pathOK || !rootOK {
+		return nil
 	}
-	if !insideSpelling(resolved) {
+	physical := pathRelationBetween(resolved, root)
+	if !physical.equal && !physical.within {
 		return &policy.Verdict{Decision: policy.Deny, RuleID: "P4.symlink-escape",
 			Reason: "a path inside the repo resolves outside it via symlink: " + cand}
 	}

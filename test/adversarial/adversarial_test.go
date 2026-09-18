@@ -558,7 +558,11 @@ func createFixtureSymlink(fixtureRoot, repo string, symlink fixtureSymlink) erro
 	if err != nil {
 		return fmt.Errorf("resolve fixture symlink target %q: %w", symlink.Target, err)
 	}
-	if rel, err := filepath.Rel(fixtureRoot, resolvedTarget); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	physicalFixtureRoot, err := filepath.EvalSymlinks(fixtureRoot)
+	if err != nil {
+		return fmt.Errorf("resolve fixture root: %w", err)
+	}
+	if rel, err := filepath.Rel(physicalFixtureRoot, resolvedTarget); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("fixture symlink target %q resolves outside fixture root", symlink.Target)
 	}
 	return os.Symlink(filepath.FromSlash(symlink.Target), path)
@@ -585,7 +589,10 @@ func materializeRepo(t *testing.T, e entry) (string, string) {
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		t.Fatalf("cwd %q must be inside repo_root %q", e.CWD, e.RepoRoot)
 	}
-	fixtureRoot := t.TempDir()
+	fixtureRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	repo := filepath.Join(fixtureRoot, "repo")
 	if err := os.MkdirAll(repo, 0o700); err != nil {
 		t.Fatal(err)
@@ -621,6 +628,15 @@ func materializeRepo(t *testing.T, e entry) (string, string) {
 		return cwd, repo
 	}
 	alias := filepath.Join(fixtureRoot, filepath.Base(filepath.FromSlash(e.RepoAlias)))
+	// On a case-insensitive filesystem the alternate spelling already names
+	// the same directory; creating a second directory entry would fail.
+	if aliasInfo, err := os.Stat(alias); err == nil {
+		repoInfo, err := os.Stat(repo)
+		if err != nil || !os.SameFile(aliasInfo, repoInfo) {
+			t.Fatalf("case-variant alias names a different fixture: %q", alias)
+		}
+		return cwd, alias
+	}
 	if err := os.Symlink(repo, alias); err != nil {
 		if symlinkCapabilityUnavailable(err) {
 			t.Skipf("case-variant repository alias unavailable: %v", err)
@@ -649,8 +665,10 @@ func TestMaterializeRepoSupportsCaseVariantAlias(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cwd != resolved || filepath.Base(resolved) != "repo" {
-		t.Fatalf("materialized cwd = %q, alias resolves to %q; want cwd at real repo", cwd, resolved)
+	cwdInfo, cwdErr := os.Stat(cwd)
+	resolvedInfo, resolvedErr := os.Stat(resolved)
+	if cwdErr != nil || resolvedErr != nil || !os.SameFile(cwdInfo, resolvedInfo) {
+		t.Fatalf("materialized cwd = %q, alias resolves to %q; want the same directory", cwd, resolved)
 	}
 }
 

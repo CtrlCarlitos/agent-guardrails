@@ -8,17 +8,15 @@ import (
 	"testing"
 )
 
-// wantEither accepts the raw or the physically resolved spelling of an
-// expected path (darwin temp trees resolve /var -> /private/var).
-func wantEither(t *testing.T, got, want string) {
+// physicalFixture resolves a known-existing fixture independently of the
+// resolver under test. Tests append missing suffixes only after this lookup.
+func physicalFixture(t *testing.T, path string) string {
 	t.Helper()
-	if got == want {
-		return
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if resolved, err := filepath.EvalSymlinks(want); err == nil && got == resolved {
-		return
-	}
-	t.Fatalf("got %q, want %q (or its resolved spelling)", got, want)
+	return resolved
 }
 
 func TestResolveThroughExistingAncestorMissingSuffixes(t *testing.T) {
@@ -73,7 +71,9 @@ func TestEvalSymlinksFollowsSymlinkBeforeDotDot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantEither(t, got, target)
+	if want := physicalFixture(t, target); got != want {
+		t.Fatalf("resolved path = %q, want %q", got, want)
+	}
 }
 
 func TestResolveThroughExistingAncestorSymlinkParent(t *testing.T) {
@@ -90,7 +90,9 @@ func TestResolveThroughExistingAncestorSymlinkParent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantEither(t, got, filepath.Join(targetDir, "future"))
+	if want := filepath.Join(physicalFixture(t, targetDir), "future"); got != want {
+		t.Fatalf("resolved path = %q, want %q", got, want)
+	}
 }
 
 func TestResolveThroughExistingAncestorPreservesSymlinkDotDotOrder(t *testing.T) {
@@ -112,7 +114,9 @@ func TestResolveThroughExistingAncestorPreservesSymlinkDotDotOrder(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantEither(t, got, filepath.Join(targetParent, "future.txt"))
+	if want := filepath.Join(physicalFixture(t, targetParent), "future.txt"); got != want {
+		t.Fatalf("resolved path = %q, want %q", got, want)
+	}
 }
 
 func TestResolveThroughExistingAncestorExistingBenignTarget(t *testing.T) {
@@ -125,7 +129,9 @@ func TestResolveThroughExistingAncestorExistingBenignTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantEither(t, got, target)
+	if want := physicalFixture(t, target); got != want {
+		t.Fatalf("resolved path = %q, want %q", got, want)
+	}
 }
 
 func TestResolveThroughExistingAncestorRootAndRelativePath(t *testing.T) {
