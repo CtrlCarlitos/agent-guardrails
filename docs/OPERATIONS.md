@@ -19,19 +19,19 @@ recognise. If all three are clean, the problem is not Guardrail.
 
 | You see | Run | Why |
 |---|---|---|
-| Agent says it was blocked and you don't know why | `guardrail audit` then `grep '"decision":"deny"' ~/.local/state/guardrail/audit.jsonl \| tail -5` | Every verdict is a JSONL record with `rule_id` and `reason` |
+| Agent says it was blocked and you don't know why | `guardrail audit` then `grep '"decision":"deny"' ~/.local/state/guardrail/audit.jsonl \| grep -v selftest \| tail -5` | Every verdict is a JSONL record with `rule_id` and `reason`. Selftest writes deny probes to the same log on every update — filter them out or you will be reading the last selftest. |
 | doctor: `N unmarked guardrail-like hook entries in settings.json` | `guardrail plane enable claude` | Legacy pre-marker hook groups; enable absorbs them (ADR-0004). Passkey. |
 | doctor: `present, hook NOT registered` / `no settings.json` | `guardrail plane enable <plane>` (or `--all`) | Re-registers the integration and merges the declarative floor. Passkey. |
 | Claude session posture: `Claude plane lifecycle: … drift` or `permissions floor drifted` | `guardrail plane enable claude` | A release changed the floor; enable re-merges idempotently |
 | Claude session posture: `claude coverage: Claude Code X — N uncontracted tool(s)` | `guardrail doctor --coverage claude` | Claude Code shipped a tool the contract doesn't know; it is **allow-by-default** until contracted. Open an issue with the doctor output. |
 | Claude session posture: `guardrail vX … run guardrail selftest` | `guardrail selftest` | Nothing has proven this release's enforcement on this machine yet. A pass records it and the line goes away. |
 | settings.json / opencode.json / hooks.json corrupt or hand-edited | `guardrail recover claude-settings` (or `opencode-config`, `antigravity-hooks`) | Repairs Guardrail-protected machinery from a known-good shape. Passkey. Never edit these files by hand — sessions are P5-denied from doing so and so should you be. |
-| An agent is waiting on an approval you never saw | `guardrail approvals list` then `guardrail approvals approve <id>` | Requests expire in 5 minutes; `approve` re-opens the ceremony and waits. `no approval daemon is running` means nothing is pending. |
+| An agent is waiting on an approval you never saw | `guardrail approvals list` then `guardrail approvals approve <id>` | Lists `<id>  <action>  expires <time>`; `approve` re-opens the ceremony and waits. `no approval daemon is running` means nothing is pending. |
 | Approval page never opened / daemon looks stuck | `guardrail approvals list`; if that hangs, kill the `guardrail approvals daemon` process — the next request re-spawns it from the installed binary | The daemon is spawned on demand and shut down by every `update`, so it can never outlive a release |
 | `guardrail update` says `release assets may still be publishing; retry in a minute` | wait 60 s, run it again | You raced the release uploader; nothing was changed |
 | `update` printed `selftest failed on the new binary` | `guardrail selftest` (read the FAILED lines) then `guardrail update <previous version>` | The new release drifted on a probe. Roll back with the same command; it is checksum-verified either way |
 | Agent needs a website | agent runs `guardrail egress grant --scope repo --host a.example.com,b.example.com` inside its session → you approve with passkey; or you run the same at a terminal (immediate, no passkey) | Grants live in `~/.config/guardrail/waivers.toml` plus the repo's `guardrail.toml`; **both** must agree. Native WebFetch is always denied; `guardrail fetch <url>` is the sanctioned path |
-| Too many asks tonight | `guardrail night on --for 8h` (terminal only) | Relaxes routine asks to allow until then. External-tier asks (publishing, schedulers, unknown MCP) are never relaxed (ADR-0018). `guardrail night off` restores. |
+| Too many asks tonight | `guardrail night on --for 8h` (terminal only) | Relaxes routine asks to allow until then. External-tier asks (publishing, schedulers, unknown MCP) are never relaxed (ADR-0018). `guardrail night off` restores. `guardrail night status` works from anywhere and exits 1 when inactive — a state, not a failure. |
 
 ## Things that look like bugs and aren't
 
@@ -42,15 +42,17 @@ recognise. If all three are clean, the problem is not Guardrail.
 - **A python heredoc that merely mentions the night control is denied** for the same reason.
 - **Re-running an approved `egress grant` says "already authorized"** instead of asking again — the broker applied it the moment you approved; the command is never re-run.
 - **`guardrail night on` / `off` from inside a session is denied**, and so is anything longer than the exact three-word `guardrail night status` (which is read-only and allowed). Changing the posture is an operator action: run on/off from a terminal.
+- **`git push --delete <branch>` asks** (`P2.git-push-delete`) even for an unprotected branch, and any command that reaches a policy position through a shell variable asks (`P3.unresolved`). Both are the intended fail-closed shape: spell the names out and answer the prompt.
 - **`plane enable` says `already enabled`** and a session still reports floor drift → the installed release predates the floor-drift check (#33); `guardrail update` to current.
 
 ## What a healthy update looks like
 
-Captured from v0.20.20 → v0.20.21 (the first update run by a binary with #58):
+Captured from v0.20.26 → v0.20.27. Probe counts grow with each release; the two
+tells are the doctor header naming the **new** release and the final line.
 
 ```
-guardrail updated to v0.20.21-dev at /home/you/.local/bin/guardrail
-guardrail v0.20.21-dev            ← doctor header names the NEW release
+guardrail updated to v0.20.27-dev at /home/you/.local/bin/guardrail
+guardrail v0.20.27-dev            ← doctor header names the NEW release
 cwd: …
 overlay: none
 policy warnings: none
@@ -63,8 +65,9 @@ codex settings: guardrail hooks registered; …
 antigravity settings: guardrail integration registered
 claude: probes pass (7)
 opencode: probes pass (3)
-antigravity: probes pass (2)
+antigravity: probes pass (7)
 codex: probes pass (2)
+note: codex probes invoke the hook directly; live runtime mediation is evidenced by audit records
 selftest: all probes passed
 ```
 
@@ -81,6 +84,7 @@ run `guardrail selftest` once by hand.
 | Operator config (grants, waivers, night marker) | `~/.config/guardrail/` — `waivers.toml`, `night.toml` |
 | Audit log (rotates at 20 MB, 3 segments) | `~/.local/state/guardrail/audit.jsonl` |
 | Session state, coverage cache, selftest marker | `~/.local/state/guardrail/{sessions,coverage,selftest-passed}` |
+| Approval broker socket (on demand; dies with `update`) | `~/.local/state/guardrail/approval/broker.sock` |
 | Repo overlay | `<repo>/guardrail.toml` — requests; only operator config grants |
 | Claude hooks + floor | `~/.claude/settings.json` (owned groups carry `id: guardrail-*`) |
 
