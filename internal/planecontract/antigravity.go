@@ -59,3 +59,16 @@ func AntigravityTool(nativeTool string) (ToolSpec, bool) {
 func AntigravityPreHookMatcher() string { return "*" }
 
 func AntigravityPreMatcherMatches(string) bool { return true }
+
+func AntigravityPostHookMatcher() string {
+	return "write_to_file|replace_file_content|multi_replace_file_content|notebook_edit|sed_file|delete_knowledge"
+}
+
+func AntigravityPostMatcherMatches(nativeTool string) bool {
+	switch nativeTool {
+	case "write_to_file", "replace_file_content", "multi_replace_file_content", "notebook_edit", "sed_file", "delete_knowledge":
+		return true
+	default:
+		return false
+	}
+}
