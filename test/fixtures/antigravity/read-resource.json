@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"read_resource","args":{"ServerName":"serena","Uri":"mem://1"}}}

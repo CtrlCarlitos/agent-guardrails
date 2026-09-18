@@ -73,6 +73,63 @@
   },
   "schedule-ambiguous.json": {
     "decision": "force_ask"
+  },
+  "call-mcp-tool.json": {
+    "decision": "deny"
+  },
+  "send-command-input.json": {
+    "decision": "deny"
+  },
+  "tool-caller.json": {
+    "decision": "deny"
+  },
+  "notebook-edit.json": {
+    "decision": "allow"
+  },
+  "notebook-edit-secret.json": {
+    "decision": "deny"
+  },
+  "sed-file.json": {
+    "decision": "allow"
+  },
+  "sed-file-secret.json": {
+    "decision": "deny"
+  },
+  "delete-knowledge.json": {
+    "decision": "allow"
+  },
+  "notebook-execution.json": {
+    "decision": "allow"
+  },
+  "list-resources.json": {
+    "decision": "force_ask"
+  },
+  "read-resource.json": {
+    "decision": "force_ask"
+  },
+  "command-status.json": {
+    "decision": "allow"
+  },
+  "manage-inbox.json": {
+    "decision": "allow"
+  },
+  "ask-custom-permission.json": {
+    "decision": "allow"
+  },
+  "finish.json": {
+    "decision": "allow"
+  },
+  "wait.json": {
+    "decision": "allow"
+  },
+  "wait-five-seconds.json": {
+    "decision": "allow"
+  },
+  "serena-mcp-safe.json": {
+    "decision": "allow"
+  },
+  "serena-mcp-secret.json": {
+    "decision": "deny"
   }
 }
 

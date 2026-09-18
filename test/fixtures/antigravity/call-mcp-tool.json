@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"call_mcp_tool","args":{"ServerName":"serena","ToolName":"replace_content"}}}

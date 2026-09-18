@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"send_command_input","args":{"Input":"yes\n"}}}

@@ -55,6 +55,34 @@ func allowedFields(fields ...string) map[string]struct{} {
 }
 
 func documentedAntigravityPaths(tool string, input map[string]any) ([]string, error) {
+	if tool == "multi_replace_file_content" {
+		return extractMultiReplacePaths(input)
+	}
+
+	switch tool {
+	case "notebook_edit":
+		for _, key := range []string{"NotebookPath", "TargetFile", "FilePath", "Path"} {
+			if p, ok := input[key].(string); ok && p != "" {
+				return []string{p}, nil
+			}
+		}
+		return nil, fmt.Errorf("notebook_edit requires NotebookPath")
+	case "sed_file":
+		for _, key := range []string{"TargetFile", "FilePath", "Path", "AbsolutePath"} {
+			if p, ok := input[key].(string); ok && p != "" {
+				return []string{p}, nil
+			}
+		}
+		return nil, fmt.Errorf("sed_file requires TargetFile or FilePath")
+	case "delete_knowledge":
+		for _, key := range []string{"PathToDelete", "TargetFile", "FilePath", "Path"} {
+			if p, ok := input[key].(string); ok && p != "" {
+				return []string{p}, nil
+			}
+		}
+		return nil, fmt.Errorf("delete_knowledge requires PathToDelete")
+	}
+
 	schema, ok := antigravityPathSchemas[tool]
 	if !ok {
 		return nil, nil
@@ -63,10 +91,6 @@ func documentedAntigravityPaths(tool string, input map[string]any) ([]string, er
 		if _, ok := schema.allowed[key]; !ok {
 			return nil, fmt.Errorf("%s argument %q is not documented", tool, key)
 		}
-	}
-
-	if tool == "multi_replace_file_content" {
-		return extractMultiReplacePaths(input)
 	}
 
 	path, ok := input[schema.key].(string)
@@ -184,9 +208,16 @@ func ParseAntigravity(phase string, r io.Reader) (engine.ToolCall, error) {
 	if err := json.Unmarshal(native.ToolCall.Args, &input); err != nil {
 		return engine.ToolCall{}, err
 	}
+	var mcpPaths []string
 	spec, known := planecontract.AntigravityTool(p.ToolCall.Name)
-	if !known {
-		spec = planecontract.ToolSpec{NativeTool: p.ToolCall.Name, Tool: p.ToolCall.Name, Capability: policy.CapabilityUnknown}
+	if !known || spec.Capability == policy.CapabilityDeny {
+		if mcp, ok := planecontract.MatchMCPTool(p.ToolCall.Name); ok {
+			spec = planecontract.ToolSpec{NativeTool: p.ToolCall.Name, Tool: mcp.Tool, Capability: mcp.Capability}
+			known = true
+			mcpPaths = projectMCPPaths(mcp, native.ToolCall.Args)
+		} else if !known {
+			spec = planecontract.ToolSpec{NativeTool: p.ToolCall.Name, Tool: p.ToolCall.Name, Capability: policy.CapabilityUnknown}
+		}
 	}
 
 	tc := engine.ToolCall{
@@ -218,6 +249,17 @@ func ParseAntigravity(phase string, r io.Reader) (engine.ToolCall, error) {
 		}
 	}
 	if tc.Capability == policy.CapabilityCommand {
+		if tc.Command == "" {
+			if cmd, ok := input["CommandLine"].(string); ok && cmd != "" {
+				tc.Command = cmd
+			} else if cmd, ok := input["Command"].(string); ok && cmd != "" {
+				tc.Command = cmd
+			} else if code, ok := input["Code"].(string); ok && code != "" {
+				tc.Command = code
+			} else if nb, ok := input["NotebookPath"].(string); ok && nb != "" {
+				tc.Command = "jupyter execute " + nb
+			}
+		}
 		tc.InputShape = "command"
 	}
 	if tc.Capability == policy.CapabilityReadDiscovery || tc.Capability == policy.CapabilityMutation {
@@ -226,6 +268,9 @@ func ParseAntigravity(phase string, r io.Reader) (engine.ToolCall, error) {
 			return engine.ToolCall{}, err
 		}
 		tc.Paths = paths
+		if len(mcpPaths) > 0 {
+			tc.Paths = append(tc.Paths, mcpPaths...)
+		}
 		tc.InputShape = "path"
 	}
 	if tc.Capability == policy.CapabilityWebFetch {

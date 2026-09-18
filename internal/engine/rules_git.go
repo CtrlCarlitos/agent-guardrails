@@ -473,8 +473,15 @@ func gitConfigUninitializedDirectory(globalArgs []string, cwd string, variables 
 	if err != nil {
 		return "", false
 	}
+	boundary := ""
+	if b, ok := tempRootBoundary(directory, systemTempRoots()); ok {
+		boundary = b
+	}
 	target := directory
 	for {
+		if boundary != "" && directory == boundary {
+			return target, true
+		}
 		if _, err := os.Lstat(filepath.Join(directory, ".git")); err == nil || !os.IsNotExist(err) {
 			return "", false
 		}

@@ -467,3 +467,219 @@ func TestParseAntigravitySchedule(t *testing.T) {
 		})
 	}
 }
+
+func TestParseAntigravityExtendedToolCoverage(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		raw         string
+		wantCap     policy.Capability
+		wantPaths   []string
+		wantCommand string
+	}{
+		{
+			"call_mcp_tool",
+			`{"toolCall":{"name":"call_mcp_tool","args":{"ServerName":"serena","ToolName":"replace_content"}}}`,
+			policy.CapabilityDeny,
+			nil,
+			"",
+		},
+		{
+			"send_command_input",
+			`{"toolCall":{"name":"send_command_input","args":{"Input":"yes\n"}}}`,
+			policy.CapabilityDeny,
+			nil,
+			"",
+		},
+		{
+			"tool_caller",
+			`{"toolCall":{"name":"tool_caller","args":{"tool":"run_command"}}}`,
+			policy.CapabilityDeny,
+			nil,
+			"",
+		},
+		{
+			"notebook_edit",
+			`{"toolCall":{"name":"notebook_edit","args":{"NotebookPath":"/repo/notebook.ipynb","CellID":"c1"}}}`,
+			policy.CapabilityMutation,
+			[]string{"/repo/notebook.ipynb"},
+			"",
+		},
+		{
+			"sed_file TargetFile",
+			`{"toolCall":{"name":"sed_file","args":{"TargetFile":"/repo/file.txt","Script":"s/a/b/g"}}}`,
+			policy.CapabilityMutation,
+			[]string{"/repo/file.txt"},
+			"",
+		},
+		{
+			"sed_file FilePath",
+			`{"toolCall":{"name":"sed_file","args":{"FilePath":"/repo/file2.txt"}}}`,
+			policy.CapabilityMutation,
+			[]string{"/repo/file2.txt"},
+			"",
+		},
+		{
+			"delete_knowledge",
+			`{"toolCall":{"name":"delete_knowledge","args":{"PathToDelete":"/repo/artifacts/doc.md"}}}`,
+			policy.CapabilityMutation,
+			[]string{"/repo/artifacts/doc.md"},
+			"",
+		},
+		{
+			"notebook_execution with CommandLine",
+			`{"toolCall":{"name":"notebook_execution","args":{"CommandLine":"jupyter execute /repo/test.ipynb"}}}`,
+			policy.CapabilityCommand,
+			nil,
+			"jupyter execute /repo/test.ipynb",
+		},
+		{
+			"notebook_execution with NotebookPath",
+			`{"toolCall":{"name":"notebook_execution","args":{"NotebookPath":"/repo/test.ipynb"}}}`,
+			policy.CapabilityCommand,
+			nil,
+			"jupyter execute /repo/test.ipynb",
+		},
+		{
+			"list_resources",
+			`{"toolCall":{"name":"list_resources","args":{"ServerName":"serena"}}}`,
+			policy.CapabilityExternal,
+			nil,
+			"",
+		},
+		{
+			"read_resource",
+			`{"toolCall":{"name":"read_resource","args":{"ServerName":"serena","Uri":"mem://1"}}}`,
+			policy.CapabilityExternal,
+			nil,
+			"",
+		},
+		{
+			"command_status",
+			`{"toolCall":{"name":"command_status","args":{"TaskId":"task-1"}}}`,
+			policy.CapabilitySafeControl,
+			nil,
+			"",
+		},
+		{
+			"manage_inbox",
+			`{"toolCall":{"name":"manage_inbox","args":{"Action":"list"}}}`,
+			policy.CapabilitySafeControl,
+			nil,
+			"",
+		},
+		{
+			"ask_custom_permission",
+			`{"toolCall":{"name":"ask_custom_permission","args":{"Permission":"network"}}}`,
+			policy.CapabilitySafeControl,
+			nil,
+			"",
+		},
+		{
+			"finish",
+			`{"toolCall":{"name":"finish","args":{}}}`,
+			policy.CapabilitySafeControl,
+			nil,
+			"",
+		},
+		{
+			"wait",
+			`{"toolCall":{"name":"wait","args":{"DurationSeconds":5}}}`,
+			policy.CapabilitySafeControl,
+			nil,
+			"",
+		},
+		{
+			"wait_five_seconds",
+			`{"toolCall":{"name":"wait_five_seconds","args":{}}}`,
+			policy.CapabilitySafeControl,
+			nil,
+			"",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tc, err := ParseAntigravity("pre", strings.NewReader(tt.raw))
+			if err != nil {
+				t.Fatalf("unexpected parse error: %v", err)
+			}
+			if tc.Capability != tt.wantCap {
+				t.Fatalf("tc.Capability = %q, want %q", tc.Capability, tt.wantCap)
+			}
+			if tt.wantPaths != nil {
+				if len(tc.Paths) != len(tt.wantPaths) {
+					t.Fatalf("tc.Paths = %v, want %v", tc.Paths, tt.wantPaths)
+				}
+				for i, p := range tt.wantPaths {
+					if tc.Paths[i] != p {
+						t.Fatalf("tc.Paths[%d] = %q, want %q", i, tc.Paths[i], p)
+					}
+				}
+			}
+			if tt.wantCommand != "" && tc.Command != tt.wantCommand {
+				t.Fatalf("tc.Command = %q, want %q", tc.Command, tt.wantCommand)
+			}
+		})
+	}
+}
+
+func TestEmitAntigravityCallMcpToolGuidance(t *testing.T) {
+	v := policy.Verdict{
+		Decision: policy.Deny,
+		RuleID:   "call-mcp-tool-generic",
+		Reason:   "a generic MCP invoker cannot be re-dispatched safely until the registry can classify the target tool's arguments, which it cannot see through the indirection",
+	}
+	tc := engine.ToolCall{
+		Plane:      "antigravity",
+		NativeTool: "call_mcp_tool",
+		Arguments:  json.RawMessage(`{"ServerName":"serena","ToolName":"replace_content"}`),
+	}
+	var out bytes.Buffer
+	EmitAntigravity(v, "pre", tc, &out)
+
+	var payload struct {
+		Decision string `json:"decision"`
+		Reason   string `json:"reason"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if payload.Decision != "deny" {
+		t.Fatalf("payload.Decision = %q, want deny", payload.Decision)
+	}
+	for _, substr := range []string{
+		"generic MCP invoker cannot be re-dispatched safely",
+		"indirection",
+		"~/.gemini/config/mcp_config.json",
+	} {
+		if !strings.Contains(payload.Reason, substr) {
+			t.Fatalf("payload.Reason = %q does not contain %q", payload.Reason, substr)
+		}
+	}
+}
+
+func TestParseAntigravityTypesKnownMCPWithProjectedPaths(t *testing.T) {
+	raw := `{"conversationId":"c1","toolCall":{"name":"mcp_serena_replace_content","args":{"relative_path":".env","content":"LEAKED=1"}}}`
+	tc, err := ParseAntigravity("pre", strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc.Capability != policy.CapabilityMutation || tc.InputShape != "path" {
+		t.Fatalf("capability = %q shape = %q, want mutation/path", tc.Capability, tc.InputShape)
+	}
+	if len(tc.Paths) != 1 || tc.Paths[0] != ".env" {
+		t.Fatalf("paths = %v, want projected relative_path", tc.Paths)
+	}
+}
+
+func TestParseAntigravityMemoryMCPToolsProjectUnderMemoryStore(t *testing.T) {
+	raw := `{"conversationId":"c1","toolCall":{"name":"mcp__serena__write_memory","args":{"memory_name":"core","content":"x"}}}`
+	tc, err := ParseAntigravity("pre", strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc.Capability != policy.CapabilityMutation {
+		t.Fatalf("capability = %q, want mutation", tc.Capability)
+	}
+	if len(tc.Paths) != 1 || tc.Paths[0] != ".serena/memories/core" {
+		t.Fatalf("paths = %v, want memory-store projection", tc.Paths)
+	}
+}

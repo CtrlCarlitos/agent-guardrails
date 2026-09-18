@@ -101,6 +101,14 @@ func TestOpenCodeAndAntigravityInventoriesClassifyCapabilityBoundary(t *testing.
 			"invoke_subagent": policy.CapabilityDelegation, "define_subagent": policy.CapabilityDeny,
 			"send_message": policy.CapabilityDelegation, "manage_subagents": policy.CapabilityDelegation,
 			"ask_question": policy.CapabilitySafeControl, "generate_image": policy.CapabilityDeny,
+			"call_mcp_tool": policy.CapabilityDeny, "send_command_input": policy.CapabilityDeny,
+			"tool_caller": policy.CapabilityDeny, "notebook_edit": policy.CapabilityMutation,
+			"sed_file": policy.CapabilityMutation, "delete_knowledge": policy.CapabilityMutation,
+			"notebook_execution": policy.CapabilityCommand, "list_resources": policy.CapabilityExternal,
+			"read_resource": policy.CapabilityExternal, "command_status": policy.CapabilitySafeControl,
+			"manage_inbox": policy.CapabilitySafeControl, "ask_custom_permission": policy.CapabilitySafeControl,
+			"finish": policy.CapabilitySafeControl, "wait": policy.CapabilitySafeControl,
+			"wait_five_seconds": policy.CapabilitySafeControl,
 		}},
 	} {
 		got := RegisteredTools(tt.plane)
