@@ -42,7 +42,9 @@ usage: guardrail <command> [arguments]
   approvals list                       show pending approval requests
   approvals approve <id>               re-open an approval ceremony and wait
       subcommands: enroll | add-authenticator | remove-authenticator | recover-reset
-  doctor                            print resolved policy/overlay/audit/hook state
+  doctor [flags]                    print resolved policy/overlay/audit/hook state
+      --coverage claude    diff the installed Claude Code tool surface against the contract
+      --bundle <path>      scan this bundle instead of the claude on PATH
   plane status                      print per-plane Guardrail integration state
   plane enable <plane>|--all        (re)register Guardrail integration (operator approval)
   plane disable <plane>|--all       remove Guardrail integration (operator approval)

@@ -544,3 +544,70 @@ func TestDoctorWarnsOnAntigravityDrift(t *testing.T) {
 		t.Fatalf("want disabled warning:\n%s", out.String())
 	}
 }
+
+const doctorCoverageBundle = `// Version: 2.1.275
+var tools=["Bash","Read","Write","Edit","Glob","Grep","NotebookEdit","WebFetch","WebSearch","Task","TodoWrite","Skill","REPL","JavaScript","AskUserQuestion","ToolSearch","SendUserMessage"];
+var aliases={KillBash:"TaskStop",BashOutput:"TaskOutput",Brief:"SendUserMessage",ListPeers:"ListAgents"};
+`
+
+func TestDoctorCoverageClaudeReportsUncontractedTools(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	bundle := filepath.Join(home, "claude-bundle")
+	if err := os.WriteFile(bundle, []byte(doctorCoverageBundle), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	code := run([]string{"doctor", "--coverage", "claude", "--bundle", bundle}, strings.NewReader(""), &out, &errb)
+	if code != 1 {
+		t.Fatalf("doctor exit = %d, want 1 (uncontracted tools present); stderr %q", code, errb.String())
+	}
+	s := out.String()
+	for _, want := range []string{
+		"claude coverage: Claude Code 2.1.275 (" + bundle + ")",
+		"uncontracted (allow-by-default): JavaScript, REPL, SendUserMessage",
+		"legacy aliases: BashOutput→TaskOutput, Brief→SendUserMessage, KillBash→TaskStop, ListPeers→ListAgents",
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("doctor output missing %q:\n%s", want, s)
+		}
+	}
+	// The ordinary doctor sections still print first.
+	if !strings.Contains(s, "claude settings:") {
+		t.Fatalf("coverage must extend doctor, not replace it:\n%s", s)
+	}
+}
+
+func TestDoctorCoverageClaudeFullCoverageExitsZero(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	bundle := filepath.Join(home, "claude-bundle")
+	if err := os.WriteFile(bundle, []byte(`var tools=["Bash","Read","Write","Edit","Glob"];`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if code := run([]string{"doctor", "--coverage", "claude", "--bundle", bundle}, strings.NewReader(""), &out, &errb); code != 0 || !strings.Contains(out.String(), "uncontracted (allow-by-default): none") {
+		t.Fatalf("exit = %d, out:\n%s", code, out.String())
+	}
+}
+
+func TestDoctorCoverageRejectsBadArguments(t *testing.T) {
+	for _, args := range [][]string{
+		{"doctor", "--coverage"},
+		{"doctor", "--coverage", "opencode"},
+		{"doctor", "--bundle", "/x"},
+		{"doctor", "--coverage", "claude", "--bundle", "/definitely/missing"},
+	} {
+		var out, errb bytes.Buffer
+		if code := run(args, strings.NewReader(""), &out, &errb); code != 2 || errb.Len() == 0 {
+			t.Fatalf("%v: exit = %d, stderr %q", args, code, errb.String())
+		}
+	}
+}
