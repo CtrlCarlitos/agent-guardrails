@@ -566,11 +566,27 @@ func gitRepositoryEnvironmentFromProcess(clean bool) map[string]string {
 }
 
 func discoverGitDirectory(start string) (string, bool) {
+	return discoverGitDirectoryWithRoots(start, systemTempRoots())
+}
+
+// discoverGitDirectoryWithRoots walks up from start to find an enclosing .git.
+// The System temp root invariant applies: a walk started inside a temp root
+// never considers a .git at the root itself or above it — a stray repository
+// planted at the boundary cannot capture repo-target resolution for strict
+// descendants (the /tmp/.git lesson).
+func discoverGitDirectoryWithRoots(start string, roots []string) (string, bool) {
 	directory, err := filepath.Abs(start)
 	if err != nil {
 		return "", false
 	}
+	boundary := ""
+	if b, ok := tempRootBoundary(directory, roots); ok {
+		boundary = b
+	}
 	for {
+		if boundary != "" && !strings.HasPrefix(directory, boundary+string(filepath.Separator)) {
+			return "", false
+		}
 		candidate := filepath.Join(directory, ".git")
 		if info, err := os.Stat(candidate); err == nil {
 			if info.IsDir() {
@@ -587,6 +603,21 @@ func discoverGitDirectory(start string) (string, bool) {
 		}
 		directory = parent
 	}
+}
+
+// tempRootBoundary reports the temp root that strictly encloses dir, if any.
+func tempRootBoundary(dir string, roots []string) (string, bool) {
+	dir = filepath.Clean(dir)
+	for _, root := range roots {
+		root = filepath.Clean(root)
+		if root == "" || root == string(filepath.Separator) {
+			continue
+		}
+		if strings.HasPrefix(dir, root+string(filepath.Separator)) {
+			return root, true
+		}
+	}
+	return "", false
 }
 
 func readGitDirectoryFile(path string) (string, bool) {
