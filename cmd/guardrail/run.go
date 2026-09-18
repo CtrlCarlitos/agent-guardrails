@@ -16,33 +16,33 @@ var version = "dev"
 
 const usage = `guardrail — one guardrail policy across AI coding-agent planes
 
-usage:
-  guardrail version                     print the release version
-  guardrail hook <plane> [phase]        evaluate a hook payload on stdin
+usage: guardrail <command> [arguments]
+
+  version                               print the release version
+  hook <plane> [phase]                  evaluate a hook payload on stdin
       plane: claude | opencode | antigravity (antigravity also needs a phase: pre | post)
-  guardrail gen-config <plane> [flags]  emit/merge the declarative floor (global paths)
+  gen-config <plane> [flags]            emit/merge the declarative floor (global paths)
       plane: claude | opencode | antigravity
       --print              write the JSON fragment to stdout (default)
       --merge <path>       deep-merge it into <path> in place, idempotently
       --binary <path>      guardrail path to register in hook commands (default "guardrail")
       --plugin-dir <dir>   (opencode only) where to deploy the embedded plugin
-  guardrail sync [flags]                regenerate a PROJECT's plane configs from Base+Overlay
+  sync [flags]                          regenerate a PROJECT's plane configs from Base+Overlay
       --dir <path>         repo directory to sync (default ".")
       --planes <list>      comma-separated planes (default "claude,opencode,antigravity")
       --binary <path>      guardrail path to register in hook commands (default "guardrail")
-  guardrail night on [--until HH:MM | --for 8h]
-                                        relax ask verdicts to allow until morning
-  guardrail night off                   restore normal enforcement
-  guardrail night status                print night-mode state
-  guardrail operator <subcommand>       manage operator authenticators
+  night on [--until HH:MM | --for 8h]   relax ask verdicts to allow until morning
+  night off                             restore normal enforcement
+  night status                          print night-mode state
+  operator <subcommand>                 manage operator authenticators
       subcommands: enroll | add-authenticator | remove-authenticator | recover-reset
-  guardrail doctor                      print resolved policy/overlay/audit/hook state
-  guardrail plane status                print per-plane Guardrail integration state
-  guardrail plane enable <plane>|--all  (re)register Guardrail integration (operator approval)
-  guardrail plane disable <plane>|--all remove Guardrail integration (operator approval)
+  doctor                                print resolved policy/overlay/audit/hook state
+  plane status                          print per-plane Guardrail integration state
+  plane enable <plane>|--all            (re)register Guardrail integration (operator approval)
+  plane disable <plane>|--all           remove Guardrail integration (operator approval)
       plane: claude | opencode | antigravity
-  guardrail fetch <URL>                 fetch normalized text through Guardrail
-  guardrail update <version>            self-update to an exact checksum-verified release
+  fetch <URL>                           fetch normalized text through Guardrail
+  update <version>                      self-update to an exact checksum-verified release
 `
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
