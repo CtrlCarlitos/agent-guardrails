@@ -1,0 +1,1 @@
+{"session_id":"s1","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"ArtifactComments","tool_input":{"action":"reply","url":"https://claude.ai/code/artifact/abc","message":"done"}}

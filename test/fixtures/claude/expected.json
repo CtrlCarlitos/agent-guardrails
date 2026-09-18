@@ -146,5 +146,17 @@
     "decision": "deny",
     "exit": 2
   },
-  "bash-printf-secret-in-text.json": {"exit": 2, "decision": "deny", "rule": "P4.secret-in-text"}
+  "bash-printf-secret-in-text.json": {"exit": 2, "decision": "deny", "rule": "P4.secret-in-text"},
+  "artifact-comments.json":       {"exit": 0, "decision": "ask",   "rule": "capability-external"},
+  "artifact-data.json":           {"exit": 0, "decision": "ask",   "rule": "capability-external"},
+  "artifact-check.json":          {"exit": 0, "decision": "ask",   "rule": "capability-external"},
+  "design-sync.json":             {"exit": 0, "decision": "ask",   "rule": "capability-external"},
+  "read-mcp-resource-dir.json":   {"exit": 0, "decision": "ask",   "rule": "capability-external"},
+  "bash-output.json":             {"exit": 0, "decision": "allow"},
+  "kill-shell.json":              {"exit": 0, "decision": "allow"},
+  "sleep.json":                   {"exit": 0, "decision": "allow"},
+  "structured-output.json":       {"exit": 0, "decision": "allow"},
+  "notebook-read.json":           {"exit": 0, "decision": "allow", "paths": ["/tmp/n.ipynb"]},
+  "notebook-read-secret.json":    {"exit": 2, "decision": "deny",  "rule": "P4.secret-path", "paths": ["/home/u/.ssh/notes.ipynb"]},
+  "notebook-read-no-path.json":   {"exit": 2, "decision": "deny",  "rule": "capability-input-missing"}
 }

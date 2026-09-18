@@ -24,16 +24,27 @@ func TestClaudeInventoryClassifiesCapabilityBoundary(t *testing.T) {
 		"Task":         policy.CapabilityDelegation,
 		// Reaches outside the session (publication, scheduler, MCP server):
 		// the operator decides per call.
-		"Artifact":             policy.CapabilityExternal,
-		"CronCreate":           policy.CapabilityExternal,
-		"ListMcpResourcesTool": policy.CapabilityExternal,
-		"ReadMcpResourceTool":  policy.CapabilityExternal,
+		"Artifact":               policy.CapabilityExternal,
+		"ArtifactCheck":          policy.CapabilityExternal,
+		"ArtifactComments":       policy.CapabilityExternal,
+		"ArtifactData":           policy.CapabilityExternal,
+		"DesignSync":             policy.CapabilityExternal,
+		"CronCreate":             policy.CapabilityExternal,
+		"ListMcpResourcesTool":   policy.CapabilityExternal,
+		"ReadMcpResourceTool":    policy.CapabilityExternal,
+		"ReadMcpResourceDirTool": policy.CapabilityExternal,
 		// Session-local control with no data flow of its own.
 		"CronDelete":       policy.CapabilitySafeControl,
 		"CronList":         policy.CapabilitySafeControl,
 		"EnterWorktree":    policy.CapabilitySafeControl,
 		"ExitWorktree":     policy.CapabilitySafeControl,
 		"PushNotification": policy.CapabilitySafeControl,
+		"BashOutput":       policy.CapabilitySafeControl, // output of a shell already evaluated at launch
+		"KillShell":        policy.CapabilitySafeControl,
+		"Sleep":            policy.CapabilitySafeControl,
+		"StructuredOutput": policy.CapabilitySafeControl,
+		// Legacy notebook read: a path read, projected like Read.
+		"NotebookRead": policy.CapabilityReadDiscovery,
 		// Moves data or control to another principal; stays denied.
 		"SendMessage":          policy.CapabilityDeny,
 		"SendUserFile":         policy.CapabilityDeny,
