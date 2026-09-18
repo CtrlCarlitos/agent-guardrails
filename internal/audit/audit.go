@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -172,19 +173,20 @@ func validateRegularDestination(path string, f *os.File, before os.FileInfo) err
 // Segments returns the current audit path plus its rotated siblings, oldest
 // first, for whole-history summarization.
 func Segments(path string) ([]string, error) {
-	if _, err := os.Stat(path); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
+	_, statErr := os.Stat(path)
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return nil, statErr
 	}
-	base := path[:len(path)-len(".jsonl")]
+	base := strings.TrimSuffix(path, ".jsonl")
 	rotated, err := filepath.Glob(base + "-*.jsonl")
 	if err != nil {
 		return nil, err
 	}
 	sort.Strings(rotated)
-	return append(rotated, path), nil
+	if statErr == nil {
+		rotated = append(rotated, path)
+	}
+	return rotated, nil
 }
 
 // Summarize aggregates every record across segments: totals, decisions,

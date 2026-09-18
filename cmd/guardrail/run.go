@@ -43,6 +43,7 @@ usage: guardrail <command> [arguments]
   approvals approve <id>               re-open an approval ceremony and wait
       subcommands: enroll | add-authenticator | remove-authenticator | recover-reset
   selftest                           probe installed enforcement per plane
+      --evidence codex     check retained audit evidence after this binary's mtime (heuristic)
   audit [--path <file>]              summarize the audit log (decisions, rules, drift)
   doctor [flags]                    print resolved policy/overlay/audit/hook state
       --coverage claude    diff the installed Claude Code tool surface against the contract
