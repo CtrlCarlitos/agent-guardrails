@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 )
@@ -106,7 +107,7 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 					if n > 1 {
 						plural = "entries"
 					}
-					fmt.Fprintf(stdout, "  WARNING: %d unmarked guardrail-like hook %s in settings.json — invisible to doctor and will be forked by the next merge. Remove them by hand; re-running the installer will not (its merge adds its own marked entry alongside).\n", n, plural)
+					fmt.Fprintf(stdout, "  WARNING: %d unmarked guardrail-like hook %s in settings.json — legacy pre-marker entries. `guardrail plane enable claude` absorbs them; re-running the installer also will.\n", n, plural)
 				}
 			}
 		}
@@ -174,28 +175,5 @@ func hooksHaveOwnedGroup(doc map[string]any) bool {
 }
 
 func unmarkedGuardrailGroups(doc map[string]any) int {
-	hooks, ok := doc["hooks"].(map[string]any)
-	if !ok {
-		return 0
-	}
-	n := 0
-	for _, ev := range hooks {
-		groups, ok := ev.([]any)
-		if !ok {
-			continue
-		}
-		for _, g := range groups {
-			m, ok := g.(map[string]any)
-			if !ok {
-				continue
-			}
-			if id, _ := m["id"].(string); strings.HasPrefix(id, "guardrail-") {
-				continue
-			}
-			if b, _ := json.Marshal(m); strings.Contains(string(b), "guardrail hook ") {
-				n++
-			}
-		}
-	}
-	return n
+	return genconfig.CountUnmarkedGuardrailGroups(doc)
 }

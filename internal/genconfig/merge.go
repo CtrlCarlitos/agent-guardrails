@@ -404,6 +404,9 @@ func mergeHooks(dst, src map[string]any) {
 			if ownedByGuardrail(g) {
 				continue // drop; src replaces it
 			}
+			if unmarkedGuardrailGroup(g) {
+				continue // absorb legacy pre-marker guardrail entries
+			}
 			out = append(out, g)
 			seen[jsonKey(g)] = true
 		}
@@ -448,4 +451,41 @@ func unionAppend(dst, src []any) []any {
 		}
 	}
 	return out
+}
+
+// unmarkedGuardrailGroup reports a hook group without a guardrail- marker id
+// whose body references the guardrail hook command: a legacy pre-marker entry
+// (ADR-0004) that the marker merge absorbs instead of forking around.
+func unmarkedGuardrailGroup(group any) bool {
+	m, ok := group.(map[string]any)
+	if !ok {
+		return false
+	}
+	if id, _ := m["id"].(string); strings.HasPrefix(id, "guardrail-") {
+		return false
+	}
+	raw, err := json.Marshal(m)
+	return err == nil && strings.Contains(string(raw), "guardrail hook ")
+}
+
+// CountUnmarkedGuardrailGroups counts legacy unmarked guardrail hook groups in
+// a Claude settings document; doctor and lifecycle reconciliation use it.
+func CountUnmarkedGuardrailGroups(doc map[string]any) int {
+	hooks, ok := doc["hooks"].(map[string]any)
+	if !ok {
+		return 0
+	}
+	n := 0
+	for _, ev := range hooks {
+		groups, ok := ev.([]any)
+		if !ok {
+			continue
+		}
+		for _, g := range groups {
+			if unmarkedGuardrailGroup(g) {
+				n++
+			}
+		}
+	}
+	return n
 }
