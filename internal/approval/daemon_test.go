@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/operatorauth"
@@ -116,4 +117,27 @@ func TestQueryStatusReportsRequestState(t *testing.T) {
 	if _, err := approval.QueryStatus(socket, "missing"); err == nil {
 		t.Fatal("unknown request status succeeded")
 	}
+}
+
+func TestShutdownDaemonClosesALiveDaemon(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	_, err := approval.StartDaemon(socket, approval.New(), browserStore(t), func(string) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := approval.Submit(socket, request()); err != nil {
+		t.Fatalf("live daemon rejected submit: %v", err)
+	}
+	if err := approval.ShutdownDaemon(socket); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := approval.Submit(socket, request()); err != nil {
+			return // socket no longer accepts: daemon is down
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("daemon still accepting requests after shutdown")
 }

@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 )
 
 func updateTestServer(t *testing.T, binary, sums string, status int) *httptest.Server {
@@ -177,5 +179,38 @@ func TestUpdateSameVersionIsANoOp(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "already") {
 		t.Fatalf("stdout missing no-op notice: %q", out.String())
+	}
+}
+
+func TestUpdateShutsDownApprovalDaemonAfterReplace(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "guardrail")
+	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	origVersion := version
+	version = "v0.19.10-dev"
+	t.Cleanup(func() { version = origVersion })
+	stubUpdateSeams(t, target)
+	binary := "new"
+	server := updateTestServer(t, binary, updateSumsFor(binary, updateAssetName()), http.StatusOK)
+	updateReleaseBase = server.URL + "/download"
+
+	shutdowns := 0
+	origShutdown := shutdownApprovalDaemon
+	shutdownApprovalDaemon = func(socket string) error {
+		if socket != approval.DefaultSocketPath() {
+			t.Errorf("shutdown socket = %q", socket)
+		}
+		shutdowns++
+		return nil
+	}
+	t.Cleanup(func() { shutdownApprovalDaemon = origShutdown })
+
+	var out, errb strings.Builder
+	if code := run([]string{"update", "v0.19.11-dev"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("exit = %d, stderr %q", code, errb.String())
+	}
+	if shutdowns != 1 {
+		t.Fatalf("shutdown called %d times, want 1", shutdowns)
 	}
 }

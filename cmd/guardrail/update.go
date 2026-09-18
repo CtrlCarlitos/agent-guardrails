@@ -13,13 +13,16 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 )
 
 var (
-	updateReleaseBase   = "https://github.com/CtrlCarlitos/agent-guardrails/releases/download"
-	updateHTTPClient    = &http.Client{Timeout: 3 * time.Minute}
-	updateTargetPath    = os.Executable
-	verifyUpdatedBinary = func(path, version string) error {
+	updateReleaseBase      = "https://github.com/CtrlCarlitos/agent-guardrails/releases/download"
+	updateHTTPClient       = &http.Client{Timeout: 3 * time.Minute}
+	updateTargetPath       = os.Executable
+	shutdownApprovalDaemon = approval.ShutdownDaemon
+	verifyUpdatedBinary    = func(path, version string) error {
 		out, err := exec.Command(path, "version").Output()
 		if err != nil {
 			return fmt.Errorf("downloaded binary failed to run: %w", err)
@@ -106,6 +109,9 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "guardrail: cannot replace %s: %v\n", exe, err)
 		return 1
 	}
+	// A live approval daemon would keep serving superseded code; shut it down
+	// so the next approval spawns a daemon from the new binary.
+	_ = shutdownApprovalDaemon(approval.DefaultSocketPath())
 	fmt.Fprintf(stdout, "guardrail updated to %s at %s\n", version, exe)
 	fmt.Fprintln(stdout, "run `guardrail doctor` to verify plane wiring")
 	return 0

@@ -191,6 +191,11 @@ func (d *Daemon) handle(conn net.Conn) {
 		} else {
 			reply.Request = requestStatus(r)
 		}
+	case "shutdown":
+		// Used by guardrail update so a binary replacement is never served by
+		// a daemon running superseded code. Fail-closed: it can make approvals
+		// unavailable, never looser.
+		go d.Close()
 	default:
 		reply.Error = "approval request unavailable"
 	}
@@ -249,6 +254,13 @@ func QueryStatus(socket, id string) (Request, error) {
 		return Request{}, errors.New("approval daemon unavailable")
 	}
 	return reply.Request, nil
+}
+
+// ShutdownDaemon asks a live daemon to exit so the next submit spawns a
+// daemon from the current binary. Unreachable daemons are not an error.
+func ShutdownDaemon(socket string) error {
+	var reply daemonReply
+	return send(socket, daemonMessage{Operation: "shutdown"}, &reply)
 }
 
 func requestStatus(request Request) Request {
