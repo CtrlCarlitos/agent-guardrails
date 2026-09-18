@@ -115,8 +115,12 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "guardrail updated to %s at %s\n", version, exe)
 	// Update closes with verification instead of suggesting it: drift and
 	// wiring problems surface at the moment they can be attributed to the
-	// new binary.
+	// new binary, and a passing selftest here clears the SessionStart nudge
+	// before it ever appears (#53).
 	_ = printDoctor(stdout, stderr)
+	if selftestCode := cmdSelftest([]string{}, stdout, stderr); selftestCode != 0 {
+		fmt.Fprintln(stderr, "guardrail: selftest failed on the new binary; investigate before continuing")
+	}
 	return 0
 }
 
