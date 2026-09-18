@@ -731,6 +731,7 @@ func TestDoctorCoverageRejectsBadArguments(t *testing.T) {
 func TestDoctorReadsBOMPrefixedClaudeSettings(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 	body := append([]byte{0xEF, 0xBB, 0xBF}, []byte(`{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"*","hooks":[{"type":"command","command":"guardrail hook claude"}]}]}}`)...)
 	writeClaudeSettings(t, home, string(body))
 	if got := claudeSettingsState(); got != "guardrail hook registered" {

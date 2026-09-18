@@ -2,6 +2,7 @@ package coverage
 
 import (
 	"os"
+	"runtime"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -134,7 +135,7 @@ func TestClaudeBundlePathMissingIsAnError(t *testing.T) {
 // ~/.local/share, then claude/versions) and takes the newest bundle there.
 func TestClaudeBundlePathWindowsLauncherFallsBackToVersionsDir(t *testing.T) {
 	bin := t.TempDir()
-	launcher := filepath.Join(bin, "claude")
+	launcher := filepath.Join(bin, claudeExe())
 	if err := os.WriteFile(launcher, []byte("@echo off\r\nnode %~dp0\\cli.js %*\r\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -161,9 +162,18 @@ func TestClaudeBundlePathWindowsLauncherFallsBackToVersionsDir(t *testing.T) {
 	}
 }
 
+// claudeExe is the launcher name LookPath finds on this host: Windows
+// resolves PATH entries only with a PATHEXT extension.
+func claudeExe() string {
+	if runtime.GOOS == "windows" {
+		return "claude.exe"
+	}
+	return "claude"
+}
+
 func TestClaudeBundlePathWindowsPrefersAPATHEntryThatIsABundle(t *testing.T) {
 	bin := t.TempDir()
-	bundle := filepath.Join(bin, "claude")
+	bundle := filepath.Join(bin, claudeExe())
 	if err := os.WriteFile(bundle, []byte(syntheticBundle), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +187,7 @@ func TestClaudeBundlePathWindowsPrefersAPATHEntryThatIsABundle(t *testing.T) {
 
 func TestClaudeBundlePathWindowsNamesBothPlacesWhenNeitherHasABundle(t *testing.T) {
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("shim"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, claudeExe()), []byte("shim"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
