@@ -71,12 +71,7 @@ func ParseClaude(r io.Reader) (engine.ToolCall, error) {
 		tc.InputShape = "command"
 	}
 	if tc.Capability == policy.CapabilityReadDiscovery || tc.Capability == policy.CapabilityMutation {
-		for _, key := range []string{"file_path", "path", "notebook_path"} {
-			if path, ok := input[key].(string); ok && path != "" {
-				tc.Paths = []string{path}
-				break
-			}
-		}
+		tc.Paths = claudeInputPaths(input)
 		tc.InputShape = "path"
 	}
 	if tc.Capability == policy.CapabilityWebFetch {
@@ -90,6 +85,39 @@ func ParseClaude(r io.Reader) (engine.ToolCall, error) {
 	}
 	tc.RepoRoot = repoRoot(p.CWD)
 	return tc, nil
+}
+
+var claudePathKeys = []string{"file_path", "path", "notebook_path"}
+
+// claudeInputPaths collects every path a path-capability call names: each
+// top-level path key, plus per-entry path keys inside an `edits` list
+// (MultiEdit shape). Order is preserved and duplicates dropped, so the engine
+// evaluates every distinct path exactly once; empty values are skipped and
+// a call naming none fails closed in the engine.
+func claudeInputPaths(input map[string]any) []string {
+	var paths []string
+	seen := make(map[string]bool)
+	add := func(v any) {
+		if path, ok := v.(string); ok && path != "" && !seen[path] {
+			seen[path] = true
+			paths = append(paths, path)
+		}
+	}
+	for _, key := range claudePathKeys {
+		add(input[key])
+	}
+	if edits, ok := input["edits"].([]any); ok {
+		for _, entry := range edits {
+			edit, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+			for _, key := range claudePathKeys {
+				add(edit[key])
+			}
+		}
+	}
+	return paths
 }
 
 func repoRoot(cwd string) string {

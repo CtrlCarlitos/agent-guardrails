@@ -21,6 +21,7 @@ func TestClaudeInventoryClassifiesCapabilityBoundary(t *testing.T) {
 		"WebFetch":     policy.CapabilityWebFetch,
 		"WebSearch":    policy.CapabilityWebSearch,
 		"Agent":        policy.CapabilityDelegation,
+		"Task":         policy.CapabilityDelegation,
 	}
 	for tool, capability := range want {
 		spec, ok := ClaudeTool(tool)

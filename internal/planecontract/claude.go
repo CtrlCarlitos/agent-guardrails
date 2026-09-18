@@ -15,6 +15,7 @@ type ToolSpec struct {
 
 var claudeTools = []ToolSpec{
 	{"Agent", "Agent", policy.CapabilityDelegation},
+	{"Task", "Agent", policy.CapabilityDelegation}, // pre-rename Claude Code subagent tool
 	{"AskUserQuestion", "AskUserQuestion", policy.CapabilitySafeControl},
 	{"Bash", "Bash", policy.CapabilityCommand},
 	{"Edit", "Edit", policy.CapabilityMutation},
