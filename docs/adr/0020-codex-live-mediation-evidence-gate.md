@@ -87,6 +87,22 @@ hosted tools or `write_stdin` were mediated. A future targeted tripwire needs a
 selected session/observation window and evidence for the specific attempted
 tool; this aggregate command cannot establish that from absent records.
 
+The gate establishes a **proposal precondition**: heuristic evidence that
+mediation exists and works in at least one session. It does not guarantee that
+every session is mediated. The approval-flow ADR must claim exactly that scope;
+an evidence log alone cannot enumerate sessions that left no records.
+
+After the upstream mediation fixes (#46372/#46373) land and are validated,
+`selftest --evidence codex` can be strengthened by cross-referencing an
+authoritative runtime session list against audit records for the same observation
+window. This is a future extension, not current behavior. Sessions known to have
+attempted guarded tools should then have corresponding records; a missing match
+is a provable gap in expected audit evidence **provided collection, retention,
+and session identity correlation are verified complete**. Idle sessions need not
+produce tool records. Without those prerequisites, the result remains absence
+of evidence, not proof of bypass. This adds an independent source of expected
+sessions; the stronger claim cannot come from the audit log alone.
+
 ## Approval-flow work remains gated
 
 This ADR records the evidence gate; it does not implement or finalize an
