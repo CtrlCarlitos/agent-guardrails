@@ -141,3 +141,8 @@ and warnings. It is model-facing context, not a Verdict mode.
 **Containment posture**:
 A proposed operator-selected `host` or `contained` enforcement posture described
 by candidate ADR-0014. It is not implemented.
+
+**Live-mediation evidence**:
+A heuristic indication that a Plane has delivered multiple tool calls to its
+Adapter. It is neither proof of runtime provenance nor a guarantee that every
+tool call is mediated.
