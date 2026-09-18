@@ -1,15 +1,19 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/adapter"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/recipe"
@@ -105,6 +109,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		stderrWarnings := append(append([]string{}, highPriorityWarnings...), mergeWarnings...)
 		adapter.EmitModelWarnings(stderrWarnings, stderr)
 		text := adapter.PostureText(policy.SortedWaivers(merged), postureWarnings)
+		text += "\n\n" + claudePlanePosture()
 		if nightState.Active {
 			text = nightState.Banner() + "\n" + text
 		}
@@ -222,6 +227,21 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	default:
 		return 2
 	}
+}
+
+// claudePlanePosture reads the plane's lifecycle state the same way doctor
+// and plane status do; read-only, never an approval.
+func claudePlanePosture() string {
+	unmarked := 0
+	if home, err := os.UserHomeDir(); err == nil {
+		if raw, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json")); err == nil {
+			var doc map[string]any
+			if json.Unmarshal(raw, &doc) == nil {
+				unmarked = genconfig.CountUnmarkedGuardrailGroups(doc)
+			}
+		}
+	}
+	return adapter.PlaneLifecycleLine("claude", claudeSettingsState(), unmarked)
 }
 
 func auditRecord(tc engine.ToolCall, v policy.Verdict, waivers []string) audit.Record {

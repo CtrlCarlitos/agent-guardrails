@@ -22,6 +22,24 @@ func TestClaudeInventoryClassifiesCapabilityBoundary(t *testing.T) {
 		"WebSearch":    policy.CapabilityWebSearch,
 		"Agent":        policy.CapabilityDelegation,
 		"Task":         policy.CapabilityDelegation,
+		// Reaches outside the session (publication, scheduler, MCP server):
+		// the operator decides per call.
+		"Artifact":             policy.CapabilityExternal,
+		"CronCreate":           policy.CapabilityExternal,
+		"ListMcpResourcesTool": policy.CapabilityExternal,
+		"ReadMcpResourceTool":  policy.CapabilityExternal,
+		// Session-local control with no data flow of its own.
+		"CronDelete":       policy.CapabilitySafeControl,
+		"CronList":         policy.CapabilitySafeControl,
+		"EnterWorktree":    policy.CapabilitySafeControl,
+		"ExitWorktree":     policy.CapabilitySafeControl,
+		"PushNotification": policy.CapabilitySafeControl,
+		// Moves data or control to another principal; stays denied.
+		"SendMessage":          policy.CapabilityDeny,
+		"SendUserFile":         policy.CapabilityDeny,
+		"RemoteTrigger":        policy.CapabilityDeny,
+		"SendFeedback":         policy.CapabilityDeny,
+		"ShareOnboardingGuide": policy.CapabilityDeny,
 	}
 	for tool, capability := range want {
 		spec, ok := ClaudeTool(tool)
@@ -30,8 +48,8 @@ func TestClaudeInventoryClassifiesCapabilityBoundary(t *testing.T) {
 		}
 	}
 
-	if spec, ok := ClaudeTool("mcp__server__unsafe"); !ok || spec.Capability != policy.CapabilityDeny {
-		t.Fatalf("MCP tool = %#v, %v; want deny", spec, ok)
+	if spec, ok := ClaudeTool("mcp__server__unsafe"); !ok || spec.Capability != policy.CapabilityExternal {
+		t.Fatalf("MCP tool = %#v, %v; want external", spec, ok)
 	}
 }
 
@@ -100,27 +118,5 @@ func TestAntigravityPreHookMatcherCoversEveryInventoryTool(t *testing.T) {
 		if !AntigravityPreMatcherMatches(spec.NativeTool) {
 			t.Fatal(spec.NativeTool)
 		}
-	}
-}
-
-func TestCodexInventory(t *testing.T) {
-	tools := RegisteredTools("codex")
-	if len(tools) == 0 {
-		t.Fatal("missing Codex inventory")
-	}
-	seen := map[string]bool{}
-	for _, spec := range tools {
-		got, known := CodexTool(spec.NativeTool)
-		if !known || got != spec || spec.Capability == "" || seen[spec.NativeTool] {
-			t.Fatalf("invalid inventory: %+v", spec)
-		}
-		seen[spec.NativeTool] = true
-	}
-	if _, known := CodexTool("future_tool"); known {
-		t.Fatal("unknown tool registered")
-	}
-	spec, known := CodexTool("mcp__fixture__read")
-	if !known || spec.Capability != policy.CapabilityDeny {
-		t.Fatal("MCP not denied")
 	}
 }

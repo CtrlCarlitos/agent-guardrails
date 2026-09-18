@@ -18,9 +18,13 @@ const (
 	CapabilityWebFetch      Capability = "web_fetch"
 	CapabilityWebSearch     Capability = "web_search"
 	CapabilityDelegation    Capability = "delegation"
-	CapabilitySafeControl   Capability = "safe_control"
-	CapabilityDeny          Capability = "deny"
-	CapabilityUnknown       Capability = "unknown"
+	// CapabilityExternal reaches a principal outside the session (an MCP
+	// server, a scheduler, a publication surface) whose data flow the
+	// Engine cannot project; the operator decides each call.
+	CapabilityExternal    Capability = "external"
+	CapabilitySafeControl Capability = "safe_control"
+	CapabilityDeny        Capability = "deny"
+	CapabilityUnknown     Capability = "unknown"
 )
 
 type UnknownToolPosture string

@@ -55,7 +55,7 @@ func TestParseClaudeClassifiesCapabilityInputs(t *testing.T) {
 		{"notebook", "NotebookEdit", `{"notebook_path":"/repo/a.ipynb"}`, policy.CapabilityMutation, "/repo/a.ipynb", ""},
 		{"fetch", "WebFetch", `{"url":"https://example.test/docs"}`, policy.CapabilityWebFetch, "", "https://example.test/docs"},
 		{"search", "WebSearch", `{"query":"guardrails"}`, policy.CapabilityWebSearch, "", ""},
-		{"mcp", "mcp__server__unsafe", `{}`, policy.CapabilityDeny, "", ""},
+		{"mcp", "mcp__server__unsafe", `{}`, policy.CapabilityExternal, "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -176,5 +176,53 @@ func TestEmitClaudeSessionStart(t *testing.T) {
 	}
 	if got.HookSpecificOutput.HookEventName != "SessionStart" || got.HookSpecificOutput.AdditionalContext != "hello agent" {
 		t.Fatalf("bad payload: %+v", got.HookSpecificOutput)
+	}
+}
+
+func TestPlaneLifecycleLineReflectsRegistrationAndDrift(t *testing.T) {
+	cases := []struct {
+		name     string
+		state    string
+		unmarked int
+		wants    []string
+		rejects  []string
+	}{
+		{"registered", "guardrail hook registered", 0,
+			[]string{"Claude plane lifecycle: guardrail hook registered"},
+			[]string{"guardrail plane enable claude", "drift"}},
+		{"registered with drift", "guardrail hook registered", 2,
+			[]string{"guardrail hook registered", "2 unmarked legacy guardrail hook groups", "drift", "guardrail plane enable claude"},
+			nil},
+		{"not registered", "present, hook NOT registered", 0,
+			[]string{"Claude plane lifecycle: present, hook NOT registered", "future sessions", "guardrail plane enable claude"},
+			nil},
+		{"no settings", "no settings.json", 0,
+			[]string{"Claude plane lifecycle: no settings.json", "guardrail plane enable claude"},
+			nil},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			got := PlaneLifecycleLine("claude", tt.state, tt.unmarked)
+			for _, w := range tt.wants {
+				if !strings.Contains(got, w) {
+					t.Fatalf("%q lacks %q", got, w)
+				}
+			}
+			for _, r := range tt.rejects {
+				if strings.Contains(got, r) {
+					t.Fatalf("%q must not contain %q", got, r)
+				}
+			}
+			if strings.Contains(got, "\n") {
+				t.Fatalf("lifecycle line must be one paragraph: %q", got)
+			}
+		})
+	}
+}
+
+func TestPlaneLifecycleLineSanitizesState(t *testing.T) {
+	got := PlaneLifecycleLine("claude", "unreadable: forged\nline\x7f", 0)
+	if strings.Contains(got, "\n") || strings.Contains(got, "\x7f") {
+		t.Fatalf("state was not sanitized: %q", got)
 	}
 }

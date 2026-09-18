@@ -39,6 +39,9 @@
     ]
   },
   "permissions": {
+    "allow": [
+      "Bash(guardrail fetch:*)"
+    ],
     "ask": [
       "Bash(chmod -R *)",
       "Bash(chmod 777 *)",
