@@ -72,3 +72,15 @@ as unsupported. `guardrail plane status` is read-only and needs no approval;
 installed while planes are disabled, so re-enabling is local and verified.
 Applied actions write `operator-action` audit records; a replayed approved
 request completes idempotently without a second mutation.
+
+## Recovery Repairs
+
+`guardrail recover <repair>` (claude-settings, opencode-config,
+antigravity-hooks) repairs Guardrail-protected machinery through the broker:
+interactive terminal required, WebAuthn approval bound to the exact named
+repair, audit-journaled, idempotent. Every repair takes a timestamped backup
+first (`<path>.guardrail-recover-<utc>`); an unparseable file is reset and
+the Guardrail integration re-registered (original bytes preserved in the
+backup), while a parseable file is repaired in place with user configuration
+untouched. Repairs are predefined code — an agent can never supply repair
+content, only be told to ask the operator for a named repair.
