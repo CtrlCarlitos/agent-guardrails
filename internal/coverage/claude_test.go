@@ -115,8 +115,12 @@ func TestClaudeBundlePathResolvesSymlinkOnPATH(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != real {
-		t.Fatalf("bundle = %q, want %q", got, real)
+	want := real
+	if resolved, err := filepath.EvalSymlinks(real); err == nil {
+		want = resolved // darwin: t.TempDir spelling resolves to /private/var
+	}
+	if got != want {
+		t.Fatalf("bundle = %q, want %q", got, want)
 	}
 }
 

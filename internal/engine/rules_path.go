@@ -227,6 +227,8 @@ func classifySecretPathOperand(candidate pathCandidate, pol *policy.Policy, hono
 			worst = v
 		}
 	}
+	askMatch := ""
+	askInside := false
 	for _, form := range pathCandidateForms(candidate) {
 		if matchesAnyGlob(form, pol.Slots.SecretDirs) {
 			return secretPathVerdict(policy.Deny, "P4.secret-path", form)
@@ -238,16 +240,28 @@ func classifySecretPathOperand(candidate pathCandidate, pol *policy.Policy, hono
 			take(secretPathVerdict(policy.Deny, "P4.secret-path", form))
 		}
 		if matchesAnyGlob(form, pol.Slots.SecretAskGlobs) {
-			decision := policy.Deny
-			ruleID := "P4.secret-path"
+			if askMatch == "" {
+				askMatch = form
+			}
+			// Inside-repo holds when ANY spelling is inside: darwin temp
+			// trees mean the raw form (/var/...) and the resolved one
+			// (/private/var/...) straddle the canonical repo root, and a
+			// path reachable inside the repo is inside regardless of form.
 			if candidate.repoRoot != "" && !strings.HasPrefix(candidate.path, "~") {
 				if _, inside := repoRelative(form, candidate.cwd, candidate.repoRoot); inside {
-					decision = policy.Ask
-					ruleID = "P4.secret-path-ambiguous"
+					askInside = true
 				}
 			}
-			take(secretPathVerdict(decision, ruleID, form))
 		}
+	}
+	if askMatch != "" {
+		decision := policy.Deny
+		ruleID := "P4.secret-path"
+		if askInside {
+			decision = policy.Ask
+			ruleID = "P4.secret-path-ambiguous"
+		}
+		take(secretPathVerdict(decision, ruleID, askMatch))
 	}
 	return worst
 }
@@ -1015,25 +1029,38 @@ func checkSymlinkEscape(candidate pathCandidate, tc ToolCall) *policy.Verdict {
 	if candidate.cwdUnknown && !filepath.IsAbs(cand) {
 		return nil
 	}
-	if tc.RepoRoot == "" || filepath.IsAbs(cand) && !strings.HasPrefix(filepath.Clean(cand), filepath.Clean(tc.RepoRoot)) {
-		// only guard paths that claim to be inside the repo
-		if !strings.HasPrefix(filepath.Clean(cand), filepath.Clean(tc.RepoRoot)) {
-			return nil
+	// Only guard paths that claim to be inside the repo. The claim must
+	// survive spelling divergence: darwin temp trees mean the candidate may
+	// arrive in the /var/folders spelling while the canonical repo root is
+	// /private/var/... (or the reverse), so accept either spelling on both
+	// sides rather than a single lexical prefix.
+	rootRaw := filepath.Clean(tc.RepoRoot)
+	rootCanon := canonicalExistingPath(rootRaw)
+	insideSpelling := func(p string) bool {
+		p = filepath.Clean(p)
+		if p == rootRaw || strings.HasPrefix(p, rootRaw+string(filepath.Separator)) {
+			return true
 		}
+		return rootCanon != rootRaw && (p == rootCanon || strings.HasPrefix(p, rootCanon+string(filepath.Separator)))
+	}
+	if tc.RepoRoot == "" {
+		return nil
+	}
+	if filepath.IsAbs(cand) && !insideSpelling(cand) {
+		return nil
 	}
 	abs := cand
 	if !filepath.IsAbs(abs) {
 		abs = filepath.Join(candidate.cwd, cand)
 	}
-	if !strings.HasPrefix(filepath.Clean(abs), filepath.Clean(tc.RepoRoot)+string(filepath.Separator)) {
+	if !insideSpelling(abs) {
 		return nil
 	}
 	resolved, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		return nil // nonexistent target: nothing to resolve yet
 	}
-	root := filepath.Clean(tc.RepoRoot) + string(filepath.Separator)
-	if !strings.HasPrefix(filepath.Clean(resolved)+string(filepath.Separator), root) {
+	if !insideSpelling(resolved) {
 		return &policy.Verdict{Decision: policy.Deny, RuleID: "P4.symlink-escape",
 			Reason: "a path inside the repo resolves outside it via symlink: " + cand}
 	}

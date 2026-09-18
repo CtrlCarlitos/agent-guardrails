@@ -154,6 +154,14 @@ egress_allowlist = ["*"]
 	got := out.String()
 	displayDir := filepath.Join(parent, "repo policy warnings: waivers: dir")
 	displayConfig := filepath.Join(displayDir, "guardrail policy warnings: waivers: .toml")
+	// os.Getwd returns the physically resolved path; on darwin the raw
+	// t.TempDir spelling (/var/folders/...) resolves to /private/var/...
+	if resolved, err := filepath.EvalSymlinks(displayDir); err == nil {
+		displayDir = resolved
+	}
+	if resolved, err := filepath.EvalSymlinks(displayConfig); err == nil {
+		displayConfig = resolved
+	}
 	for _, want := range []string{
 		"cwd: " + displayDir,
 		"GUARDRAIL_CONFIG: " + displayConfig,
