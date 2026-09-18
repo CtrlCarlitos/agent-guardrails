@@ -123,6 +123,12 @@ A terminal-only Operator authorization request for a predefined repair of
 Guardrail-protected machinery. It shows the normalized repair, requires
 WebAuthn, and cannot execute arbitrary shell text supplied by a plane.
 
+**MCP family registry**:
+The central table (ADR-0017) typing known MCP server tools — serena, graft —
+with per-tool capability classification and path-argument names, so their
+mutations and reads run through the full path policy on every plane whose
+adapter wires it. Unknown MCP tools ask rather than silently allowing.
+
 **External tier**:
 Tools whose effect leaves the session — artifact publication, scheduling
 recurrence, MCP servers, external services — classified CapabilityExternal:
