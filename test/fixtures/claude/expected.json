@@ -1,11 +1,29 @@
 {
-  "bash-rm-rf.json":      {"exit": 2},
-  "bash-ls.json":         {"exit": 0},
-  "read-env.json":        {"exit": 2},
-  "bash-git-commit.json": {"exit": 0},
-  "git-reset-hard.json":  {"exit": 2},
-  "write-claude-md.json": {"exit": 2},
-  "egress-deny.json":     {"exit": 2},
-  "git-c-bypass.json":    {"exit": 2},
-  "post-edit-lint-fail.json": {"exit": 2}
+  "bash-rm-rf.json":            {"exit": 2, "decision": "deny",  "rule": "P1.rm-rf"},
+  "bash-ls.json":               {"exit": 0, "decision": "allow"},
+  "read-env.json":              {"exit": 2, "decision": "deny",  "rule": "P4.secret-path"},
+  "bash-git-commit.json":       {"exit": 0, "decision": "allow"},
+  "git-reset-hard.json":        {"exit": 2, "decision": "deny"},
+  "write-claude-md.json":       {"exit": 2, "decision": "deny"},
+  "egress-deny.json":           {"exit": 2, "decision": "deny"},
+  "git-c-bypass.json":          {"exit": 2, "decision": "deny"},
+  "post-edit-lint-fail.json":   {"exit": 2},
+
+  "bash-chmod-r.json":          {"exit": 0, "decision": "ask",   "rule": "P1.chmod"},
+  "git-push-main.json":         {"exit": 0, "decision": "ask",   "rule": "P2.git-push-protected"},
+
+  "bash-sudo.json":             {"exit": 2, "decision": "deny",  "rule": "P1.privesc"},
+  "bash-curl-pipe-sh.json":     {"exit": 2, "decision": "deny",  "rule": "P6.download-pipe-shell"},
+  "read-ssh-key.json":          {"exit": 2, "decision": "deny",  "rule": "P4.secret-path"},
+  "edit-claude-settings.json":  {"exit": 2, "decision": "deny",  "rule": "P5.self-config"},
+  "webfetch-unknown-host.json": {"exit": 2, "decision": "deny",  "rule": "web-fetch-native-deny"},
+  "edit-no-path.json":          {"exit": 2, "decision": "deny",  "rule": "capability-input-missing"},
+
+  "agent.json":                 {"exit": 0, "decision": "allow", "rule": "delegation-inherited"},
+  "task-legacy.json":           {"exit": 0, "decision": "allow", "rule": "delegation-inherited"},
+
+  "multiedit.json":             {"exit": 0, "decision": "allow", "paths": ["/tmp/a.txt"]},
+  "multiedit-secret.json":      {"exit": 2, "decision": "deny",  "rule": "P4.secret-path", "paths": ["/tmp/a.txt", "/tmp/b.txt", "/home/u/.ssh/id_ed25519"]},
+  "notebookedit.json":          {"exit": 0, "decision": "allow", "paths": ["/tmp/n.ipynb"]},
+  "notebookedit-secret.json":   {"exit": 2, "decision": "deny",  "rule": "P4.secret-path", "paths": ["/home/u/proj/.env"]}
 }
