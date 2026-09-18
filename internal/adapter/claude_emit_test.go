@@ -64,10 +64,11 @@ func TestEmitClaudeOperatorActionTellsModelHowToProceed(t *testing.T) {
 	for _, want := range []string{
 		"Operator approval requested for web-host-grant (request request-1).",
 		"Approval URL: http://localhost:39169/approve/request-1.",
-		"The operator approves with their passkey",
-		"do not retry until they confirm",
-		"then retry this exact command once",
-		"Continue other work meanwhile.",
+		"The operator approves with their passkey and the action is applied at that moment",
+		"do not re-run this command",
+		"files a new request",
+		"Continue other work meanwhile",
+		"use the granted capability once they confirm",
 	} {
 		if !strings.Contains(h.AdditionalContext, want) {
 			t.Fatalf("additionalContext %q lacks %q", h.AdditionalContext, want)

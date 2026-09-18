@@ -130,17 +130,22 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if operatorAction.Name == "web-host-grant" || operatorAction.Name == "web-host-revoke" {
 			scope = approval.Scope(operatorAction.Parameters["scope"])
 		}
-		r, createErr := approval.SubmitOnDemand(approval.Request{
-			Plane: tc.Plane, SessionID: tc.SessionID, RepoRoot: tc.RepoRoot,
-			Scope: scope, Reason: "canonical operator action",
-			Action: operatorAction.Name, Parameters: operatorAction.Parameters,
-		})
-		if createErr != nil {
-			v = policy.Verdict{Decision: policy.Deny, RuleID: "operator-action-broker", Reason: "operator-action request could not be recorded; failing closed"}
+		if reason, satisfied := engine.OperatorActionSatisfied(operatorAction, merged, op); satisfied {
+			v = policy.Verdict{Decision: policy.Deny, RuleID: "operator-action-satisfied", Reason: reason, OperatorAction: operatorAction.Name}
+			stateApplied = true
 		} else {
-			v = policy.Verdict{Decision: policy.Complete, RuleID: "operator-action", Reason: "operator action requires broker approval", OperatorAction: operatorAction.Name, RequestID: r.ID, ApprovalURL: r.ApprovalURL}
+			r, createErr := approval.SubmitOnDemand(approval.Request{
+				Plane: tc.Plane, SessionID: tc.SessionID, RepoRoot: tc.RepoRoot,
+				Scope: scope, Reason: "canonical operator action",
+				Action: operatorAction.Name, Parameters: operatorAction.Parameters,
+			})
+			if createErr != nil {
+				v = policy.Verdict{Decision: policy.Deny, RuleID: "operator-action-broker", Reason: "operator-action request could not be recorded; failing closed"}
+			} else {
+				v = policy.Verdict{Decision: policy.Complete, RuleID: "operator-action", Reason: "operator action requires broker approval", OperatorAction: operatorAction.Name, RequestID: r.ID, ApprovalURL: r.ApprovalURL}
+			}
+			stateApplied = true
 		}
-		stateApplied = true
 	} else if tc.Event == "pre" && needsState {
 		err := sessionTransaction(tc.SessionID, func(st *session.State) error {
 			if needsNightAnnouncement {

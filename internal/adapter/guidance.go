@@ -34,6 +34,8 @@ func denyNextStep(ruleID string) string {
 		return "This is a secret-tier path: it is denied here, and only an authorized Overlay secret_allow can allow a matching file secret (never directory secrets). Exclude this path and continue the rest of the task."
 	case "P5.self-config":
 		return "This is Guardrail-protected machinery: never edit it from a session. If it genuinely needs repair, tell the operator to run the Guardrail terminal recovery command. Continue other work."
+	case "operator-action-satisfied":
+		return "The grant already holds: do not request it again. Use it now (guardrail fetch <url>) and continue."
 	case "P6.egress":
 		return "Egress to this host is not authorized. Batch the exact domains the task needs into one operator grant (guardrail egress grant --scope repo --host api.example.com,cdn.example.com) — a single approval covers the whole batch; continue offline work meanwhile."
 	case "P1.rm-rf", "P1.dd", "P1.mkfs", "P1.shred", "P1.privesc", "P1.docker-down", "P1.docker-prune", "P1.docker-substituted", "P1.git-push-force", "P1.git-clean":
