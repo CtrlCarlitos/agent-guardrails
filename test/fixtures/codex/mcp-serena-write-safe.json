@@ -1,0 +1,10 @@
+{
+  "session_id": "fixture",
+  "cwd": "/repo",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "mcp__serena__replace_symbol_body",
+  "tool_input": {
+    "relative_path": "src/main.go",
+    "body": "x"
+  }
+}

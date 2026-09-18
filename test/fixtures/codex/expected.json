@@ -70,5 +70,26 @@
   },
   "stdin-deny.json": {
     "exit": 2
+  },
+  "mcp-serena-write-safe.json": {
+    "exit": 0
+  },
+  "mcp-serena-write-secret.json": {
+    "exit": 2
+  },
+  "mcp-serena-read-secret.json": {
+    "exit": 2
+  },
+  "mcp-serena-missing-path.json": {
+    "exit": 2
+  },
+  "mcp-serena-memory.json": {
+    "exit": 0
+  },
+  "mcp-serena-control.json": {
+    "exit": 0
+  },
+  "mcp-graft-read.json": {
+    "exit": 0
   }
 }

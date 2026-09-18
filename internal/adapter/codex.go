@@ -47,6 +47,19 @@ func ParseCodex(r io.Reader) (engine.ToolCall, error) {
 		return engine.ToolCall{}, fmt.Errorf("Codex tool_input must be an object")
 	}
 	spec, known := planecontract.CodexTool(p.Tool)
+	if !known || spec.Capability == policy.CapabilityDeny {
+		// Consult the shared registry before applying the MCP prefix deny,
+		// exactly as OpenCode does. MCP path arguments are not native patch
+		// or view_image inputs; project them with the shared registry helper.
+		if mcp, ok := planecontract.MatchMCPTool(p.Tool); ok {
+			tc.Tool, tc.Capability = mcp.Tool, mcp.Capability
+			tc.Paths = projectMCPPaths(mcp, p.Input)
+			if tc.Capability == policy.CapabilityReadDiscovery || tc.Capability == policy.CapabilityMutation {
+				tc.InputShape = "path"
+			}
+			return tc, nil
+		}
+	}
 	if !known {
 		spec = planecontract.ToolSpec{NativeTool: p.Tool, Tool: p.Tool, Capability: policy.CapabilityUnknown}
 	}
