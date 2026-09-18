@@ -153,6 +153,52 @@ func PostureText(waivers []string, warnings []string) string {
 	return b.String()
 }
 
+// PlaneLifecycleLine describes the plane's Guardrail integration as recorded
+// in its global config, so the SessionStart posture reflects lifecycle state
+// (registered, drifted, or absent) rather than only the fact that this hook
+// happened to fire. The recovery step is always the operator's terminal
+// command, never an in-session edit (self-config is P5-denied).
+func PlaneLifecycleLine(plane, state string, unmarkedGroups int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s plane lifecycle: %s.", planeDisplayName(plane), sanitizeForModel(state))
+	switch {
+	case strings.HasPrefix(state, "guardrail hook registered") || strings.HasPrefix(state, "guardrail integration registered"):
+		if unmarkedGroups > 0 {
+			fmt.Fprintf(&b, " %d unmarked legacy guardrail hook group%s remain (drift): the operator should run `guardrail plane enable %s` to absorb %s.",
+				unmarkedGroups, plural(unmarkedGroups), plane, pronoun(unmarkedGroups))
+		}
+	default:
+		fmt.Fprintf(&b, " This session is guarded by the hook that launched it, but future sessions may not be: tell the operator to run `guardrail plane enable %s`.", plane)
+	}
+	return b.String()
+}
+
+func planeDisplayName(plane string) string {
+	switch plane {
+	case "claude":
+		return "Claude"
+	case "opencode":
+		return "OpenCode"
+	case "antigravity":
+		return "Antigravity"
+	}
+	return plane
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+func pronoun(n int) string {
+	if n == 1 {
+		return "it"
+	}
+	return "them"
+}
+
 func EmitClaudeSessionStart(text string, stdout io.Writer) int {
 	payload := map[string]any{
 		"hookSpecificOutput": map[string]any{
