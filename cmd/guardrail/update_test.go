@@ -214,3 +214,21 @@ func TestUpdateShutsDownApprovalDaemonAfterReplace(t *testing.T) {
 		t.Fatalf("shutdown called %d times, want 1", shutdowns)
 	}
 }
+
+func TestUpdateMissingReleaseMessageNamesTheRace(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "guardrail")
+	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stubUpdateSeams(t, target)
+	server := updateTestServer(t, "", "", http.StatusNotFound)
+	updateReleaseBase = server.URL + "/download"
+
+	var out, errb strings.Builder
+	if code := run([]string{"update", "v0.99.0-dev"}, strings.NewReader(""), &out, &errb); code != 1 {
+		t.Fatalf("exit = %d", code)
+	}
+	if !strings.Contains(errb.String(), "may still be publishing") {
+		t.Fatalf("stderr = %q, want the asset-publish race named", errb.String())
+	}
+}
