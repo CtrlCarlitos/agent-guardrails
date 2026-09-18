@@ -22,7 +22,9 @@ func Guidance(v policy.Verdict, action string) string {
 // manufactures a stuck agent.
 func denyNextStep(ruleID string) string {
 	switch ruleID {
-	case "capability-deny", "capability-delegation-unverified", "capability-invalid":
+	case "capability-deny", "capability-invalid":
+		return "This tool is outside the Guardrail boundary on this plane (it moves data or control to another principal). Do not retry it: reach the outcome with in-session tools, or tell the operator this step needs them; then continue."
+	case "capability-delegation-unverified":
 		return "This capability is unavailable on this plane. Do not delegate and do not retry: perform the work yourself in this session, then continue."
 	case "unknown-native-tool":
 		return "This tool is unclassified on this plane. Accomplish the same outcome with a supported tool (edit, read, or explicit command), then continue."
