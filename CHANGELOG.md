@@ -4,6 +4,34 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## v0.20.27-dev
+- **macOS is a first-class platform**: CI runs the full POSIX suite on
+  ubuntu, windows, and macos. Two real engine bugs fixed (temp-root
+  symlink divergence, operator-config grant matching); symlink-escape
+  detection now file-identity-based and spelling-tolerant; concurrent
+  grant fixtures stress-verified (100 runs).
+
+## v0.20.26-dev
+- Read-only guardrail status is allowed from sessions (exact three-word
+  command, everything adjacent still denied); ADR-0021 records the Windows
+  approval broker design (named pipe, owner-only DACL, lift order a-d).
+
+## v0.20.25-dev
+- ADR-0019 updated with the REPL/JavaScript mediation probe (Deny stands,
+  upgrade condition recorded); claude selftest probes expanded to 7
+  (serena MCP deny, delegation allow, external ask); docs/OPERATIONS.md
+  runbook born.
+
+## v0.20.24-dev
+- Antigravity selftest probes expanded to 7: delegation, timer typing,
+  MCP registry projection, meta-dispatch. Every ADR invariant is now
+  behaviorally pinned (0013/0017/0018/0019).
+
+## v0.20.23-dev
+- guardrail selftest --evidence codex: live-mediation evidence gate
+  (ADR-0020) — two distinct post-binary records in one non-synthetic
+  session opens the approval-flow ADR precondition.
+
 ## v0.20.21-dev
 - CHANGELOG catch-up (this release's actual change).
 
