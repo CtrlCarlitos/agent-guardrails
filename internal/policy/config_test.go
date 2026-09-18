@@ -37,7 +37,14 @@ func TestFindOverlayPathGitRoot(t *testing.T) {
 	os.WriteFile(cfg, []byte("engine_min_version = \"0.1\"\n"), 0o644)
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	got, ok, warn := FindOverlayPath(sub)
-	if !ok || got != cfg || warn != "" {
+	// git resolves temp trees physically on darwin; accept either spelling
+	// of the same overlay file.
+	sameOverlay := ok && (got == cfg || func() bool {
+		g, err1 := filepath.EvalSymlinks(got)
+		w, err2 := filepath.EvalSymlinks(cfg)
+		return err1 == nil && err2 == nil && g == w
+	}())
+	if !sameOverlay || warn != "" {
 		t.Fatalf("got %q,%v,%q", got, ok, warn)
 	}
 }
@@ -346,6 +353,14 @@ func TestLoadOverlayPreservesReadErrors(t *testing.T) {
 	})
 }
 
+func mustResolve(t *testing.T, p string) string {
+	t.Helper()
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	return p
+}
+
 func TestFindRepoRootStopsAtTempRootBoundary(t *testing.T) {
 	base := t.TempDir()
 	// A REAL stray repository at the fake temp root.
@@ -361,7 +376,7 @@ func TestFindRepoRootStopsAtTempRootBoundary(t *testing.T) {
 		t.Fatalf("repo root %q discovered across the temp-root boundary; want none", root)
 	}
 	// Without the ceiling, discovery would find the stray root — proving the ceiling matters.
-	if root, ok := findRepoRootWithCeilings(work, nil); !ok || root != base {
+	if root, ok := findRepoRootWithCeilings(work, nil); !ok || root != base && root != mustResolve(t, base) {
 		t.Fatalf("control case: discovery = %q ok=%v, want the stray root", root, ok)
 	}
 }

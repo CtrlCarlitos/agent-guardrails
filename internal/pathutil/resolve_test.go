@@ -8,6 +8,19 @@ import (
 	"testing"
 )
 
+// wantEither accepts the raw or the physically resolved spelling of an
+// expected path (darwin temp trees resolve /var -> /private/var).
+func wantEither(t *testing.T, got, want string) {
+	t.Helper()
+	if got == want {
+		return
+	}
+	if resolved, err := filepath.EvalSymlinks(want); err == nil && got == resolved {
+		return
+	}
+	t.Fatalf("got %q, want %q (or its resolved spelling)", got, want)
+}
+
 func TestResolveThroughExistingAncestorMissingSuffixes(t *testing.T) {
 	base := t.TempDir()
 	tests := []struct {
