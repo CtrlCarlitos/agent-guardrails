@@ -12,6 +12,7 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/adapter"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/coverage"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
@@ -110,6 +111,9 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		adapter.EmitModelWarnings(stderrWarnings, stderr)
 		text := adapter.PostureText(policy.SortedWaivers(merged), postureWarnings)
 		text += "\n\n" + claudePlanePosture()
+		if line := claudeCoveragePosture(); line != "" {
+			text += "\n\n" + line
+		}
 		if nightState.Active {
 			text = nightState.Banner() + "\n" + text
 		}
@@ -232,6 +236,20 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	default:
 		return 2
 	}
+}
+
+// claudeCoveragePosture is the advisory line for bundle coverage drift:
+// present only when the installed Claude Code exposes tools the contract
+// does not know (allow-by-default), empty in steady state, and empty on
+// any error — the posture never blocks a session. The scan is cached per
+// bundle version, so only the first session after a bump pays for it.
+func claudeCoveragePosture() string {
+	contracted, _ := claudeContracted()
+	d, err := coverage.ClaudeDrift(contracted, version)
+	if err != nil || len(d.Uncontracted) == 0 {
+		return ""
+	}
+	return adapter.CoverageDriftLine("claude", "Claude Code "+d.Version, d.Uncontracted)
 }
 
 // claudePlanePosture reads the plane's lifecycle state the same way doctor

@@ -281,3 +281,18 @@ func EmitClaudeSessionStart(text string, stdout io.Writer) int {
 	stdout.Write(append(b, '\n'))
 	return 0
 }
+
+// CoverageDriftLine is the advisory posture line for runtime tools the
+// plane contract does not know. Empty when there is nothing to report:
+// the posture is advisory, not a heartbeat.
+func CoverageDriftLine(plane, runtime string, uncontracted []string) string {
+	if len(uncontracted) == 0 {
+		return ""
+	}
+	noun := "tool"
+	if len(uncontracted) != 1 {
+		noun = "tools"
+	}
+	return sanitizeForModel(fmt.Sprintf("%s coverage: %s — %d uncontracted %s (%s); run guardrail doctor --coverage %s",
+		plane, runtime, len(uncontracted), noun, strings.Join(uncontracted, ", "), plane))
+}

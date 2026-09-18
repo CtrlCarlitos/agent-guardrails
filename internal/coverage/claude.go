@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -240,4 +241,93 @@ func (inv Inventory) Describe(contracted []string) []string {
 		lines = append(lines, "  contracted but absent from the bundle: "+strings.Join(stale, ", "))
 	}
 	return lines
+}
+
+// versionMarker precedes the version in a Claude Code build. The bundle is
+// a compiled executable with the JavaScript embedded deep inside it, so the
+// marker is found by streaming, never by reading a header.
+var versionMarker = []byte("// Version: ")
+
+// ClaudeBundleVersion reads the bundle's version by streaming for the
+// marker with a bounded buffer: an order of magnitude cheaper than the
+// tool scan, and the only cost a cached session pays.
+func ClaudeBundleVersion(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	const chunk = 4 << 20
+	overlap := len(versionMarker) + 32
+	buf := make([]byte, chunk+overlap)
+	carry := 0
+	for {
+		n, err := f.Read(buf[carry:])
+		if n > 0 {
+			window := buf[:carry+n]
+			if i := bytes.Index(window, versionMarker); i >= 0 {
+				if m := versionLine.FindSubmatch(window[i:]); m != nil {
+					return string(m[1]), nil
+				}
+			}
+			if len(window) > overlap {
+				carry = copy(buf, window[len(window)-overlap:])
+			} else {
+				carry = len(window)
+			}
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return "", errors.New("no version line in the claude bundle")
+			}
+			return "", err
+		}
+	}
+}
+
+// Drift is the session-start view of one plane's coverage: the runtime
+// version and what it exposes that the contract does not know.
+type Drift struct {
+	Version      string   `json:"version"`
+	Guardrail    string   `json:"guardrail"` // contract provenance: a different release rescans
+	Uncontracted []string `json:"uncontracted"`
+	FromCache    bool     `json:"-"`
+}
+
+// ClaudeDrift answers "does the installed Claude Code expose tools the
+// contract does not know" for the given guardrail release, scanning the
+// bundle once per (bundle version, guardrail version) and caching the
+// answer. Errors mean the question could not be answered (no bundle, no
+// version); callers decide whether that is fatal — a session-start posture
+// fails open, doctor fails loud.
+func ClaudeDrift(contracted func(string) bool, guardrailVersion string) (Drift, error) {
+	bundle, err := ClaudeBundlePath()
+	if err != nil {
+		return Drift{}, err
+	}
+	version, err := ClaudeBundleVersion(bundle)
+	if err != nil {
+		return Drift{}, err
+	}
+	var d Drift
+	if LoadCached("claude", version, &d) && d.Version == version && d.Guardrail == guardrailVersion {
+		d.FromCache = true
+		return d, nil
+	}
+	f, err := os.Open(bundle)
+	if err != nil {
+		return Drift{}, err
+	}
+	defer f.Close()
+	inv, err := ScanClaudeBundle(f, contracted)
+	if err != nil {
+		return Drift{}, err
+	}
+	d = Drift{Version: version, Guardrail: guardrailVersion, Uncontracted: inv.Uncontracted}
+	if d.Uncontracted == nil {
+		d.Uncontracted = []string{}
+	}
+	// A failed cache write only costs the next session a rescan.
+	_ = StoreCached("claude", version, d)
+	return d, nil
 }
