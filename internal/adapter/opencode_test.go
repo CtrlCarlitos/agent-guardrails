@@ -249,3 +249,14 @@ func TestEmitOpencodeAllow(t *testing.T) {
 		t.Fatalf("decision = %q, want allow", got["decision"])
 	}
 }
+
+func TestParseOpencodeCarriesCallIDAndHostApproval(t *testing.T) {
+	raw := `{"session_id":"s1","event":"pre","tool":"edit","call_id":"call-9","host_approved":true,"cwd":"/repo","arguments":{"filePath":"/repo/a.go","content":"x"}}`
+	tc, err := ParseOpencode(strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc.CallID != "call-9" || !tc.HostApproved {
+		t.Fatalf("ToolCall = %+v, want call-9 host-approved", tc)
+	}
+}
