@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"path/filepath"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -8,6 +9,11 @@ import (
 )
 
 func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
+	// Darwin temp-symlink divergence: CWD/RepoRoot may arrive in the
+	// /var/folders spelling while resolved paths come back /private/var/...
+	// Canonicalize once so every containment comparison shares one spelling.
+	tc.CWD = canonicalExistingPath(tc.CWD)
+	tc.RepoRoot = canonicalExistingPath(tc.RepoRoot)
 	defer func() {
 		if r := recover(); r != nil {
 			out = policy.Verdict{Decision: policy.Ask, RuleID: "panic-recovered",
@@ -103,6 +109,16 @@ func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 		return policy.Verdict{Decision: policy.Allow}
 	}
 	return *worst
+}
+
+func canonicalExistingPath(path string) string {
+	if path == "" {
+		return path
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return path
 }
 
 func validWebFetchURL(raw string) bool {
