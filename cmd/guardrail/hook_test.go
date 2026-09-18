@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -2208,5 +2209,77 @@ func TestHookSessionStartReportsClaudePlaneLifecycle(t *testing.T) {
 	setClaudeHome(t, "")
 	if ctx := sessionStartContext(t); !strings.Contains(ctx, "Claude plane lifecycle: no settings.json") || !strings.Contains(ctx, "guardrail plane enable claude") {
 		t.Fatalf("unregistered posture = %q", ctx)
+	}
+}
+
+func webHostProbeRepo(t *testing.T) string {
+	t.Helper()
+	repo := filepath.Join(t.TempDir(), "repo")
+	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	root, ok := policy.FindRepoRoot(repo)
+	if !ok {
+		t.Fatal("repo root")
+	}
+	return root
+}
+
+// An approved web-host grant is applied by the broker the moment the
+// operator approves; a model that re-issues the same command must learn the
+// hosts are already authorized instead of filing a duplicate request.
+func TestHookWebHostGrantAlreadySatisfiedDoesNotFileRequest(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	repo := webHostProbeRepo(t)
+	if err := executeWebHostApproval(approval.Request{ID: "r1", RepoRoot: repo, Parameters: map[string]string{"hosts": "a.example.test,b.example.test"}, Scope: approval.RepoScope, Action: "web-host-grant"}); err != nil {
+		t.Fatal(err)
+	}
+
+	payload := fmt.Sprintf(`{"session_id":"s1","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"guardrail egress grant --scope repo --host a.example.test,b.example.test"}}`, repo)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"hook", "claude"}, strings.NewReader(payload), &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("exit = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"already authorized", "a.example.test", "b.example.test", "guardrail fetch", "continue"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr %q lacks %q", stderr.String(), want)
+		}
+	}
+	records := readApprovalAudit(t, stateHome)
+	if last := records[len(records)-1]; last.Decision != "deny" || last.RuleID != "operator-action-satisfied" {
+		t.Fatalf("audit = %+v, want deny/operator-action-satisfied", records)
+	}
+	before := len(records)
+
+	// A batch with any host still unauthorized is brokered as usual.
+	payload = fmt.Sprintf(`{"session_id":"s1","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"guardrail egress grant --scope repo --host a.example.test,c.example.test"}}`, repo)
+	stdout.Reset()
+	stderr.Reset()
+	run([]string{"hook", "claude"}, strings.NewReader(payload), &stdout, &stderr)
+	records = readApprovalAudit(t, stateHome)
+	if last := records[len(records)-1]; len(records) != before+1 || last.Decision != "complete" || last.RuleID != "operator-action" {
+		t.Fatalf("audit = %+v, want a brokered request for the partial batch", records)
+	}
+}
+
+func TestHookGlobalWebHostGrantIsNotSatisfiedByRepoGrant(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	repo := webHostProbeRepo(t)
+	if err := executeWebHostApproval(approval.Request{ID: "r1", RepoRoot: repo, Parameters: map[string]string{"hosts": "a.example.test"}, Scope: approval.RepoScope, Action: "web-host-grant"}); err != nil {
+		t.Fatal(err)
+	}
+	payload := fmt.Sprintf(`{"session_id":"s1","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"guardrail egress grant --scope global --host a.example.test"}}`, repo)
+	var stdout, stderr bytes.Buffer
+	run([]string{"hook", "claude"}, strings.NewReader(payload), &stdout, &stderr)
+	records := readApprovalAudit(t, stateHome)
+	if last := records[len(records)-1]; last.Decision != "complete" || last.RuleID != "operator-action" {
+		t.Fatalf("audit = %+v, want a brokered global request", records)
 	}
 }

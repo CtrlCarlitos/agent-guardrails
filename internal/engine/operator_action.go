@@ -2,6 +2,7 @@ package engine
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -44,4 +45,34 @@ func OperatorAction(tc ToolCall) (Action, bool) {
 		}
 	}
 	return Action{Name: "web-host-" + matches[1], Parameters: map[string]string{"scope": matches[2], "hosts": matches[3]}}, true
+}
+
+// OperatorActionSatisfied reports whether a web-host grant would change
+// nothing: every requested host is already authorized at the requested
+// scope. The broker applies an approved grant itself, so a model re-issuing
+// the command after approval must be told the grant holds rather than have
+// a duplicate request filed. Other actions are never short-circuited.
+func OperatorActionSatisfied(a Action, pol *policy.Policy, op *policy.OperatorConfig) (string, bool) {
+	if a.Name != "web-host-grant" || pol == nil {
+		return "", false
+	}
+	var allowed []string
+	switch a.Parameters["scope"] {
+	case "repo":
+		allowed = pol.Slots.WebHosts
+	case "global":
+		if op == nil {
+			return "", false
+		}
+		allowed = op.GlobalWebHosts
+	default:
+		return "", false
+	}
+	hosts := strings.Split(a.Parameters["hosts"], ",")
+	for _, host := range hosts {
+		if !slices.Contains(allowed, host) {
+			return "", false
+		}
+	}
+	return "egress to " + strings.Join(hosts, ", ") + " is already authorized at " + a.Parameters["scope"] + " scope; no request filed", true
 }

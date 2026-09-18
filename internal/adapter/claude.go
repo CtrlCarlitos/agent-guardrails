@@ -179,14 +179,15 @@ func EmitClaude(v policy.Verdict, event string, tc engine.ToolCall, stdout, stde
 // operatorActionGuidance is the model-facing text for a brokered operator
 // action. Claude Code shows the model only additionalContext and the reason,
 // never the bare operator_action/request_id fields, so the text must carry
-// the request identity, the approval URL, and the wait-then-retry step.
+// the request identity, the approval URL, and what happens next: the broker
+// applies the action on approval, so the command is never re-run.
 func operatorActionGuidance(v policy.Verdict) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Operator approval requested for %s (request %s).", v.OperatorAction, v.RequestID)
 	if v.ApprovalURL != "" {
 		fmt.Fprintf(&b, " Approval URL: %s.", v.ApprovalURL)
 	}
-	b.WriteString(" The operator approves with their passkey; do not retry until they confirm, then retry this exact command once. Continue other work meanwhile.")
+	b.WriteString(" The operator approves with their passkey and the action is applied at that moment; do not re-run this command (that files a new request). Continue other work meanwhile and use the granted capability once they confirm.")
 	return sanitizeForModel(b.String())
 }
 
