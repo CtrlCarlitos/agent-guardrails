@@ -595,6 +595,7 @@ func checkGitProtectedPathCandidates(candidates []pathCandidate) *policy.Verdict
 // documentation, not the plane's instruction file). `.envrc` is deliberately
 // "anywhere": direnv executes the .envrc of every directory entered.
 var selfConfigGlobs = []string{
+	"**/.codex", "**/.codex/**",
 	"**/.claude",
 	"**/.claude/settings.json", "**/.claude/settings.local.json",
 	"**/.claude/hooks/**", "**/.claude/plugins/**", "**/.claude/agents/**",

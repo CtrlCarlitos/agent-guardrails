@@ -16,7 +16,7 @@ func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 	}()
 	if tc.Capability == policy.CapabilityUnknown {
 		v := policy.Verdict{AuditKind: "unknown-native-tool"}
-		if pol.UnknownToolPosture == policy.UnknownDeny {
+		if tc.Plane == "codex" || pol.UnknownToolPosture == policy.UnknownDeny {
 			v.Decision = policy.Deny
 			v.RuleID = "unknown-native-tool"
 			v.Reason = "unclassified native tool; failing closed"

@@ -17,13 +17,15 @@ const maxOpencodeHookEnvelopeBytes = 8 << 20
 var errOpencodeHookEnvelopeTooLarge = errors.New("OpenCode hook envelope exceeds 8 MiB")
 
 type opencodePayload struct {
-	SessionID string          `json:"session_id"`
-	Event     string          `json:"event"`
-	Tool      string          `json:"tool"`
-	Command   string          `json:"command"`
-	Paths     []string        `json:"paths"`
-	CWD       string          `json:"cwd"`
-	Arguments json.RawMessage `json:"arguments"`
+	SessionID    string          `json:"session_id"`
+	Event        string          `json:"event"`
+	Tool         string          `json:"tool"`
+	CallID       string          `json:"call_id"`
+	HostApproved bool            `json:"host_approved"`
+	Command      string          `json:"command"`
+	Paths        []string        `json:"paths"`
+	CWD          string          `json:"cwd"`
+	Arguments    json.RawMessage `json:"arguments"`
 }
 
 func ParseOpencode(r io.Reader) (engine.ToolCall, error) {
@@ -47,17 +49,19 @@ func ParseOpencode(r io.Reader) (engine.ToolCall, error) {
 		spec = planecontract.ToolSpec{NativeTool: p.Tool, Tool: p.Tool, Capability: policy.CapabilityUnknown}
 	}
 	tc := engine.ToolCall{
-		Plane:      "opencode",
-		Event:      event,
-		Tool:       spec.Tool,
-		NativeTool: p.Tool,
-		Capability: spec.Capability,
-		Command:    p.Command,
-		Paths:      p.Paths,
-		Arguments:  p.Arguments,
-		SessionID:  p.SessionID,
-		CWD:        p.CWD,
-		Raw:        raw,
+		Plane:        "opencode",
+		Event:        event,
+		Tool:         spec.Tool,
+		NativeTool:   p.Tool,
+		Capability:   spec.Capability,
+		Command:      p.Command,
+		Paths:        p.Paths,
+		Arguments:    p.Arguments,
+		SessionID:    p.SessionID,
+		CallID:       p.CallID,
+		HostApproved: p.HostApproved,
+		CWD:          p.CWD,
+		Raw:          raw,
 	}
 	if tc.Capability == policy.CapabilityCommand {
 		tc.InputShape = "command"

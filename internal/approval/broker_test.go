@@ -127,17 +127,17 @@ func TestPlaneLifecycleActionAcceptsSupportedPlanes(t *testing.T) {
 	r := request()
 	r.Action = "plane-disable"
 	r.Scope = approval.GlobalScope
-	r.Parameters = map[string]string{"planes": "claude,opencode,antigravity"}
+	r.Parameters = map[string]string{"planes": "claude,opencode,antigravity,codex"}
 
 	created, err := broker.Create(r)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got, err := broker.Request(created.ID)
-	if err != nil || got.Parameters["planes"] != "claude,opencode,antigravity" {
+	if err != nil || got.Parameters["planes"] != "claude,opencode,antigravity,codex" {
 		t.Fatalf("restored request = %+v, error %v", got, err)
 	}
-	if got.Summary() != "planes: claude,opencode,antigravity" {
+	if got.Summary() != "planes: claude,opencode,antigravity,codex" {
 		t.Fatalf("summary = %q", got.Summary())
 	}
 }
@@ -146,7 +146,7 @@ func TestPlaneLifecycleActionRejectsInvalidPlaneLists(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	broker := approval.New()
 	for _, params := range []map[string]string{
-		{"planes": "claude,codex"},
+		{"planes": "claude,unsupported-plane"},
 		{"planes": ""},
 		{"planes": "claude,,opencode"},
 		{"plane": "claude"},
@@ -290,6 +290,44 @@ func TestWebHostActionRejectsInvalidBatches(t *testing.T) {
 		r := request()
 		r.Action = "web-host-grant"
 		r.Scope = approval.RepoScope
+		r.Parameters = params
+		if _, err := broker.Create(r); !errors.Is(err, approval.ErrMalformed) {
+			t.Errorf("parameters %v accepted: %v", params, err)
+		}
+	}
+}
+
+func TestRecoverActionAcceptsKnownRepairs(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	broker := approval.New()
+	for _, repair := range []string{"claude-settings", "opencode-config", "antigravity-hooks"} {
+		r := request()
+		r.Action = "recover"
+		r.Scope = approval.GlobalScope
+		r.Parameters = map[string]string{"repair": repair}
+		created, err := broker.Create(r)
+		if err != nil {
+			t.Fatalf("repair %s: %v", repair, err)
+		}
+		got, err := broker.Request(created.ID)
+		if err != nil || got.Parameters["repair"] != repair {
+			t.Fatalf("restored = %+v err=%v", got, err)
+		}
+	}
+}
+
+func TestRecoverActionRejectsUnknownRepairs(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	broker := approval.New()
+	for _, params := range []map[string]string{
+		{"repair": "rm-rf"},
+		{"repair": ""},
+		{"repair": "claude-settings", "extra": "1"},
+		{"planes": "claude"},
+	} {
+		r := request()
+		r.Action = "recover"
+		r.Scope = approval.GlobalScope
 		r.Parameters = params
 		if _, err := broker.Create(r); !errors.Is(err, approval.ErrMalformed) {
 			t.Errorf("parameters %v accepted: %v", params, err)

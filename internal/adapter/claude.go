@@ -138,8 +138,19 @@ func nativeAction(tool string, arguments any) string {
 func EmitClaude(v policy.Verdict, event string, tc engine.ToolCall, stdout, stderr io.Writer) int {
 	switch v.Decision {
 	case policy.Complete:
-		payload := map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PreToolUse", "permissionDecision": "deny", "additionalContext": "operator action pending", "operator_action": v.OperatorAction, "request_id": v.RequestID}}
-		b, _ := json.Marshal(payload)
+		guidance := operatorActionGuidance(v)
+		output := map[string]any{
+			"hookEventName":            "PreToolUse",
+			"permissionDecision":       "deny",
+			"permissionDecisionReason": guidance,
+			"additionalContext":        guidance,
+			"operator_action":          v.OperatorAction,
+			"request_id":               v.RequestID,
+		}
+		if v.ApprovalURL != "" {
+			output["approval_url"] = v.ApprovalURL
+		}
+		b, _ := json.Marshal(map[string]any{"hookSpecificOutput": output})
 		stdout.Write(append(b, '\n'))
 		return 0
 	case policy.Deny:
@@ -163,6 +174,20 @@ func EmitClaude(v policy.Verdict, event string, tc engine.ToolCall, stdout, stde
 	default:
 		return 0
 	}
+}
+
+// operatorActionGuidance is the model-facing text for a brokered operator
+// action. Claude Code shows the model only additionalContext and the reason,
+// never the bare operator_action/request_id fields, so the text must carry
+// the request identity, the approval URL, and the wait-then-retry step.
+func operatorActionGuidance(v policy.Verdict) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Operator approval requested for %s (request %s).", v.OperatorAction, v.RequestID)
+	if v.ApprovalURL != "" {
+		fmt.Fprintf(&b, " Approval URL: %s.", v.ApprovalURL)
+	}
+	b.WriteString(" The operator approves with their passkey; do not retry until they confirm, then retry this exact command once. Continue other work meanwhile.")
+	return sanitizeForModel(b.String())
 }
 
 func PostureText(waivers []string, warnings []string) string {

@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "codex-fixture",
+  "cwd": "/repo",
+  "tool_name": "apply_patch",
+  "tool_input": {
+    "command": "*** Begin Patch\n*** Add File: .codex/hooks.json\n+{}\n*** End Patch"
+  }
+}

@@ -66,6 +66,8 @@ var claudeTools = []ToolSpec{
 
 func RegisteredTools(plane string) []ToolSpec {
 	switch plane {
+	case "codex":
+		return append([]ToolSpec(nil), codexTools...)
 	case "claude":
 		return append([]ToolSpec(nil), claudeTools...)
 	case "opencode":

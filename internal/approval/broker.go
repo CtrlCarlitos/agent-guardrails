@@ -71,6 +71,16 @@ func (r Request) Summary() string {
 			return "planes: " + list
 		}
 	}
+	if r.Action == "recover" {
+		if repair := r.Parameters["repair"]; repair != "" {
+			return "repair: " + repair
+		}
+	}
+	if r.Action == "recover" {
+		if repair := r.Parameters["repair"]; repair != "" {
+			return "repair: " + repair
+		}
+	}
 	if r.Action == "web-host-grant" || r.Action == "web-host-revoke" {
 		if list := r.Parameters["hosts"]; list != "" {
 			return "hosts: " + list + " (" + r.Parameters["scope"] + ")"
@@ -297,7 +307,7 @@ func validateRequest(r Request) error {
 	if r.Host != "" && policy.ValidateWebHost(r.Host) != nil {
 		return ErrMalformed
 	}
-	if r.Action != "" && r.Action != "night-on" && r.Action != "night-off" && r.Action != "web-host-grant" && r.Action != "web-host-revoke" && r.Action != "plane-enable" && r.Action != "plane-disable" {
+	if r.Action != "" && r.Action != "night-on" && r.Action != "night-off" && r.Action != "web-host-grant" && r.Action != "web-host-revoke" && r.Action != "plane-enable" && r.Action != "plane-disable" && r.Action != "recover" {
 		return ErrMalformed
 	}
 	if r.Action == "night-on" && (len(r.Parameters) != 1 || r.Parameters["until"] == "") {
@@ -307,6 +317,9 @@ func validateRequest(r Request) error {
 		return ErrMalformed
 	}
 	if (r.Action == "plane-enable" || r.Action == "plane-disable") && !validPlaneList(r.Parameters) {
+		return ErrMalformed
+	}
+	if r.Action == "recover" && !validRecoverRepair(r.Parameters) {
 		return ErrMalformed
 	}
 	return nil
@@ -334,6 +347,17 @@ func validWebHostParameters(r Request) bool {
 	return true
 }
 
+func validRecoverRepair(params map[string]string) bool {
+	if len(params) != 1 {
+		return false
+	}
+	switch params["repair"] {
+	case "claude-settings", "opencode-config", "antigravity-hooks":
+		return true
+	}
+	return false
+}
+
 func validPlaneList(params map[string]string) bool {
 	if len(params) != 1 {
 		return false
@@ -343,7 +367,7 @@ func validPlaneList(params map[string]string) bool {
 		return false
 	}
 	for _, plane := range strings.Split(list, ",") {
-		if plane != "claude" && plane != "opencode" && plane != "antigravity" {
+		if plane != "claude" && plane != "opencode" && plane != "antigravity" && plane != "codex" {
 			return false
 		}
 	}
@@ -374,8 +398,14 @@ func durable(r Request) session.ApprovalRequest {
 		params["scope"] = string(r.Scope)
 		params["hosts"] = r.Parameters["hosts"]
 	}
+	if r.Action == "recover" {
+		params["repair"] = r.Parameters["repair"]
+	}
 	if r.Action == "plane-enable" || r.Action == "plane-disable" {
 		params["planes"] = r.Parameters["planes"]
+	}
+	if r.Action == "recover" {
+		params["repair"] = r.Parameters["repair"]
 	}
 	return session.ApprovalRequest{ID: r.ID, Plane: r.Plane, SessionDigest: digest(r.SessionID), RepoRoot: filepath.Clean(r.RepoRoot), Host: r.Host, Scope: string(r.Scope), ReasonDigest: digest(r.Reason), Action: r.Action, Parameters: params, IssuedAt: r.IssuedAt, ExpiresAt: r.ExpiresAt, Status: r.Status}
 }

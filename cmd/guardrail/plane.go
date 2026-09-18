@@ -33,7 +33,7 @@ var (
 				return true
 			}
 		}
-		binary := map[string]string{"claude": "claude", "opencode": "opencode", "antigravity": "agy"}[plane]
+		binary := map[string]string{"claude": "claude", "opencode": "opencode", "antigravity": "agy", "codex": "codex"}[plane]
 		if binary == "" {
 			return false
 		}
@@ -43,7 +43,7 @@ var (
 )
 
 // supportedPlanes are ordered for stable --all reporting.
-var supportedPlanes = []string{"claude", "opencode", "antigravity"}
+var supportedPlanes = []string{"claude", "opencode", "antigravity", "codex"}
 
 func planeConfigPath(plane string) (string, error) {
 	home, err := os.UserHomeDir()
@@ -51,6 +51,11 @@ func planeConfigPath(plane string) (string, error) {
 		return "", err
 	}
 	switch plane {
+	case "codex":
+		if dir := os.Getenv("CODEX_HOME"); dir != "" {
+			return filepath.Join(dir, "hooks.json"), nil
+		}
+		return filepath.Join(home, ".codex", "hooks.json"), nil
 	case "claude":
 		return filepath.Join(home, ".claude", "settings.json"), nil
 	case "opencode":
@@ -136,6 +141,11 @@ func enablePlaneIntegration(plane string) error {
 		return err
 	}
 	switch plane {
+	case "codex":
+		if err := genconfig.WriteCodexRules(path); err != nil {
+			return err
+		}
+		return genconfig.MergePlaneInto(path, plane, genconfig.CodexConfig(binary))
 	case "claude":
 		base, err := policy.LoadBase()
 		if err != nil {
@@ -188,7 +198,7 @@ func cmdPlane(args []string, terminal bool, stdout, stderr io.Writer) int {
 }
 
 func isSupportedPlane(name string) bool {
-	return name == "claude" || name == "opencode" || name == "antigravity"
+	return name == "claude" || name == "opencode" || name == "antigravity" || name == "codex"
 }
 
 // parsePlaneTargets resolves the argv of enable/disable into target planes.
@@ -201,13 +211,10 @@ func parsePlaneTargets(args []string, stdout, stderr io.Writer) (targets []strin
 			}
 		}
 		return targets, true, true
-	case len(args) == 1 && args[0] == "codex":
-		fmt.Fprintln(stderr, "guardrail: codex is unsupported (no Guardrail plane yet)")
-		return nil, false, false
 	case len(args) == 1 && isSupportedPlane(args[0]):
 		return []string{args[0]}, false, true
 	default:
-		fmt.Fprintln(stderr, "guardrail: plane lifecycle needs exactly one plane (claude, opencode, antigravity) or --all")
+		fmt.Fprintln(stderr, "guardrail: plane lifecycle needs exactly one plane (claude, opencode, antigravity, codex) or --all")
 		return nil, false, false
 	}
 }
@@ -242,7 +249,6 @@ func cmdPlaneLifecycle(args []string, action, outcome string, terminal bool, std
 				fmt.Fprintf(stdout, "%s: not detected\n", plane)
 			}
 		}
-		fmt.Fprintln(stdout, "codex: unsupported")
 	}
 	if len(batch) == 0 {
 		return 0
@@ -324,7 +330,6 @@ func cmdPlaneStatus(args []string, stdout, stderr io.Writer) int {
 	for _, plane := range supportedPlanes {
 		fmt.Fprintf(stdout, "%s: %s\n", plane, planeStatusState(plane))
 	}
-	fmt.Fprintln(stdout, "codex: unsupported")
 	return 0
 }
 
@@ -363,6 +368,9 @@ func planeIntegrationRegistered(plane string) bool {
 	if json.Unmarshal(raw, &doc) != nil {
 		return false
 	}
+	if plane == "codex" {
+		return genconfig.CodexHooksRegistered(doc) && genconfig.CodexRulesRegistered(path)
+	}
 	if plane == "opencode" {
 		if plugins, ok := doc["plugin"].([]any); ok {
 			for _, entry := range plugins {
@@ -399,6 +407,9 @@ func planeStatusState(plane string) string {
 	}
 	var doc map[string]any
 	if json.Unmarshal(raw, &doc) == nil && planeIntegrationRegistered(plane) {
+		if plane == "codex" {
+			return "guardrail hooks registered; verify trust in /hooks; coverage limited (ADR-0014)"
+		}
 		return "guardrail integration registered"
 	}
 	return "present, integration NOT registered"

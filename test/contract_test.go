@@ -211,3 +211,34 @@ func TestClaudeNeverPanics(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexContractFixtures(t *testing.T) {
+	bin := buildBinary(t)
+	raw, err := os.ReadFile("fixtures/codex/expected.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expected map[string]struct {
+		Exit int `json:"exit"`
+	}
+	if err := json.Unmarshal(raw, &expected); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range expected {
+		t.Run(name, func(t *testing.T) {
+			payload, err := os.ReadFile(filepath.Join("fixtures", "codex", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			payload = bytes.ReplaceAll(payload, []byte("/repo"), []byte(t.TempDir()))
+			cmd := exec.Command(bin, "hook", "codex")
+			cmd.Stdin = bytes.NewReader(payload)
+			cmd.Env = append(os.Environ(), "XDG_STATE_HOME="+t.TempDir(), "GUARDRAIL_CONFIG=", "XDG_CONFIG_HOME="+t.TempDir(), "HOME="+t.TempDir())
+			_ = cmd.Run()
+			got := cmd.ProcessState.ExitCode()
+			if got != want.Exit {
+				t.Fatalf("%s: exit %d, want %d", name, got, want.Exit)
+			}
+		})
+	}
+}
