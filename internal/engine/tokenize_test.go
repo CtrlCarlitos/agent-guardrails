@@ -3073,8 +3073,16 @@ func TestNormalizeCdPathAssignmentsAndModes(t *testing.T) {
 			continue
 		}
 		last := got[len(got)-1]
-		if last.Cwd != test.wantCwd || last.Unresolved {
-			t.Errorf("Normalize(%q) last = %+v, want cwd %q", test.command, last, test.wantCwd)
+		wantCwd := test.wantCwd
+		resolvedCwd := wantCwd
+		// cd -P resolves physically; on darwin the raw t.TempDir spelling
+		// (/var/folders/...) resolves to /private/var/... Either spelling is
+		// acceptable (cd -L keeps the lexical one, cd -P the physical).
+		if resolved, err := filepath.EvalSymlinks(wantCwd); err == nil {
+			resolvedCwd = resolved
+		}
+		if last.Cwd != wantCwd && last.Cwd != resolvedCwd || last.Unresolved {
+			t.Errorf("Normalize(%q) last = %+v, want cwd %q (or resolved)", test.command, last, wantCwd)
 		}
 	}
 

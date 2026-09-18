@@ -986,7 +986,12 @@ func repoRelative(p, cwd, repoRoot string) (string, bool) {
 	}
 	relWithin := func(root string) (string, bool) {
 		rel, err := filepath.Rel(strings.ToLower(filepath.Clean(root)), strings.ToLower(filepath.Clean(absPath)))
-		return rel, err == nil
+		if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+			// filepath.Rel succeeds with ../ escapes across unrelated trees;
+			// those are "not inside", so the canonical-root retry still runs.
+			return "", false
+		}
+		return rel, true
 	}
 	rel, ok := relWithin(repoRoot)
 	if !ok {

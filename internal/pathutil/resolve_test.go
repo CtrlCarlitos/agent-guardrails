@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -23,8 +24,14 @@ func TestResolveThroughExistingAncestorMissingSuffixes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got != test.want {
-				t.Fatalf("ResolveThroughExistingAncestor(%q) = %q, want %q", test.candidate, got, test.want)
+			want := test.want
+			// Resolution follows symlinks in existing ancestors; on darwin
+			// the raw base spelling resolves to /private/var/...
+			if resolved, err := filepath.EvalSymlinks(base); err == nil {
+				want = strings.ReplaceAll(want, base, resolved)
+			}
+			if got != want {
+				t.Fatalf("ResolveThroughExistingAncestor(%q) = %q, want %q", test.candidate, got, want)
 			}
 		})
 	}
