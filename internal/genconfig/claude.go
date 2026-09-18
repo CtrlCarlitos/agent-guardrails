@@ -125,6 +125,7 @@ var sessionStoreGlobsFloor = []string{
 }
 
 var selfConfigGlobsFloor = append([]string{
+	".codex", ".codex/**",
 	".claude/settings.json", ".claude/settings.local.json",
 	".claude/hooks/**", ".claude/plugins/**", ".claude/agents/**",
 	".claude/commands/**", ".claude/skills/**", ".claude/CLAUDE.md",

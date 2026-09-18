@@ -1,0 +1,47 @@
+{
+  "bash-ls.json": {
+    "exit": 0
+  },
+  "bash-rm-root.json": {
+    "exit": 2
+  },
+  "bash-git-reset.json": {
+    "exit": 2
+  },
+  "bash-read-env.json": {
+    "exit": 2
+  },
+  "bash-ask.json": {
+    "exit": 2
+  },
+  "patch-safe.json": {
+    "exit": 0
+  },
+  "patch-secret.json": {
+    "exit": 2
+  },
+  "patch-move-secret.json": {
+    "exit": 2
+  },
+  "patch-self-config.json": {
+    "exit": 2
+  },
+  "view-image-secret.json": {
+    "exit": 2
+  },
+  "safe-control.json": {
+    "exit": 0
+  },
+  "delegation.json": {
+    "exit": 2
+  },
+  "mcp.json": {
+    "exit": 2
+  },
+  "unknown.json": {
+    "exit": 2
+  },
+  "missing-command.json": {
+    "exit": 2
+  }
+}

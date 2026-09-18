@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "codex-fixture",
+  "cwd": "/repo",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "chmod 777 file.txt"
+  }
+}

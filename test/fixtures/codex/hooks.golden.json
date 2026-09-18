@@ -1,0 +1,43 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "'/usr/local/bin/guardrail' hook codex || { printf '%s\\n' 'guardrail: evaluator unavailable or blocked; continue independent work.' \u003e\u00262; exit 2; }",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "id": "guardrail-codex-PostToolUse",
+        "matcher": "^apply_patch$"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "'/usr/local/bin/guardrail' hook codex || { printf '%s\\n' 'guardrail: evaluator unavailable or blocked; continue independent work.' \u003e\u00262; exit 2; }",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "id": "guardrail-codex-PreToolUse",
+        "matcher": "*"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "'/usr/local/bin/guardrail' hook codex || { printf '%s\\n' 'guardrail: evaluator unavailable or blocked; continue independent work.' \u003e\u00262; exit 2; }",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "id": "guardrail-codex-SessionStart",
+        "matcher": "*"
+      }
+    ]
+  }
+}

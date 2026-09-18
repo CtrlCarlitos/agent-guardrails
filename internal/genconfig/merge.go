@@ -23,7 +23,7 @@ func MergeInto(path string, frag Fragment) error {
 // for obsolete guardrail-owned settings from earlier releases.
 func MergePlaneInto(path, plane string, frag Fragment) error {
 	switch plane {
-	case "claude", "opencode", "antigravity":
+	case "claude", "opencode", "antigravity", "codex":
 		return mergeInto(path, plane, frag)
 	default:
 		return fmt.Errorf("unsupported plane %q", plane)
@@ -33,7 +33,7 @@ func MergePlaneInto(path, plane string, frag Fragment) error {
 // RemovePlaneFrom removes only Guardrail-owned integration entries for a plane.
 // It is intentionally idempotent so declarative installers can reconcile off state.
 func RemovePlaneFrom(path, plane string) error {
-	if plane != "claude" && plane != "opencode" && plane != "antigravity" {
+	if plane != "claude" && plane != "opencode" && plane != "antigravity" && plane != "codex" {
 		return fmt.Errorf("unsupported plane %q", plane)
 	}
 
@@ -50,7 +50,7 @@ func RemovePlaneFrom(path, plane string) error {
 	}
 
 	switch plane {
-	case "claude":
+	case "claude", "codex":
 		hooks, _ := existing["hooks"].(map[string]any)
 		for event, value := range hooks {
 			groups, ok := value.([]any)
@@ -59,7 +59,7 @@ func RemovePlaneFrom(path, plane string) error {
 			}
 			kept := groups[:0]
 			for _, group := range groups {
-				if !ownedByGuardrail(group) {
+				if !ownedByGuardrail(group) || plane == "codex" && !codexOwnedGroup(group) {
 					kept = append(kept, group)
 				}
 			}
@@ -495,4 +495,10 @@ func CountUnmarkedGuardrailGroups(doc map[string]any) int {
 		}
 	}
 	return n
+}
+
+func codexOwnedGroup(group any) bool {
+	m, _ := group.(map[string]any)
+	id, _ := m["id"].(string)
+	return strings.HasPrefix(id, "guardrail-codex-")
 }

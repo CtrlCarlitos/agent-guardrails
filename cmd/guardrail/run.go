@@ -20,16 +20,17 @@ usage: guardrail <command> [arguments]
 
   version                           print the release version
   hook <plane> [phase]              evaluate a hook payload on stdin
-      plane: claude | opencode | antigravity (antigravity also needs a phase: pre | post)
+      plane: claude | opencode | antigravity | codex (antigravity also needs a phase: pre | post)
   gen-config <plane> [flags]        emit/merge the declarative floor (global paths)
-      plane: claude | opencode | antigravity
+      plane: claude | opencode | antigravity | codex
       --print              write the JSON fragment to stdout (default)
       --merge <path>       deep-merge it into <path> in place, idempotently
       --binary <path>      guardrail path to register in hook commands (default "guardrail")
+      --floor              (codex only) print native escalation rules
       --plugin-dir <dir>   (opencode only) where to deploy the embedded plugin
   sync [flags]                      regenerate a PROJECT's plane configs from Base+Overlay
       --dir <path>         repo directory to sync (default ".")
-      --planes <list>      comma-separated planes (default "claude,opencode,antigravity")
+      --planes <list>      comma-separated planes (default "claude,opencode,antigravity,codex")
       --binary <path>      guardrail path to register in hook commands (default "guardrail")
   night on                          relax ask verdicts to allow until morning
       --until HH:MM | --for 8h      optional window (default 8h)
@@ -41,7 +42,7 @@ usage: guardrail <command> [arguments]
   plane status                      print per-plane Guardrail integration state
   plane enable <plane>|--all        (re)register Guardrail integration (operator approval)
   plane disable <plane>|--all       remove Guardrail integration (operator approval)
-      plane: claude | opencode | antigravity
+      plane: claude | opencode | antigravity | codex
   fetch <URL>                       fetch normalized text through Guardrail
   update <version>                  self-update to an exact checksum-verified release
   recover <repair>                  repair Guardrail-protected machinery (operator approval)

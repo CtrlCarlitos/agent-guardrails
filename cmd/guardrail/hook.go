@@ -20,7 +20,7 @@ var sessionTransaction = session.Transaction
 
 func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "guardrail: hook needs a plane (claude, opencode, antigravity)")
+		fmt.Fprintln(stderr, "guardrail: hook needs a plane (claude, opencode, antigravity, codex)")
 		return 2
 	}
 	plane := args[0]
@@ -48,6 +48,8 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	var err error
 	switch plane {
+	case "codex":
+		tc, err = adapter.ParseCodex(stdin)
 	case "claude":
 		tc, err = adapter.ParseClaude(stdin)
 	case "opencode":
@@ -209,6 +211,8 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	adapter.EmitModelWarnings(stderrWarnings, stderr)
 
 	switch plane {
+	case "codex":
+		return adapter.EmitCodex(v, tc.Event, tc, stdout, stderr)
 	case "claude":
 		return adapter.EmitClaude(v, tc.Event, tc, stdout, stderr)
 	case "opencode":
