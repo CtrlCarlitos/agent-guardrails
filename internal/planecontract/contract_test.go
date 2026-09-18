@@ -21,6 +21,25 @@ func TestClaudeInventoryClassifiesCapabilityBoundary(t *testing.T) {
 		"WebFetch":     policy.CapabilityWebFetch,
 		"WebSearch":    policy.CapabilityWebSearch,
 		"Agent":        policy.CapabilityDelegation,
+		"Task":         policy.CapabilityDelegation,
+		// Reaches outside the session (publication, scheduler, MCP server):
+		// the operator decides per call.
+		"Artifact":             policy.CapabilityExternal,
+		"CronCreate":           policy.CapabilityExternal,
+		"ListMcpResourcesTool": policy.CapabilityExternal,
+		"ReadMcpResourceTool":  policy.CapabilityExternal,
+		// Session-local control with no data flow of its own.
+		"CronDelete":       policy.CapabilitySafeControl,
+		"CronList":         policy.CapabilitySafeControl,
+		"EnterWorktree":    policy.CapabilitySafeControl,
+		"ExitWorktree":     policy.CapabilitySafeControl,
+		"PushNotification": policy.CapabilitySafeControl,
+		// Moves data or control to another principal; stays denied.
+		"SendMessage":          policy.CapabilityDeny,
+		"SendUserFile":         policy.CapabilityDeny,
+		"RemoteTrigger":        policy.CapabilityDeny,
+		"SendFeedback":         policy.CapabilityDeny,
+		"ShareOnboardingGuide": policy.CapabilityDeny,
 	}
 	for tool, capability := range want {
 		spec, ok := ClaudeTool(tool)
@@ -29,8 +48,8 @@ func TestClaudeInventoryClassifiesCapabilityBoundary(t *testing.T) {
 		}
 	}
 
-	if spec, ok := ClaudeTool("mcp__server__unsafe"); !ok || spec.Capability != policy.CapabilityDeny {
-		t.Fatalf("MCP tool = %#v, %v; want deny", spec, ok)
+	if spec, ok := ClaudeTool("mcp__server__unsafe"); !ok || spec.Capability != policy.CapabilityExternal {
+		t.Fatalf("MCP tool = %#v, %v; want external", spec, ok)
 	}
 }
 

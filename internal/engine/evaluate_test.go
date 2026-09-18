@@ -3,6 +3,7 @@ package engine
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -98,6 +99,7 @@ func TestStaticCapabilitiesDispatchWithoutFallback(t *testing.T) {
 		{policy.CapabilitySafeControl, policy.Allow},
 		{policy.CapabilityDeny, policy.Deny},
 		{policy.CapabilityWebSearch, policy.Ask},
+		{policy.CapabilityExternal, policy.Ask},
 		{policy.CapabilityDelegation, policy.Deny},
 		{policy.Capability("invalid"), policy.Deny},
 	}
@@ -106,6 +108,13 @@ func TestStaticCapabilitiesDispatchWithoutFallback(t *testing.T) {
 		if v.Decision != tt.want {
 			t.Fatalf("%s = %+v, want %s", tt.capability, v, tt.want)
 		}
+	}
+}
+
+func TestExternalCapabilityAsksWithItsOwnRule(t *testing.T) {
+	v := Evaluate(ToolCall{Plane: "claude", NativeTool: "mcp__server__tool", Capability: policy.CapabilityExternal}, fullPol())
+	if v.Decision != policy.Ask || v.RuleID != "capability-external" || !strings.Contains(v.Reason, "outside the session") {
+		t.Fatalf("external = %+v, want ask/capability-external", v)
 	}
 }
 

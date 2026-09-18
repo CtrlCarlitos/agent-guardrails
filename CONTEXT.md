@@ -9,7 +9,7 @@ its own rules.
 
 **Plane**:
 An AI coding-agent host that can run the guardrails through its own extension
-mechanism. Today: Claude Code, opencode, Antigravity. Planned: Codex.
+mechanism. Today: Claude Code, opencode, Antigravity, Codex.
 _Avoid_: harness, runner, agent, tool
 
 **Guardrail Policy**:
@@ -72,7 +72,8 @@ _Avoid_: decision, result, outcome
 **Declarative floor**:
 The subset of the Policy expressed as a plane's native permission config: Claude
 `settings.json` permissions and OpenCode `opencode.json` permission. It remains
-enforced when the Engine is unavailable; Antigravity has no Declarative floor.
+enforced when the Engine is unavailable; Codex has a limited native command-escalation floor, and
+Antigravity has no Declarative floor.
 _Avoid_: static rules, fallback policy
 
 **Recipe**:

@@ -125,6 +125,7 @@ var sessionStoreGlobsFloor = []string{
 }
 
 var selfConfigGlobsFloor = append([]string{
+	".codex", ".codex/**",
 	".claude/settings.json", ".claude/settings.local.json",
 	".claude/hooks/**", ".claude/plugins/**", ".claude/agents/**",
 	".claude/commands/**", ".claude/skills/**", ".claude/CLAUDE.md",
@@ -184,10 +185,20 @@ func ClaudeConfig(pol *policy.Policy, binary string) Fragment {
 	return Fragment{
 		"hooks": claudeHooks(binary),
 		"permissions": map[string]any{
-			"deny": deny,
-			"ask":  ask,
+			"allow": claudeFloorAllow(),
+			"deny":  deny,
+			"ask":   ask,
 		},
 	}
+}
+
+// claudeFloorAllow is the only allow entry the floor carries. Claude Code's
+// auto-mode classifier otherwise rejects `guardrail fetch <url>` as
+// self-modification, stranding the one sanctioned way to reach the web after
+// a native WebFetch deny. The Engine still gates every fetch by the egress
+// allowlist, and the pre hook still runs: the entry only skips the classifier.
+func claudeFloorAllow() []string {
+	return []string{"Bash(guardrail fetch:*)"}
 }
 
 func claudeHooks(binary string) map[string]any {

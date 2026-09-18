@@ -148,8 +148,8 @@ func TestExecutePlaneApprovalDisablesOpenCodeAndAntigravity(t *testing.T) {
 func TestExecutePlaneApprovalRejectsInvalidRequests(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	cases := []approval.Request{
-		{Action: "plane-enable", Parameters: map[string]string{"planes": "codex"}},
-		{Action: "plane-disable", Parameters: map[string]string{"planes": "codex"}},
+		{Action: "plane-enable", Parameters: map[string]string{"planes": "unsupported-plane"}},
+		{Action: "plane-disable", Parameters: map[string]string{"planes": "unsupported-plane"}},
 		{Action: "plane-disable", Parameters: map[string]string{"planes": ""}},
 		{Action: "night-on", Parameters: map[string]string{"planes": "claude"}},
 		{Action: "web-host-grant", Parameters: map[string]string{"planes": "claude"}},
@@ -174,7 +174,7 @@ func TestPlaneCommandArgumentValidation(t *testing.T) {
 	if code := run([]string{"plane", "disable"}, strings.NewReader(""), &out, &errb); code != 2 {
 		t.Fatalf("missing plane exit = %d", code)
 	}
-	if code := run([]string{"plane", "disable", "codex"}, strings.NewReader(""), &out, &errb); code != 2 || !strings.Contains(errb.String(), "unsupported") {
+	if code := run([]string{"plane", "disable", "codex"}, strings.NewReader(""), &out, &errb); code != 2 || !strings.Contains(errb.String(), "interactive") {
 		t.Fatalf("codex exit = %d, stderr %q", code, errb.String())
 	}
 	if code := run([]string{"plane", "disable", "emacs"}, strings.NewReader(""), &out, &errb); code != 2 {
@@ -183,7 +183,7 @@ func TestPlaneCommandArgumentValidation(t *testing.T) {
 	if code := run([]string{"plane", "disable", "claude", "opencode"}, strings.NewReader(""), &out, &errb); code != 2 {
 		t.Fatalf("multiple planes exit = %d", code)
 	}
-	if code := run([]string{"plane", "enable", "codex"}, strings.NewReader(""), &out, &errb); code != 2 || !strings.Contains(errb.String(), "unsupported") {
+	if code := run([]string{"plane", "enable", "codex"}, strings.NewReader(""), &out, &errb); code != 2 || !strings.Contains(errb.String(), "interactive") {
 		t.Fatalf("enable codex exit = %d, stderr %q", code, errb.String())
 	}
 	if code := run([]string{"plane", "enable", "claude"}, strings.NewReader(""), &out, &errb); code != 2 || !strings.Contains(errb.String(), "interactive") {
@@ -227,7 +227,7 @@ func TestPlaneDisableClaudeHappyPath(t *testing.T) {
 	}
 }
 
-func TestPlaneDisableAllSkipsMissingAndReportsCodexUnsupported(t *testing.T) {
+func TestPlaneDisableAllSkipsMissingAndReportsUndetectedPlanes(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
@@ -251,7 +251,7 @@ func TestPlaneDisableAllSkipsMissingAndReportsCodexUnsupported(t *testing.T) {
 	if !strings.Contains(got, "opencode: not detected") {
 		t.Fatalf("stdout missing undetected report: %q", got)
 	}
-	if !strings.Contains(got, "codex: unsupported") {
+	if !strings.Contains(got, "codex: not detected") {
 		t.Fatalf("stdout missing codex report: %q", got)
 	}
 }
@@ -378,7 +378,7 @@ func TestExecutePlaneApprovalEnablesAntigravity(t *testing.T) {
 
 func TestExecutePlaneApprovalRejectsEnableForUnknownPlane(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	r := approval.Request{Action: "plane-enable", Parameters: map[string]string{"planes": "codex"}}
+	r := approval.Request{Action: "plane-enable", Parameters: map[string]string{"planes": "unsupported-plane"}}
 	if err := executePlaneApproval(r); err == nil {
 		t.Fatal("codex enable accepted")
 	}
@@ -406,7 +406,7 @@ func TestPlaneEnableClaudeHappyPath(t *testing.T) {
 	}
 }
 
-func TestPlaneEnableAllSkipsMissingAndReportsCodexUnsupported(t *testing.T) {
+func TestPlaneEnableAllSkipsMissingAndReportsUndetectedPlanes(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
@@ -425,7 +425,7 @@ func TestPlaneEnableAllSkipsMissingAndReportsCodexUnsupported(t *testing.T) {
 	if !strings.Contains(got, "claude enabled") || !strings.Contains(got, "antigravity enabled") {
 		t.Fatalf("stdout missing enabled outcomes: %q", got)
 	}
-	if !strings.Contains(got, "opencode: not detected") || !strings.Contains(got, "codex: unsupported") {
+	if !strings.Contains(got, "opencode: not detected") || !strings.Contains(got, "codex: not detected") {
 		t.Fatalf("stdout missing reports: %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".claude", "settings.json")); err != nil {
@@ -455,7 +455,7 @@ func TestPlaneStatusReportsLifecycleStateWithoutTerminal(t *testing.T) {
 	if !strings.Contains(got, "antigravity: no hooks.json") {
 		t.Fatalf("antigravity state missing: %q", got)
 	}
-	if !strings.Contains(got, "codex: unsupported") {
+	if !strings.Contains(got, "codex: no hooks.json") {
 		t.Fatalf("codex line missing: %q", got)
 	}
 }
@@ -510,8 +510,8 @@ func TestPlaneEnableAllBatchesOneApprovalAndSkipsSatisfied(t *testing.T) {
 	if len(submitted) != 1 {
 		t.Fatalf("submitted %d requests, want 1 batched: %+v", len(submitted), submitted)
 	}
-	if got := submitted[0].Parameters["planes"]; got != "antigravity" {
-		t.Fatalf("batch planes = %q, want only antigravity", got)
+	if got := submitted[0].Parameters["planes"]; got != "antigravity,codex" {
+		t.Fatalf("batch planes = %q, want antigravity,codex", got)
 	}
 	got := out.String()
 	if !strings.Contains(got, "claude: already enabled") || !strings.Contains(got, "opencode: not detected") {
@@ -528,6 +528,12 @@ func TestPlaneEnableAllSteadyStatePromptsNobody(t *testing.T) {
 	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]}}`)
 	writePlaneSettings(t, filepath.Join(cfg, "opencode", "opencode.json"), `{"plugin":["/x/guardrail.js"]}`)
 	writePlaneSettings(t, filepath.Join(home, ".gemini", "config", "hooks.json"), `{"guardrail":{"enabled":true}}`)
+	if err := genconfig.WriteCodexRules(filepath.Join(home, ".codex", "hooks.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := genconfig.MergePlaneInto(filepath.Join(home, ".codex", "hooks.json"), "codex", genconfig.CodexConfig("guardrail")); err != nil {
+		t.Fatal(err)
+	}
 	origInstalled := planeInstalled
 	planeInstalled = func(string) bool { return true }
 	defer func() { planeInstalled = origInstalled }()

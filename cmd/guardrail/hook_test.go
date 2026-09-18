@@ -2158,3 +2158,55 @@ func TestHookSessionStartSanitizesOperatorConfigLoadError(t *testing.T) {
 		t.Fatalf("stderr duplicated the generic posture warning: %q", errb.String())
 	}
 }
+
+// setClaudeHome points HOME at a fresh directory holding the given
+// settings.json (none when doc is empty).
+func setClaudeHome(t *testing.T, doc string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if doc != "" {
+		writeClaudeSettings(t, home, doc)
+	}
+}
+
+func sessionStartContext(t *testing.T) string {
+	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	payload := `{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart"}`
+	var out, errb bytes.Buffer
+	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, errb.String())
+	}
+	var got struct {
+		HookSpecificOutput struct {
+			AdditionalContext string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	return got.HookSpecificOutput.AdditionalContext
+}
+
+func TestHookSessionStartReportsClaudePlaneLifecycle(t *testing.T) {
+	const marked = `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"*","hooks":[{"type":"command","command":"guardrail hook claude"}]}]}}`
+	const legacy = `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"*","hooks":[{"type":"command","command":"guardrail hook claude"}]},{"matcher":"Bash","hooks":[{"type":"command","command":"/old/guardrail hook claude"}]}]}}`
+
+	setClaudeHome(t, marked)
+	if ctx := sessionStartContext(t); !strings.Contains(ctx, "Claude plane lifecycle: guardrail hook registered") || strings.Contains(ctx, "plane enable") {
+		t.Fatalf("registered posture = %q", ctx)
+	}
+
+	setClaudeHome(t, legacy)
+	if ctx := sessionStartContext(t); !strings.Contains(ctx, "1 unmarked legacy guardrail hook group") || !strings.Contains(ctx, "guardrail plane enable claude") {
+		t.Fatalf("drift posture = %q", ctx)
+	}
+
+	setClaudeHome(t, "")
+	if ctx := sessionStartContext(t); !strings.Contains(ctx, "Claude plane lifecycle: no settings.json") || !strings.Contains(ctx, "guardrail plane enable claude") {
+		t.Fatalf("unregistered posture = %q", ctx)
+	}
+}

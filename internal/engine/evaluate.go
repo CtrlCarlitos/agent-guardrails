@@ -16,7 +16,7 @@ func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 	}()
 	if tc.Capability == policy.CapabilityUnknown {
 		v := policy.Verdict{AuditKind: "unknown-native-tool"}
-		if pol.UnknownToolPosture == policy.UnknownDeny {
+		if tc.Plane == "codex" || pol.UnknownToolPosture == policy.UnknownDeny {
 			v.Decision = policy.Deny
 			v.RuleID = "unknown-native-tool"
 			v.Reason = "unclassified native tool; failing closed"
@@ -51,6 +51,9 @@ func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 		return policy.Verdict{Decision: policy.Deny, RuleID: "capability-deny", Reason: "native tool capability is unsupported"}
 	case policy.CapabilityWebSearch:
 		return policy.Verdict{Decision: policy.Ask, RuleID: "capability-web-search", Reason: "web search requires operator approval"}
+	case policy.CapabilityExternal:
+		return policy.Verdict{Decision: policy.Ask, RuleID: "capability-external",
+			Reason: "this tool reaches outside the session (MCP server, scheduler, or publication) and its data flow cannot be verified"}
 	case policy.CapabilityDelegation:
 		if delegationInheritsEnforcement(tc.Plane) {
 			return policy.Verdict{Decision: policy.Allow, RuleID: "delegation-inherited",

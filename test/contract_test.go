@@ -51,8 +51,14 @@ func TestClaudeContractFixtures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// decision/rule/paths are optional and checked against the audit record the
+	// hook wrote, so a fixture can pin the verdict behind an exit code (ask and
+	// allow both exit 0) and the exact paths the adapter projected.
 	var expected map[string]struct {
-		Exit int `json:"exit"`
+		Exit     int      `json:"exit"`
+		Decision string   `json:"decision"`
+		Rule     string   `json:"rule"`
+		Paths    []string `json:"paths"`
 	}
 	if err := json.Unmarshal(raw, &expected); err != nil {
 		t.Fatal(err)
@@ -63,16 +69,52 @@ func TestClaudeContractFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			state := t.TempDir()
 			cmd := exec.Command(bin, "hook", "claude")
 			cmd.Stdin = bytes.NewReader(payload)
-			cmd.Env = append(os.Environ(), "XDG_STATE_HOME="+t.TempDir(), "GUARDRAIL_CONFIG=")
+			// Isolated config: a developer's night marker or operator grants must
+			// not flip a fixture's verdict.
+			cmd.Env = append(os.Environ(), "XDG_STATE_HOME="+state, "XDG_CONFIG_HOME="+t.TempDir(), "GUARDRAIL_CONFIG=")
 			_ = cmd.Run()
 			got := cmd.ProcessState.ExitCode()
 			if got != want.Exit {
 				t.Fatalf("%s: exit %d, want %d", name, got, want.Exit)
 			}
+			if want.Decision == "" && want.Rule == "" && want.Paths == nil {
+				return
+			}
+			rec := lastAuditRecord(t, filepath.Join(state, "guardrail", "audit.jsonl"))
+			if want.Decision != "" && rec.Decision != want.Decision {
+				t.Fatalf("%s: decision %q, want %q", name, rec.Decision, want.Decision)
+			}
+			if want.Rule != "" && rec.RuleID != want.Rule {
+				t.Fatalf("%s: rule %q, want %q", name, rec.RuleID, want.Rule)
+			}
+			if want.Paths != nil && strings.Join(rec.Paths, "\n") != strings.Join(want.Paths, "\n") {
+				t.Fatalf("%s: paths %q, want %q", name, rec.Paths, want.Paths)
+			}
 		})
 	}
+}
+
+type auditRecord struct {
+	Decision string   `json:"decision"`
+	RuleID   string   `json:"rule_id"`
+	Paths    []string `json:"paths"`
+}
+
+func lastAuditRecord(t *testing.T, path string) auditRecord {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("audit log: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	var rec auditRecord
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &rec); err != nil {
+		t.Fatalf("audit record: %v", err)
+	}
+	return rec
 }
 
 func TestOpencodeContractFixtures(t *testing.T) {
@@ -167,5 +209,36 @@ func TestClaudeNeverPanics(t *testing.T) {
 		if out := stderr.String(); strings.Contains(out, "panic:") {
 			t.Fatalf("payload %q panicked:\n%s", p, out)
 		}
+	}
+}
+
+func TestCodexContractFixtures(t *testing.T) {
+	bin := buildBinary(t)
+	raw, err := os.ReadFile("fixtures/codex/expected.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expected map[string]struct {
+		Exit int `json:"exit"`
+	}
+	if err := json.Unmarshal(raw, &expected); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range expected {
+		t.Run(name, func(t *testing.T) {
+			payload, err := os.ReadFile(filepath.Join("fixtures", "codex", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			payload = bytes.ReplaceAll(payload, []byte("/repo"), []byte(t.TempDir()))
+			cmd := exec.Command(bin, "hook", "codex")
+			cmd.Stdin = bytes.NewReader(payload)
+			cmd.Env = append(os.Environ(), "XDG_STATE_HOME="+t.TempDir(), "GUARDRAIL_CONFIG=", "XDG_CONFIG_HOME="+t.TempDir(), "HOME="+t.TempDir())
+			_ = cmd.Run()
+			got := cmd.ProcessState.ExitCode()
+			if got != want.Exit {
+				t.Fatalf("%s: exit %d, want %d", name, got, want.Exit)
+			}
+		})
 	}
 }

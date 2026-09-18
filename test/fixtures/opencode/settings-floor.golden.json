@@ -180,6 +180,8 @@
       ".claude/settings.json": "deny",
       ".claude/settings.local.json": "deny",
       ".claude/skills/**": "deny",
+      ".codex": "deny",
+      ".codex/**": "deny",
       ".envrc": "deny",
       ".guardrail/**": "deny",
       ".mcp.json": "deny",

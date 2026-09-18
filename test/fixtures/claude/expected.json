@@ -1,11 +1,149 @@
 {
-  "bash-rm-rf.json":      {"exit": 2},
-  "bash-ls.json":         {"exit": 0},
-  "read-env.json":        {"exit": 2},
-  "bash-git-commit.json": {"exit": 0},
-  "git-reset-hard.json":  {"exit": 2},
-  "write-claude-md.json": {"exit": 2},
-  "egress-deny.json":     {"exit": 2},
-  "git-c-bypass.json":    {"exit": 2},
-  "post-edit-lint-fail.json": {"exit": 2}
+  "agent.json": {
+    "decision": "allow",
+    "exit": 0,
+    "rule": "delegation-inherited"
+  },
+  "artifact.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "capability-external"
+  },
+  "bash-chmod-r.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "P1.chmod"
+  },
+  "bash-curl-pipe-sh.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P6.download-pipe-shell"
+  },
+  "bash-git-commit.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "bash-ls.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "bash-rm-rf.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P1.rm-rf"
+  },
+  "bash-sudo.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P1.privesc"
+  },
+  "cron-create.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "capability-external"
+  },
+  "edit-claude-settings.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P5.self-config"
+  },
+  "edit-no-path.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "capability-input-missing"
+  },
+  "egress-deny.json": {
+    "decision": "deny",
+    "exit": 2
+  },
+  "enter-worktree.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "git-c-bypass.json": {
+    "decision": "deny",
+    "exit": 2
+  },
+  "git-push-main.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "P2.git-push-protected"
+  },
+  "git-reset-hard.json": {
+    "decision": "deny",
+    "exit": 2
+  },
+  "mcp-tool.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "capability-external"
+  },
+  "multiedit-secret.json": {
+    "decision": "deny",
+    "exit": 2,
+    "paths": [
+      "/tmp/a.txt",
+      "/tmp/b.txt",
+      "/home/u/.ssh/id_ed25519"
+    ],
+    "rule": "P4.secret-path"
+  },
+  "multiedit.json": {
+    "decision": "allow",
+    "exit": 0,
+    "paths": [
+      "/tmp/a.txt"
+    ]
+  },
+  "notebookedit-secret.json": {
+    "decision": "deny",
+    "exit": 2,
+    "paths": [
+      "/home/u/proj/.env"
+    ],
+    "rule": "P4.secret-path"
+  },
+  "notebookedit.json": {
+    "decision": "allow",
+    "exit": 0,
+    "paths": [
+      "/tmp/n.ipynb"
+    ]
+  },
+  "post-edit-lint-fail.json": {
+    "exit": 2
+  },
+  "push-notification.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "read-env.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P4.secret-path"
+  },
+  "read-ssh-key.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P4.secret-path"
+  },
+  "send-message.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "capability-deny"
+  },
+  "task-legacy.json": {
+    "decision": "allow",
+    "exit": 0,
+    "rule": "delegation-inherited"
+  },
+  "webfetch-unknown-host.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "web-fetch-native-deny"
+  },
+  "write-claude-md.json": {
+    "decision": "deny",
+    "exit": 2
+  }
 }

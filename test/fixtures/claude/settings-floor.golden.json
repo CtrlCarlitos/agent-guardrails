@@ -39,6 +39,9 @@
     ]
   },
   "permissions": {
+    "allow": [
+      "Bash(guardrail fetch:*)"
+    ],
     "ask": [
       "Bash(chmod -R *)",
       "Bash(chmod 777 *)",
@@ -217,6 +220,8 @@
       "Edit(**/*-private-key.*)",
       "Edit(**/private*.key)",
       "Edit(**/.claude.json)",
+      "Edit(.codex)",
+      "Edit(.codex/**)",
       "Edit(.claude/settings.json)",
       "Edit(.claude/settings.local.json)",
       "Edit(.claude/hooks/**)",

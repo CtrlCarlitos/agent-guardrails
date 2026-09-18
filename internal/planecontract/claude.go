@@ -15,6 +15,7 @@ type ToolSpec struct {
 
 var claudeTools = []ToolSpec{
 	{"Agent", "Agent", policy.CapabilityDelegation},
+	{"Task", "Agent", policy.CapabilityDelegation}, // pre-rename Claude Code subagent tool
 	{"AskUserQuestion", "AskUserQuestion", policy.CapabilitySafeControl},
 	{"Bash", "Bash", policy.CapabilityCommand},
 	{"Edit", "Edit", policy.CapabilityMutation},
@@ -30,19 +31,19 @@ var claudeTools = []ToolSpec{
 	{"WebSearch", "WebSearch", policy.CapabilityWebSearch},
 	{"Workflow", "Workflow", policy.CapabilityDelegation},
 	{"Write", "Write", policy.CapabilityMutation},
-	{"Artifact", "Artifact", policy.CapabilityDeny},
-	{"CronCreate", "CronCreate", policy.CapabilityDeny},
-	{"CronDelete", "CronDelete", policy.CapabilityDeny},
+	{"Artifact", "Artifact", policy.CapabilityExternal},
+	{"CronCreate", "CronCreate", policy.CapabilityExternal},
+	{"CronDelete", "CronDelete", policy.CapabilitySafeControl},
 	{"CronList", "CronList", policy.CapabilitySafeControl},
 	{"EndConversation", "EndConversation", policy.CapabilitySafeControl},
 	{"EnterPlanMode", "EnterPlanMode", policy.CapabilitySafeControl},
-	{"EnterWorktree", "EnterWorktree", policy.CapabilityDeny},
+	{"EnterWorktree", "EnterWorktree", policy.CapabilitySafeControl},
 	{"ExitPlanMode", "ExitPlanMode", policy.CapabilitySafeControl},
 	{"ExitWorktree", "ExitWorktree", policy.CapabilitySafeControl},
 	{"ListAgents", "ListAgents", policy.CapabilitySafeControl},
-	{"ListMcpResourcesTool", "ListMcpResourcesTool", policy.CapabilityDeny},
-	{"PushNotification", "PushNotification", policy.CapabilityDeny},
-	{"ReadMcpResourceTool", "ReadMcpResourceTool", policy.CapabilityDeny},
+	{"ListMcpResourcesTool", "ListMcpResourcesTool", policy.CapabilityExternal},
+	{"PushNotification", "PushNotification", policy.CapabilitySafeControl},
+	{"ReadMcpResourceTool", "ReadMcpResourceTool", policy.CapabilityExternal},
 	{"RemoteTrigger", "RemoteTrigger", policy.CapabilityDeny},
 	{"ReportFindings", "ReportFindings", policy.CapabilitySafeControl},
 	{"ScheduleWakeup", "ScheduleWakeup", policy.CapabilitySafeControl},
@@ -65,6 +66,8 @@ var claudeTools = []ToolSpec{
 
 func RegisteredTools(plane string) []ToolSpec {
 	switch plane {
+	case "codex":
+		return append([]ToolSpec(nil), codexTools...)
 	case "claude":
 		return append([]ToolSpec(nil), claudeTools...)
 	case "opencode":
@@ -77,8 +80,10 @@ func RegisteredTools(plane string) []ToolSpec {
 }
 
 func ClaudeTool(nativeTool string) (ToolSpec, bool) {
+	// MCP tools are server-defined: their names carry no verifiable data-flow
+	// claim, so every call is an operator decision rather than a blanket deny.
 	if strings.HasPrefix(nativeTool, "mcp__") {
-		return ToolSpec{NativeTool: nativeTool, Tool: nativeTool, Capability: policy.CapabilityDeny}, true
+		return ToolSpec{NativeTool: nativeTool, Tool: nativeTool, Capability: policy.CapabilityExternal}, true
 	}
 	for _, spec := range claudeTools {
 		if spec.NativeTool == nativeTool {
