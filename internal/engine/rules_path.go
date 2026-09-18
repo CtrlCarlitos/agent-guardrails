@@ -173,10 +173,51 @@ func classifiedSecretPath(candidate pathCandidate, pol *policy.Policy) (string, 
 	if v == nil {
 		return "", false
 	}
-	return strings.TrimPrefix(v.Reason, "access to a credential/secret path: "), true
+	return strings.TrimPrefix(strings.TrimPrefix(v.Reason, "access to a credential/secret path: "), "command text mentions a secret-tier path: "), true
+}
+
+// textShapedOperand reports an operand that cannot be a single path: it
+// carries structure (quotes, braces, brackets, line breaks) that only a
+// literal — JSON, a document line — would. Whitespace alone does not qualify,
+// because paths contain spaces. The verdict for such an operand still denies
+// (the static-analysis boundary, ADR-0012, cannot prove it inert) but is
+// reported as a mention in text so the model reaches for the editor tool.
+func textShapedOperand(operand string) bool {
+	return strings.ContainsAny(operand, "\n\"'{}[]")
+}
+
+// secretTextFragment names the path-like piece of a text-shaped operand that
+// matched a secret tier, so the reason shows the secret rather than the
+// whole literal. It falls back to the bounded operand when no piece matches
+// on its own.
+func secretTextFragment(operand string, pol *policy.Policy) string {
+	pieces := strings.FieldsFunc(operand, func(r rune) bool {
+		return r == '\n' || r == '"' || r == '\'' || r == '{' || r == '}' || r == '[' || r == ']' || r == ',' || r == ' ' || r == '\t'
+	})
+	for _, piece := range pieces {
+		if matchesAnyGlob(piece, pol.Slots.SecretDirs) || matchesAnyGlob(piece, pol.Slots.SecretGlobs) || matchesAnyGlob(piece, pol.Slots.SecretAskGlobs) {
+			return piece
+		}
+	}
+	if r := []rune(operand); len(r) > 80 {
+		return string(r[:80]) + "…"
+	}
+	return operand
 }
 
 func classifySecretPath(candidate pathCandidate, pol *policy.Policy, honorWaivers bool) *policy.Verdict {
+	v := classifySecretPathOperand(candidate, pol, honorWaivers)
+	if v == nil || v.Decision != policy.Deny || !textShapedOperand(candidate.path) {
+		return v
+	}
+	if honorWaivers && pol.Waived["P4.secret-in-text"] {
+		return nil
+	}
+	return &policy.Verdict{Decision: policy.Deny, RuleID: "P4.secret-in-text",
+		Reason: "command text mentions a secret-tier path: " + secretTextFragment(candidate.path, pol)}
+}
+
+func classifySecretPathOperand(candidate pathCandidate, pol *policy.Policy, honorWaivers bool) *policy.Verdict {
 	var worst *policy.Verdict
 	take := func(v *policy.Verdict) {
 		if v == nil || honorWaivers && pol.Waived[v.RuleID] {

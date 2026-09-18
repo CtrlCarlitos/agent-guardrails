@@ -147,6 +147,11 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 	return worst
 }
 
+// NightMentionReason marks a P5.self-config verdict raised because opaque
+// interpreter input mentioned the night control; the adapters key their
+// guidance on it.
+const NightMentionReason = "interpreter input mentions guardrail night control; Guardrail cannot tell a mention from an invocation"
+
 func checkNightControlInvocation(s Simple, command string) *policy.Verdict {
 	direct := len(s.Argv) >= 2 && strings.EqualFold(s.Argv[1], "night") &&
 		(head(s.Argv) == "guardrail" || s.wordUnresolved(0) && mentionsExecutable(s.Argv[0], "guardrail"))
@@ -154,11 +159,21 @@ func checkNightControlInvocation(s Simple, command string) *policy.Verdict {
 	if len(s.Argv) >= 1 && isOpaqueExecutor(head(s.Argv)) {
 		opaque = mentionsCommand([]string{command}, "guardrail", "night")
 	}
-	if direct || opaque {
+	if direct {
 		return &policy.Verdict{
 			Decision: policy.Deny,
 			RuleID:   "P5.self-config",
 			Reason:   "the guarded plane cannot change its own night-mode posture",
+		}
+	}
+	if opaque {
+		// Interpreter input is opaque (ADR-0012): a usage string and an
+		// os.system call look the same. Same rule, but the reason says what was
+		// seen so the guidance can point at the editor tool for the former.
+		return &policy.Verdict{
+			Decision: policy.Deny,
+			RuleID:   "P5.self-config",
+			Reason:   NightMentionReason,
 		}
 	}
 	return nil
