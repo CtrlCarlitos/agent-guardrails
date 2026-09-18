@@ -37,3 +37,27 @@ under the printed temporary path for inspection.
 
 See [the probe report](../../docs/research/2026-09-17-codex-plane-probes.md)
 for coverage and known runtime boundaries.
+
+## Codex mediation follow-ups
+
+```sh
+python3 test/smoke/codex_probe.py /tmp/guardrail-codex --mediation
+python3 test/smoke/codex_probe.py /tmp/guardrail-codex --mediation --code-mode
+python3 test/smoke/codex_probe.py /tmp/guardrail-codex --mediation --restricted
+python3 test/smoke/codex_probe.py /tmp/guardrail-codex --mediation --restricted --code-mode
+```
+
+The baseline deliberately reproduces a known gap: an approved `cat` process
+receives bytes, a poll, and EOF through `write_stdin` with no new pre-hook. A
+written fixture file and successful process termination prove execution. Exit 0
+means the documented behavior was reproduced, **not** that stdin is mediated.
+A future runtime that starts invoking stdin hooks will fail this expectation and
+requires a contract/adapter review before updating the probe.
+
+Restricted mode sets `web_search="disabled"` and `features.shell_tool=false` in
+the disposable Codex config. It requires forced command/stdin calls to be
+rejected, their output file to remain absent, and a hooked patch to succeed.
+Both modes inspect the provider request for web-search availability. No hosted
+search is executed; `hosted_execution_tested` is always false. The tests cover
+web-search configuration, not all hosted tools or remote enforcement. Additional
+`tools.json` evidence is retained with the normal artifacts.
