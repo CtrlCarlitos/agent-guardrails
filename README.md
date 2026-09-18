@@ -83,3 +83,27 @@ recipes/              Per-language P8 recipes (Go, Python, JS/TS, Rust; Odoo/Eli
 test/fixtures/        Recorded per-plane payloads → expected verdict (contract tests)
 docs/adr/             Architecture decision records
 ```
+
+## Codex
+
+Codex CLI 0.154.0 integration uses native synchronous hooks:
+
+```sh
+guardrail gen-config codex --merge "$HOME/.codex/hooks.json"
+# In Codex, review and trust the generated definitions with /hooks, then restart.
+guardrail plane status
+```
+
+`plane enable codex` and `plane disable codex` use the existing operator approval
+flow. `CODEX_HOME` overrides the global Codex directory. Project installation is
+`guardrail sync --planes codex`; Codex must trust that project config layer.
+Disable removes Guardrail hooks and retains its native escalation rules.
+
+`gen-config codex --floor` prints the native command-escalation floor. Merge and
+enable also install it as `rules/guardrail.rules` beside `hooks.json`.
+
+Codex Asks block with guidance because native PreToolUse cannot request approval.
+Delegation is denied pending child enforcement evidence. Hosted tools and
+continued `write_stdin` input have runtime hook gaps; registration is not proof
+of hook trust or complete containment. See [ADR-0014](docs/adr/0014-codex-native-hooks-and-blocked-asks.md)
+and [ADR-0015](docs/adr/0015-codex-native-escalation-floor.md).

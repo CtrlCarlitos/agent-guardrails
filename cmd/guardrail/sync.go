@@ -19,7 +19,7 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(&flagOutput)
 	dir := fs.String("dir", ".", "repo directory to sync")
 	binary := fs.String("binary", "guardrail", "path to the guardrail binary to register in hook commands")
-	planesFlag := fs.String("planes", "claude,opencode,antigravity", "comma-separated planes to sync")
+	planesFlag := fs.String("planes", "claude,opencode,antigravity,codex", "comma-separated planes to sync")
 	if err := fs.Parse(args); err != nil {
 		message := flagOutput.String()
 		if message == "" {
@@ -98,6 +98,17 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 
 func syncPlane(plane, dir, binary string, merged *policy.Policy, stdout, stderr io.Writer) {
 	switch plane {
+	case "codex":
+		target := filepath.Join(dir, ".codex", "hooks.json")
+		if err := genconfig.WriteCodexRules(target); err != nil {
+			fmt.Fprintln(stderr, safetext.SingleLine(err.Error()))
+			return
+		}
+		if err := genconfig.MergePlaneInto(target, plane, genconfig.CodexConfig(binary)); err != nil {
+			fmt.Fprintln(stderr, safetext.SingleLine(err.Error()))
+			return
+		}
+		fmt.Fprintf(stdout, "synced codex -> %s; review and trust in /hooks\n", safetext.SingleLine(target))
 	case "claude":
 		target := filepath.Join(dir, ".claude", "settings.json")
 		frag := genconfig.ClaudeConfig(merged, binary)

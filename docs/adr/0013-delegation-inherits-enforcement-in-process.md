@@ -35,3 +35,13 @@ guarantee is established.
 - The determination is architectural, not evidence-carried: a future
   out-of-process delegation (separate agent host) still needs the denial path
   and an inheritance evidence transport.
+
+## Codex determination (2026-09-17)
+
+Codex remains excluded from `delegationInheritsEnforcement`. Its documented
+subagent hooks share the parent's session ID, but shared identity alone does not
+establish complete child mediation: hosted tools, continued unified-exec input,
+and specialized tool paths have documented hook exceptions (ADR-0014). Until
+runtime evidence establishes the required boundary, `spawn_agent`, `send_input`,
+and `resume_agent`, `send_message`, and `followup_task` Deny with instructions to perform the work inline. Do not
+extend the allowlist merely because the parent delegation hook was observed.

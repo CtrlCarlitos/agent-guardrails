@@ -217,6 +217,8 @@
       "Edit(**/*-private-key.*)",
       "Edit(**/private*.key)",
       "Edit(**/.claude.json)",
+      "Edit(.codex)",
+      "Edit(.codex/**)",
       "Edit(.claude/settings.json)",
       "Edit(.claude/settings.local.json)",
       "Edit(.claude/hooks/**)",

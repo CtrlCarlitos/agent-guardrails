@@ -101,3 +101,25 @@ func TestAntigravityPreHookMatcherCoversEveryInventoryTool(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexInventory(t *testing.T) {
+	tools := RegisteredTools("codex")
+	if len(tools) == 0 {
+		t.Fatal("missing Codex inventory")
+	}
+	seen := map[string]bool{}
+	for _, spec := range tools {
+		got, known := CodexTool(spec.NativeTool)
+		if !known || got != spec || spec.Capability == "" || seen[spec.NativeTool] {
+			t.Fatalf("invalid inventory: %+v", spec)
+		}
+		seen[spec.NativeTool] = true
+	}
+	if _, known := CodexTool("future_tool"); known {
+		t.Fatal("unknown tool registered")
+	}
+	spec, known := CodexTool("mcp__fixture__read")
+	if !known || spec.Capability != policy.CapabilityDeny {
+		t.Fatal("MCP not denied")
+	}
+}

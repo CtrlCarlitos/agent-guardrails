@@ -343,7 +343,7 @@ func validPlaneList(params map[string]string) bool {
 		return false
 	}
 	for _, plane := range strings.Split(list, ",") {
-		if plane != "claude" && plane != "opencode" && plane != "antigravity" {
+		if plane != "claude" && plane != "opencode" && plane != "antigravity" && plane != "codex" {
 			return false
 		}
 	}
