@@ -388,3 +388,82 @@ func TestParseAntigravityCompanionTools(t *testing.T) {
 		})
 	}
 }
+
+func TestParseAntigravitySchedule(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		raw     string
+		wantCap policy.Capability
+	}{
+		// Shape 1: One-shot in-session timer -> CapabilitySafeControl
+		{
+			"one-shot timer with DurationSeconds",
+			`{"toolCall":{"name":"schedule","args":{"DurationSeconds":10,"Prompt":"wake up"}}}`,
+			policy.CapabilitySafeControl,
+		},
+		{
+			"one-shot timer with DurationSeconds and TimerCondition",
+			`{"toolCall":{"name":"schedule","args":{"DurationSeconds":30,"TimerCondition":"any","Prompt":"check tasks"}}}`,
+			policy.CapabilitySafeControl,
+		},
+		{
+			"one-shot timer with runner metadata",
+			`{"toolCall":{"name":"schedule","args":{"DurationSeconds":5,"Prompt":"poll","toolAction":"Scheduling timer","toolSummary":"Set timer"}}}`,
+			policy.CapabilitySafeControl,
+		},
+
+		// Shape 2: Recurring cron schedule -> CapabilityExternal
+		{
+			"recurring cron with CronExpression",
+			`{"toolCall":{"name":"schedule","args":{"CronExpression":"*/5 * * * *","Prompt":"health check"}}}`,
+			policy.CapabilityExternal,
+		},
+		{
+			"recurring cron with CronExpression and MaxIterations",
+			`{"toolCall":{"name":"schedule","args":{"CronExpression":"0 * * * *","MaxIterations":3,"Prompt":"hourly check"}}}`,
+			policy.CapabilityExternal,
+		},
+
+		// Shape 3: Ambiguous / invalid shapes fail closed to CapabilityExternal
+		{
+			"ambiguous: both DurationSeconds and CronExpression",
+			`{"toolCall":{"name":"schedule","args":{"DurationSeconds":10,"CronExpression":"*/5 * * * *","Prompt":"ambiguous"}}}`,
+			policy.CapabilityExternal,
+		},
+		{
+			"ambiguous: neither DurationSeconds nor CronExpression",
+			`{"toolCall":{"name":"schedule","args":{"Prompt":"no schedule spec"}}}`,
+			policy.CapabilityExternal,
+		},
+		{
+			"ambiguous: DurationSeconds is zero",
+			`{"toolCall":{"name":"schedule","args":{"DurationSeconds":0,"Prompt":"zero duration"}}}`,
+			policy.CapabilityExternal,
+		},
+		{
+			"ambiguous: DurationSeconds is negative",
+			`{"toolCall":{"name":"schedule","args":{"DurationSeconds":-5,"Prompt":"negative duration"}}}`,
+			policy.CapabilityExternal,
+		},
+		{
+			"ambiguous: DurationSeconds with MaxIterations",
+			`{"toolCall":{"name":"schedule","args":{"DurationSeconds":10,"MaxIterations":2,"Prompt":"timer with iterations"}}}`,
+			policy.CapabilityExternal,
+		},
+		{
+			"ambiguous: DurationSeconds is non-numeric string",
+			`{"toolCall":{"name":"schedule","args":{"DurationSeconds":"10","Prompt":"string duration"}}}`,
+			policy.CapabilityExternal,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tc, err := ParseAntigravity("pre", strings.NewReader(tt.raw))
+			if err != nil {
+				t.Fatalf("unexpected parse error: %v", err)
+			}
+			if tc.Capability != tt.wantCap {
+				t.Fatalf("tc.Capability = %q, want %q", tc.Capability, tt.wantCap)
+			}
+		})
+	}
+}
