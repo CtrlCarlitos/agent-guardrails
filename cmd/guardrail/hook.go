@@ -114,6 +114,9 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if line := claudeCoveragePosture(); line != "" {
 			text += "\n\n" + line
 		}
+		if line := selftestPosture(version); line != "" {
+			text += "\n\n" + line
+		}
 		if nightState.Active {
 			text = nightState.Banner() + "\n" + text
 		}
