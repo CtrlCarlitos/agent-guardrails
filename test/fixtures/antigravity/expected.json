@@ -124,6 +124,12 @@
   },
   "wait-five-seconds.json": {
     "decision": "allow"
+  },
+  "serena-mcp-safe.json": {
+    "decision": "allow"
+  },
+  "serena-mcp-secret.json": {
+    "decision": "deny"
   }
 }
 

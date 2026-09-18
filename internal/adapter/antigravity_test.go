@@ -655,3 +655,31 @@ func TestEmitAntigravityCallMcpToolGuidance(t *testing.T) {
 		}
 	}
 }
+
+func TestParseAntigravityTypesKnownMCPWithProjectedPaths(t *testing.T) {
+	raw := `{"conversationId":"c1","toolCall":{"name":"mcp_serena_replace_content","args":{"relative_path":".env","content":"LEAKED=1"}}}`
+	tc, err := ParseAntigravity("pre", strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc.Capability != policy.CapabilityMutation || tc.InputShape != "path" {
+		t.Fatalf("capability = %q shape = %q, want mutation/path", tc.Capability, tc.InputShape)
+	}
+	if len(tc.Paths) != 1 || tc.Paths[0] != ".env" {
+		t.Fatalf("paths = %v, want projected relative_path", tc.Paths)
+	}
+}
+
+func TestParseAntigravityMemoryMCPToolsProjectUnderMemoryStore(t *testing.T) {
+	raw := `{"conversationId":"c1","toolCall":{"name":"mcp__serena__write_memory","args":{"memory_name":"core","content":"x"}}}`
+	tc, err := ParseAntigravity("pre", strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc.Capability != policy.CapabilityMutation {
+		t.Fatalf("capability = %q, want mutation", tc.Capability)
+	}
+	if len(tc.Paths) != 1 || tc.Paths[0] != ".serena/memories/core" {
+		t.Fatalf("paths = %v, want memory-store projection", tc.Paths)
+	}
+}

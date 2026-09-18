@@ -208,9 +208,16 @@ func ParseAntigravity(phase string, r io.Reader) (engine.ToolCall, error) {
 	if err := json.Unmarshal(native.ToolCall.Args, &input); err != nil {
 		return engine.ToolCall{}, err
 	}
+	var mcpPaths []string
 	spec, known := planecontract.AntigravityTool(p.ToolCall.Name)
-	if !known {
-		spec = planecontract.ToolSpec{NativeTool: p.ToolCall.Name, Tool: p.ToolCall.Name, Capability: policy.CapabilityUnknown}
+	if !known || spec.Capability == policy.CapabilityDeny {
+		if mcp, ok := planecontract.MatchMCPTool(p.ToolCall.Name); ok {
+			spec = planecontract.ToolSpec{NativeTool: p.ToolCall.Name, Tool: mcp.Tool, Capability: mcp.Capability}
+			known = true
+			mcpPaths = projectMCPPaths(mcp, native.ToolCall.Args)
+		} else if !known {
+			spec = planecontract.ToolSpec{NativeTool: p.ToolCall.Name, Tool: p.ToolCall.Name, Capability: policy.CapabilityUnknown}
+		}
 	}
 
 	tc := engine.ToolCall{
@@ -261,6 +268,9 @@ func ParseAntigravity(phase string, r io.Reader) (engine.ToolCall, error) {
 			return engine.ToolCall{}, err
 		}
 		tc.Paths = paths
+		if len(mcpPaths) > 0 {
+			tc.Paths = append(tc.Paths, mcpPaths...)
+		}
 		tc.InputShape = "path"
 	}
 	if tc.Capability == policy.CapabilityWebFetch {
