@@ -8,6 +8,15 @@
   "run-command-ls.json": {
     "decision": "allow"
   },
+  "run-command-git-push-force.json": {
+    "decision": "deny"
+  },
+  "run-command-curl-pipe-sh.json": {
+    "decision": "deny"
+  },
+  "run-command-git-push-main.json": {
+    "decision": "force_ask"
+  },
   "write-secret.json": {
     "decision": "deny"
   },

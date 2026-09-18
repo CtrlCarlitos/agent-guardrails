@@ -617,3 +617,93 @@ func TestPlaneEnableAllHealsUnmarkedLegacyClaudeEntries(t *testing.T) {
 		t.Fatalf("%d unmarked entries remain after enable", n)
 	}
 }
+
+func TestPlaneStatusAntigravityDriftStates(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	hooksPath := filepath.Join(home, ".gemini", "config", "hooks.json")
+
+	// 1. Missing
+	if got := planeStatusState("antigravity"); got != "no hooks.json" {
+		t.Fatalf("missing hooks.json: got %q, want 'no hooks.json'", got)
+	}
+
+	// 2. Corrupted / unparseable
+	writePlaneSettings(t, hooksPath, `{"guardrail": {broken json`)
+	if got := planeStatusState("antigravity"); !strings.HasPrefix(got, "unparseable (") {
+		t.Fatalf("corrupted hooks.json: got %q, want 'unparseable (...)'", got)
+	}
+
+	// 3. Disabled
+	writePlaneSettings(t, hooksPath, `{"guardrail":{"enabled":false,"PreToolUse":[]}}`)
+	if got := planeStatusState("antigravity"); got != "present, disabled" {
+		t.Fatalf("disabled hooks.json: got %q, want 'present, disabled'", got)
+	}
+
+	// 4. Unmarked legacy hooks
+	writePlaneSettings(t, hooksPath, `{"guardrail":{"enabled":true,"PreToolUse":[{"matcher":"*","hooks":[{"command":"guardrail hook antigravity pre","type":"command"}]}]}}`)
+	if got := planeStatusState("antigravity"); got != "present, integration NOT registered" {
+		t.Fatalf("unmarked legacy hooks.json: got %q, want 'present, integration NOT registered'", got)
+	}
+
+	// 5. Valid registered
+	writePlaneSettings(t, hooksPath, `{"guardrail":{"enabled":true,"PreToolUse":[{"id":"guardrail-antigravity-pre","matcher":"*","hooks":[{"command":"guardrail hook antigravity pre","type":"command"}]}]}}`)
+	if got := planeStatusState("antigravity"); got != "guardrail integration registered" {
+		t.Fatalf("valid registered hooks.json: got %q, want 'guardrail integration registered'", got)
+	}
+}
+
+func TestPlaneEnableHealsAntigravityUnmarkedAndDisabled(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	hooksPath := filepath.Join(home, ".gemini", "config", "hooks.json")
+
+	// Start with unmarked legacy entry + disabled
+	writePlaneSettings(t, hooksPath, `{"guardrail":{"enabled":false,"PreToolUse":[{"matcher":"*","hooks":[{"command":"guardrail hook antigravity pre","type":"command"}]}]}}`)
+
+	var submitted []approval.Request
+	var current approval.Request
+	origSubmit, origQuery := submitPlaneRequest, queryPlaneStatus
+	submitPlaneRequest = func(request approval.Request) (approval.Request, error) {
+		current = request
+		submitted = append(submitted, request)
+		return approval.Request{ID: "stub-antigravity-request", Status: "pending", ApprovalURL: "http://localhost:39169/approve"}, nil
+	}
+	queryPlaneStatus = func(socket, id string) (approval.Request, error) {
+		if err := executePlaneApproval(current); err != nil {
+			return approval.Request{Status: "denied"}, nil
+		}
+		return approval.Request{Status: "approved"}, nil
+	}
+	defer func() { submitPlaneRequest, queryPlaneStatus = origSubmit, origQuery }()
+	origInstalled := planeInstalled
+	planeInstalled = func(string) bool { return true }
+	defer func() { planeInstalled = origInstalled }()
+
+	var out, errb strings.Builder
+	if code := runPlaneTerminal(t, []string{"plane", "enable", "antigravity"}, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d, stderr %q", code, errb.String())
+	}
+	if len(submitted) != 1 || submitted[0].Parameters["planes"] != "antigravity" {
+		t.Fatalf("antigravity enable skipped: %+v", submitted)
+	}
+	got := readPlaneJSON(t, hooksPath)
+	if !strings.Contains(got, "guardrail-antigravity-pre") {
+		t.Fatalf("marked entry missing: %s", got)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(got), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if n := genconfig.CountUnmarkedAntigravityGroups(doc); n != 0 {
+		t.Fatalf("%d unmarked entries remain after enable", n)
+	}
+	guardrail, _ := doc["guardrail"].(map[string]any)
+	if enabled, _ := guardrail["enabled"].(bool); !enabled {
+		t.Fatalf("guardrail was not enabled after enable: %v", guardrail)
+	}
+}

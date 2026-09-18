@@ -1887,6 +1887,77 @@ func TestHookAntigravityPostAlwaysEmptyObject(t *testing.T) {
 	}
 }
 
+func TestHookAntigravityPostPhaseAuditRecordAndP7Parity(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateDir)
+	t.Setenv("GUARDRAIL_CONFIG", "")
+
+	sessionID := "antigravity-p7-audit-test"
+
+	// 1. Post-phase on an allowed mutation records audit with event: post
+	postPayload := `{"conversationId":"` + sessionID + `","toolCall":{"name":"write_to_file","args":{"TargetFile":"/tmp/test.txt","CodeContent":"hello"}}}`
+	var out, errb bytes.Buffer
+	code := run([]string{"hook", "antigravity", "post"}, strings.NewReader(postPayload), &out, &errb)
+	if code != 0 || out.String() != "{}\n" {
+		t.Fatalf("post phase: code=%d out=%q, want 0/{}", code, out.String())
+	}
+
+	auditPath := filepath.Join(stateDir, "guardrail", "audit.jsonl")
+	rawAudit, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatalf("reading audit log: %v", err)
+	}
+	auditLines := strings.Split(strings.TrimSpace(string(rawAudit)), "\n")
+	if len(auditLines) != 1 {
+		t.Fatalf("audit records count = %d, want 1: %s", len(auditLines), string(rawAudit))
+	}
+	var rec map[string]any
+	if err := json.Unmarshal([]byte(auditLines[0]), &rec); err != nil {
+		t.Fatalf("parsing audit record: %v", err)
+	}
+	if rec["event"] != "post" {
+		t.Fatalf("audit record event = %v, want post", rec["event"])
+	}
+	if rec["tool"] != "Write" || rec["native_tool"] != "write_to_file" {
+		t.Fatalf("audit record tool = %v / %v, want Write / write_to_file", rec["tool"], rec["native_tool"])
+	}
+	if rec["plane"] != "antigravity" || rec["session_id"] != sessionID {
+		t.Fatalf("audit record plane/session_id = %v / %v, want antigravity / %s", rec["plane"], rec["session_id"], sessionID)
+	}
+	paths, ok := rec["paths"].([]any)
+	if !ok || len(paths) != 1 || paths[0] != "/tmp/test.txt" {
+		t.Fatalf("audit record paths = %v, want [/tmp/test.txt]", rec["paths"])
+	}
+
+	// 2. Verify P7 session tracking parity:
+	// A pre-phase network call records SawNetworkCall in session state.
+	netPrePayload := `{"conversationId":"` + sessionID + `","toolCall":{"name":"run_command","args":{"CommandLine":"curl https://example.com","Cwd":"/tmp"}}}`
+	out.Reset()
+	errb.Reset()
+	code = run([]string{"hook", "antigravity", "pre"}, strings.NewReader(netPrePayload), &out, &errb)
+	if code != 0 {
+		t.Fatalf("net pre exit = %d, stderr: %s", code, errb.String())
+	}
+
+	// Another post-phase call occurs (interleaved mutation)
+	out.Reset()
+	errb.Reset()
+	code = run([]string{"hook", "antigravity", "post"}, strings.NewReader(postPayload), &out, &errb)
+	if code != 0 || out.String() != "{}\n" {
+		t.Fatalf("interleaved post: code=%d out=%q, want 0/{}", code, out.String())
+	}
+
+	// Now check session state: SawNetworkCall must still be true.
+	var sawNet bool
+	_ = session.Transaction(sessionID, func(st *session.State) error {
+		sawNet = st.SawNetworkCall
+		return nil
+	})
+	if !sawNet {
+		t.Fatalf("expected SawNetworkCall to be true in session state after post-phase call")
+	}
+}
+
 func TestHookAntigravityMissingPhase(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := run([]string{"hook", "antigravity"}, strings.NewReader(""), &out, &errb)

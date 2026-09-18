@@ -489,3 +489,58 @@ func TestDoctorReportsEachPlaneLifecycleState(t *testing.T) {
 		}
 	}
 }
+
+func writeAntigravityHooks(t *testing.T, home, body string) {
+	t.Helper()
+	dir := filepath.Join(home, ".gemini", "config")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "hooks.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDoctorWarnsOnUnmarkedAntigravityEntry(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	writeAntigravityHooks(t, home, `{"guardrail":{"enabled":true,"PreToolUse":[
+		{"id":"guardrail-antigravity-pre","matcher":"*","hooks":[{"type":"command","command":"/x/guardrail hook antigravity pre"}]},
+		{"matcher":"*","hooks":[{"type":"command","command":"/old/guardrail hook antigravity pre"}]}
+	]}}`)
+	var out, errb bytes.Buffer
+	run([]string{"doctor"}, strings.NewReader(""), &out, &errb)
+	if !strings.Contains(out.String(), "unmarked guardrail-like hook entry in hooks.json") {
+		t.Fatalf("want an unmarked-entry warning in hooks.json:\n%s", out.String())
+	}
+}
+
+func TestDoctorWarnsOnAntigravityDrift(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GUARDRAIL_CONFIG", "")
+
+	// 1. Corrupted
+	writeAntigravityHooks(t, home, `{"guardrail": {broken`)
+	var out, errb bytes.Buffer
+	run([]string{"doctor"}, strings.NewReader(""), &out, &errb)
+	if !strings.Contains(out.String(), "antigravity settings: unparseable (") {
+		t.Fatalf("want unparseable status:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "WARNING: Antigravity has no declarative floor (ADR-0008); hooks.json is unparseable") {
+		t.Fatalf("want unparseable warning:\n%s", out.String())
+	}
+
+	// 2. Disabled
+	writeAntigravityHooks(t, home, `{"guardrail":{"enabled":false}}`)
+	out.Reset()
+	errb.Reset()
+	run([]string{"doctor"}, strings.NewReader(""), &out, &errb)
+	if !strings.Contains(out.String(), "antigravity settings: present, disabled") {
+		t.Fatalf("want disabled status:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "WARNING: Antigravity has no declarative floor (ADR-0008); guardrail is disabled in hooks.json") {
+		t.Fatalf("want disabled warning:\n%s", out.String())
+	}
+}
