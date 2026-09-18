@@ -1,0 +1,12 @@
+[
+  {
+    "type": "function",
+    "name": "exec",
+    "parameters": {}
+  },
+  {
+    "type": "function",
+    "name": "wait",
+    "parameters": {}
+  }
+]
