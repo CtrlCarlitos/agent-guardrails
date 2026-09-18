@@ -130,6 +130,12 @@ func updateDownload(url string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		// Freshly tagged releases publish assets asynchronously; an
+		// immediate update races the uploader. Name it so the retry is
+		// obvious instead of looking like a missing release.
+		return nil, fmt.Errorf("HTTP 404 (release assets may still be publishing; retry in a minute)")
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %s", resp.Status)
 	}
