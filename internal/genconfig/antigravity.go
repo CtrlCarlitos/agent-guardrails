@@ -24,7 +24,7 @@ func AntigravityConfig(binary string) Fragment {
 			"PostToolUse": []any{
 				map[string]any{
 					"id":      "guardrail-antigravity-post",
-					"matcher": "write_to_file|replace_file_content|multi_replace_file_content",
+					"matcher": planecontract.AntigravityPostHookMatcher(),
 					"hooks": []any{
 						map[string]any{"type": "command", "command": postCmd, "timeout": 120},
 					},

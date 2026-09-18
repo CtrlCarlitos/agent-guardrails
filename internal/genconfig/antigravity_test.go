@@ -3,6 +3,8 @@ package genconfig
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/planecontract"
 )
 
 func TestAntigravityConfigShape(t *testing.T) {
@@ -19,8 +21,8 @@ func TestAntigravityConfigShape(t *testing.T) {
 	if pre["id"] != "guardrail-antigravity-pre" {
 		t.Errorf("pre id = %v", pre["id"])
 	}
-	if pre["matcher"] != "*" {
-		t.Errorf("pre matcher = %v", pre["matcher"])
+	if pre["matcher"] != planecontract.AntigravityPreHookMatcher() {
+		t.Errorf("pre matcher = %v, want %v", pre["matcher"], planecontract.AntigravityPreHookMatcher())
 	}
 	preHook := pre["hooks"].([]any)[0].(map[string]any)
 	if preHook["command"] != "/usr/local/bin/guardrail hook antigravity pre" {
@@ -34,8 +36,8 @@ func TestAntigravityConfigShape(t *testing.T) {
 	if post["id"] != "guardrail-antigravity-post" {
 		t.Errorf("post id = %v", post["id"])
 	}
-	if post["matcher"] != "write_to_file|replace_file_content|multi_replace_file_content" {
-		t.Errorf("post matcher = %v", post["matcher"])
+	if post["matcher"] != planecontract.AntigravityPostHookMatcher() {
+		t.Errorf("post matcher = %v, want %v", post["matcher"], planecontract.AntigravityPostHookMatcher())
 	}
 	postHook := post["hooks"].([]any)[0].(map[string]any)
 	if postHook["command"] != "/usr/local/bin/guardrail hook antigravity post" {
