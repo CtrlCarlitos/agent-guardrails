@@ -260,3 +260,42 @@ func TestParseOpencodeCarriesCallIDAndHostApproval(t *testing.T) {
 		t.Fatalf("ToolCall = %+v, want call-9 host-approved", tc)
 	}
 }
+
+func TestParseOpencodeTypesKnownMCPWithProjectedPaths(t *testing.T) {
+	raw := `{"session_id":"s1","event":"pre","tool":"serena_replace_content","cwd":"/repo","arguments":{"relative_path":".env","content":"LEAKED=1"}}`
+	tc, err := ParseOpencode(strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc.Capability != policy.CapabilityMutation || tc.InputShape != "path" {
+		t.Fatalf("capability = %q shape = %q, want mutation/path", tc.Capability, tc.InputShape)
+	}
+	if len(tc.Paths) != 1 || tc.Paths[0] != ".env" {
+		t.Fatalf("paths = %v, want projected relative_path", tc.Paths)
+	}
+}
+
+func TestParseOpencodeMemoryMCPToolsProjectUnderMemoryStore(t *testing.T) {
+	raw := `{"session_id":"s1","event":"pre","tool":"mcp__serena__write_memory","cwd":"/repo","arguments":{"memory_name":"core","content":"x"}}`
+	tc, err := ParseOpencode(strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc.Capability != policy.CapabilityMutation {
+		t.Fatalf("capability = %q, want mutation", tc.Capability)
+	}
+	if len(tc.Paths) != 1 || tc.Paths[0] != ".serena/memories/core" {
+		t.Fatalf("paths = %v, want memory-store projection", tc.Paths)
+	}
+}
+
+func TestParseOpencodeUnknownBareNameStaysUnknown(t *testing.T) {
+	raw := `{"session_id":"s1","event":"pre","tool":"totally_unknown","cwd":"/repo","arguments":{}}`
+	tc, err := ParseOpencode(strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc.Capability != policy.CapabilityUnknown {
+		t.Fatalf("capability = %q, want unknown (engine asks)", tc.Capability)
+	}
+}
