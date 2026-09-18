@@ -460,7 +460,7 @@ func planeStatusState(plane string) string {
 	}
 	if planeIntegrationRegistered(plane) {
 		if plane == "codex" {
-			return "guardrail hooks registered; verify trust in /hooks; coverage limited (ADR-0014)"
+			return "guardrail hooks registered; verify trust in /hooks; hosted tools and write_stdin bypass pre-hooks (ADR-0014)"
 		}
 		return "guardrail integration registered"
 	}

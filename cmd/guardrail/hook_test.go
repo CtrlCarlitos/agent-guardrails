@@ -1439,9 +1439,8 @@ func TestOpenCodeApprovalMemoryRejectsIncompleteIdentity(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			stateHome, _ := configureApprovalTest(t, approvalAskOverlay(""))
 			want := "ask"
-			if test.name == "tool" {
-				want = "allow" // Unclassified calls follow the base audit posture.
-			}
+			// Unclassified calls (missing tool name) ask too: OpenCode's
+			// unknown posture is ask, not audit.
 			assertApprovalDecision(t, runOpenCodeApprovalHook(t, test.payload), want)
 			if test.sessionID != "" {
 				state, _ := readApprovalState(t, test.sessionID)

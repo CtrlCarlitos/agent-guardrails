@@ -23,7 +23,16 @@
  "read-env.json": {
   "exit": 2
  },
+ "serena-mcp-safe.json": {
+  "exit": 0
+ },
+ "serena-mcp-secret.json": {
+  "exit": 2
+ },
  "task.json": {
+  "exit": 0
+ },
+ "unknown-asks.json": {
   "exit": 0
  },
  "webfetch.json": {
