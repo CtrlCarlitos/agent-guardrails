@@ -1,15 +1,44 @@
 {
-  "run-command-chmod-r.json": {"decision": "force_ask"},
-  "run-command-rm-rf.json": {"decision": "deny"},
-  "run-command-ls.json":    {"decision": "allow"},
-  "write-secret.json":      {"decision": "deny"},
-  "replace-secret.json":    {"decision": "deny"},
-  "multi-replace-secret.json": {"decision": "deny"},
-  "view-file-meta.json":    {"decision": "allow"},
-  "list-secret.json":       {"decision": "deny"},
-  "webfetch.json":          {"decision": "deny"},
-  "websearch.json":         {"decision": "force_ask"},
-  "custom.json":            {"decision": "deny"},
-  "future-tool.json":       {"decision": "allow"},
-  "list-decoy-secret.json": {"decision": "deny"}
+  "run-command-chmod-r.json": {
+    "decision": "force_ask"
+  },
+  "run-command-rm-rf.json": {
+    "decision": "deny"
+  },
+  "run-command-ls.json": {
+    "decision": "allow"
+  },
+  "write-secret.json": {
+    "decision": "deny"
+  },
+  "replace-secret.json": {
+    "decision": "deny"
+  },
+  "multi-replace-secret.json": {
+    "decision": "deny"
+  },
+  "view-file-meta.json": {
+    "decision": "allow"
+  },
+  "list-secret.json": {
+    "decision": "deny"
+  },
+  "webfetch.json": {
+    "decision": "deny"
+  },
+  "websearch.json": {
+    "decision": "force_ask"
+  },
+  "custom.json": {
+    "decision": "deny"
+  },
+  "future-tool.json": {
+    "decision": "allow"
+  },
+  "list-decoy-secret.json": {
+    "decision": "deny"
+  },
+  "invoke-subagent.json": {
+    "decision": "allow"
+  }
 }

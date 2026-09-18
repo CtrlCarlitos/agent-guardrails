@@ -206,14 +206,14 @@ func TestEvaluateWaivedOverlayRuleStillAllows(t *testing.T) {
 }
 
 func TestDelegationInheritsEnforcementOnInProcessPlanes(t *testing.T) {
-	for _, plane := range []string{"opencode", "claude"} {
+	for _, plane := range []string{"opencode", "claude", "antigravity"} {
 		v := Evaluate(ToolCall{Plane: plane, NativeTool: "task", Capability: policy.CapabilityDelegation}, fullPol())
 		if v.Decision != policy.Allow || v.RuleID != "delegation-inherited" {
 			t.Fatalf("%s delegation = %+v, want allow/delegation-inherited", plane, v)
 		}
 	}
 	// Planes without verified child mediation fail closed.
-	for _, plane := range []string{"antigravity", "", "codex"} {
+	for _, plane := range []string{"", "codex"} {
 		v := Evaluate(ToolCall{Plane: plane, NativeTool: "task", Capability: policy.CapabilityDelegation}, fullPol())
 		if v.Decision != policy.Deny || v.RuleID != "capability-delegation-unverified" {
 			t.Fatalf("%q delegation = %+v, want deny/capability-delegation-unverified", plane, v)

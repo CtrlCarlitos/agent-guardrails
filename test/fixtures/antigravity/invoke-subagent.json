@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"invoke_subagent","args":{"Subagents":[{"Model":"inherit","Prompt":"echo hello","Role":"probe","TypeName":"research"}],"toolAction":"Dispatching subagent","toolSummary":"Dispatch subagent"}}}
