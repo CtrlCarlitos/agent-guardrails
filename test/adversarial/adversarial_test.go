@@ -745,11 +745,15 @@ func TestCreateFixtureSymlinkRejectsEscapingRelativeTarget(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(repo, "link")); !os.IsNotExist(err) {
 		t.Fatalf("fixture with escaping target was created: %v", err)
 	}
+	physicalEscape, err := filepath.EvalSymlinks(escape)
+	if err != nil {
+		t.Fatal(err)
+	}
 	rawTarget := filepath.Join(repo, "pivot") + string(filepath.Separator) + filepath.FromSlash("../../escape")
 	if resolved, err := filepath.EvalSymlinks(rawTarget); err != nil {
 		t.Fatal(err)
-	} else if resolved != escape {
-		t.Fatalf("test target resolves to %q, want outside path %q", resolved, escape)
+	} else if resolved != physicalEscape {
+		t.Fatalf("test target resolves to %q, want outside path %q", resolved, physicalEscape)
 	}
 }
 

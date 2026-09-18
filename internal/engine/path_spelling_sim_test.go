@@ -83,3 +83,20 @@ func TestSymlinkEscapeWithPhysicalRootAndAliasedCandidate(t *testing.T) {
 		}
 	}
 }
+
+func TestAmbiguousSecretWithDifferentRepositorySpellings(t *testing.T) {
+	alias := symlinkedTempTree(t)
+	physical, err := filepath.EvalSymlinks(alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(alias, "cert.pem"), []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, roots := range [][2]string{{alias, physical}, {physical, alias}} {
+		v := Evaluate(ToolCall{Tool: "Read", Paths: []string{filepath.Join(roots[0], "cert.pem")}, CWD: roots[0], RepoRoot: roots[1]}, fullPol())
+		if v.Decision != policy.Ask || v.RuleID != "P4.secret-path-ambiguous" {
+			t.Fatalf("path spelling %q repository %q: %+v", roots[0], roots[1], v)
+		}
+	}
+}

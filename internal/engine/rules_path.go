@@ -227,8 +227,6 @@ func classifySecretPathOperand(candidate pathCandidate, pol *policy.Policy, hono
 			worst = v
 		}
 	}
-	askMatch := ""
-	askInside := false
 	for _, form := range pathCandidateForms(candidate) {
 		if matchesAnyGlob(form, pol.Slots.SecretDirs) {
 			return secretPathVerdict(policy.Deny, "P4.secret-path", form)
@@ -240,28 +238,16 @@ func classifySecretPathOperand(candidate pathCandidate, pol *policy.Policy, hono
 			take(secretPathVerdict(policy.Deny, "P4.secret-path", form))
 		}
 		if matchesAnyGlob(form, pol.Slots.SecretAskGlobs) {
-			if askMatch == "" {
-				askMatch = form
-			}
-			// Inside-repo holds when ANY spelling is inside: darwin temp
-			// trees mean the raw form (/var/...) and the resolved one
-			// (/private/var/...) straddle the canonical repo root, and a
-			// path reachable inside the repo is inside regardless of form.
+			decision := policy.Deny
+			ruleID := "P4.secret-path"
 			if candidate.repoRoot != "" && !strings.HasPrefix(candidate.path, "~") {
 				if _, inside := repoRelative(form, candidate.cwd, candidate.repoRoot); inside {
-					askInside = true
+					decision = policy.Ask
+					ruleID = "P4.secret-path-ambiguous"
 				}
 			}
+			take(secretPathVerdict(decision, ruleID, form))
 		}
-	}
-	if askMatch != "" {
-		decision := policy.Deny
-		ruleID := "P4.secret-path"
-		if askInside {
-			decision = policy.Ask
-			ruleID = "P4.secret-path-ambiguous"
-		}
-		take(secretPathVerdict(decision, ruleID, askMatch))
 	}
 	return worst
 }
@@ -986,6 +972,7 @@ func repoRelative(p, cwd, repoRoot string) (string, bool) {
 	}
 	relWithin := func(root string) (string, bool) {
 		rel, err := filepath.Rel(strings.ToLower(filepath.Clean(root)), strings.ToLower(filepath.Clean(absPath)))
+		rel = filepath.ToSlash(rel)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
 			// filepath.Rel succeeds with ../ escapes across unrelated trees;
 			// those are "not inside", so the canonical-root retry still runs.
@@ -998,8 +985,8 @@ func repoRelative(p, cwd, repoRoot string) (string, bool) {
 		// Darwin temp-symlink divergence: the path may arrive resolved
 		// (/private/var/...) while the root is raw (/var/folders/...) or the
 		// reverse; accept either root spelling.
-		if canonical := canonicalExistingPath(repoRoot); canonical != repoRoot {
-			rel, ok = relWithin(canonical)
+		if relation := pathRelationBetween(absPath, repoRoot); relation.within {
+			rel, ok = strings.ToLower(relation.relative), true
 		}
 		if !ok {
 			return "", false
