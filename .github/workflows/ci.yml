@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -34,10 +34,10 @@ jobs:
         # /tmp/.git lesson): an empty .git at the system temp root must not
         # capture repo-target resolution. Sow it before every test run so a
         # regression fails here, not on a developer machine.
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os != 'windows-latest'
         run: mkdir /tmp/.git
       - name: test
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os != 'windows-latest'
         run: go test ./...
       - name: windows-shaped tests
         # The Claude plane's Windows validation sheet: backslash payloads
@@ -48,7 +48,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: go test ./internal/adapter/ ./internal/engine/ ./internal/genconfig/ ./internal/coverage/ ./cmd/guardrail/ ./test/ -run 'Windows|BOM|ReadJSONObject'
       - name: gofmt
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os != 'windows-latest'
         run: |
           unformatted="$(gofmt -l .)"
           if [ -n "$unformatted" ]; then
