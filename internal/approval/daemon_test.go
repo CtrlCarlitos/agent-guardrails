@@ -141,3 +141,57 @@ func TestShutdownDaemonClosesALiveDaemon(t *testing.T) {
 	}
 	t.Fatal("daemon still accepting requests after shutdown")
 }
+
+func TestDaemonListsAndPresentsPendingRequests(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	socket := filepath.Join(t.TempDir(), "broker", "approvals.sock")
+	presented := make(chan string, 4)
+	daemon, err := approval.StartDaemon(socket, approval.New(), browserStore(t), func(rawURL string) error {
+		presented <- rawURL
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer daemon.Close()
+
+	created, err := approval.Submit(socket, request())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pending, err := approval.ListPending(socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range pending {
+		if r.ID == created.ID && r.Status == "pending" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("pending list = %+v", pending)
+	}
+
+	// Re-presenting must re-open a ceremony without completing anything:
+	// completion requires the WebAuthn assertion, never the socket.
+	if err := approval.PresentApproval(socket, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case url := <-presented:
+		if !strings.HasPrefix(url, "http://localhost:") {
+			t.Fatalf("presented URL = %q", url)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("present did not re-open the ceremony")
+	}
+	got, err := approval.QueryStatus(socket, created.ID)
+	if err != nil || got.Status != "pending" {
+		t.Fatalf("status after present = %+v err=%v, want still pending", got, err)
+	}
+	if err := approval.PresentApproval(socket, "missing"); err == nil {
+		t.Fatal("unknown id presented")
+	}
+}

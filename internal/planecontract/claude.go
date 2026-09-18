@@ -109,3 +109,14 @@ func ClaudeTool(nativeTool string) (ToolSpec, bool) {
 func ClaudePreHookMatcher() string { return "*" }
 
 func ClaudePreMatcherMatches(string) bool { return true }
+
+func ClaudePostHookMatcher() string { return "Write|Edit|MultiEdit" }
+
+func ClaudePostMatcherMatches(nativeTool string) bool {
+	switch nativeTool {
+	case "Write", "Edit", "MultiEdit":
+		return true
+	default:
+		return false
+	}
+}

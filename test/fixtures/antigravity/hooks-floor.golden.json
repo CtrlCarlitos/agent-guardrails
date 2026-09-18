@@ -10,7 +10,7 @@
           }
         ],
         "id": "guardrail-antigravity-post",
-        "matcher": "write_to_file|replace_file_content|multi_replace_file_content"
+        "matcher": "write_to_file|replace_file_content|multi_replace_file_content|notebook_edit|sed_file|delete_knowledge"
       }
     ],
     "PreToolUse": [

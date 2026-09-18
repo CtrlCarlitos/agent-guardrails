@@ -38,7 +38,9 @@ usage: guardrail <command> [arguments]
   night status                      print night-mode state
   egress grant|revoke               authorize (or withdraw) web hosts for guardrail fetch
       --scope repo|global --host a.example.com,b.example.com
-  operator <subcommand>             manage operator authenticators
+  operator <subcommand>                 manage operator authenticators
+  approvals list                       show pending approval requests
+  approvals approve <id>               re-open an approval ceremony and wait
       subcommands: enroll | add-authenticator | remove-authenticator | recover-reset
   doctor [flags]                    print resolved policy/overlay/audit/hook state
       --coverage claude    diff the installed Claude Code tool surface against the contract
