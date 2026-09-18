@@ -22,9 +22,9 @@ func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 			v.Reason = "unclassified native tool; failing closed"
 			return v
 		}
-		if tc.Plane == "opencode" {
-			// Bare-name MCP and future tools must not allow silently; the
-			// host dialog (ADR-0015) makes asking cheap for the operator.
+		if tc.Plane == "opencode" || tc.Plane == "claude" {
+			// Bare-name MCP and future tools must not allow silently; host
+			// dialogs and native asks (ADR-0015, ADR-0018) keep this cheap.
 			v.Decision = policy.Ask
 			v.RuleID = "unknown-native-tool"
 			v.Reason = "unclassified native tool requires operator approval"
