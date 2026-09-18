@@ -1,4 +1,4 @@
-# ADR-0015: Codex has a limited native escalation floor
+# ADR-0016: Codex has a limited native escalation floor
 
 Codex supports Starlark `prefix_rule` files under `rules/` beside each active
 config layer. Generate `rules/guardrail.rules` with a curated set of `forbidden`

@@ -82,6 +82,6 @@ invoked. The native floor governs command escalation, not all reads or hosted
 network use. Hook registration must not be presented as proof of complete
 runtime parity. These are documented in
 [ADR-0014](../adr/0014-codex-native-hooks-and-blocked-asks.md) and
-[ADR-0015](../adr/0015-codex-native-escalation-floor.md), with links to the official
+[ADR-0016](../adr/0016-codex-native-escalation-floor.md), with links to the official
 Codex contracts. The filesystem/shell implementation follows the project's
 POSIX policy semantics; Windows is cross-built, not native-runtime certified.

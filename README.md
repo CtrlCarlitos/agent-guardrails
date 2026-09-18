@@ -106,4 +106,4 @@ Codex Asks block with guidance because native PreToolUse cannot request approval
 Delegation is denied pending child enforcement evidence. Hosted tools and
 continued `write_stdin` input have runtime hook gaps; registration is not proof
 of hook trust or complete containment. See [ADR-0014](docs/adr/0014-codex-native-hooks-and-blocked-asks.md)
-and [ADR-0015](docs/adr/0015-codex-native-escalation-floor.md).
+and [ADR-0016](docs/adr/0016-codex-native-escalation-floor.md).
