@@ -1,0 +1,10 @@
+{
+  "session_id": "fixture",
+  "cwd": "/repo",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "mcp__serena__write_memory",
+  "tool_input": {
+    "memory_name": "notes",
+    "content": "fixture"
+  }
+}

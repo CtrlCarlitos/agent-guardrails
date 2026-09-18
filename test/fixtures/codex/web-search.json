@@ -1,0 +1,13 @@
+{
+  "session_id": "fixture",
+  "cwd": "/repo",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "web.run",
+  "tool_input": {
+    "search_query": [
+      {
+        "q": "docs"
+      }
+    ]
+  }
+}

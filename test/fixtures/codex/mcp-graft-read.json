@@ -1,0 +1,9 @@
+{
+  "session_id": "fixture",
+  "cwd": "/repo",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "mcp__takumi_graft__graft_file_api",
+  "tool_input": {
+    "file_path": "src/main.go"
+  }
+}

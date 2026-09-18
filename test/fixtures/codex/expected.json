@@ -43,5 +43,53 @@
   },
   "missing-command.json": {
     "exit": 2
+  },
+  "web-search.json": {
+    "exit": 2
+  },
+  "web-open.json": {
+    "exit": 2
+  },
+  "web-mixed.json": {
+    "exit": 2
+  },
+  "image-generation.json": {
+    "exit": 2
+  },
+  "clock-current.json": {
+    "exit": 0
+  },
+  "clock-sleep.json": {
+    "exit": 0
+  },
+  "cell-wait.json": {
+    "exit": 0
+  },
+  "cell-exec.json": {
+    "exit": 2
+  },
+  "stdin-deny.json": {
+    "exit": 2
+  },
+  "mcp-serena-write-safe.json": {
+    "exit": 0
+  },
+  "mcp-serena-write-secret.json": {
+    "exit": 2
+  },
+  "mcp-serena-read-secret.json": {
+    "exit": 2
+  },
+  "mcp-serena-missing-path.json": {
+    "exit": 2
+  },
+  "mcp-serena-memory.json": {
+    "exit": 0
+  },
+  "mcp-serena-control.json": {
+    "exit": 0
+  },
+  "mcp-graft-read.json": {
+    "exit": 0
   }
 }

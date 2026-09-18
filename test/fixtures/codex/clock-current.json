@@ -1,0 +1,7 @@
+{
+  "session_id": "fixture",
+  "cwd": "/repo",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "clock.curr_time",
+  "tool_input": {}
+}

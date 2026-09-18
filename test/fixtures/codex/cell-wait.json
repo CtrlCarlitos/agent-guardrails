@@ -1,0 +1,9 @@
+{
+  "session_id": "fixture",
+  "cwd": "/repo",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "functions.wait",
+  "tool_input": {
+    "cell_id": "fixture"
+  }
+}

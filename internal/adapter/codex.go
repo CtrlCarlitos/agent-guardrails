@@ -47,10 +47,26 @@ func ParseCodex(r io.Reader) (engine.ToolCall, error) {
 		return engine.ToolCall{}, fmt.Errorf("Codex tool_input must be an object")
 	}
 	spec, known := planecontract.CodexTool(p.Tool)
+	if !known || spec.Capability == policy.CapabilityDeny {
+		// Consult the shared registry before applying the MCP prefix deny,
+		// exactly as OpenCode does. MCP path arguments are not native patch
+		// or view_image inputs; project them with the shared registry helper.
+		if mcp, ok := planecontract.MatchMCPTool(p.Tool); ok {
+			tc.Tool, tc.Capability = mcp.Tool, mcp.Capability
+			tc.Paths = projectMCPPaths(mcp, p.Input)
+			if tc.Capability == policy.CapabilityReadDiscovery || tc.Capability == policy.CapabilityMutation {
+				tc.InputShape = "path"
+			}
+			return tc, nil
+		}
+	}
 	if !known {
 		spec = planecontract.ToolSpec{NativeTool: p.Tool, Tool: p.Tool, Capability: policy.CapabilityUnknown}
 	}
 	tc.Tool, tc.Capability = spec.Tool, spec.Capability
+	if tc.Tool == "web.run" {
+		tc.Capability, tc.URL = codexWebCapability(input)
+	}
 	stringField := func(key string) (string, error) {
 		var value string
 		if len(input[key]) == 0 || string(input[key]) == "null" {
@@ -142,6 +158,15 @@ func EmitCodex(v policy.Verdict, event string, tc engine.ToolCall, stdout, stder
 		return 0
 	}
 	reason := guidanceForModel(v, nativeAction(tc.NativeTool, tc.Arguments))
+	if v.Decision == policy.Deny && tc.Tool == "write_stdin" {
+		reason = "Guardrail denies write_stdin: Codex does not reliably run PreToolUse before delivering terminal input (ADR-0014). Do not send or retry input to the running process. Use a fresh, explicit non-interactive exec_command that can be reviewed before execution, or ask the operator to perform the interactive step outside this session; continue independent work."
+	}
+	if v.Decision == policy.Deny && tc.Tool == "functions.exec" {
+		reason = "Guardrail denies functions.exec: composite tool indirection cannot guarantee mediation of every nested action. Do not retry through another wrapper. Invoke the required supported tools directly, then continue."
+	}
+	if v.Decision == policy.Deny && tc.Tool == "web.run" && tc.Capability == policy.CapabilityDeny {
+		reason = "Guardrail cannot project this web.run request safely. Use a search-only request or open one explicit HTTP(S) URL per call; do not mix operations or use opaque result references. Continue independent work."
+	}
 	if v.Decision == policy.Ask {
 		reason = "Guardrail requires operator authorization: " + sanitizeForModel(v.Reason) + ". Codex PreToolUse cannot request approval. Have the operator perform this exact action outside this session, or authorize the relevant policy through Guardrail; continue independent work. Do not retry based on conversational approval."
 	}

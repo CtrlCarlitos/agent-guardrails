@@ -8,6 +8,15 @@ import (
 // Canonical hook names, not model-facing namespaces. Codex projects shell and
 // unified exec to Bash; apply_patch carries its patch in tool_input.command.
 var codexTools = []ToolSpec{
+	// web.run is refined by argument shape in the adapter; unprojectable
+	// requests retain Deny rather than checking only part of a composite call.
+	{"web.run", "web.run", policy.CapabilityDeny},
+	{"image_gen.imagegen", "image_gen.imagegen", policy.CapabilityExternal},
+	{"clock.curr_time", "clock.curr_time", policy.CapabilitySafeControl},
+	{"clock.sleep", "clock.sleep", policy.CapabilitySafeControl},
+	{"functions.wait", "functions.wait", policy.CapabilitySafeControl},
+	{"functions.exec", "functions.exec", policy.CapabilityDeny},
+	{"write_stdin", "write_stdin", policy.CapabilityDeny},
 	{"Bash", "Bash", policy.CapabilityCommand},
 	{"apply_patch", "Edit", policy.CapabilityMutation},
 	{"view_image", "Read", policy.CapabilityReadDiscovery},
@@ -34,6 +43,22 @@ var codexTools = []ToolSpec{
 func CodexTool(name string) (ToolSpec, bool) {
 	if strings.HasPrefix(name, "mcp__") {
 		return ToolSpec{name, name, policy.CapabilityDeny}, true
+	}
+	// Explicit documented namespace spellings only. Do not strip arbitrary
+	// prefixes: that could turn an unknown extension into an allowed control.
+	switch name {
+	case "web__run", "webrun":
+		name = "web.run"
+	case "image_gen__imagegen", "image_genimagegen":
+		name = "image_gen.imagegen"
+	case "clock__curr_time", "clockcurr_time":
+		name = "clock.curr_time"
+	case "clock__sleep", "clocksleep":
+		name = "clock.sleep"
+	case "wait", "functions__wait":
+		name = "functions.wait"
+	case "exec", "functions__exec":
+		name = "functions.exec"
 	}
 	for _, spec := range codexTools {
 		if spec.NativeTool == name {
