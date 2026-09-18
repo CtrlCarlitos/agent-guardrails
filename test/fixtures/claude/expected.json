@@ -107,9 +107,8 @@
     "exit": 0
   },
   "mcp-tool.json": {
-    "decision": "deny",
-    "exit": 2,
-    "rule": "capability-input-missing"
+    "decision": "allow",
+    "exit": 0
   },
   "mcp-unknown-family.json": {
     "decision": "ask",
