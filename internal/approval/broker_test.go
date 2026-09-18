@@ -296,3 +296,41 @@ func TestWebHostActionRejectsInvalidBatches(t *testing.T) {
 		}
 	}
 }
+
+func TestRecoverActionAcceptsKnownRepairs(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	broker := approval.New()
+	for _, repair := range []string{"claude-settings", "opencode-config", "antigravity-hooks"} {
+		r := request()
+		r.Action = "recover"
+		r.Scope = approval.GlobalScope
+		r.Parameters = map[string]string{"repair": repair}
+		created, err := broker.Create(r)
+		if err != nil {
+			t.Fatalf("repair %s: %v", repair, err)
+		}
+		got, err := broker.Request(created.ID)
+		if err != nil || got.Parameters["repair"] != repair {
+			t.Fatalf("restored = %+v err=%v", got, err)
+		}
+	}
+}
+
+func TestRecoverActionRejectsUnknownRepairs(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	broker := approval.New()
+	for _, params := range []map[string]string{
+		{"repair": "rm-rf"},
+		{"repair": ""},
+		{"repair": "claude-settings", "extra": "1"},
+		{"planes": "claude"},
+	} {
+		r := request()
+		r.Action = "recover"
+		r.Scope = approval.GlobalScope
+		r.Parameters = params
+		if _, err := broker.Create(r); !errors.Is(err, approval.ErrMalformed) {
+			t.Errorf("parameters %v accepted: %v", params, err)
+		}
+	}
+}

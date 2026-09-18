@@ -457,3 +457,36 @@ func mustOpenCodeApprovalKey(t *testing.T, tc ToolCall) string {
 	}
 	return key
 }
+
+func TestHostApprovalEvidenceAllowsAskWithoutPendingEntry(t *testing.T) {
+	st := &session.State{}
+	v := policy.Verdict{Decision: policy.Ask, RuleID: "P5.out-of-repo", Reason: "outside repository"}
+	got := ApplyOpenCodeHostApproval(v, "key-1", st, time.Now())
+	if got.Decision != policy.Allow || got.RuleID != "ask-approved-by-host" || got.OriginRuleID != "P5.out-of-repo" {
+		t.Fatalf("verdict = %+v, want host-approved allow", got)
+	}
+	if len(st.PendingApprovals) != 0 {
+		t.Fatalf("host approval must not leave pending state: %+v", st.PendingApprovals)
+	}
+}
+
+func TestHostApprovalEvidenceNeverDowngradesDeny(t *testing.T) {
+	st := &session.State{}
+	v := policy.Verdict{Decision: policy.Deny, RuleID: "P1.rm-rf"}
+	got := ApplyOpenCodeHostApproval(v, "key-1", st, time.Now())
+	if got.Decision != policy.Deny || got.RuleID != "P1.rm-rf" {
+		t.Fatalf("verdict = %+v, want unchanged deny", got)
+	}
+}
+
+func TestHostApprovalEvidenceIgnoredWithoutAskOrKey(t *testing.T) {
+	st := &session.State{}
+	allow := policy.Verdict{Decision: policy.Allow, RuleID: ""}
+	if got := ApplyOpenCodeHostApproval(allow, "", st, time.Now()); got.Decision != policy.Allow {
+		t.Fatalf("empty key verdict = %+v", got)
+	}
+	ask := policy.Verdict{Decision: policy.Ask, RuleID: "P5.ci-infra-lockfile"}
+	if got := ApplyOpenCodeHostApproval(ask, "", st, time.Now()); got.Decision != policy.Ask {
+		t.Fatalf("empty key ask = %+v, want unchanged ask", got)
+	}
+}

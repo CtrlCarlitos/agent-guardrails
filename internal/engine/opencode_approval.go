@@ -210,3 +210,21 @@ func ApplyOpenCodeApproval(v policy.Verdict, key string, st *session.State, now 
 	}
 	return v
 }
+
+// ApplyOpenCodeHostApproval consumes host-owned approval evidence: the
+// opencode permission dialog was shown for this exact call and a human
+// allowed it. Unlike retry inference, it does not require a prior pending
+// entry — the dialog may precede the first engine evaluation — and it never
+// downgrades a Deny.
+func ApplyOpenCodeHostApproval(v policy.Verdict, key string, st *session.State, now time.Time) policy.Verdict {
+	if key == "" || st == nil || v.Decision != policy.Ask || v.RuleID == "" {
+		return v
+	}
+	delete(st.PendingApprovals, key)
+	return policy.Verdict{
+		Decision:     policy.Allow,
+		RuleID:       "ask-approved-by-host",
+		OriginRuleID: v.RuleID,
+		Reason:       "approved by the OpenCode host permission dialog",
+	}
+}

@@ -155,7 +155,12 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				}
 			}
 			if approvalEnabled {
-				v = engine.ApplyOpenCodeApproval(v, approvalKey, st, time.Now().UTC())
+				if tc.HostApproved {
+					// Host-owned dialog evidence outranks retry inference.
+					v = engine.ApplyOpenCodeHostApproval(v, approvalKey, st, time.Now().UTC())
+				} else {
+					v = engine.ApplyOpenCodeApproval(v, approvalKey, st, time.Now().UTC())
+				}
 			}
 			return nil
 		})

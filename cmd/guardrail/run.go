@@ -45,6 +45,8 @@ usage: guardrail <command> [arguments]
       plane: claude | opencode | antigravity | codex
   fetch <URL>                       fetch normalized text through Guardrail
   update <version>                  self-update to an exact checksum-verified release
+  recover <repair>                  repair Guardrail-protected machinery (operator approval)
+      repair: claude-settings | opencode-config | antigravity-hooks
 `
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -80,6 +82,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdPlane(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdout, stderr)
 	case "update":
 		return cmdUpdate(args[1:], stdout, stderr)
+	case "recover":
+		file, terminal := stdin.(*os.File)
+		return cmdRecover(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdout, stderr)
 	case "fetch":
 		return cmdFetch(args[1:], stdout, stderr)
 	default:

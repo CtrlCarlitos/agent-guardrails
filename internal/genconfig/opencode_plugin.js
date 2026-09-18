@@ -59,7 +59,34 @@ function callGuardrail(envelope) {
 	return decision;
 }
 
+// Host-owned approval correlation (ADR-0015): opencode's permission dialog
+// is the Approve control; our plugin observes the reply and attributes it to
+// the exact call. In-memory only — evidence never crosses processes.
+const permissionCallIDs = new Map();
+const hostApprovedCallIDs = new Set();
+const allowResponses = new Set(["once", "always"]);
+
+async function trackHostApprovals(client) {
+	try {
+		const stream = await client.event.subscribe();
+		for await (const event of stream) {
+			const type = event?.type;
+			if (type === "permission.updated" && event.properties?.callID && event.properties?.id) {
+				permissionCallIDs.set(event.properties.id, event.properties.callID);
+			} else if (type === "permission.replied" && event.properties?.permissionID) {
+				const callID = permissionCallIDs.get(event.properties.permissionID);
+				if (callID && allowResponses.has(String(event.properties.response).toLowerCase())) {
+					hostApprovedCallIDs.add(callID);
+				}
+			}
+		}
+	} catch {
+		// Event stream unavailable: fall back to retry-inference guidance.
+	}
+}
+
 export const GuardrailPlugin = async ({ directory, client }) => {
+	trackHostApprovals(client);
 	return {
 		"tool.execute.before": async (input, output) => {
 			const tool = input.tool;
@@ -71,6 +98,13 @@ export const GuardrailPlugin = async ({ directory, client }) => {
 				cwd: directory,
 				arguments: args,
 			};
+			if (input.callID) {
+				envelope.call_id = input.callID;
+				if (hostApprovedCallIDs.delete(input.callID)) {
+					// Consumed exactly once, for this call only.
+					envelope.host_approved = true;
+				}
+			}
 			if (tool === "bash") {
 				envelope.command = args.command;
 			} else if (["read", "edit", "write"].includes(tool)) {
