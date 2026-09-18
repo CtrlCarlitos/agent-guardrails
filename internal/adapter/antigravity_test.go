@@ -170,3 +170,123 @@ func TestEmitAntigravityAllowOmitsReason(t *testing.T) {
 		t.Errorf("reason should be omitted when empty: %v", got)
 	}
 }
+
+func TestParseAntigravityAllowsToolActionAndSummary(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "view_file",
+			raw:  `{"toolCall":{"name":"view_file","args":{"AbsolutePath":"/repo/main.go","ContentOffset":100,"toolAction":"Viewing file","toolSummary":"View main.go"}}}`,
+			want: "/repo/main.go",
+		},
+		{
+			name: "write_to_file",
+			raw:  `{"toolCall":{"name":"write_to_file","args":{"TargetFile":"/repo/new.go","CodeContent":"package main","Description":"new file","Overwrite":true,"toolAction":"Writing file","toolSummary":"Write new.go"}}}`,
+			want: "/repo/new.go",
+		},
+		{
+			name: "replace_file_content",
+			raw:  `{"toolCall":{"name":"replace_file_content","args":{"TargetFile":"/repo/main.go","Instruction":"fix","Description":"fix bug","AllowMultiple":false,"TargetContent":"a","ReplacementContent":"b","StartLine":1,"EndLine":2,"toolAction":"Editing file","toolSummary":"Edit main.go"}}}`,
+			want: "/repo/main.go",
+		},
+		{
+			name: "list_dir",
+			raw:  `{"toolCall":{"name":"list_dir","args":{"DirectoryPath":"/repo","toolAction":"Listing dir","toolSummary":"List dir"}}}`,
+			want: "/repo",
+		},
+		{
+			name: "find_by_name",
+			raw:  `{"toolCall":{"name":"find_by_name","args":{"SearchDirectory":"/repo","Pattern":"*.go","toolAction":"Finding files","toolSummary":"Find files"}}}`,
+			want: "/repo",
+		},
+		{
+			name: "grep_search",
+			raw:  `{"toolCall":{"name":"grep_search","args":{"SearchPath":"/repo","Query":"foo","toolAction":"Searching","toolSummary":"Grep search"}}}`,
+			want: "/repo",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ParseAntigravity("pre", strings.NewReader(tc.raw))
+			if err != nil {
+				t.Fatalf("unexpected error for %s: %v", tc.name, err)
+			}
+			if len(got.Paths) != 1 || got.Paths[0] != tc.want {
+				t.Fatalf("got paths %v, want [%s]", got.Paths, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseAntigravityMultiReplacePathExtraction(t *testing.T) {
+	t.Run("root and chunks all extracted", func(t *testing.T) {
+		raw := `{
+			"toolCall": {
+				"name": "multi_replace_file_content",
+				"args": {
+					"TargetFile": "/repo/root.go",
+					"Instruction": "refactor",
+					"Description": "multiple files",
+					"ReplacementChunks": [
+						{"TargetFile": "/repo/chunk1.go", "TargetContent": "a", "ReplacementContent": "b"},
+						{"TargetFile": "/repo/chunk2.go", "TargetContent": "x", "ReplacementContent": "y"}
+					],
+					"toolAction": "Multi edit",
+					"toolSummary": "Replace multiple files"
+				}
+			}
+		}`
+		tc, err := ParseAntigravity("pre", strings.NewReader(raw))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(tc.Paths) != 3 {
+			t.Fatalf("got paths %v, want 3 paths", tc.Paths)
+		}
+		if tc.Paths[0] != "/repo/root.go" || tc.Paths[1] != "/repo/chunk1.go" || tc.Paths[2] != "/repo/chunk2.go" {
+			t.Fatalf("paths = %v, want [/repo/root.go, /repo/chunk1.go, /repo/chunk2.go]", tc.Paths)
+		}
+	})
+
+	t.Run("chunk only without root TargetFile", func(t *testing.T) {
+		raw := `{
+			"toolCall": {
+				"name": "multi_replace_file_content",
+				"args": {
+					"Instruction": "refactor",
+					"Description": "chunks only",
+					"ReplacementChunks": [
+						{"TargetFile": "/repo/file1.go", "TargetContent": "a", "ReplacementContent": "b"}
+					]
+				}
+			}
+		}`
+		tc, err := ParseAntigravity("pre", strings.NewReader(raw))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(tc.Paths) != 1 || tc.Paths[0] != "/repo/file1.go" {
+			t.Fatalf("paths = %v, want [/repo/file1.go]", tc.Paths)
+		}
+	})
+
+	t.Run("no paths fails closed", func(t *testing.T) {
+		raw := `{
+			"toolCall": {
+				"name": "multi_replace_file_content",
+				"args": {
+					"Instruction": "refactor",
+					"Description": "missing paths",
+					"ReplacementChunks": []
+				}
+			}
+		}`
+		_, err := ParseAntigravity("pre", strings.NewReader(raw))
+		if err == nil {
+			t.Fatal("expected error on multi_replace_file_content with no paths, got nil")
+		}
+	})
+}

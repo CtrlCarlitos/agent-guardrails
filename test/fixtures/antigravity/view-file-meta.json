@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"view_file","args":{"AbsolutePath":"/tmp/safe.go","ContentOffset":10,"StartLine":1,"EndLine":10,"toolAction":"Viewing file","toolSummary":"View safe.go"}}}

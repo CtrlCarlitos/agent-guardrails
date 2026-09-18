@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/planecontract"
@@ -34,7 +35,7 @@ type antigravityPathSchema struct {
 }
 
 var antigravityPathSchemas = map[string]antigravityPathSchema{
-	"view_file":                  {"AbsolutePath", allowedFields("AbsolutePath", "StartLine", "EndLine", "IsSkillFile")},
+	"view_file":                  {"AbsolutePath", allowedFields("AbsolutePath", "StartLine", "EndLine", "ContentOffset", "IsSkillFile")},
 	"write_to_file":              {"TargetFile", allowedFields("TargetFile", "Overwrite", "CodeContent", "Description", "IsArtifact", "ArtifactMetadata")},
 	"replace_file_content":       {"TargetFile", allowedFields("TargetFile", "Instruction", "Description", "AllowMultiple", "TargetContent", "ReplacementContent", "StartLine", "EndLine", "TargetLintErrorIds")},
 	"multi_replace_file_content": {"TargetFile", allowedFields("TargetFile", "Instruction", "Description", "ReplacementChunks", "TargetLintErrorIds", "ArtifactMetadata")},
@@ -44,28 +45,77 @@ var antigravityPathSchemas = map[string]antigravityPathSchema{
 }
 
 func allowedFields(fields ...string) map[string]struct{} {
-	allowed := make(map[string]struct{}, len(fields))
+	allowed := make(map[string]struct{}, len(fields)+2)
+	allowed["toolAction"] = struct{}{}
+	allowed["toolSummary"] = struct{}{}
 	for _, field := range fields {
 		allowed[field] = struct{}{}
 	}
 	return allowed
 }
 
-func documentedAntigravityPath(tool string, input map[string]any) (string, error) {
+func documentedAntigravityPaths(tool string, input map[string]any) ([]string, error) {
 	schema, ok := antigravityPathSchemas[tool]
 	if !ok {
-		return "", nil
+		return nil, nil
 	}
 	for key := range input {
 		if _, ok := schema.allowed[key]; !ok {
-			return "", fmt.Errorf("%s argument %q is not documented", tool, key)
+			return nil, fmt.Errorf("%s argument %q is not documented", tool, key)
 		}
 	}
+
+	if tool == "multi_replace_file_content" {
+		return extractMultiReplacePaths(input)
+	}
+
 	path, ok := input[schema.key].(string)
 	if !ok || path == "" {
-		return "", fmt.Errorf("%s requires string argument %q", tool, schema.key)
+		return nil, fmt.Errorf("%s requires string argument %q", tool, schema.key)
 	}
-	return path, nil
+	return []string{path}, nil
+}
+
+func extractMultiReplacePaths(input map[string]any) ([]string, error) {
+	var paths []string
+	seen := make(map[string]bool)
+	addPath := func(p string) {
+		p = strings.TrimSpace(p)
+		if p != "" && !seen[p] {
+			seen[p] = true
+			paths = append(paths, p)
+		}
+	}
+
+	if target, ok := input["TargetFile"].(string); ok && target != "" {
+		addPath(target)
+	}
+
+	if chunks, ok := input["ReplacementChunks"].([]any); ok {
+		allowedChunkKeys := allowedFields("TargetFile", "FilePath", "Path", "TargetContent", "ReplacementContent", "StartLine", "EndLine", "Instruction", "AllowMultiple")
+		for _, rawChunk := range chunks {
+			chunk, ok := rawChunk.(map[string]any)
+			if !ok {
+				continue
+			}
+			for key := range chunk {
+				if _, ok := allowedChunkKeys[key]; !ok {
+					return nil, fmt.Errorf("multi_replace_file_content chunk argument %q is not documented", key)
+				}
+			}
+			for _, key := range []string{"TargetFile", "FilePath", "Path"} {
+				if chunkPath, ok := chunk[key].(string); ok && chunkPath != "" {
+					addPath(chunkPath)
+					break
+				}
+			}
+		}
+	}
+
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("multi_replace_file_content requires at least one target file path")
+	}
+	return paths, nil
 }
 
 func ParseAntigravity(phase string, r io.Reader) (engine.ToolCall, error) {
@@ -121,11 +171,11 @@ func ParseAntigravity(phase string, r io.Reader) (engine.ToolCall, error) {
 		tc.InputShape = "command"
 	}
 	if tc.Capability == policy.CapabilityReadDiscovery || tc.Capability == policy.CapabilityMutation {
-		path, err := documentedAntigravityPath(p.ToolCall.Name, input)
+		paths, err := documentedAntigravityPaths(p.ToolCall.Name, input)
 		if err != nil {
 			return engine.ToolCall{}, err
 		}
-		tc.Paths = []string{path}
+		tc.Paths = paths
 		tc.InputShape = "path"
 	}
 	if tc.Capability == policy.CapabilityWebFetch {
