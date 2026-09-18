@@ -12,8 +12,23 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
 )
 
+// guardTestHome fails the test unless HOME is sandboxed under the system temp
+// root, so lifecycle tests can never mutate the operator's real settings.
+func guardTestHome(t *testing.T) {
+	t.Helper()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(home, os.TempDir()) {
+		t.Fatalf("test would mutate real HOME %q; sandbox it with t.Setenv", home)
+	}
+}
+
 // runPlaneTerminal invokes cmdPlane with the operator-terminal signal forced on.
-func runPlaneTerminal(args []string, stdout, stderr io.Writer) int {
+func runPlaneTerminal(t *testing.T, args []string, stdout, stderr io.Writer) int {
+	t.Helper()
+	guardTestHome(t)
 	return cmdPlane(args[1:], true, stdout, stderr)
 }
 
@@ -147,7 +162,9 @@ func TestExecutePlaneApprovalRejectsInvalidRequests(t *testing.T) {
 }
 
 func TestPlaneCommandArgumentValidation(t *testing.T) {
-	restore := stubPlaneTransport([]string{"approved"})
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	restore := stubPlaneTransport(t, []string{"approved"})
 	defer restore()
 
 	var out, errb strings.Builder
@@ -180,7 +197,7 @@ func TestPlaneCommandArgumentValidation(t *testing.T) {
 func TestPlaneDisableRequiresInteractiveTerminal(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	restore := stubPlaneTransport([]string{"approved"})
+	restore := stubPlaneTransport(t, []string{"approved"})
 	defer restore()
 
 	var out, errb strings.Builder
@@ -195,14 +212,14 @@ func TestPlaneDisableClaudeHappyPath(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
 	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]}}`)
-	restore := stubPlaneTransport([]string{"pending", "approved"})
+	restore := stubPlaneTransport(t, []string{"pending", "approved"})
 	defer restore()
 	origInstalled := planeInstalled
 	planeInstalled = func(string) bool { return true }
 	defer func() { planeInstalled = origInstalled }()
 
 	var out, errb strings.Builder
-	if code := runPlaneTerminal([]string{"plane", "disable", "claude"}, &out, &errb); code != 0 {
+	if code := runPlaneTerminal(t, []string{"plane", "disable", "claude"}, &out, &errb); code != 0 {
 		t.Fatalf("exit = %d, stderr %q", code, errb.String())
 	}
 	if !strings.Contains(out.String(), "claude disabled") || !strings.Contains(out.String(), "http://localhost:39169/approve") {
@@ -216,7 +233,7 @@ func TestPlaneDisableAllSkipsMissingAndReportsCodexUnsupported(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
 	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]}}`)
 	writePlaneSettings(t, filepath.Join(home, ".gemini", "config", "hooks.json"), `{"guardrail":{"enabled":true}}`)
-	restore := stubPlaneTransport([]string{"approved"})
+	restore := stubPlaneTransport(t, []string{"approved"})
 	defer restore()
 	origInstalled := planeInstalled
 	installed := map[string]bool{"claude": true, "opencode": false, "antigravity": true}
@@ -224,7 +241,7 @@ func TestPlaneDisableAllSkipsMissingAndReportsCodexUnsupported(t *testing.T) {
 	defer func() { planeInstalled = origInstalled }()
 
 	var out, errb strings.Builder
-	if code := runPlaneTerminal([]string{"plane", "disable", "--all"}, &out, &errb); code != 0 {
+	if code := runPlaneTerminal(t, []string{"plane", "disable", "--all"}, &out, &errb); code != 0 {
 		t.Fatalf("exit = %d, stderr %q", code, errb.String())
 	}
 	got := out.String()
@@ -244,14 +261,14 @@ func TestPlaneDisableDeniedApprovalFails(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
 	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]}}`)
-	restore := stubPlaneTransport([]string{"denied"})
+	restore := stubPlaneTransport(t, []string{"denied"})
 	defer restore()
 	origInstalled := planeInstalled
 	planeInstalled = func(string) bool { return true }
 	defer func() { planeInstalled = origInstalled }()
 
 	var out, errb strings.Builder
-	if code := runPlaneTerminal([]string{"plane", "disable", "claude"}, &out, &errb); code != 1 {
+	if code := runPlaneTerminal(t, []string{"plane", "disable", "claude"}, &out, &errb); code != 1 {
 		t.Fatalf("exit = %d, stderr %q", code, errb.String())
 	}
 }
@@ -259,7 +276,9 @@ func TestPlaneDisableDeniedApprovalFails(t *testing.T) {
 // stubPlaneTransport replaces daemon submission and status polling so command
 // tests never touch a real approval daemon. Like the real daemon, an approved
 // status executes the registered plane action handler locally.
-func stubPlaneTransport(statuses []string) func() {
+func stubPlaneTransport(t *testing.T, statuses []string) func() {
+	t.Helper()
+	guardTestHome(t)
 	origSubmit := submitPlaneRequest
 	origQuery := queryPlaneStatus
 	var current approval.Request
@@ -369,14 +388,14 @@ func TestPlaneEnableClaudeHappyPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
-	restore := stubPlaneTransport([]string{"approved"})
+	restore := stubPlaneTransport(t, []string{"approved"})
 	defer restore()
 	origInstalled := planeInstalled
 	planeInstalled = func(string) bool { return true }
 	defer func() { planeInstalled = origInstalled }()
 
 	var out, errb strings.Builder
-	if code := runPlaneTerminal([]string{"plane", "enable", "claude"}, &out, &errb); code != 0 {
+	if code := runPlaneTerminal(t, []string{"plane", "enable", "claude"}, &out, &errb); code != 0 {
 		t.Fatalf("exit = %d, stderr %q", code, errb.String())
 	}
 	if !strings.Contains(out.String(), "claude enabled") {
@@ -391,7 +410,7 @@ func TestPlaneEnableAllSkipsMissingAndReportsCodexUnsupported(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
-	restore := stubPlaneTransport([]string{"approved", "approved", "approved"})
+	restore := stubPlaneTransport(t, []string{"approved", "approved", "approved"})
 	defer restore()
 	origInstalled := planeInstalled
 	installed := map[string]bool{"claude": true, "opencode": false, "antigravity": true}
@@ -399,7 +418,7 @@ func TestPlaneEnableAllSkipsMissingAndReportsCodexUnsupported(t *testing.T) {
 	defer func() { planeInstalled = origInstalled }()
 
 	var out, errb strings.Builder
-	if code := runPlaneTerminal([]string{"plane", "enable", "--all"}, &out, &errb); code != 0 {
+	if code := runPlaneTerminal(t, []string{"plane", "enable", "--all"}, &out, &errb); code != 0 {
 		t.Fatalf("exit = %d, stderr %q", code, errb.String())
 	}
 	got := out.String()
@@ -485,7 +504,7 @@ func TestPlaneEnableAllBatchesOneApprovalAndSkipsSatisfied(t *testing.T) {
 	defer func() { submitPlaneRequest, queryPlaneStatus = origSubmit, origQuery }()
 
 	var out, errb strings.Builder
-	if code := runPlaneTerminal([]string{"plane", "enable", "--all"}, &out, &errb); code != 0 {
+	if code := runPlaneTerminal(t, []string{"plane", "enable", "--all"}, &out, &errb); code != 0 {
 		t.Fatalf("exit = %d, stderr %q", code, errb.String())
 	}
 	if len(submitted) != 1 {
@@ -521,7 +540,7 @@ func TestPlaneEnableAllSteadyStatePromptsNobody(t *testing.T) {
 	defer func() { submitPlaneRequest = origSubmit }()
 
 	var out, errb strings.Builder
-	if code := runPlaneTerminal([]string{"plane", "enable", "--all"}, &out, &errb); code != 0 {
+	if code := runPlaneTerminal(t, []string{"plane", "enable", "--all"}, &out, &errb); code != 0 {
 		t.Fatalf("exit = %d, stderr %q", code, errb.String())
 	}
 	for _, want := range []string{"claude: already enabled", "opencode: already enabled", "antigravity: already enabled"} {
@@ -537,14 +556,14 @@ func TestPlaneEnableObservesCompletedStatus(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"stale","matcher":"Task","hooks":[]}]}}`)
-	restore := stubPlaneTransport([]string{"executing", "completed"})
+	restore := stubPlaneTransport(t, []string{"executing", "completed"})
 	defer restore()
 	origInstalled := planeInstalled
 	planeInstalled = func(string) bool { return true }
 	defer func() { planeInstalled = origInstalled }()
 
 	var out, errb strings.Builder
-	if code := runPlaneTerminal([]string{"plane", "enable", "claude"}, &out, &errb); code != 0 {
+	if code := runPlaneTerminal(t, []string{"plane", "enable", "claude"}, &out, &errb); code != 0 {
 		t.Fatalf("exit = %d, stderr %q", code, errb.String())
 	}
 	if !strings.Contains(out.String(), "claude enabled") {
@@ -580,7 +599,7 @@ func TestPlaneEnableAllHealsUnmarkedLegacyClaudeEntries(t *testing.T) {
 	defer func() { planeInstalled = origInstalled }()
 
 	var out, errb strings.Builder
-	if code := runPlaneTerminal([]string{"plane", "enable", "claude"}, &out, &errb); code != 0 {
+	if code := runPlaneTerminal(t, []string{"plane", "enable", "claude"}, &out, &errb); code != 0 {
 		t.Fatalf("exit = %d, stderr %q", code, errb.String())
 	}
 	if len(submitted) != 1 || submitted[0].Parameters["planes"] != "claude" {
