@@ -28,6 +28,8 @@ func denyNextStep(v policy.Verdict) string {
 	switch v.RuleID {
 	case "P4.secret-in-text":
 		return "The secret-tier path was mentioned in the command's text, not accessed. Content like this belongs in the file, not a shell literal: write it with the Write or Edit tool, then continue."
+	case "call-mcp-tool-generic":
+		return "Register the MCP tool in ~/.gemini/config/mcp_config.json so its arguments can be evaluated directly, then continue."
 	case "capability-deny", "capability-invalid":
 		return "This tool is outside the Guardrail boundary on this plane (it moves data or control to another principal). Do not retry it: reach the outcome with in-session tools, or tell the operator this step needs them; then continue."
 	case "capability-delegation-unverified":

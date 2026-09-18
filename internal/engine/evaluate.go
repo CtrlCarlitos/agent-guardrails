@@ -48,6 +48,13 @@ func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 	case policy.CapabilitySafeControl:
 		return policy.Verdict{Decision: policy.Allow}
 	case policy.CapabilityDeny:
+		if tc.NativeTool == "call_mcp_tool" {
+			return policy.Verdict{
+				Decision: policy.Deny,
+				RuleID:   "call-mcp-tool-generic",
+				Reason:   "a generic MCP invoker cannot be re-dispatched safely until the registry can classify the target tool's arguments, which it cannot see through the indirection",
+			}
+		}
 		return policy.Verdict{Decision: policy.Deny, RuleID: "capability-deny", Reason: "native tool capability is unsupported"}
 	case policy.CapabilityWebSearch:
 		return policy.Verdict{Decision: policy.Ask, RuleID: "capability-web-search", Reason: "web search requires operator approval"}

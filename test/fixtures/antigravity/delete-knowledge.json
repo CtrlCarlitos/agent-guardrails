@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"delete_knowledge","args":{"PathToDelete":"/repo/artifacts/doc.md"}}}

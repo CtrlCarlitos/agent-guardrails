@@ -27,6 +27,21 @@ var antigravityTools = []ToolSpec{
 	{"manage_subagents", "manage_subagents", policy.CapabilityDelegation},
 	{"ask_question", "ask_question", policy.CapabilitySafeControl},
 	{"generate_image", "generate_image", policy.CapabilityDeny},
+	{"call_mcp_tool", "call_mcp_tool", policy.CapabilityDeny},
+	{"send_command_input", "send_command_input", policy.CapabilityDeny},
+	{"tool_caller", "tool_caller", policy.CapabilityDeny},
+	{"notebook_edit", "Edit", policy.CapabilityMutation},
+	{"sed_file", "Edit", policy.CapabilityMutation},
+	{"delete_knowledge", "Write", policy.CapabilityMutation},
+	{"notebook_execution", "Bash", policy.CapabilityCommand},
+	{"list_resources", "list_resources", policy.CapabilityExternal},
+	{"read_resource", "read_resource", policy.CapabilityExternal},
+	{"command_status", "command_status", policy.CapabilitySafeControl},
+	{"manage_inbox", "manage_inbox", policy.CapabilitySafeControl},
+	{"ask_custom_permission", "ask_custom_permission", policy.CapabilitySafeControl},
+	{"finish", "finish", policy.CapabilitySafeControl},
+	{"wait", "wait", policy.CapabilitySafeControl},
+	{"wait_five_seconds", "wait", policy.CapabilitySafeControl},
 }
 
 func AntigravityTool(nativeTool string) (ToolSpec, bool) {
