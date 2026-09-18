@@ -3,7 +3,6 @@ package audit
 import (
 	"bufio"
 	"bytes"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -34,11 +33,12 @@ func syntheticCodexSession(id string) bool {
 
 // ReadCodexEvidence scans retained segments after the running binary's mtime.
 // Only pre-hook verdicts count, so pre/post for one call cannot open the gate.
-// Canonical record hashes deduplicate copies even with reordered JSON keys.
+// Within a session, only timestamp, tool, or decision differences add evidence.
+// JSON formatting and changes to other fields do not create evidence points.
 // Callers must treat read errors as an incomplete scan and keep the gate shut.
 func ReadCodexEvidence(segments []string, cutoff, now time.Time) (CodexEvidence, error) {
 	var result CodexEvidence
-	seen := map[[32]byte]bool{}
+	seen := map[[4]string]bool{}
 	sessions := map[string]int{}
 	for _, path := range segments {
 		err := func() error {
@@ -88,8 +88,7 @@ func ReadCodexEvidence(segments []string, cutoff, now time.Time) (CodexEvidence,
 					result.Stale++
 					continue
 				}
-				canonical, _ := json.Marshal(rec)
-				key := sha256.Sum256(canonical)
+				key := [4]string{rec.SessionID, ts.UTC().Format(time.RFC3339Nano), rec.Tool, rec.Decision}
 				if seen[key] {
 					result.Duplicates++
 					continue

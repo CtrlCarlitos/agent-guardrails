@@ -21,7 +21,7 @@ func TestSelftestCodexEvidence(t *testing.T) {
 		{"singleton", record + "\n", 1, "eligible=1"},
 		{"duplicate", record + "\n" + record + "\n", 1, "duplicates=1"},
 		{"synthetic", strings.ReplaceAll(record, "live", "selftest-123") + "\n" + strings.ReplaceAll(strings.ReplaceAll(record, "live", "codex-fixture"), "pwd", "ls") + "\n", 1, "synthetic=2"},
-		{"live", record + "\n" + strings.ReplaceAll(record, "pwd", "ls") + "\n", 0, "qualifying_sessions=1"},
+		{"live", record + "\n" + strings.ReplaceAll(record, "12:00:01Z", "12:00:02Z") + "\n", 0, "qualifying_sessions=1"},
 		{"stale", strings.ReplaceAll(record, "12:00:01Z", "11:59:59Z") + "\n", 1, "stale=1"},
 		{"malformed", record + "\n{bad\n", 1, "malformed=1"},
 	} {

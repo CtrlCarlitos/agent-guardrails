@@ -11,9 +11,8 @@ from this command: at least one non-synthetic session has **two distinct
 pre-hook verdict records**, both strictly newer than the running Guardrail
 binary's filesystem mtime and no later than the observation time. A session ID
 must recur across distinct records; a singleton is insufficient. Repeated
-copies of a record do not count. The requirement is an explicit interpretation
-of the session-continuity criterion, not a claim that session IDs authenticate
-runtime execution.
+copies of a record do not count. Records are distinct by timestamp **or** tool **or** decision; session IDs do
+not authenticate runtime execution.
 
 ## Synthetic provenance exclusions
 
@@ -47,10 +46,13 @@ Copying those logs into the real audit directory can fool this heuristic.
 - Require `plane: codex`, `event: pre`, a nonempty tool name, a nonempty session
   ID, a valid timestamp within the observation window, and an Allow, Ask or Deny
   verdict. A pre/post pair from a single call is insufficient.
-- Deduplicate across all retained segments by SHA-256 of the canonical decoded
-  audit record. JSON whitespace/key ordering and unknown fields cannot make a
-  duplicate count twice. Timestamp remains part of the record. There is no
-  tool-call identity field, so this does not prove two different executions.
+- Deduplicate across all retained segments by `(session_id, timestamp, tool,
+  decision)`, using the parsed UTC timestamp and the audit record's `tool` field.
+  Within one session, a difference in timestamp **or** tool **or** decision adds
+  an evidence point. Byte-identical lines, JSON whitespace/key ordering, and
+  changes only to commands, reasons, or other fields do not count twice.
+  Equivalent timestamp spellings are one instant. There is no tool-call identity
+  field, so this does not prove two different executions.
 - Show total records, Codex records, excluded synthetic records, stale records,
   rejected records, duplicates, malformed records, eligible distinct records,
   eligible sessions and qualifying sessions. Synthetic records are excluded
@@ -67,9 +69,15 @@ Copying those logs into the real audit directory can fool this heuristic.
 ## Limits and consequences
 
 This is not proof of runtime provenance, complete hook coverage, or any specific
-tool's mediation. Two fabricated records can pass. A genuinely repeated call
-whose redacted records are identical within the timestamp's resolution can
-fail. Rotation or a binary update can remove otherwise useful evidence.
+tool's mediation. A sufficiently motivated same-user process could fabricate
+two distinct records and pass. The adversary model remains **“am I fooling
+myself?”**, not proof against deliberate forgery.
+
+A genuine one-call session does not open the gate: even a live Codex session
+with one guarded tool call leaves insufficient evidence. The gate stays closed
+until a richer session supplies qualifying evidence. This fail-closed bias is
+intentional. Genuine repeated calls with the same timestamp, tool, and decision
+also count only once. Rotation or a binary update can remove otherwise useful evidence.
 Filesystem mtime is an installation heuristic, not a signed build identity.
 
 The command is **not a per-session regression tripwire**: an older qualifying

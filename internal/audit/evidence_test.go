@@ -14,7 +14,7 @@ func TestCodexEvidenceGate(t *testing.T) {
 	now := cutoff.Add(time.Hour)
 	first := Record{TS: cutoff.Add(time.Second).Format(time.RFC3339), Plane: "codex", SessionID: "live-session", Event: "pre", Tool: "Bash", Command: "pwd", Decision: "allow"}
 	second := first
-	second.Command = "ls"
+	second.TS = cutoff.Add(2 * time.Second).Format(time.RFC3339)
 	mutate := func(r Record, f func(*Record)) Record { f(&r); return r }
 	for _, tc := range []struct {
 		name                 string
@@ -24,7 +24,12 @@ func TestCodexEvidenceGate(t *testing.T) {
 	}{
 		{"empty", nil, false, 0, 0},
 		{"singleton", []Record{first}, false, 1, 0},
-		{"distinct same session", []Record{first, second}, true, 2, 0},
+		{"distinct timestamp", []Record{first, second}, true, 2, 0},
+		{"distinct tool", []Record{first, mutate(first, func(r *Record) { r.Tool = "Read" })}, true, 2, 0},
+		{"distinct decision", []Record{first, mutate(first, func(r *Record) { r.Decision = "deny" })}, true, 2, 0},
+		{"command alone is not distinct", []Record{first, mutate(first, func(r *Record) { r.Command = "ls" })}, false, 1, 1},
+		{"reason alone is not distinct", []Record{first, mutate(first, func(r *Record) { r.Reason = "changed" })}, false, 1, 1},
+		{"equivalent timestamp spelling", []Record{first, mutate(first, func(r *Record) { r.TS = "2026-09-18T12:00:01.000+00:00" })}, false, 1, 1},
 		{"duplicate copies", []Record{first, first}, false, 1, 1},
 		{"separate singletons", []Record{first, mutate(second, func(r *Record) { r.SessionID = "other" })}, false, 2, 0},
 		{"pre post one call", []Record{first, mutate(first, func(r *Record) { r.Event = "post" })}, false, 1, 0},
@@ -114,7 +119,7 @@ func TestCodexEvidenceRotationsAndDuplicates(t *testing.T) {
 	if e.Observed() || e.Eligible != 1 || e.Duplicates != 1 {
 		t.Fatalf("duplicate opened gate: %+v", e)
 	}
-	if err := os.WriteFile(path, []byte(strings.ReplaceAll(record, "pwd", "ls")+"\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(strings.ReplaceAll(record, "12:00:01Z", "12:00:02Z")+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	segments, err = Segments(path)
@@ -128,7 +133,7 @@ func TestCodexEvidenceRotationsAndDuplicates(t *testing.T) {
 	if !e.Observed() || e.Eligible != 2 || e.QualifiedSessions != 1 {
 		t.Fatalf("cross-segment evidence=%+v", e)
 	}
-	if err := os.WriteFile(path, []byte(strings.ReplaceAll(record, "pwd", "ls")+"\n{broken\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(strings.ReplaceAll(record, "12:00:01Z", "12:00:02Z")+"\n{broken\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	e, err = ReadCodexEvidence(segments, cutoff, cutoff.Add(time.Hour))
@@ -149,7 +154,7 @@ func TestCodexEvidenceLargeHistoricalRecord(t *testing.T) {
 	// It must not stop the scan before later Codex records.
 	raw, _ := json.Marshal(Record{Plane: "opencode", Command: strings.Repeat("x", 9<<20)})
 	one := `{"ts":"2026-09-18T12:00:01Z","plane":"codex","session_id":"live","event":"pre","tool":"Bash","command":"pwd","decision":"allow"}`
-	raw = append(raw, []byte("\n"+one+"\n"+strings.ReplaceAll(one, "pwd", "ls")+"\n")...)
+	raw = append(raw, []byte("\n"+one+"\n"+strings.ReplaceAll(one, "12:00:01Z", "12:00:02Z")+"\n")...)
 	if err := os.WriteFile(path, raw, 0600); err != nil {
 		t.Fatal(err)
 	}
