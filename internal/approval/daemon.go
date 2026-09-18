@@ -24,8 +24,9 @@ type daemonMessage struct {
 }
 
 type daemonReply struct {
-	Request Request `json:"request,omitempty"`
-	Error   string  `json:"error,omitempty"`
+	Request  Request   `json:"request,omitempty"`
+	Requests []Request `json:"requests,omitempty"`
+	Error    string    `json:"error,omitempty"`
 }
 
 // Daemon owns browser transports and the privileged action handlers. Its socket
@@ -191,6 +192,39 @@ func (d *Daemon) handle(conn net.Conn) {
 		} else {
 			reply.Request = requestStatus(r)
 		}
+	case "list":
+		pending, err := d.broker.Pending()
+		if err != nil {
+			reply.Error = "approval daemon unavailable"
+			break
+		}
+		reply.Requests = pending
+	case "present":
+		// Re-open the browser ceremony for a pending request. Presentation
+		// only: completion always requires the WebAuthn assertion — the
+		// socket can never approve or deny (adversarial invariant).
+		r, err := d.broker.Request(message.ID)
+		if err != nil || r.Status != "pending" {
+			reply.Error = "approval request unavailable"
+			break
+		}
+		browser, url, startErr := StartBrowser(d.broker, d.authStore, r.ID)
+		if startErr == nil {
+			startErr = d.openURL(url)
+		}
+		if startErr != nil {
+			if browser != nil {
+				_ = browser.Close()
+			}
+			reply.Error = "approval request unavailable"
+			break
+		}
+		d.mu.Lock()
+		if old := d.browsers[r.ID]; old != nil {
+			_ = old.Close()
+		}
+		d.browsers[r.ID] = browser
+		d.mu.Unlock()
 	case "shutdown":
 		// Used by guardrail update so a binary replacement is never served by
 		// a daemon running superseded code. Fail-closed: it can make approvals
@@ -254,6 +288,27 @@ func QueryStatus(socket, id string) (Request, error) {
 		return Request{}, errors.New("approval daemon unavailable")
 	}
 	return reply.Request, nil
+}
+
+// ListPending reports every pending request with identity, action summary,
+// and expiry, for the terminal approvals list.
+func ListPending(socket string) ([]Request, error) {
+	var reply daemonReply
+	if err := send(socket, daemonMessage{Operation: "list"}, &reply); err != nil || reply.Error != "" {
+		return nil, errors.New("approval daemon unavailable")
+	}
+	return reply.Requests, nil
+}
+
+// PresentApproval re-opens the browser ceremony for a pending request from
+// an operator terminal. It never completes the request: completion requires
+// the WebAuthn assertion.
+func PresentApproval(socket, id string) error {
+	var reply daemonReply
+	if err := send(socket, daemonMessage{Operation: "present", ID: id}, &reply); err != nil || reply.Error != "" {
+		return errors.New("approval daemon unavailable")
+	}
+	return nil
 }
 
 // ShutdownDaemon asks a live daemon to exit so the next submit spawns a

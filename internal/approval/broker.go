@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +20,7 @@ import (
 
 const (
 	requestSessionID = "guardrail-approval-broker-v1"
-	requestTTL       = 5 * time.Minute
+	requestTTL       = 15 * time.Minute
 	maxRequests      = 128
 )
 
@@ -434,4 +435,25 @@ func randomID() (string, error) {
 func digest(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
+}
+
+// Pending returns every pending request, oldest first, with the fields the
+// terminal approvals list shows.
+func (b *Broker) Pending() ([]Request, error) {
+	var out []Request
+	err := session.Transaction(requestSessionID, func(st *session.State) error {
+		out = nil
+		prune(st.ApprovalRequests, b.now().UTC())
+		for _, r := range st.ApprovalRequests {
+			if r.Status == "pending" {
+				out = append(out, restore(r))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].IssuedAt.Before(out[j].IssuedAt) })
+	return out, nil
 }
