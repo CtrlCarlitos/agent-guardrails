@@ -84,11 +84,24 @@ func TestGuidanceDenyIsActionablePerRule(t *testing.T) {
 			ruleID: "P6.download-pipe-shell",
 			wants:  []string{"piped into a shell", "Download to a file", "separate reviewed step"},
 		},
+		{
+			ruleID: "P4.secret-in-text",
+			wants:  []string{"mentioned in the command's text", "not a shell literal", "Write or Edit tool", "continue"},
+		},
+		{
+			ruleID: "P5.self-config",
+			reason: "interpreter input mentions guardrail night control; Guardrail cannot tell a mention from an invocation",
+			wants:  []string{"mention", "Write or Edit tool", "continue"},
+		},
 	}
 	for _, tc := range cases {
-		v := policy.Verdict{Decision: policy.Deny, RuleID: tc.ruleID, Reason: "unit-test reason"}
+		reason := tc.reason
+		if reason == "" {
+			reason = "unit-test reason"
+		}
+		v := policy.Verdict{Decision: policy.Deny, RuleID: tc.ruleID, Reason: reason}
 		got := Guidance(v, `bash {"command":"x"}`)
-		prefix := "Guardrail denied this action: unit-test reason."
+		prefix := "Guardrail denied this action: " + reason + "."
 		if !strings.HasPrefix(got, prefix) {
 			t.Errorf("%s: Guidance() = %q, want prefix %q", tc.ruleID, got, prefix)
 		}

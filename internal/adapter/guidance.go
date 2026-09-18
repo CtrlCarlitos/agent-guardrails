@@ -3,6 +3,7 @@ package adapter
 import (
 	"fmt"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
@@ -11,7 +12,7 @@ func Guidance(v policy.Verdict, action string) string {
 	case policy.Ask:
 		return fmt.Sprintf("Operator authorization required: %s. Request authorization for this exact action: %s. If the operator approves, retry this exact tool call once. Do not alter or broaden the action.", v.Reason, action)
 	case policy.Deny:
-		return fmt.Sprintf("Guardrail denied this action: %s. %s", v.Reason, denyNextStep(v.RuleID))
+		return fmt.Sprintf("Guardrail denied this action: %s. %s", v.Reason, denyNextStep(v))
 	default:
 		return v.Reason
 	}
@@ -20,8 +21,13 @@ func Guidance(v policy.Verdict, action string) string {
 // denyNextStep returns the concrete continuation for a denied call. Every
 // denial must tell the model how to keep working; a bare "not allowed"
 // manufactures a stuck agent.
-func denyNextStep(ruleID string) string {
-	switch ruleID {
+func denyNextStep(v policy.Verdict) string {
+	if v.RuleID == "P5.self-config" && v.Reason == engine.NightMentionReason {
+		return "Only a mention was seen, but interpreter input cannot be inspected. Put this content in the file with the Write or Edit tool instead of a shell literal, then continue."
+	}
+	switch v.RuleID {
+	case "P4.secret-in-text":
+		return "The secret-tier path was mentioned in the command's text, not accessed. Content like this belongs in the file, not a shell literal: write it with the Write or Edit tool, then continue."
 	case "capability-deny", "capability-invalid":
 		return "This tool is outside the Guardrail boundary on this plane (it moves data or control to another principal). Do not retry it: reach the outcome with in-session tools, or tell the operator this step needs them; then continue."
 	case "capability-delegation-unverified":

@@ -145,5 +145,6 @@
   "write-claude-md.json": {
     "decision": "deny",
     "exit": 2
-  }
+  },
+  "bash-printf-secret-in-text.json": {"exit": 2, "decision": "deny", "rule": "P4.secret-in-text"}
 }
