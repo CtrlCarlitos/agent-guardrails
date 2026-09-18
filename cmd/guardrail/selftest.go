@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 )
 
@@ -37,6 +39,21 @@ var selftestProbes = []selftestProbe{
 	{Plane: "claude", Name: "unknown MCP asks (night-preserved)", Args: []string{"claude"},
 		Payload:      `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"mcp__weather__forecast","tool_input":{"city":"denver"}}`,
 		WantDecision: "ask"},
+	// Registry projection (#37): a serena mutator's relative_path reaches the
+	// Engine's path policy, so a secret-tier target denies by rule, not by
+	// the mcp__ prefix's ask.
+	{Plane: "claude", Name: "serena secret mutation denies (registry projection)", Args: []string{"claude"},
+		Payload:      `{"session_id":"selftest","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"mcp__serena__replace_content","tool_input":{"relative_path":".env","needle":"a","repl":"b","mode":"literal"}}`,
+		WantDecision: "deny", WantRuleID: "P4.secret-path"},
+	// Delegation inherits enforcement in-process (ADR-0013): the primitive
+	// allows and every child call is evaluated on its own.
+	{Plane: "claude", Name: "subagent delegation allows (inherited)", Args: []string{"claude"},
+		Payload:      `{"session_id":"selftest","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"description":"benign","prompt":"read a file","subagent_type":"general-purpose"}}`,
+		WantDecision: "allow", WantRuleID: "delegation-inherited"},
+	// External tier asks and is never relaxed by night mode (ADR-0018).
+	{Plane: "claude", Name: "CronCreate asks (external, night-preserved)", Args: []string{"claude"},
+		Payload:      `{"session_id":"selftest","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"CronCreate","tool_input":{"cron":"*/5 * * * *","prompt":"check CI"}}`,
+		WantDecision: "ask", WantRuleID: "capability-external"},
 
 	// opencode — allow, deny, MCP registry projection, unknown asks.
 	{Plane: "opencode", Name: "benign read allows", Args: []string{"opencode"},
@@ -88,6 +105,12 @@ func cmdSelftest(args []string, stdout, stderr io.Writer) int {
 		var out, errb strings.Builder
 		code := run(append([]string{"hook"}, probe.Args...), strings.NewReader(payload), &out, &errb)
 		decision, ruleID := parseSelftestVerdict(code, out.String(), errb.String())
+		if ruleID == "" && probe.WantRuleID != "" {
+			// Planes whose native response carries no rule (Claude: deny is
+			// guidance text, allow is silence) expose it through the audit
+			// record the hook wrote for this probe's synthetic session.
+			ruleID = selftestRuleFromAudit(sessionSuffix)
+		}
 		if decision == probe.WantDecision && (probe.WantRuleID == "" || ruleID == probe.WantRuleID) {
 			passed[probe.Plane]++
 			continue
@@ -120,6 +143,27 @@ func cmdSelftest(args []string, stdout, stderr io.Writer) int {
 // parseSelftestVerdict extracts the decision from whichever stream the
 // plane's adapter emits: claude/agy print deny reasons to stderr, opencode
 // and codex print JSON to stdout. Exit 2 accompanies deny, 0 allow/ask.
+// selftestRuleFromAudit returns the rule of the newest audit record written
+// for the synthetic session, or "" when none can be read: the probe then
+// fails on its rule expectation, which is the honest outcome.
+func selftestRuleFromAudit(sessionID string) string {
+	raw, err := os.ReadFile(audit.DefaultPath(""))
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(string(raw), "\n"), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		var rec struct {
+			SessionID string `json:"session_id"`
+			RuleID    string `json:"rule_id"`
+		}
+		if json.Unmarshal([]byte(lines[i]), &rec) == nil && rec.SessionID == sessionID {
+			return rec.RuleID
+		}
+	}
+	return ""
+}
+
 func parseSelftestVerdict(code int, stdout, stderr string) (decision, ruleID string) {
 	var payload struct {
 		Decision string `json:"decision"`
