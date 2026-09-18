@@ -1,0 +1,10 @@
+{
+  "session_id": "fixture",
+  "cwd": "/repo",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "write_stdin",
+  "tool_input": {
+    "session_id": 1,
+    "chars": "data\n"
+  }
+}

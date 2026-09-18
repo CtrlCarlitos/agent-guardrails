@@ -43,5 +43,32 @@
   },
   "missing-command.json": {
     "exit": 2
+  },
+  "web-search.json": {
+    "exit": 2
+  },
+  "web-open.json": {
+    "exit": 2
+  },
+  "web-mixed.json": {
+    "exit": 2
+  },
+  "image-generation.json": {
+    "exit": 2
+  },
+  "clock-current.json": {
+    "exit": 0
+  },
+  "clock-sleep.json": {
+    "exit": 0
+  },
+  "cell-wait.json": {
+    "exit": 0
+  },
+  "cell-exec.json": {
+    "exit": 2
+  },
+  "stdin-deny.json": {
+    "exit": 2
   }
 }
