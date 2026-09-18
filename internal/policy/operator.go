@@ -131,8 +131,28 @@ func (o *OperatorConfig) grant(repoRoot string) (RepoGrant, bool) {
 	if o == nil || o.Repos == nil || !filepath.IsAbs(repoRoot) {
 		return RepoGrant{}, false
 	}
-	grant, ok := o.Repos[filepath.Clean(repoRoot)]
-	return grant, ok
+	cleaned := filepath.Clean(repoRoot)
+	if grant, ok := o.Repos[cleaned]; ok {
+		return grant, true
+	}
+	// Darwin temp-symlink divergence: git reports the physical repo root
+	// (/private/var/...) while grants may be keyed — or queried — by the
+	// symlinked spelling (/var/folders/...). Resolve both sides before
+	// declaring no grant.
+	want := resolvePathForCompare(cleaned)
+	for root, grant := range o.Repos {
+		if resolvePathForCompare(filepath.Clean(root)) == want {
+			return grant, true
+		}
+	}
+	return RepoGrant{}, false
+}
+
+func resolvePathForCompare(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return path
 }
 
 func (o *OperatorConfig) AllowsWaiver(repoRoot, ruleID string) bool {

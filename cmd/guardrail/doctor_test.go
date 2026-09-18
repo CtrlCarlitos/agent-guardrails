@@ -152,10 +152,18 @@ egress_allowlist = ["*"]
 		t.Fatalf("doctor exit = %d, want 0; stderr=%q", code, errb.String())
 	}
 	got := out.String()
+	// cwd prints via os.Getwd (physically resolved on darwin:
+	// /private/var/...), while GUARDRAIL_CONFIG and the overlay path echo
+	// their raw sources. Build both spellings of the display strings.
+	resolvedParent := parent
+	if resolved, err := filepath.EvalSymlinks(parent); err == nil {
+		resolvedParent = resolved
+	}
+	displayCwd := filepath.Join(resolvedParent, "repo policy warnings: waivers: dir")
 	displayDir := filepath.Join(parent, "repo policy warnings: waivers: dir")
 	displayConfig := filepath.Join(displayDir, "guardrail policy warnings: waivers: .toml")
 	for _, want := range []string{
-		"cwd: " + displayDir,
+		"cwd: " + displayCwd,
 		"GUARDRAIL_CONFIG: " + displayConfig,
 		"overlay: " + displayConfig + " (parsed OK)",
 	} {

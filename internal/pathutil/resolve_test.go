@@ -4,8 +4,20 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
+
+// physicalFixture resolves a known-existing fixture independently of the
+// resolver under test. Tests append missing suffixes only after this lookup.
+func physicalFixture(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
+}
 
 func TestResolveThroughExistingAncestorMissingSuffixes(t *testing.T) {
 	base := t.TempDir()
@@ -23,8 +35,14 @@ func TestResolveThroughExistingAncestorMissingSuffixes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got != test.want {
-				t.Fatalf("ResolveThroughExistingAncestor(%q) = %q, want %q", test.candidate, got, test.want)
+			want := test.want
+			// Resolution follows symlinks in existing ancestors; on darwin
+			// the raw base spelling resolves to /private/var/...
+			if resolved, err := filepath.EvalSymlinks(base); err == nil {
+				want = strings.ReplaceAll(want, base, resolved)
+			}
+			if got != want {
+				t.Fatalf("ResolveThroughExistingAncestor(%q) = %q, want %q", test.candidate, got, want)
 			}
 		})
 	}
@@ -53,8 +71,8 @@ func TestEvalSymlinksFollowsSymlinkBeforeDotDot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != target {
-		t.Fatalf("EvalSymlinks(%q) = %q, want %q", candidate, got, target)
+	if want := physicalFixture(t, target); got != want {
+		t.Fatalf("resolved path = %q, want %q", got, want)
 	}
 }
 
@@ -72,8 +90,7 @@ func TestResolveThroughExistingAncestorSymlinkParent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(targetDir, "future")
-	if got != want {
+	if want := filepath.Join(physicalFixture(t, targetDir), "future"); got != want {
 		t.Fatalf("resolved path = %q, want %q", got, want)
 	}
 }
@@ -97,8 +114,7 @@ func TestResolveThroughExistingAncestorPreservesSymlinkDotDotOrder(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(targetParent, "future.txt")
-	if got != want {
+	if want := filepath.Join(physicalFixture(t, targetParent), "future.txt"); got != want {
 		t.Fatalf("resolved path = %q, want %q", got, want)
 	}
 }
@@ -113,8 +129,8 @@ func TestResolveThroughExistingAncestorExistingBenignTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != target {
-		t.Fatalf("resolved path = %q, want %q", got, target)
+	if want := physicalFixture(t, target); got != want {
+		t.Fatalf("resolved path = %q, want %q", got, want)
 	}
 }
 

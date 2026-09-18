@@ -51,12 +51,15 @@ func DefaultSocketPath() string {
 		base = filepath.Join(home, ".local", "state")
 	}
 	socket := filepath.Join(base, "guardrail", "approval", "broker.sock")
-	if len(socket) < 100 {
+	// Unix socket path limits: Linux ~108, darwin ~104. The direct path
+	// usually fits; the deterministic fallback must fit on darwin even when
+	// os.TempDir() itself is long (/var/folders/...), so it uses a short
+	// prefix and a truncated digest.
+	if len(socket) < 90 {
 		return socket
 	}
-	// Unix socket paths are short; retain a deterministic per-state-root fallback.
 	digest := sha256.Sum256([]byte(base))
-	return filepath.Join(os.TempDir(), "guardrail-"+fmt.Sprintf("%x", digest[:]), "broker.sock")
+	return filepath.Join(os.TempDir(), "grd-"+fmt.Sprintf("%x", digest[:8]), "b.sock")
 }
 
 // SubmitOnDemand starts the user-level daemon if no authenticated socket is live.

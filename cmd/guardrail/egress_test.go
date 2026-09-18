@@ -201,6 +201,7 @@ func TestWebHostRecoveryReplayIsStateIdempotent(t *testing.T) {
 
 func TestConcurrentRepositoryGrantsRetainEveryHost(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	repo := filepath.Join(t.TempDir(), "repo")
 	hosts := []string{"one.example.test", "two.example.test", "three.example.test", "four.example.test"}
 	start := make(chan struct{})
@@ -211,7 +212,7 @@ func TestConcurrentRepositoryGrantsRetainEveryHost(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			errs <- executeWebHostApproval(approval.Request{RepoRoot: repo, Scope: approval.RepoScope, Action: "web-host-grant", Parameters: map[string]string{"hosts": host}})
+			errs <- executeWebHostApproval(approval.Request{ID: "concurrent-" + host, RepoRoot: repo, Scope: approval.RepoScope, Action: "web-host-grant", Parameters: map[string]string{"hosts": host}})
 		}()
 	}
 	close(start)
@@ -346,6 +347,7 @@ func TestUnsafeAllowanceJournalDirectoryIsRejected(t *testing.T) {
 
 func TestConcurrentRepositoryGrantsAcrossReposRetainEveryHost(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	repos := []string{filepath.Join(t.TempDir(), "one"), filepath.Join(t.TempDir(), "two")}
 	start := make(chan struct{})
 	errs := make(chan error, len(repos))
@@ -356,7 +358,7 @@ func TestConcurrentRepositoryGrantsAcrossReposRetainEveryHost(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			errs <- executeWebHostApproval(approval.Request{RepoRoot: repo, Scope: approval.RepoScope, Action: "web-host-grant", Parameters: map[string]string{"hosts": host}})
+			errs <- executeWebHostApproval(approval.Request{ID: "concurrent-" + host, RepoRoot: repo, Scope: approval.RepoScope, Action: "web-host-grant", Parameters: map[string]string{"hosts": host}})
 		}()
 	}
 	close(start)
@@ -382,9 +384,10 @@ func TestConcurrentGlobalAndRepositoryGrantsRetainEveryHost(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	repo := filepath.Join(t.TempDir(), "repo")
+	// Distinct logical actions require distinct idempotency-journal identities.
 	requests := []approval.Request{
-		{RepoRoot: repo, Parameters: map[string]string{"hosts": "global.example.test"}, Scope: approval.GlobalScope, Action: "web-host-grant"},
-		{RepoRoot: repo, Scope: approval.RepoScope, Action: "web-host-grant", Parameters: map[string]string{"hosts": "repo.example.test"}},
+		{ID: "concurrent-global", RepoRoot: repo, Parameters: map[string]string{"hosts": "global.example.test"}, Scope: approval.GlobalScope, Action: "web-host-grant"},
+		{ID: "concurrent-repo", RepoRoot: repo, Scope: approval.RepoScope, Action: "web-host-grant", Parameters: map[string]string{"hosts": "repo.example.test"}},
 	}
 	start := make(chan struct{})
 	errs := make(chan error, len(requests))

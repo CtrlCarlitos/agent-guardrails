@@ -1962,6 +1962,12 @@ func TestNF17FileToolsAuthorizeStrictSystemTempDescendants(t *testing.T) {
 func TestNF17FileToolTempAuthorizationKeepsStrictPhysicalBoundary(t *testing.T) {
 	tmpdir := t.TempDir()
 	t.Setenv("TMPDIR", tmpdir)
+	// A fixed number of parents can still land inside /tmp when TMPDIR is
+	// nested. Construct a genuine escape regardless of fixture depth.
+	escapeSuffix, err := filepath.Rel(tmpdir, "/etc/nf17-note.md")
+	if err != nil {
+		t.Fatal(err)
+	}
 	escape := filepath.Join(tmpdir, "escape")
 	if err := os.Symlink("/etc", escape); err != nil {
 		t.Skipf("create symlink escape: %v", err)
@@ -1972,7 +1978,7 @@ func TestNF17FileToolTempAuthorizationKeepsStrictPhysicalBoundary(t *testing.T) 
 	}{
 		{"temp root equality", tmpdir},
 		{"adjacent prefix", "/tmpish/note.md"},
-		{"cleaned parent escape", tmpdir + string(filepath.Separator) + ".." + string(filepath.Separator) + ".." + string(filepath.Separator) + ".." + string(filepath.Separator) + "etc" + string(filepath.Separator) + "nf17-note.md"},
+		{"cleaned parent escape", tmpdir + string(filepath.Separator) + escapeSuffix},
 		{"existing symlink escape", filepath.Join(escape, "nf17-note.md")},
 	}
 	for _, test := range tests {

@@ -3073,8 +3073,18 @@ func TestNormalizeCdPathAssignmentsAndModes(t *testing.T) {
 			continue
 		}
 		last := got[len(got)-1]
-		if last.Cwd != test.wantCwd || last.Unresolved {
-			t.Errorf("Normalize(%q) last = %+v, want cwd %q", test.command, last, test.wantCwd)
+		wantCwd := test.wantCwd
+		// Only physical (-P) mode may resolve the path. Logical (-L) mode
+		// must preserve its spelling, including the symlink component.
+		if strings.HasPrefix(test.command, "cd -P ") {
+			resolved, err := filepath.EvalSymlinks(wantCwd)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantCwd = resolved
+		}
+		if last.Cwd != wantCwd || last.Unresolved {
+			t.Errorf("Normalize(%q) last = %+v, want cwd %q (or resolved)", test.command, last, wantCwd)
 		}
 	}
 

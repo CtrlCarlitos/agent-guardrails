@@ -970,9 +970,27 @@ func repoRelative(p, cwd, repoRoot string) (string, bool) {
 		}
 		absPath = filepath.Join(cwd, absPath)
 	}
-	rel, err := filepath.Rel(strings.ToLower(filepath.Clean(repoRoot)), strings.ToLower(filepath.Clean(absPath)))
-	if err != nil {
-		return "", false
+	relWithin := func(root string) (string, bool) {
+		rel, err := filepath.Rel(strings.ToLower(filepath.Clean(root)), strings.ToLower(filepath.Clean(absPath)))
+		rel = filepath.ToSlash(rel)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+			// filepath.Rel succeeds with ../ escapes across unrelated trees;
+			// those are "not inside", so the canonical-root retry still runs.
+			return "", false
+		}
+		return rel, true
+	}
+	rel, ok := relWithin(repoRoot)
+	if !ok {
+		// Darwin temp-symlink divergence: the path may arrive resolved
+		// (/private/var/...) while the root is raw (/var/folders/...) or the
+		// reverse; accept either root spelling.
+		if relation := pathRelationBetween(absPath, repoRoot); relation.within {
+			rel, ok = strings.ToLower(relation.relative), true
+		}
+		if !ok {
+			return "", false
+		}
 	}
 	rel = filepath.ToSlash(rel)
 	if rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
@@ -1012,28 +1030,28 @@ func matchesScoped(c pathCandidate, anywhere, rootOnly []string) bool {
 
 func checkSymlinkEscape(candidate pathCandidate, tc ToolCall) *policy.Verdict {
 	cand := strings.TrimPrefix(strings.TrimPrefix(candidate.path, "~/"), "~")
-	if candidate.cwdUnknown && !filepath.IsAbs(cand) {
+	if tc.RepoRoot == "" || candidate.cwdUnknown && !filepath.IsAbs(cand) {
 		return nil
-	}
-	if tc.RepoRoot == "" || filepath.IsAbs(cand) && !strings.HasPrefix(filepath.Clean(cand), filepath.Clean(tc.RepoRoot)) {
-		// only guard paths that claim to be inside the repo
-		if !strings.HasPrefix(filepath.Clean(cand), filepath.Clean(tc.RepoRoot)) {
-			return nil
-		}
 	}
 	abs := cand
 	if !filepath.IsAbs(abs) {
 		abs = filepath.Join(candidate.cwd, cand)
 	}
-	if !strings.HasPrefix(filepath.Clean(abs), filepath.Clean(tc.RepoRoot)+string(filepath.Separator)) {
+	// Walk candidate ancestors by file identity to recognize the repository
+	// boundary even when Git and the tool use different spellings of it.
+	// Do not resolve the whole candidate before establishing that boundary:
+	// doing so would erase the evidence of a symlink escaping from inside it.
+	claim := pathRelationBetween(abs, tc.RepoRoot)
+	if !claim.equal && !claim.within {
 		return nil
 	}
-	resolved, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return nil // nonexistent target: nothing to resolve yet
+	resolved, pathOK := resolveExistingPath(abs, "")
+	root, rootOK := resolveExistingPath(tc.RepoRoot, "")
+	if !pathOK || !rootOK {
+		return nil
 	}
-	root := filepath.Clean(tc.RepoRoot) + string(filepath.Separator)
-	if !strings.HasPrefix(filepath.Clean(resolved)+string(filepath.Separator), root) {
+	physical := pathRelationBetween(resolved, root)
+	if !physical.equal && !physical.within {
 		return &policy.Verdict{Decision: policy.Deny, RuleID: "P4.symlink-escape",
 			Reason: "a path inside the repo resolves outside it via symlink: " + cand}
 	}
