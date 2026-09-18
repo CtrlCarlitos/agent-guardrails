@@ -64,6 +64,18 @@ func TestSelftestIsIdempotentAcrossRuns(t *testing.T) {
 		}
 	}
 }
+func TestSelftestAntigravityProbesPass(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	var out, errb strings.Builder
+	if code := runSelftest(t, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d stderr %q stdout %q", code, errb.String(), out.String())
+	}
+	if !strings.Contains(out.String(), "antigravity: probes pass (7)") {
+		t.Fatalf("expected antigravity: probes pass (7), got:\n%s", out.String())
+	}
+}
 
 func TestSelftestRecordsThePassedVersionInTheStateDir(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())

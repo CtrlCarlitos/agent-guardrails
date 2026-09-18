@@ -56,6 +56,21 @@ var selftestProbes = []selftestProbe{
 	{Plane: "antigravity", Name: "secret view denies", Args: []string{"antigravity", "pre"},
 		Payload:      `{"toolCall":{"name":"view_file","args":{"TargetFile":"/home/selftest/.ssh/id_ed25519"}}}`,
 		WantDecision: "deny"},
+	{Plane: "antigravity", Name: "delegation allows", Args: []string{"antigravity", "pre"},
+		Payload:      `{"conversationId":"selftest","toolCall":{"name":"invoke_subagent","args":{"TypeName":"research","Role":"Researcher","Prompt":"analyze"}}}`,
+		WantDecision: "allow"},
+	{Plane: "antigravity", Name: "one-shot timer allows", Args: []string{"antigravity", "pre"},
+		Payload:      `{"conversationId":"selftest","toolCall":{"name":"schedule","args":{"DurationSeconds":5,"Prompt":"wake"}}}`,
+		WantDecision: "allow"},
+	{Plane: "antigravity", Name: "cron schedule asks (night-preserved)", Args: []string{"antigravity", "pre"},
+		Payload:      `{"conversationId":"selftest","toolCall":{"name":"schedule","args":{"CronExpression":"* * * * *","Prompt":"check"}}}`,
+		WantDecision: "ask"},
+	{Plane: "antigravity", Name: "serena secret mutation denies", Args: []string{"antigravity", "pre"},
+		Payload:      `{"conversationId":"selftest","toolCall":{"name":"mcp__serena__replace_content","args":{"Cwd":"/tmp","relative_path":".env"}}}`,
+		WantDecision: "deny"},
+	{Plane: "antigravity", Name: "meta-dispatch call_mcp_tool denies", Args: []string{"antigravity", "pre"},
+		Payload:      `{"conversationId":"selftest","toolCall":{"name":"call_mcp_tool","args":{"ServerName":"serena","ToolName":"find_symbol"}}}`,
+		WantDecision: "deny"},
 
 	// codex — direct invocation proves the binary path and verdicts; live
 	// runtime mediation is a separate question (see audit records).
