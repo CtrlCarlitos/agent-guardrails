@@ -180,8 +180,15 @@ func TestClaudeBundlePathWindowsPrefersAPATHEntryThatIsABundle(t *testing.T) {
 	t.Setenv("PATH", bin)
 	t.Setenv("XDG_DATA_HOME", t.TempDir()) // no versions dir at all
 	got, err := ClaudeBundlePath()
-	if err != nil || got != bundle {
-		t.Fatalf("bundle = %q, %v; want the PATH entry itself", got, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Windows may spell a temp dir in 8.3 short form while EvalSymlinks
+	// returns the long form; compare identity, not text.
+	want, _ := os.Stat(bundle)
+	have, statErr := os.Stat(got)
+	if statErr != nil || !os.SameFile(want, have) {
+		t.Fatalf("bundle = %q, want the PATH entry %q", got, bundle)
 	}
 }
 
