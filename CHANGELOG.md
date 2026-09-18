@@ -4,6 +4,30 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## v0.20.21-dev
+- CHANGELOG catch-up (this release's actual change).
+
+## v0.20.20-dev
+- **Fix:** post-update verification (doctor + selftest) execs the freshly
+  installed binary instead of running in-process — the running process is
+  still the superseded release and recorded passes for the wrong version.
+  Same hazard class as the daemon shutdown fix in v0.19.11.
+
+## v0.20.19-dev
+- `guardrail update` names the release-asset race: a 404 right after tagging
+  says "assets may still be publishing; retry in a minute".
+
+## v0.20.18-dev
+- SessionStart asks for a selftest until one passes on the installed release
+  (marker records the release that passed, operator-owned); `guardrail update`
+  runs doctor + selftest on the new binary.
+
+## v0.20.17-dev
+- `guardrail audit`: whole-history summary across rotated segments; audit
+  rotation at 20MB keeping 3; selftest idempotent across repeated runs
+  (unique session IDs); hygiene bundle (gitignore graft/.serena, CI sows
+  /tmp/.git, package test HOME sandbox, CHANGELOG born).
+
 ## v0.20.16-dev
 - `guardrail selftest`: embedded probe matrix verifies installed enforcement
   behavior per plane (allow/deny/night-preserved asks, MCP projection).

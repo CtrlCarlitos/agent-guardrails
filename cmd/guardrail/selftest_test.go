@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -62,7 +64,6 @@ func TestSelftestIsIdempotentAcrossRuns(t *testing.T) {
 		}
 	}
 }
-
 func TestSelftestAntigravityProbesPass(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -73,5 +74,43 @@ func TestSelftestAntigravityProbesPass(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "antigravity: probes pass (7)") {
 		t.Fatalf("expected antigravity: probes pass (7), got:\n%s", out.String())
+	}
+}
+
+func TestSelftestRecordsThePassedVersionInTheStateDir(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	var out, errb strings.Builder
+	if code := runSelftest(t, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d stderr %q", code, errb.String())
+	}
+	raw, err := os.ReadFile(filepath.Join(state, "guardrail", "selftest-passed"))
+	if err != nil {
+		t.Fatalf("marker not written: %v", err)
+	}
+	if got := strings.TrimSpace(string(raw)); got != version {
+		t.Fatalf("marker = %q, want %q", got, version)
+	}
+	if got := selftestPassedVersion(); got != version {
+		t.Fatalf("selftestPassedVersion() = %q, want %q", got, version)
+	}
+}
+
+func TestSelftestDoesNotRecordAFailedRun(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	orig := selftestProbes
+	tampered := append([]selftestProbe(nil), orig...)
+	tampered[0].WantDecision = "never"
+	selftestProbes = tampered
+	t.Cleanup(func() { selftestProbes = orig })
+	var out, errb strings.Builder
+	runSelftest(t, &out, &errb)
+	if _, err := os.Stat(filepath.Join(state, "guardrail", "selftest-passed")); err == nil {
+		t.Fatal("a failed selftest must not record a pass")
 	}
 }

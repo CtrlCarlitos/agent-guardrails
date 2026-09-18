@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -48,9 +49,19 @@ func updateSumsFor(binary, asset string) string {
 	return hex.EncodeToString(digest[:]) + "  " + asset + "\n"
 }
 
+// installedRuns records every post-update verification exec the update
+// requested: which binary, with which arguments.
+var installedRuns [][]string
+
 func stubUpdateSeams(t *testing.T, target string) {
 	t.Helper()
-	origBase, origClient, origTarget, origVerify := updateReleaseBase, updateHTTPClient, updateTargetPath, verifyUpdatedBinary
+	origBase, origClient, origTarget, origVerify, origRun := updateReleaseBase, updateHTTPClient, updateTargetPath, verifyUpdatedBinary, runInstalledBinary
+	installedRuns = nil
+	runInstalledBinary = func(exe string, args []string, stdout, stderr io.Writer) int {
+		installedRuns = append(installedRuns, append([]string{exe}, args...))
+		fmt.Fprintf(stdout, "stub %s %s\n", filepath.Base(exe), strings.Join(args, " "))
+		return 0
+	}
 	updateTargetPath = func() (string, error) { return target, nil }
 	verifyUpdatedBinary = func(path, version string) error {
 		if path == target || !strings.HasSuffix(path, ".guardrail-update") {
@@ -59,8 +70,58 @@ func stubUpdateSeams(t *testing.T, target string) {
 		return nil
 	}
 	t.Cleanup(func() {
-		updateReleaseBase, updateHTTPClient, updateTargetPath, verifyUpdatedBinary = origBase, origClient, origTarget, origVerify
+		updateReleaseBase, updateHTTPClient, updateTargetPath, verifyUpdatedBinary, runInstalledBinary = origBase, origClient, origTarget, origVerify, origRun
 	})
+}
+
+// Post-update verification must run the binary that was just installed —
+// in-process doctor/selftest would report on, and record a selftest pass
+// for, the superseded release (seen live: v0.20.18 → v0.20.19 wrote the
+// marker as v0.20.18 and the next session nudged anyway).
+func TestUpdateVerifiesTheInstalledBinaryNotItself(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "guardrail")
+	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stubUpdateSeams(t, target)
+	binary := "new-binary-bytes"
+	server := updateTestServer(t, binary, updateSumsFor(binary, updateAssetName()), http.StatusOK)
+	updateReleaseBase = server.URL + "/download"
+
+	var out, errb strings.Builder
+	if code := run([]string{"update", "v0.19.2-dev"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("exit = %d, stderr %q", code, errb.String())
+	}
+	want := [][]string{{target, "doctor"}, {target, "selftest"}}
+	if fmt.Sprint(installedRuns) != fmt.Sprint(want) {
+		t.Fatalf("installed runs = %v, want %v", installedRuns, want)
+	}
+	if strings.Contains(out.String(), "guardrail "+version+"\n") || strings.Contains(out.String(), "probes pass") {
+		t.Fatalf("update ran doctor/selftest in-process:\n%s", out.String())
+	}
+}
+
+func TestUpdateReportsAFailedSelftestOnTheInstalledBinary(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "guardrail")
+	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stubUpdateSeams(t, target)
+	runInstalledBinary = func(exe string, args []string, stdout, stderr io.Writer) int {
+		if args[0] == "selftest" {
+			return 1
+		}
+		return 0
+	}
+	binary := "new-binary-bytes"
+	server := updateTestServer(t, binary, updateSumsFor(binary, updateAssetName()), http.StatusOK)
+	updateReleaseBase = server.URL + "/download"
+
+	var out, errb strings.Builder
+	run([]string{"update", "v0.19.2-dev"}, strings.NewReader(""), &out, &errb)
+	if !strings.Contains(errb.String(), "selftest failed on the new binary") {
+		t.Fatalf("stderr = %q, want loud selftest failure", errb.String())
+	}
 }
 
 func TestUpdateRejectsBadArguments(t *testing.T) {
@@ -212,5 +273,23 @@ func TestUpdateShutsDownApprovalDaemonAfterReplace(t *testing.T) {
 	}
 	if shutdowns != 1 {
 		t.Fatalf("shutdown called %d times, want 1", shutdowns)
+	}
+}
+
+func TestUpdateMissingReleaseMessageNamesTheRace(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "guardrail")
+	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stubUpdateSeams(t, target)
+	server := updateTestServer(t, "", "", http.StatusNotFound)
+	updateReleaseBase = server.URL + "/download"
+
+	var out, errb strings.Builder
+	if code := run([]string{"update", "v0.99.0-dev"}, strings.NewReader(""), &out, &errb); code != 1 {
+		t.Fatalf("exit = %d", code)
+	}
+	if !strings.Contains(errb.String(), "may still be publishing") {
+		t.Fatalf("stderr = %q, want the asset-publish race named", errb.String())
 	}
 }

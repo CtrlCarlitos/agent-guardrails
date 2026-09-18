@@ -2349,3 +2349,53 @@ func TestHookSessionStartFailsOpenWithoutABundle(t *testing.T) {
 		t.Fatalf("missing bundle must not touch the posture: %q", ctx)
 	}
 }
+
+func TestHookSessionStartAsksForSelftestUntilItPassesOnThisVersion(t *testing.T) {
+	setClaudeHome(t, "")
+	t.Setenv("PATH", t.TempDir()) // no claude bundle: coverage stays silent, unrelated here
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	state := t.TempDir()
+
+	// No marker: this guardrail has never passed selftest here.
+	want := "guardrail " + version + " has not passed selftest on this machine; run guardrail selftest"
+	if ctx := sessionStartContext(t, state); !strings.Contains(ctx, want) {
+		t.Fatalf("posture = %q, want %q", ctx, want)
+	}
+
+	// Marker from an older release: a bump happened since the last pass.
+	if err := os.MkdirAll(filepath.Join(state, "guardrail"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, "guardrail", "selftest-passed"), []byte("v0.0.1-older\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want = "guardrail " + version + " is new here (selftest last passed on v0.0.1-older); run guardrail selftest"
+	if ctx := sessionStartContext(t, state); !strings.Contains(ctx, want) {
+		t.Fatalf("posture = %q, want %q", ctx, want)
+	}
+
+	// Marker for this release: silent.
+	if err := os.WriteFile(filepath.Join(state, "guardrail", "selftest-passed"), []byte(version+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ctx := sessionStartContext(t, state); strings.Contains(ctx, "selftest") {
+		t.Fatalf("passed marker must silence the line: %q", ctx)
+	}
+}
+
+func TestHookSessionStartSelftestMarkerFailsOpen(t *testing.T) {
+	setClaudeHome(t, "")
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	state := t.TempDir()
+	// A directory where the marker file should be: unreadable, treated as "not passed".
+	if err := os.MkdirAll(filepath.Join(state, "guardrail", "selftest-passed"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ctx := sessionStartContext(t, state) // exit 0 asserted inside
+	if !strings.Contains(ctx, "run guardrail selftest") || !strings.Contains(ctx, "guardrail is active") {
+		t.Fatalf("unreadable marker must still yield the ordinary posture plus the nudge: %q", ctx)
+	}
+}

@@ -6,6 +6,8 @@ import (
 	"io"
 	"strings"
 	"time"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 )
 
 // selftestProbe is one direct hook invocation with its expected verdict.
@@ -124,6 +126,9 @@ func cmdSelftest(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintln(stdout, "selftest: all probes passed")
+	if err := recordSelftestPass(version); err != nil {
+		fmt.Fprintf(stdout, "note: could not record the pass (%s); the SessionStart posture will keep asking\n", safetext.SingleLine(err.Error()))
+	}
 	return 0
 }
 
