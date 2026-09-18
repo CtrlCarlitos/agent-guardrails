@@ -3,6 +3,7 @@ package coverage
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -121,7 +122,85 @@ func TestClaudeBundlePathResolvesSymlinkOnPATH(t *testing.T) {
 
 func TestClaudeBundlePathMissingIsAnError(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir()) // no installer versions dir either
 	if _, err := ClaudeBundlePath(); err == nil {
 		t.Fatal("expected an error without claude on PATH")
+	}
+}
+
+// On Windows the native installer's ~/.local/bin/claude.exe is a launcher,
+// not a symlink to the versioned bundle, and an npm-global install puts a
+// claude.cmd shim on PATH. Neither carries the tool lists. The resolver
+// falls back to the installer's versions directory ($XDG_DATA_HOME or
+// ~/.local/share, then claude/versions) and takes the newest bundle there.
+func TestClaudeBundlePathWindowsLauncherFallsBackToVersionsDir(t *testing.T) {
+	bin := t.TempDir()
+	launcher := filepath.Join(bin, claudeExe())
+	if err := os.WriteFile(launcher, []byte("@echo off\r\nnode %~dp0\\cli.js %*\r\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	data := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", data)
+	versions := filepath.Join(data, "claude", "versions")
+	if err := os.MkdirAll(versions, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	older := filepath.Join(versions, "2.1.270")
+	newest := filepath.Join(versions, "2.1.275")
+	for _, p := range []string{older, newest} {
+		if err := os.WriteFile(p, []byte(syntheticBundle), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := ClaudeBundlePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != newest {
+		t.Fatalf("bundle = %q, want the newest versions entry %q", got, newest)
+	}
+}
+
+// claudeExe is the launcher name LookPath finds on this host: Windows
+// resolves PATH entries only with a PATHEXT extension.
+func claudeExe() string {
+	if runtime.GOOS == "windows" {
+		return "claude.exe"
+	}
+	return "claude"
+}
+
+func TestClaudeBundlePathWindowsPrefersAPATHEntryThatIsABundle(t *testing.T) {
+	bin := t.TempDir()
+	bundle := filepath.Join(bin, claudeExe())
+	if err := os.WriteFile(bundle, []byte(syntheticBundle), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("XDG_DATA_HOME", t.TempDir()) // no versions dir at all
+	got, err := ClaudeBundlePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Windows may spell a temp dir in 8.3 short form while EvalSymlinks
+	// returns the long form; compare identity, not text.
+	want, _ := os.Stat(bundle)
+	have, statErr := os.Stat(got)
+	if statErr != nil || !os.SameFile(want, have) {
+		t.Fatalf("bundle = %q, want the PATH entry %q", got, bundle)
+	}
+}
+
+func TestClaudeBundlePathWindowsNamesBothPlacesWhenNeitherHasABundle(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, claudeExe()), []byte("shim"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	_, err := ClaudeBundlePath()
+	if err == nil || !strings.Contains(err.Error(), "versions") {
+		t.Fatalf("err = %v, want an error naming the versions directory", err)
 	}
 }

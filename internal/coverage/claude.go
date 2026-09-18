@@ -202,19 +202,112 @@ func ScanClaudeBundle(r io.Reader, contracted func(string) bool) (Inventory, err
 	return inv, nil
 }
 
-// ClaudeBundlePath locates the installed Claude Code bundle: the `claude`
-// executable on PATH, symlinks resolved (the launcher links to a versioned
-// build).
+// ClaudeBundlePath locates the installed Claude Code bundle. The `claude`
+// on PATH is the bundle itself on Unix (a symlink to the versioned build);
+// on Windows the native installer leaves a launcher there and an npm-global
+// install leaves a claude.cmd shim, neither of which carries the tool
+// lists. A PATH entry without a version marker therefore falls back to the
+// installer's versions directory — $XDG_DATA_HOME or ~/.local/share, then
+// claude/versions — and takes its newest bundle.
 func ClaudeBundlePath() (string, error) {
-	bin, err := exec.LookPath("claude")
-	if err != nil {
-		return "", errors.New("claude is not on PATH")
+	var candidate string
+	if bin, err := exec.LookPath("claude"); err == nil {
+		if real, err := filepath.EvalSymlinks(bin); err == nil {
+			candidate = real
+		} else {
+			candidate = bin
+		}
+		if _, err := ClaudeBundleVersion(candidate); err == nil {
+			return candidate, nil
+		}
 	}
-	real, err := filepath.EvalSymlinks(bin)
-	if err != nil {
-		return "", fmt.Errorf("resolving claude: %w", err)
+	versions, err := claudeVersionsDir()
+	if err == nil {
+		if newest, ok := newestVersionedBundle(versions); ok {
+			return newest, nil
+		}
 	}
-	return real, nil
+	if candidate == "" {
+		return "", fmt.Errorf("claude is not on PATH and no bundle under %s", versions)
+	}
+	return "", fmt.Errorf("%s carries no Claude Code version marker (a launcher or shim) and no bundle under %s", candidate, versions)
+}
+
+// claudeVersionsDir is the native installer's versions directory on every
+// platform: $XDG_DATA_HOME/claude/versions, else ~/.local/share/claude/versions.
+func claudeVersionsDir() (string, error) {
+	base := os.Getenv("XDG_DATA_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		base = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(base, "claude", "versions"), nil
+}
+
+// newestVersionedBundle picks the entry with the highest semantic version
+// name that carries a version marker; installers keep several builds and
+// the launcher points at the newest.
+func newestVersionedBundle(dir string) (string, bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", false
+	}
+	var best string
+	var bestKey []int
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		key, ok := versionKey(strings.TrimSuffix(entry.Name(), ".exe"))
+		if !ok {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if _, err := ClaudeBundleVersion(path); err != nil {
+			continue
+		}
+		if best == "" || compareVersionKeys(key, bestKey) > 0 {
+			best, bestKey = path, key
+		}
+	}
+	return best, best != ""
+}
+
+func versionKey(name string) ([]int, bool) {
+	parts := strings.Split(name, ".")
+	if len(parts) < 3 {
+		return nil, false
+	}
+	key := make([]int, 0, len(parts))
+	for _, part := range parts {
+		n := 0
+		if part == "" {
+			return nil, false
+		}
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				return nil, false
+			}
+			n = n*10 + int(r-'0')
+		}
+		key = append(key, n)
+	}
+	return key, true
+}
+
+func compareVersionKeys(a, b []int) int {
+	for i := 0; i < len(a) && i < len(b); i++ {
+		if a[i] != b[i] {
+			if a[i] > b[i] {
+				return 1
+			}
+			return -1
+		}
+	}
+	return len(a) - len(b)
 }
 
 // Describe renders the inventory as doctor lines.

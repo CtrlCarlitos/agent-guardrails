@@ -39,6 +39,14 @@ jobs:
       - name: test
         if: matrix.os == 'ubuntu-latest'
         run: go test ./...
+      - name: windows-shaped tests
+        # The Claude plane's Windows validation sheet: backslash payloads
+        # through the adapter and Engine, BOM-tolerant settings reads, the
+        # bundle resolver's launcher fallback, and the Windows selftest
+        # probes through the real hook path. Named so the POSIX-native
+        # engine suite stays out of this job.
+        if: matrix.os == 'windows-latest'
+        run: go test ./internal/adapter/ ./internal/engine/ ./internal/genconfig/ ./internal/coverage/ ./cmd/guardrail/ ./test/ -run 'Windows|BOM|ReadJSONObject'
       - name: gofmt
         if: matrix.os == 'ubuntu-latest'
         run: |

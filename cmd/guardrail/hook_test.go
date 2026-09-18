@@ -2300,6 +2300,7 @@ func setClaudeBundle(t *testing.T, body string) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
+	t.Setenv("XDG_DATA_HOME", t.TempDir()) // never fall back to a real installer versions dir
 }
 
 func TestHookSessionStartReportsCoverageDriftOnce(t *testing.T) {
@@ -2341,6 +2342,7 @@ func TestHookSessionStartIsSilentWhenCoverageIsComplete(t *testing.T) {
 func TestHookSessionStartFailsOpenWithoutABundle(t *testing.T) {
 	setClaudeHome(t, "")
 	t.Setenv("PATH", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
@@ -2353,6 +2355,7 @@ func TestHookSessionStartFailsOpenWithoutABundle(t *testing.T) {
 func TestHookSessionStartAsksForSelftestUntilItPassesOnThisVersion(t *testing.T) {
 	setClaudeHome(t, "")
 	t.Setenv("PATH", t.TempDir()) // no claude bundle: coverage stays silent, unrelated here
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	state := t.TempDir()
@@ -2387,6 +2390,7 @@ func TestHookSessionStartAsksForSelftestUntilItPassesOnThisVersion(t *testing.T)
 func TestHookSessionStartSelftestMarkerFailsOpen(t *testing.T) {
 	setClaudeHome(t, "")
 	t.Setenv("PATH", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	state := t.TempDir()

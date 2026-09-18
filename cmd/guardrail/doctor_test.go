@@ -724,3 +724,20 @@ func TestDoctorCoverageRejectsBadArguments(t *testing.T) {
 		}
 	}
 }
+
+// A settings.json saved by a Windows editor carries a UTF-8 BOM; doctor and
+// the lifecycle checks must still recognise the registered hook rather
+// than report "NOT registered" and send the operator to plane enable.
+func TestDoctorReadsBOMPrefixedClaudeSettings(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
+	body := append([]byte{0xEF, 0xBB, 0xBF}, []byte(`{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"*","hooks":[{"type":"command","command":"guardrail hook claude"}]}]}}`)...)
+	writeClaudeSettings(t, home, string(body))
+	if got := claudeSettingsState(); got != "guardrail hook registered" {
+		t.Fatalf("claudeSettingsState() = %q with a BOM, want registered", got)
+	}
+	if !planeIntegrationRegistered("claude") {
+		t.Fatal("planeIntegrationRegistered(claude) = false with a BOM")
+	}
+}

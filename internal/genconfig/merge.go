@@ -88,16 +88,14 @@ func RemovePlaneFrom(path, plane string) error {
 }
 
 func mergeInto(path, plane string, frag Fragment) error {
-	existing := map[string]any{}
-	if raw, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(raw)) > 0 {
-		if err := json.Unmarshal(raw, &existing); err != nil {
-			return fmt.Errorf("%s is not a JSON object; refusing to overwrite: %w", path, err)
+	existing, err := ReadJSONObject(path)
+	if os.IsNotExist(err) {
+		existing = map[string]any{}
+	} else if err != nil {
+		if _, readErr := os.Stat(path); readErr != nil {
+			return err
 		}
-		if existing == nil {
-			return fmt.Errorf("%s is not a JSON object; refusing to overwrite: null", path)
-		}
-	} else if err != nil && !os.IsNotExist(err) {
-		return err
+		return fmt.Errorf("%s is not a JSON object; refusing to overwrite: %w", path, err)
 	}
 	removeRetiredBashFloorRules(existing, plane)
 
