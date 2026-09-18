@@ -598,12 +598,125 @@ func TestDoctorCoverageClaudeFullCoverageExitsZero(t *testing.T) {
 	}
 }
 
+func TestDoctorCoverageAntigravityReportsUncontractedTools(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("GUARDRAIL_CONFIG", "")
+
+	configPath := filepath.Join(home, "mcp_config.json")
+	configJSON := `{
+		"mcpServers": {
+			"serena": {
+				"command": "serena"
+			},
+			"custom_server": {
+				"command": "custom-binary"
+			}
+		}
+	}`
+	if err := os.WriteFile(configPath, []byte(configJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	schemasDir := filepath.Join(home, "mcp")
+	serenaDir := filepath.Join(schemasDir, "serena")
+	customDir := filepath.Join(schemasDir, "custom_server")
+	if err := os.MkdirAll(serenaDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(customDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(serenaDir, "replace_content.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(customDir, "unknown_widget.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	code := run([]string{"doctor", "--coverage", "antigravity", "--config", configPath, "--schemas", schemasDir}, strings.NewReader(""), &out, &errb)
+	if code != 1 {
+		t.Fatalf("doctor exit = %d, want 1 (uncontracted tools present); stderr %q", code, errb.String())
+	}
+	s := out.String()
+	for _, want := range []string{
+		"antigravity coverage: Antigravity (" + configPath + ")",
+		"configured MCP servers: custom_server, serena",
+		"uncontracted (absent from registry): unknown_widget",
+		"add each uncontracted tool to internal/planecontract/mcp.go with its capability",
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("doctor output missing %q:\n%s", want, s)
+		}
+	}
+	if !strings.Contains(s, "antigravity settings:") {
+		t.Fatalf("coverage must extend doctor, not replace it:\n%s", s)
+	}
+}
+
+func TestDoctorCoverageAntigravityFullCoverageExitsZero(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("GUARDRAIL_CONFIG", "")
+
+	configPath := filepath.Join(home, "mcp_config.json")
+	configJSON := `{
+		"mcpServers": {
+			"serena": {
+				"command": "serena"
+			}
+		}
+	}`
+	if err := os.WriteFile(configPath, []byte(configJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	schemasDir := filepath.Join(home, "mcp")
+	serenaDir := filepath.Join(schemasDir, "serena")
+	if err := os.MkdirAll(serenaDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"find_symbol.json", "replace_content.json"} {
+		if err := os.WriteFile(filepath.Join(serenaDir, name), []byte(`{}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var out, errb bytes.Buffer
+	code := run([]string{"doctor", "--coverage", "antigravity", "--config", configPath, "--schemas", schemasDir}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("doctor exit = %d, want 0; stderr %q", code, errb.String())
+	}
+	s := out.String()
+	for _, want := range []string{
+		"antigravity coverage: Antigravity (" + configPath + ")",
+		"configured MCP servers: serena",
+		"uncontracted (absent from registry): none",
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("doctor output missing %q:\n%s", want, s)
+		}
+	}
+}
+
 func TestDoctorCoverageRejectsBadArguments(t *testing.T) {
 	for _, args := range [][]string{
 		{"doctor", "--coverage"},
 		{"doctor", "--coverage", "opencode"},
 		{"doctor", "--bundle", "/x"},
+		{"doctor", "--config", "/x"},
+		{"doctor", "--schemas", "/x"},
+		{"doctor", "--coverage", "claude", "--config", "/x"},
+		{"doctor", "--coverage", "antigravity", "--bundle", "/x"},
 		{"doctor", "--coverage", "claude", "--bundle", "/definitely/missing"},
+		{"doctor", "--coverage", "antigravity", "--config", "/definitely/missing"},
 	} {
 		var out, errb bytes.Buffer
 		if code := run(args, strings.NewReader(""), &out, &errb); code != 2 || errb.Len() == 0 {

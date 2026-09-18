@@ -29,15 +29,24 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	if opts.coverage == "" {
 		return code
 	}
-	if covCode := printClaudeCoverage(opts.bundle, stdout, stderr); covCode != 0 {
-		return covCode
+	switch opts.coverage {
+	case "claude":
+		if covCode := printClaudeCoverage(opts.bundle, stdout, stderr); covCode != 0 {
+			return covCode
+		}
+	case "antigravity":
+		if covCode := printAntigravityCoverage(opts.config, opts.schemas, stdout, stderr); covCode != 0 {
+			return covCode
+		}
 	}
 	return code
 }
 
 type doctorOptions struct {
 	coverage string // plane to inventory; "" means none
-	bundle   string // explicit bundle path; "" resolves the installed one
+	bundle   string // explicit bundle path; "" resolves the installed one (claude)
+	config   string // explicit mcp_config.json path; "" resolves default (antigravity)
+	schemas  string // explicit mcp schemas dir; "" resolves default (antigravity)
 }
 
 func parseDoctorArgs(args []string, stderr io.Writer) (doctorOptions, bool) {
@@ -46,7 +55,7 @@ func parseDoctorArgs(args []string, stderr io.Writer) (doctorOptions, bool) {
 		switch args[i] {
 		case "--coverage":
 			if i+1 >= len(args) {
-				fmt.Fprintln(stderr, "guardrail: doctor --coverage needs a plane (claude)")
+				fmt.Fprintln(stderr, "guardrail: doctor --coverage needs a plane (claude, antigravity)")
 				return opts, false
 			}
 			i++
@@ -58,17 +67,35 @@ func parseDoctorArgs(args []string, stderr io.Writer) (doctorOptions, bool) {
 			}
 			i++
 			opts.bundle = args[i]
+		case "--config":
+			if i+1 >= len(args) {
+				fmt.Fprintln(stderr, "guardrail: doctor --config needs a path")
+				return opts, false
+			}
+			i++
+			opts.config = args[i]
+		case "--schemas":
+			if i+1 >= len(args) {
+				fmt.Fprintln(stderr, "guardrail: doctor --schemas needs a path")
+				return opts, false
+			}
+			i++
+			opts.schemas = args[i]
 		default:
 			fmt.Fprintf(stderr, "guardrail: doctor: unknown argument %q\n", safetext.SingleLine(args[i]))
 			return opts, false
 		}
 	}
-	if opts.bundle != "" && opts.coverage == "" {
+	if opts.bundle != "" && opts.coverage != "claude" {
 		fmt.Fprintln(stderr, "guardrail: doctor --bundle only applies with --coverage claude")
 		return opts, false
 	}
-	if opts.coverage != "" && opts.coverage != "claude" {
-		fmt.Fprintf(stderr, "guardrail: doctor --coverage supports claude only (got %q)\n", safetext.SingleLine(opts.coverage))
+	if (opts.config != "" || opts.schemas != "") && opts.coverage != "antigravity" {
+		fmt.Fprintln(stderr, "guardrail: doctor --config and --schemas only apply with --coverage antigravity")
+		return opts, false
+	}
+	if opts.coverage != "" && opts.coverage != "claude" && opts.coverage != "antigravity" {
+		fmt.Fprintf(stderr, "guardrail: doctor --coverage supports claude, antigravity (got %q)\n", safetext.SingleLine(opts.coverage))
 		return opts, false
 	}
 	return opts, true
@@ -121,6 +148,44 @@ func printClaudeCoverage(bundle string, stdout, stderr io.Writer) int {
 	}
 	if len(inv.Uncontracted) > 0 {
 		fmt.Fprintln(stdout, "  add each uncontracted tool to internal/planecontract/claude.go with its capability; until then it runs under unknown_tool_posture")
+		return 1
+	}
+	return 0
+}
+
+// printAntigravityCoverage inventories configured MCP servers and tool schemas
+// against the registry. Uncontracted tools are the finding.
+// Exit 1 when any exist so scripts can gate on it; 2 on missing/bad config.
+func printAntigravityCoverage(configPath, schemasDir string, stdout, stderr io.Writer) int {
+	if configPath == "" {
+		p, err := coverage.AntigravityConfigPath()
+		if err != nil {
+			fmt.Fprintf(stderr, "guardrail: doctor --coverage antigravity: %s\n", safetext.SingleLine(err.Error()))
+			return 2
+		}
+		configPath = p
+	}
+	if schemasDir == "" {
+		s, err := coverage.AntigravitySchemasDir()
+		if err != nil {
+			fmt.Fprintf(stderr, "guardrail: doctor --coverage antigravity: %s\n", safetext.SingleLine(err.Error()))
+			return 2
+		}
+		schemasDir = s
+	}
+
+	inv, err := coverage.ScanAntigravity(configPath, schemasDir, planecontract.MatchMCPTool)
+	if err != nil {
+		fmt.Fprintf(stderr, "guardrail: doctor --coverage antigravity: %s\n", safetext.SingleLine(err.Error()))
+		return 2
+	}
+
+	fmt.Fprintf(stdout, "antigravity coverage: Antigravity (%s)\n", safetext.SingleLine(configPath))
+	for _, line := range inv.Describe() {
+		fmt.Fprintln(stdout, "  "+safetext.SingleLine(line))
+	}
+	if len(inv.Uncontracted) > 0 {
+		fmt.Fprintln(stdout, "  add each uncontracted tool to internal/planecontract/mcp.go with its capability and path args; until then it runs under unknown_tool_posture")
 		return 1
 	}
 	return 0
