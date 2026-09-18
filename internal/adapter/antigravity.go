@@ -118,6 +118,40 @@ func extractMultiReplacePaths(input map[string]any) ([]string, error) {
 	return paths, nil
 }
 
+func isAntigravityOneShotTimer(input map[string]any) bool {
+	rawDur, ok := input["DurationSeconds"]
+	if !ok {
+		return false
+	}
+	var dur float64
+	switch v := rawDur.(type) {
+	case float64:
+		dur = v
+	case int:
+		dur = float64(v)
+	case int64:
+		dur = float64(v)
+	case json.Number:
+		var err error
+		dur, err = v.Float64()
+		if err != nil {
+			return false
+		}
+	default:
+		return false
+	}
+	if dur <= 0 {
+		return false
+	}
+	if _, ok := input["CronExpression"]; ok {
+		return false
+	}
+	if _, ok := input["MaxIterations"]; ok {
+		return false
+	}
+	return true
+}
+
 func ParseAntigravity(phase string, r io.Reader) (engine.ToolCall, error) {
 	raw, err := io.ReadAll(r)
 	if err != nil {
@@ -174,6 +208,13 @@ func ParseAntigravity(phase string, r io.Reader) (engine.ToolCall, error) {
 			tc.Capability = policy.CapabilitySafeControl
 		default:
 			tc.Capability = policy.CapabilityDeny
+		}
+	}
+	if p.ToolCall.Name == "schedule" {
+		if isAntigravityOneShotTimer(input) {
+			tc.Capability = policy.CapabilitySafeControl
+		} else {
+			tc.Capability = policy.CapabilityExternal
 		}
 	}
 	if tc.Capability == policy.CapabilityCommand {

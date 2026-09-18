@@ -64,6 +64,15 @@
   },
   "manage-task-send-input.json": {
     "decision": "deny"
+  },
+  "schedule-timer.json": {
+    "decision": "allow"
+  },
+  "schedule-cron.json": {
+    "decision": "force_ask"
+  },
+  "schedule-ambiguous.json": {
+    "decision": "force_ask"
   }
 }
 

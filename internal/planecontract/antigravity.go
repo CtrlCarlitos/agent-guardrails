@@ -18,7 +18,7 @@ var antigravityTools = []ToolSpec{
 	{"read_url_content", "read_url_content", policy.CapabilityWebFetch},
 	{"search_web", "search_web", policy.CapabilityWebSearch},
 	{"manage_task", "manage_task", policy.CapabilitySafeControl},
-	{"schedule", "schedule", policy.CapabilityDeny},
+	{"schedule", "schedule", policy.CapabilityExternal},
 	{"list_permissions", "list_permissions", policy.CapabilitySafeControl},
 	{"ask_permission", "ask_permission", policy.CapabilitySafeControl},
 	{"invoke_subagent", "invoke_subagent", policy.CapabilityDelegation},

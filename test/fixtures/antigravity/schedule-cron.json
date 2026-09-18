@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"schedule","args":{"CronExpression":"*/5 * * * *","Prompt":"recurring health check","toolAction":"Scheduling cron","toolSummary":"Set cron"}}}

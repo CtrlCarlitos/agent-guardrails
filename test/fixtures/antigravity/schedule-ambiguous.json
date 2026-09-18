@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"schedule","args":{"DurationSeconds":10,"CronExpression":"*/5 * * * *","Prompt":"ambiguous timer","toolAction":"Scheduling timer","toolSummary":"Set timer"}}}

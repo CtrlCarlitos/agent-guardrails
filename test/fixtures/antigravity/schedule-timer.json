@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"schedule","args":{"DurationSeconds":10,"Prompt":"wake up timer","toolAction":"Scheduling timer","toolSummary":"Set timer"}}}
