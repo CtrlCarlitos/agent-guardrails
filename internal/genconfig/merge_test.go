@@ -750,3 +750,41 @@ func TestMergeIntoOpencodeUnknownScalarFloor(t *testing.T) {
 		})
 	}
 }
+
+func TestMergeAbsorbsUnmarkedLegacyGuardrailHookGroups(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "settings.json")
+	os.WriteFile(p, []byte(`{"hooks":{"PreToolUse":[{"matcher":"Task","hooks":[{"type":"command","command":"my-own-hook"}]},{"matcher":"Bash","hooks":[{"type":"command","command":"guardrail hook claude"}]}]}}`), 0o644)
+
+	if err := MergeInto(p, hookFrag("/x/guardrail")); err != nil {
+		t.Fatal(err)
+	}
+
+	g := preGroups(t, p)
+	if len(g) != 2 {
+		t.Fatalf("want user group + owned group = 2, got %d: %v", len(g), g)
+	}
+	for _, grp := range g {
+		m := grp.(map[string]any)
+		if _, hasID := m["id"]; !hasID && len(g) == 2 {
+			// any surviving group without an id must be the user group
+			if hooks, _ := m["hooks"].([]any); len(hooks) > 0 {
+				if cmd := hooks[0].(map[string]any)["command"]; cmd == "guardrail hook claude" {
+					t.Fatalf("unmarked legacy guardrail group survived merge: %v", m)
+				}
+			}
+		}
+	}
+}
+
+func TestCountUnmarkedGuardrailGroups(t *testing.T) {
+	doc := map[string]any{"hooks": map[string]any{
+		"PreToolUse": []any{
+			map[string]any{"id": "guardrail-claude-pre", "hooks": []any{}},
+			map[string]any{"matcher": "Bash", "hooks": []any{map[string]any{"command": "guardrail hook claude"}}},
+			map[string]any{"matcher": "Task", "hooks": []any{map[string]any{"command": "my-own-hook"}}},
+		},
+	}}
+	if n := CountUnmarkedGuardrailGroups(doc); n != 1 {
+		t.Fatalf("unmarked count = %d, want 1", n)
+	}
+}

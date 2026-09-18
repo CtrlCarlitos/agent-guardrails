@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
 )
 
 // runPlaneTerminal invokes cmdPlane with the operator-terminal signal forced on.
@@ -526,5 +528,52 @@ func TestPlaneEnableAllSteadyStatePromptsNobody(t *testing.T) {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("stdout missing %q: %q", want, out.String())
 		}
+	}
+}
+
+func TestPlaneEnableAllHealsUnmarkedLegacyClaudeEntries(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	settings := filepath.Join(home, ".claude", "settings.json")
+	writePlaneSettings(t, settings, `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[{"type":"command","command":"guardrail hook claude"}]},{"matcher":"Bash","hooks":[{"type":"command","command":"guardrail hook claude"}]}]}}`)
+
+	var submitted []approval.Request
+	var current approval.Request
+	origSubmit, origQuery := submitPlaneRequest, queryPlaneStatus
+	submitPlaneRequest = func(request approval.Request) (approval.Request, error) {
+		current = request
+		submitted = append(submitted, request)
+		return approval.Request{ID: "stub-request", Status: "pending", ApprovalURL: "http://localhost:39169/approve"}, nil
+	}
+	queryPlaneStatus = func(socket, id string) (approval.Request, error) {
+		if err := executePlaneApproval(current); err != nil {
+			return approval.Request{Status: "denied"}, nil
+		}
+		return approval.Request{Status: "approved"}, nil
+	}
+	defer func() { submitPlaneRequest, queryPlaneStatus = origSubmit, origQuery }()
+	origInstalled := planeInstalled
+	planeInstalled = func(string) bool { return true }
+	defer func() { planeInstalled = origInstalled }()
+
+	var out, errb strings.Builder
+	if code := runPlaneTerminal([]string{"plane", "enable", "claude"}, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d, stderr %q", code, errb.String())
+	}
+	if len(submitted) != 1 || submitted[0].Parameters["planes"] != "claude" {
+		t.Fatalf("claude was skipped despite unmarked entries: %+v", submitted)
+	}
+	got := readPlaneJSON(t, settings)
+	if !strings.Contains(got, "guardrail-claude-pre") {
+		t.Fatalf("marked entry missing: %s", got)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(got), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if n := genconfig.CountUnmarkedGuardrailGroups(doc); n != 0 {
+		t.Fatalf("%d unmarked entries remain after enable", n)
 	}
 }
