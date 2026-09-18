@@ -2170,9 +2170,15 @@ func setClaudeHome(t *testing.T, doc string) {
 	}
 }
 
-func sessionStartContext(t *testing.T) string {
+// sessionStartContext runs a Claude SessionStart hook in a private state
+// directory (or the given one) and returns the posture text.
+func sessionStartContext(t *testing.T, stateDir ...string) string {
 	t.Helper()
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	state := t.TempDir()
+	if len(stateDir) > 0 {
+		state = stateDir[0]
+	}
+	t.Setenv("XDG_STATE_HOME", state)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	payload := `{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart"}`
@@ -2280,5 +2286,66 @@ func TestHookGlobalWebHostGrantIsNotSatisfiedByRepoGrant(t *testing.T) {
 	records := readApprovalAudit(t, stateHome)
 	if last := records[len(records)-1]; last.Decision != "complete" || last.RuleID != "operator-action" {
 		t.Fatalf("audit = %+v, want a brokered global request", records)
+	}
+}
+
+const sessionCoverageBundle = `// Version: 2.1.280
+var tools=["Bash","Read","Write","Edit","Glob","Grep","NotebookEdit","WebFetch","WebSearch","Task","TodoWrite","Skill","AskUserQuestion","ToolSearch","FutureTool"];
+`
+
+func setClaudeBundle(t *testing.T, body string) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+}
+
+func TestHookSessionStartReportsCoverageDriftOnce(t *testing.T) {
+	const marked = `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"*","hooks":[{"type":"command","command":"guardrail hook claude"}]}]}}`
+	setClaudeHome(t, marked)
+	setClaudeBundle(t, sessionCoverageBundle)
+	var state string
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+
+	want := "claude coverage: Claude Code 2.1.280 — 1 uncontracted tool (FutureTool); run guardrail doctor --coverage claude"
+	if ctx := sessionStartContext(t); !strings.Contains(ctx, want) {
+		t.Fatalf("posture = %q, want %q", ctx, want)
+	}
+	cache := filepath.Join(os.Getenv("XDG_STATE_HOME"), "guardrail", "coverage", "claude-2.1.280.json")
+	if _, err := os.Stat(cache); err != nil {
+		t.Fatalf("scan result not cached: %v", err)
+	}
+	// The cached answer is reused: the bundle now carries no tool list and
+	// the line still appears, from the same state directory.
+	setClaudeBundle(t, "// Version: 2.1.280\n")
+	state = os.Getenv("XDG_STATE_HOME")
+	if ctx := sessionStartContext(t, state); !strings.Contains(ctx, want) {
+		t.Fatalf("second posture = %q, want cached drift line", ctx)
+	}
+}
+
+func TestHookSessionStartIsSilentWhenCoverageIsComplete(t *testing.T) {
+	setClaudeHome(t, "")
+	setClaudeBundle(t, "// Version: 2.1.280\nvar tools=[\"Bash\",\"Read\",\"Write\",\"Edit\",\"Glob\"];\n")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	if ctx := sessionStartContext(t); strings.Contains(ctx, "claude coverage") {
+		t.Fatalf("steady state must stay silent: %q", ctx)
+	}
+}
+
+func TestHookSessionStartFailsOpenWithoutABundle(t *testing.T) {
+	setClaudeHome(t, "")
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	ctx := sessionStartContext(t) // exit 0 is asserted inside
+	if strings.Contains(ctx, "claude coverage") || !strings.Contains(ctx, "guardrail is active") {
+		t.Fatalf("missing bundle must not touch the posture: %q", ctx)
 	}
 }

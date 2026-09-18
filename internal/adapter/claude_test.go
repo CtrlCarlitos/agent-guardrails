@@ -275,3 +275,17 @@ func TestParseClaudeSafeMCPControlAllowsAndUnknownFamilyStaysExternal(t *testing
 		t.Fatalf("unknown family = %+v, want external/opaque", unknown)
 	}
 }
+
+func TestCoverageDriftLineNamesToolsAndTheDoctorCommand(t *testing.T) {
+	one := CoverageDriftLine("claude", "Claude Code 2.1.280", []string{"Foo"})
+	if one != "claude coverage: Claude Code 2.1.280 — 1 uncontracted tool (Foo); run guardrail doctor --coverage claude" {
+		t.Fatalf("one = %q", one)
+	}
+	many := CoverageDriftLine("claude", "Claude Code 2.1.280", []string{"Foo", "Bar\nBaz"})
+	if !strings.Contains(many, "2 uncontracted tools (Foo, Bar Baz)") || strings.Contains(many, "\n") {
+		t.Fatalf("many = %q", many)
+	}
+	if CoverageDriftLine("claude", "Claude Code 2.1.280", nil) != "" {
+		t.Fatal("no drift must render nothing")
+	}
+}
