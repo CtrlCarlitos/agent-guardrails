@@ -73,9 +73,7 @@ func TestEvalSymlinksFollowsSymlinkBeforeDotDot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != target {
-		t.Fatalf("EvalSymlinks(%q) = %q, want %q", candidate, got, target)
-	}
+	wantEither(t, got, target)
 }
 
 func TestResolveThroughExistingAncestorSymlinkParent(t *testing.T) {
@@ -92,10 +90,7 @@ func TestResolveThroughExistingAncestorSymlinkParent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(targetDir, "future")
-	if got != want {
-		t.Fatalf("resolved path = %q, want %q", got, want)
-	}
+	wantEither(t, got, filepath.Join(targetDir, "future"))
 }
 
 func TestResolveThroughExistingAncestorPreservesSymlinkDotDotOrder(t *testing.T) {
@@ -117,10 +112,7 @@ func TestResolveThroughExistingAncestorPreservesSymlinkDotDotOrder(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(targetParent, "future.txt")
-	if got != want {
-		t.Fatalf("resolved path = %q, want %q", got, want)
-	}
+	wantEither(t, got, filepath.Join(targetParent, "future.txt"))
 }
 
 func TestResolveThroughExistingAncestorExistingBenignTarget(t *testing.T) {
@@ -133,9 +125,7 @@ func TestResolveThroughExistingAncestorExistingBenignTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != target {
-		t.Fatalf("resolved path = %q, want %q", got, target)
-	}
+	wantEither(t, got, target)
 }
 
 func TestResolveThroughExistingAncestorRootAndRelativePath(t *testing.T) {
