@@ -13,12 +13,120 @@ import (
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/coverage"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/planecontract"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 )
 
 func cmdDoctor(args []string, stdout, stderr io.Writer) int {
+	opts, ok := parseDoctorArgs(args, stderr)
+	if !ok {
+		return 2
+	}
+	code := printDoctor(stdout, stderr)
+	if opts.coverage == "" {
+		return code
+	}
+	if covCode := printClaudeCoverage(opts.bundle, stdout, stderr); covCode != 0 {
+		return covCode
+	}
+	return code
+}
+
+type doctorOptions struct {
+	coverage string // plane to inventory; "" means none
+	bundle   string // explicit bundle path; "" resolves the installed one
+}
+
+func parseDoctorArgs(args []string, stderr io.Writer) (doctorOptions, bool) {
+	var opts doctorOptions
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--coverage":
+			if i+1 >= len(args) {
+				fmt.Fprintln(stderr, "guardrail: doctor --coverage needs a plane (claude)")
+				return opts, false
+			}
+			i++
+			opts.coverage = args[i]
+		case "--bundle":
+			if i+1 >= len(args) {
+				fmt.Fprintln(stderr, "guardrail: doctor --bundle needs a path")
+				return opts, false
+			}
+			i++
+			opts.bundle = args[i]
+		default:
+			fmt.Fprintf(stderr, "guardrail: doctor: unknown argument %q\n", safetext.SingleLine(args[i]))
+			return opts, false
+		}
+	}
+	if opts.bundle != "" && opts.coverage == "" {
+		fmt.Fprintln(stderr, "guardrail: doctor --bundle only applies with --coverage claude")
+		return opts, false
+	}
+	if opts.coverage != "" && opts.coverage != "claude" {
+		fmt.Fprintf(stderr, "guardrail: doctor --coverage supports claude only (got %q)\n", safetext.SingleLine(opts.coverage))
+		return opts, false
+	}
+	return opts, true
+}
+
+// claudeContracted is the coverage seam: the set of native names the Claude
+// contract classifies. MCP tools are contracted by prefix and never appear
+// as bare names in the bundle, so the check is the plane's static table.
+func claudeContracted() (func(string) bool, []string) {
+	names := []string{}
+	set := map[string]bool{}
+	for _, spec := range planecontract.RegisteredTools("claude") {
+		set[spec.NativeTool] = true
+		names = append(names, spec.NativeTool)
+	}
+	return func(name string) bool { return set[name] }, names
+}
+
+// printClaudeCoverage inventories the installed Claude Code bundle against
+// the contract. Uncontracted tools are the finding: under the audit posture
+// they allow by default. Exit 1 when any exist so scripts can gate on it.
+func printClaudeCoverage(bundle string, stdout, stderr io.Writer) int {
+	if bundle == "" {
+		path, err := coverage.ClaudeBundlePath()
+		if err != nil {
+			fmt.Fprintf(stderr, "guardrail: doctor --coverage claude: %s\n", safetext.SingleLine(err.Error()))
+			return 2
+		}
+		bundle = path
+	}
+	f, err := os.Open(bundle)
+	if err != nil {
+		fmt.Fprintf(stderr, "guardrail: doctor --coverage claude: cannot open bundle: %s\n", safetext.SingleLine(err.Error()))
+		return 2
+	}
+	defer f.Close()
+	contracted, names := claudeContracted()
+	inv, err := coverage.ScanClaudeBundle(f, contracted)
+	if err != nil {
+		fmt.Fprintf(stderr, "guardrail: doctor --coverage claude: %s\n", safetext.SingleLine(err.Error()))
+		return 2
+	}
+	label := "Claude Code"
+	if inv.Version != "" {
+		label += " " + inv.Version
+	}
+	fmt.Fprintf(stdout, "claude coverage: %s (%s)\n", label, safetext.SingleLine(bundle))
+	for _, line := range inv.Describe(names) {
+		fmt.Fprintln(stdout, "  "+safetext.SingleLine(line))
+	}
+	if len(inv.Uncontracted) > 0 {
+		fmt.Fprintln(stdout, "  add each uncontracted tool to internal/planecontract/claude.go with its capability; until then it runs under unknown_tool_posture")
+		return 1
+	}
+	return 0
+}
+
+func printDoctor(stdout, stderr io.Writer) int {
 	nightState, err := loadNightState(time.Now())
 	if err != nil {
 		fmt.Fprintf(stderr, "guardrail: night marker unreadable (%s); night mode remains inactive\n", safetext.SingleLine(err.Error()))
