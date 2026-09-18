@@ -10,6 +10,7 @@ Installed globally via dotfiles; each project layers its own rules in a committe
 - **Terminology**: [CONTEXT.md](./CONTEXT.md)
 - **Full design**: [DESIGN.md](./DESIGN.md)
 - **Key decisions**: [docs/adr/](./docs/adr/)
+- **When it's weird**: [docs/OPERATIONS.md](./docs/OPERATIONS.md) — the operator runbook
 
 ## Status
 
