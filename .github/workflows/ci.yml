@@ -29,6 +29,13 @@ jobs:
       # Windows-host path assumptions (IsAbs, HOME vs USERPROFILE, XDG vs
       # LOCALAPPDATA) fail there. Windows coverage = build + vet; windows
       # binaries remain a first-class RELEASE artifact.
+      - name: sow stray temp-root repo
+        # Regression guard for the temp-root discovery boundary (ADR: the
+        # /tmp/.git lesson): an empty .git at the system temp root must not
+        # capture repo-target resolution. Sow it before every test run so a
+        # regression fails here, not on a developer machine.
+        if: matrix.os == 'ubuntu-latest'
+        run: mkdir /tmp/.git
       - name: test
         if: matrix.os == 'ubuntu-latest'
         run: go test ./...
