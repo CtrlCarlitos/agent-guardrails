@@ -1,0 +1,128 @@
+# Changelog
+
+All notable changes to agent-guardrails. Format: one section per release;
+within a release, grouped by theme. Breaking changes are called out
+explicitly in **Breaking** notes.
+
+## v0.20.16-dev
+- `guardrail selftest`: embedded probe matrix verifies installed enforcement
+  behavior per plane (allow/deny/night-preserved asks, MCP projection).
+
+## v0.20.15-dev
+- `doctor --coverage codex --schema <path>`: schema-driven coverage inventory
+  (codex plane).
+
+## v0.20.14-dev
+_(skipped; tag reused during integration)_
+
+## v0.20.13-dev
+- **Fix (P0):** genconfig emits `planecontract` hook matchers, not stale
+  copies — `plane enable` can no longer regress live `*` matchers.
+- `doctor --coverage antigravity`: MCP config + session declaration inventory.
+- ADR-0019: static boundary verification vs dynamic meta-dispatch.
+
+## v0.20.12-dev
+- `doctor --coverage claude`: scans the installed Claude Code bundle;
+  surfaced and contracted `SendUserMessage` (SafeControl) and
+  `JavaScript`/`REPL` (Deny, unverified mediation).
+
+## v0.20.11-dev
+- `guardrail approvals list|approve <id>`; request TTL 5→15 minutes. The
+  socket can present a ceremony but never complete one (invariant preserved).
+
+## v0.20.10-dev
+- **Fix (P0):** night mode never relaxes outward-reach asks
+  (`capability-external`, `capability-web-search`, `unknown-native-tool`).
+- Claude unknown-tool posture: allow → ask. ADR-0018 (External tier).
+
+## v0.20.9-dev
+- MCP registry: pathless read queries scope to the working directory;
+  mutations keep required-path fail-closed.
+
+## v0.20.8-dev
+- MCP family registry (serena, graft) with argument projection; opencode
+  unknown tools ask instead of allowing. ADR-0017. Closes the coverage-audit
+  finding that MCP mutations ran with zero path evaluation.
+
+## v0.20.7-dev
+- Antigravity `schedule` typing: one-shot timers allow, cron/ambiguous ask.
+
+## v0.20.6-dev
+- Text-mention taxonomy (`P4.secret-in-text`, NightMentionReason): Deny with
+  Write/Edit redirection instead of dead-end guidance.
+
+## v0.20.5-dev
+- **Fix:** plane enable treats a stale permissions floor as drift and
+  re-merges (ground-truth comparison).
+
+## v0.20.4-dev
+- Approved grants are applied by the broker and never re-run;
+  `operator-action-satisfied` short-circuit. Codex mediation probes.
+
+## v0.20.3-dev
+- **Fix:** repo discovery stops at the System temp root boundary
+  (`GIT_CEILING_DIRECTORIES` + engine walk); the `/tmp/.git` lesson.
+
+## v0.20.2-dev
+- Antigravity native parity: typed paths, drift hardening, delegation
+  allowed with runtime evidence (ADR-0013).
+
+## v0.20.1-dev
+- Claude parity: MultiEdit/NotebookEdit evaluate every path;
+  `CapabilityExternal` for blanket-denied tools; egress terminal command.
+
+## v0.20.0-dev
+- **Codex becomes a Guardrail plane**: contract, adapter, native escalation
+  floor (ADR-0016), lifecycle, diagnostics. Unknown tools fail closed.
+
+## v0.19.13-dev
+- `guardrail recover <repair>`: predefined, WebAuthn-gated repairs for
+  protected machinery with timestamped backups.
+
+## v0.19.12-dev
+- OpenCode asks answered by the host permission dialog (ADR-0015); retry
+  inference demoted to fallback.
+
+## v0.19.11-dev
+- Help alignment; `guardrail update` retires a live approval daemon (no
+  superseded-code window).
+
+## v0.19.10-dev
+- Help decluttering; plane lifecycle absorbs unmarked legacy hook groups.
+
+## v0.19.9-dev
+- **Fix:** unmarked-entry detection matches every guardrail binary form
+  (`.test`, `.exe`, absolute paths); structural test HOME sandbox for plane
+  tests.
+
+## v0.19.8-dev
+- **Fix:** enable absorbs unmarked legacy Claude hook groups; reconciliation
+  treats their presence as drift.
+
+## v0.19.7-dev
+- **Fix:** plane CLI observes the broker's `completed` terminal status (the
+  hang); help column alignment.
+
+## v0.19.6-dev
+- Batched egress grants: one passkey for an exact domain list, all-or-nothing
+  application.
+
+## v0.19.5-dev
+- Delegation allowed on planes with in-process enforcement (ADR-0013);
+  typed `apply_patch` path extraction; `guardrail update`.
+
+## v0.19.4-dev
+- Same-version `guardrail update` is a verified no-op.
+
+## v0.19.3-dev
+- Plane lifecycle batches into one approval; steady state prompts nobody.
+
+## v0.19.2-dev
+- Actionable per-rule Deny guidance across all planes.
+
+## v0.19.1-dev
+- `guardrail plane status|enable|disable` lifecycle (WebAuthn-gated,
+  ownership-safe removal).
+
+## v0.19.0-dev
+- WebAuthn operator approvals: broker, browser ceremony, audit attribution.
