@@ -77,7 +77,9 @@ var claudeTools = []ToolSpec{
 	{"SendUserMessage", "SendUserMessage", policy.CapabilitySafeControl},
 	// JavaScript/REPL drive tool calls from executed code; whether those
 	// reach PreToolUse is unverified, so they fail closed like every
-	// unverified meta-dispatch (write_stdin, call_mcp_tool).
+	// unverified meta-dispatch (write_stdin, call_mcp_tool). Probed
+	// 2026-09-18: not exposed to sessions, never used on record, static
+	// signal ambiguous — evidence and the upgrade condition in ADR-0019.
 	{"JavaScript", "JavaScript", policy.CapabilityDeny},
 	{"REPL", "REPL", policy.CapabilityDeny},
 	{"WaitForMcpServers", "WaitForMcpServers", policy.CapabilitySafeControl},
