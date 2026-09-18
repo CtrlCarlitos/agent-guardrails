@@ -984,9 +984,21 @@ func repoRelative(p, cwd, repoRoot string) (string, bool) {
 		}
 		absPath = filepath.Join(cwd, absPath)
 	}
-	rel, err := filepath.Rel(strings.ToLower(filepath.Clean(repoRoot)), strings.ToLower(filepath.Clean(absPath)))
-	if err != nil {
-		return "", false
+	relWithin := func(root string) (string, bool) {
+		rel, err := filepath.Rel(strings.ToLower(filepath.Clean(root)), strings.ToLower(filepath.Clean(absPath)))
+		return rel, err == nil
+	}
+	rel, ok := relWithin(repoRoot)
+	if !ok {
+		// Darwin temp-symlink divergence: the path may arrive resolved
+		// (/private/var/...) while the root is raw (/var/folders/...) or the
+		// reverse; accept either root spelling.
+		if canonical := canonicalExistingPath(repoRoot); canonical != repoRoot {
+			rel, ok = relWithin(canonical)
+		}
+		if !ok {
+			return "", false
+		}
 	}
 	rel = filepath.ToSlash(rel)
 	if rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -252,7 +253,10 @@ func literalWriteFindExemptions(command string, simples []Simple, finds map[int]
 		}
 		root := parsed.scopedDeletionRoot
 		cwd := simpleCwd(simples[findIndex], tc)
-		if cwd == "" || pathHasExistingSymlink(root, cwd) {
+		if cwd == "" || pathHasSymlinkBelowTempRoot(root, cwd) {
+			// A symlinked deletion boundary can swap identity between check
+			// and execution; environmental symlinked ancestors (darwin /var)
+			// are fine, symlinks inside operator-controllable territory are not.
 			continue
 		}
 
@@ -471,7 +475,12 @@ func sameStrings(left, right []string) bool {
 }
 
 func literalPathConfinedTo(target, root, cwd string) bool {
-	if hasRawDotDot(target) || pathHasExistingSymlink(target, cwd) {
+	// Symlinked components below the enclosing temp root make the write's
+	// identity non-literal (it can swap between check and execution) and are
+	// vetoed; environmental symlinked ancestors above the temp root (darwin
+	// /var -> /private/var) are platform spelling, not adversarial, and both
+	// containment checks below still carry the escape security.
+	if hasRawDotDot(target) || pathHasSymlinkBelowTempRoot(target, cwd) {
 		return false
 	}
 	targetAbs, err := filepath.Abs(resolvePath(target, cwd))
@@ -569,6 +578,46 @@ func hasRawDotDot(candidate string) bool {
 		if component == ".." {
 			return true
 		}
+	}
+	return false
+}
+
+// pathHasSymlinkBelowTempRoot reports whether any path component BELOW the
+// enclosing system temp root is a symlink. Environmental symlinked ancestors
+// (darwin /var -> /private/var) sit at or above the temp root and are
+// ignored; symlinks inside the temp root are operator territory and veto.
+func pathHasSymlinkBelowTempRoot(candidate, cwd string) bool {
+	if candidate == "~" || strings.HasPrefix(candidate, "~/") {
+		return true
+	}
+	absolute, err := filepath.Abs(resolvePath(candidate, cwd))
+	if err != nil {
+		return true
+	}
+	cleaned := filepath.Clean(absolute)
+	volume := filepath.VolumeName(cleaned)
+	remaining := cleaned
+	start := volume + string(filepath.Separator)
+	for _, root := range systemTempRoots() {
+		for _, spelling := range []string{root, canonicalExistingPath(root)} {
+			spelling = filepath.Clean(spelling)
+			if spelling != volume+string(filepath.Separator) && (strings.HasPrefix(cleaned, spelling+string(filepath.Separator))) && len(spelling) > len(start) {
+				start = spelling
+			}
+		}
+	}
+	if remaining == start {
+		return false
+	}
+	if strings.HasPrefix(remaining, start) {
+		remaining = remaining[len(start):]
+	}
+	for _, component := range strings.FieldsFunc(remaining, pathSeparator) {
+		current := filepath.Join(start, component)
+		if info, err := os.Lstat(current); err == nil && info.Mode()&fs.ModeSymlink != 0 {
+			return true
+		}
+		start = current
 	}
 	return false
 }
