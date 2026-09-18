@@ -546,7 +546,7 @@ func TestDoctorWarnsOnAntigravityDrift(t *testing.T) {
 }
 
 const doctorCoverageBundle = `// Version: 2.1.275
-var tools=["Bash","Read","Write","Edit","Glob","Grep","NotebookEdit","WebFetch","WebSearch","Task","TodoWrite","Skill","REPL","JavaScript","AskUserQuestion","ToolSearch","SendUserMessage"];
+var tools=["Bash","Read","Write","Edit","Glob","Grep","NotebookEdit","WebFetch","WebSearch","Task","TodoWrite","Skill","AskUserQuestion","ToolSearch","SendUserMessage","FutureToolA","FutureToolB"];
 var aliases={KillBash:"TaskStop",BashOutput:"TaskOutput",Brief:"SendUserMessage",ListPeers:"ListAgents"};
 `
 
@@ -569,7 +569,7 @@ func TestDoctorCoverageClaudeReportsUncontractedTools(t *testing.T) {
 	s := out.String()
 	for _, want := range []string{
 		"claude coverage: Claude Code 2.1.275 (" + bundle + ")",
-		"uncontracted (allow-by-default): JavaScript, REPL, SendUserMessage",
+		"uncontracted (allow-by-default): FutureToolA, FutureToolB",
 		"legacy aliases: BashOutput→TaskOutput, Brief→SendUserMessage, KillBash→TaskStop, ListPeers→ListAgents",
 	} {
 		if !strings.Contains(s, want) {

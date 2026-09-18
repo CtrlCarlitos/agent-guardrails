@@ -74,6 +74,12 @@ var claudeTools = []ToolSpec{
 	{"TaskUpdate", "TaskUpdate", policy.CapabilitySafeControl},
 	{"TodoWrite", "TodoWrite", policy.CapabilitySafeControl},
 	{"ToolSearch", "ToolSearch", policy.CapabilitySafeControl},
+	{"SendUserMessage", "SendUserMessage", policy.CapabilitySafeControl},
+	// JavaScript/REPL drive tool calls from executed code; whether those
+	// reach PreToolUse is unverified, so they fail closed like every
+	// unverified meta-dispatch (write_stdin, call_mcp_tool).
+	{"JavaScript", "JavaScript", policy.CapabilityDeny},
+	{"REPL", "REPL", policy.CapabilityDeny},
 	{"WaitForMcpServers", "WaitForMcpServers", policy.CapabilitySafeControl},
 }
 

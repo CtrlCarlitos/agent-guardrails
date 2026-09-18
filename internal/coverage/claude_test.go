@@ -13,7 +13,7 @@ import (
 const syntheticBundle = `// Version: 2.1.275
 var noise=["HTMLDivElement","HTMLSpanElement","HTMLTableElement","SVGElement"];
 var errs=["ValidationException","ThrottlingException","AccessDeniedException"];
-var tools=["Bash","Read","Write","Edit","Glob","Grep","NotebookEdit","WebFetch","WebSearch","Task","TodoWrite","Skill","REPL","JavaScript","AskUserQuestion","ToolSearch","SendUserMessage"];
+var tools=["Bash","Read","Write","Edit","Glob","Grep","NotebookEdit","WebFetch","WebSearch","Task","TodoWrite","Skill","AskUserQuestion","ToolSearch","SendUserMessage","FutureToolA","FutureToolB"];
 var aliases={KillBash:"TaskStop",BashOutput:"TaskOutput",AgentOutput:"TaskOutput",ListPeers:"ListAgents",Brief:"SendUserMessage",ReadMcpResourceDir:"ReadMcpResourceDirTool"};
 var langs=["Go","Rust","Python"];
 var mixed=["Bash","Zephir","Wren"];
@@ -23,7 +23,7 @@ func contracted(name string) bool {
 	switch name {
 	case "Bash", "Read", "Write", "Edit", "Glob", "Grep", "NotebookEdit", "WebFetch", "WebSearch",
 		"Task", "TodoWrite", "Skill", "AskUserQuestion", "ToolSearch", "TaskStop", "TaskOutput",
-		"ListAgents", "ReadMcpResourceDirTool", "PowerShell":
+		"ListAgents", "ReadMcpResourceDirTool", "PowerShell", "SendUserMessage":
 		return true
 	}
 	return false
@@ -37,7 +37,7 @@ func TestScanClaudeBundleFindsUncontractedToolsFromToolLists(t *testing.T) {
 	if inv.Version != "2.1.275" {
 		t.Fatalf("version = %q", inv.Version)
 	}
-	if got := strings.Join(inv.Uncontracted, ","); got != "JavaScript,REPL,SendUserMessage" {
+	if got := strings.Join(inv.Uncontracted, ","); got != "FutureToolA,FutureToolB" {
 		t.Fatalf("uncontracted = %q", got)
 	}
 	// Noise lists (no contracted majority) never contribute candidates.
