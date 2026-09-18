@@ -230,13 +230,18 @@ func TestDelegationInheritsEnforcementOnInProcessPlanes(t *testing.T) {
 	}
 }
 
-func TestUnknownToolAsksOnOpencodeAndAllowsOnClaude(t *testing.T) {
-	oc := Evaluate(ToolCall{Plane: "opencode", NativeTool: "future_unknown_tool", Capability: policy.CapabilityUnknown}, fullPol())
-	if oc.Decision != policy.Ask || oc.RuleID != "unknown-native-tool" {
-		t.Fatalf("opencode unknown = %+v, want ask/unknown-native-tool", oc)
+func TestUnknownToolAsksOnOpencodeAndClaude(t *testing.T) {
+	for _, plane := range []string{"opencode", "claude"} {
+		v := Evaluate(ToolCall{Plane: plane, NativeTool: "future_unknown_tool", Capability: policy.CapabilityUnknown}, fullPol())
+		if v.Decision != policy.Ask || v.RuleID != "unknown-native-tool" {
+			t.Fatalf("%s unknown = %+v, want ask/unknown-native-tool", plane, v)
+		}
 	}
-	cl := Evaluate(ToolCall{Plane: "claude", NativeTool: "future_unknown_tool", Capability: policy.CapabilityUnknown}, fullPol())
-	if cl.Decision != policy.Allow {
-		t.Fatalf("claude unknown = %+v, want allow (posture audit)", cl)
+}
+
+func TestUnknownToolAsksOnClaude(t *testing.T) {
+	cl := Evaluate(ToolCall{Plane: "claude", NativeTool: "brand_new_tool", Capability: policy.CapabilityUnknown}, fullPol())
+	if cl.Decision != policy.Ask || cl.RuleID != "unknown-native-tool" {
+		t.Fatalf("claude unknown = %+v, want ask/unknown-native-tool", cl)
 	}
 }

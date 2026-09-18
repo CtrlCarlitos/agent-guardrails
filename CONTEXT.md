@@ -123,6 +123,17 @@ A terminal-only Operator authorization request for a predefined repair of
 Guardrail-protected machinery. It shows the normalized repair, requires
 WebAuthn, and cannot execute arbitrary shell text supplied by a plane.
 
+**External tier**:
+Tools whose effect leaves the session — artifact publication, scheduling
+recurrence, MCP servers, external services — classified CapabilityExternal:
+a per-call operator Ask, never blanket-denied and never relaxed by night
+mode (ADR-0018).
+
+**Text-mention verdict**:
+A Deny for command *text* naming a secret-tier path or night control
+(P4.secret-in-text; P5.self-config with NightMentionReason) rather than
+accessing one. Still Deny; guidance redirects to Write/Edit.
+
 **Autonomy posture**:
 Claude's SessionStart advisory describing the active operating posture, Waivers,
 and warnings. It is model-facing context, not a Verdict mode.

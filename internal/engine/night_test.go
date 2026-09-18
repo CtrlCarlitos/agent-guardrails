@@ -51,3 +51,18 @@ func TestApplyNightModeOnlyRewritesAsk(t *testing.T) {
 		})
 	}
 }
+
+func TestNightModeNeverRelaxesOutwardReachAsks(t *testing.T) {
+	for _, ruleID := range []string{"capability-external", "capability-web-search", "unknown-native-tool"} {
+		v := policy.Verdict{Decision: policy.Ask, RuleID: ruleID}
+		got := ApplyNightMode(v, true)
+		if got.Decision != policy.Ask || got.RuleID != ruleID {
+			t.Fatalf("night relaxed %s: %+v", ruleID, got)
+		}
+	}
+	// Routine asks still relax overnight.
+	got := ApplyNightMode(policy.Verdict{Decision: policy.Ask, RuleID: "P5.out-of-repo"}, true)
+	if got.Decision != policy.Allow || got.RuleID != "ask-allowed-by-night-mode" {
+		t.Fatalf("routine ask not relaxed: %+v", got)
+	}
+}
