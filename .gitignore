@@ -8,3 +8,4 @@ node_modules/
 # local tool artifacts - never commit (the #48 lesson)
 /graft/
 .serena/
+.superpowers/
