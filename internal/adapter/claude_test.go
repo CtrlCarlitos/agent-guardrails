@@ -55,7 +55,7 @@ func TestParseClaudeClassifiesCapabilityInputs(t *testing.T) {
 		{"notebook", "NotebookEdit", `{"notebook_path":"/repo/a.ipynb"}`, policy.CapabilityMutation, "/repo/a.ipynb", ""},
 		{"fetch", "WebFetch", `{"url":"https://example.test/docs"}`, policy.CapabilityWebFetch, "", "https://example.test/docs"},
 		{"search", "WebSearch", `{"query":"guardrails"}`, policy.CapabilityWebSearch, "", ""},
-		{"mcp", "mcp__server__unsafe", `{}`, policy.CapabilityDeny, "", ""},
+		{"mcp", "mcp__server__unsafe", `{}`, policy.CapabilityExternal, "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

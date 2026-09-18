@@ -30,7 +30,7 @@ func TestGuidanceDenyIsActionablePerRule(t *testing.T) {
 	}{
 		{
 			ruleID: "capability-deny",
-			wants:  []string{"unavailable on this plane", "perform the work yourself in this session", "continue"},
+			wants:  []string{"outside the Guardrail boundary on this plane", "Do not retry it", "in-session tools", "tell the operator", "continue"},
 		},
 		{
 			ruleID: "capability-delegation-unverified",
