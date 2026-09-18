@@ -235,9 +235,20 @@ func cmdPlaneLifecycle(args []string, action, outcome string, terminal bool, std
 	}
 
 	// Reconciliation: a plane already in the desired state never prompts.
+	// For enable, the desired state is the registered hook AND the current
+	// permissions floor: a released floor entry that has not been merged is
+	// drift, and the merge that lands it is idempotent.
 	var batch []string
 	for _, plane := range targets {
-		if planeIntegrationRegistered(plane) == (action == "plane-enable") {
+		registered := planeIntegrationRegistered(plane)
+		if action == "plane-enable" && registered {
+			if missing := planeFloorDrift(plane); missing > 0 {
+				fmt.Fprintf(stdout, "%s: permissions floor drifted (%d entries missing); re-enabling\n", plane, missing)
+				batch = append(batch, plane)
+				continue
+			}
+		}
+		if registered == (action == "plane-enable") {
 			fmt.Fprintf(stdout, "%s: already %s\n", plane, outcome)
 			continue
 		}
@@ -425,6 +436,52 @@ func antigravityHooksHaveOwnedGroup(guardrail map[string]any) bool {
 		}
 	}
 	return false
+}
+
+// planeFloorDrift counts generated declarative-floor permission entries that
+// the plane's global config lacks. Only Claude's floor is compared today;
+// other planes report no drift and keep their registration-only skip.
+func planeFloorDrift(plane string) int {
+	if plane != "claude" {
+		return 0
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return 0
+	}
+	raw, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
+	if err != nil {
+		return 0
+	}
+	var doc map[string]any
+	if json.Unmarshal(raw, &doc) != nil {
+		return 0
+	}
+	base, err := policy.LoadBase()
+	if err != nil {
+		return 0
+	}
+	want, _ := genconfig.ClaudeConfig(base, "guardrail")["permissions"].(map[string]any)
+	have, _ := doc["permissions"].(map[string]any)
+	missing := 0
+	for tier, entries := range want {
+		present := map[string]bool{}
+		if list, ok := have[tier].([]any); ok {
+			for _, entry := range list {
+				if s, ok := entry.(string); ok {
+					present[s] = true
+				}
+			}
+		}
+		if list, ok := entries.([]string); ok {
+			for _, entry := range list {
+				if !present[entry] {
+					missing++
+				}
+			}
+		}
+	}
+	return missing
 }
 
 // planeStatusState reports whether Guardrail's integration is registered in
