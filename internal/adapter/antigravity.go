@@ -167,6 +167,15 @@ func ParseAntigravity(phase string, r io.Reader) (engine.ToolCall, error) {
 		Arguments:  native.ToolCall.Args,
 		Raw:        raw,
 	}
+	if p.ToolCall.Name == "manage_task" {
+		action, _ := input["Action"].(string)
+		switch action {
+		case "list", "status", "kill":
+			tc.Capability = policy.CapabilitySafeControl
+		default:
+			tc.Capability = policy.CapabilityDeny
+		}
+	}
 	if tc.Capability == policy.CapabilityCommand {
 		tc.InputShape = "command"
 	}

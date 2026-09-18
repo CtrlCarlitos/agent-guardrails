@@ -85,10 +85,10 @@ func TestOpenCodeAndAntigravityInventoriesClassifyCapabilityBoundary(t *testing.
 			"grep_search": policy.CapabilityReadDiscovery, "write_to_file": policy.CapabilityMutation,
 			"replace_file_content": policy.CapabilityMutation, "multi_replace_file_content": policy.CapabilityMutation,
 			"read_url_content": policy.CapabilityWebFetch, "search_web": policy.CapabilityWebSearch,
-			"manage_task": policy.CapabilityDeny, "schedule": policy.CapabilityDeny,
+			"manage_task": policy.CapabilitySafeControl, "schedule": policy.CapabilityDeny,
 			"list_permissions": policy.CapabilitySafeControl, "ask_permission": policy.CapabilitySafeControl,
 			"invoke_subagent": policy.CapabilityDelegation, "define_subagent": policy.CapabilityDeny,
-			"send_message": policy.CapabilityDeny, "manage_subagents": policy.CapabilityDeny,
+			"send_message": policy.CapabilityDelegation, "manage_subagents": policy.CapabilityDelegation,
 			"ask_question": policy.CapabilitySafeControl, "generate_image": policy.CapabilityDeny,
 		}},
 	} {

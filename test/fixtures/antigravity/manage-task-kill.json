@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"manage_task","args":{"Action":"kill","TaskId":"t1","toolAction":"Canceling task","toolSummary":"Cancel task"}}}

@@ -49,5 +49,21 @@
   },
   "invoke-subagent.json": {
     "decision": "allow"
+  },
+  "send-message.json": {
+    "decision": "allow"
+  },
+  "manage-subagents.json": {
+    "decision": "allow"
+  },
+  "manage-task-status.json": {
+    "decision": "allow"
+  },
+  "manage-task-kill.json": {
+    "decision": "allow"
+  },
+  "manage-task-send-input.json": {
+    "decision": "deny"
   }
 }
+

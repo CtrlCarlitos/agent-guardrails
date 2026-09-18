@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"manage_subagents","args":{"Action":"list","toolAction":"Listing subagents","toolSummary":"List subagents"}}}
