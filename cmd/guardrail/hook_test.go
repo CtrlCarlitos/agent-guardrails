@@ -1815,7 +1815,7 @@ reason = "raw\nreason\tclaim\u007f"
 	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 2 {
 		t.Fatalf("exit=%d, want 2; stderr=%q", code, errb.String())
 	}
-	if errb.String() != "guardrail: Guardrail denied this action: raw reason claim . Do not retry this exact call. Complete the work by other means and involve the operator only if this exact step is required; then continue.\n" {
+		if errb.String() != "guardrail: Guardrail denied this action: raw reason claim . Do not retry this exact call. Complete the work by other means and involve the operator only if this exact step is required; then continue. If this verdict seems wrong or blocks legitimate work, report it to the operator with: the exact tool call, the rule ID (project.raw-reason), your guardrail version, what you were trying to do, and what you did instead. Do not work around it silently.\n" {
 		t.Fatalf("model-facing reason was not sanitized: %q", errb.String())
 	}
 	raw, err := os.ReadFile(filepath.Join(state, "guardrail", "audit.jsonl"))
