@@ -24,7 +24,7 @@ What the agent sees instead of a running installer:
 
 > **Guardrail denied this action:** downloaded content reaches an interpreter later in the same pipeline. Download piped into a shell is denied. Download to a file, inspect it, then run it as a separate reviewed step.
 
-So it downloads the file, reads it, and runs it as a second step — no human in the loop, no stall. Then it tries to ship:
+So it downloads the file, reads it, and runs it as a second step — once the destination host is authorized, no human in the loop and no stall. Then it tries to ship:
 
 ```
 $ git push origin main
@@ -32,7 +32,7 @@ $ git push origin main
 
 > **Operator authorization required:** push to a protected branch. Request authorization for this exact action: `Bash {"command":"git push origin main"}`. If the operator approves, retry this exact tool call once. Do not alter or broaden the action.
 
-That's an *ask*: the host shows you a prompt, you say yes or no, the agent continues either way. And when it reaches for something it shouldn't have at all:
+That's an *ask*: on supported hosts, the host shows you a prompt and the agent retries once you approve; on Codex, asks block with guidance. And when it reaches for something it shouldn't have at all:
 
 ```
 $ cat ~/.ssh/id_ed25519
@@ -40,7 +40,7 @@ $ cat ~/.ssh/id_ed25519
 
 > **Guardrail denied this action:** access to a credential/secret path: `/home/you/.ssh/id_ed25519`. This is a secret-tier path: it is denied here, and only an authorized Overlay `secret_allow` can allow a matching file secret (never directory secrets). Exclude this path and continue the rest of the task.
 
-Every deny ends with a next step. We treat a deny that leaves the agent stuck as a bug.
+The same engine inspects native editor tools and MCP servers before their calls touch disk — not just shell commands. Every deny ends with a next step. We treat a deny that leaves the agent stuck as a bug.
 
 ## Install
 
@@ -102,12 +102,12 @@ Unix, WSL and macOS today. Windows runs the engine fine but keeps operator actio
 
 ## What it protects
 
-Every tool call gets one of three verdicts:
+Every intercepted tool call gets one of three verdicts. These describe calls that reach Guardrail; approval support and interception coverage differ by host, as listed below.
 
 | Verdict | What happens | Example |
 |---|---|---|
 | **allow** | Nothing. The agent never notices. | Editing a file in your repo, `go build`, reading source |
-| **ask** | Your host prompts you. Approve and the agent retries once. | `git push origin main`, `chmod -R 777`, editing `go.sum` or a CI workflow, `npm install` |
+| **ask** | Supported hosts prompt you; Codex blocks with guidance (see the planes table). | `git push origin main`, `chmod -R 777`, editing `go.sum` or a CI workflow, `npm install` |
 | **deny** | The call does not run. The agent gets a reason **and a next step**. | `rm -rf /`, `sudo`, reading `~/.ssh/*` or `.env`, `curl … \| sh`, editing its own hook config |
 
 ```
@@ -115,18 +115,17 @@ Every tool call gets one of three verdicts:
              │  Attempted agent tool call  │
              └──────────────┬──────────────┘
                             │
-                ┌───────────▼───────────┐
-                │ Guardrail policy engine│
-                └────┬────────┬────┬────┘
-                     │        │    │
-          allow      │   ask  │    │     deny
-     ┌───────────────┘    │    │    └────────────────┐
-     │                   │    │                     │
-┌────▼───────────┐ ┌─────▼────────┐ ┌───────────────▼─────────┐
-│ Zero-friction  │ │   Operator   │ │ Hard denial + guidance │
-│ pass-through   │ │   prompt     │ │ (concrete next step)   │
-│                │ │ (retry once) │ │                        │
-└────────────────┘ └──────────────┘ └────────────────────────┘
+                ┌───────────▼─────────────┐
+                │ Guardrail policy engine │
+                └────┬───────┬───────┬────┘
+        allow        │  ask  │       │  deny
+     ┌───────────────┘       │       └──────────────────┐
+     │                       │
+┌────▼───────────┐  ┌────────▼───────┐  ┌───────────────▼──────────┐
+│ Zero-friction  │  │ Operator       │  │ Hard denial + guidance   │
+│ pass-through   │  │ prompt         │  │ (concrete next step)     │
+│                │  │ (retry once)   │  │                          │
+└────────────────┘  └────────────────┘  └──────────────────────────┘
 ```
 
 The rules are grouped by what they defend:
@@ -135,7 +134,7 @@ The rules are grouped by what they defend:
 - **Git safety** — protected-branch pushes and history rewrites ask; `git config` that can run code later is denied.
 - **Secrets, in three tiers** — directories like `~/.ssh` and `~/.aws` always deny; files like `.env` and `id_rsa` deny unless you authorize a waiver; ambiguous files like `*.pem` ask inside the repo and deny outside it. A path mentioned inside a JSON literal or a heredoc is caught too, and the guidance says to use the editor tool instead.
 - **The agent's own machinery** — it can't edit its hook config, the guardrail binary, or the operator config. Repairs are yours: `guardrail recover`.
-- **Egress** — recognized web operations (fetches through the agent's own tool) require a host grant; downloads never flow into an interpreter.
+- **Egress** — no web host is authorized until you grant it. Native fetch tools are blocked (their redirects can't be verified); the agent is told to use `guardrail fetch <url>`, which checks every redirect against the authorized-host list. Downloads never flow into an interpreter.
 - **Meta-dispatch** — tools that run *other* tools from code (a JS REPL, a generic MCP invoker, stdin injection into a running shell) are denied until their inner calls are proven to reach the hook ([ADR-0019](./docs/adr/0019-static-boundary-verification-vs-dynamic-meta-dispatch.md)).
 - **After edits** — Go, Python, JS/TS and Rust files are formatted and linted per edit; a real lint failure is a deny with the tool's output.
 
@@ -174,7 +173,7 @@ go build -trimpath -ldflags '-X main.version=v0.21.0-dev' \
   -o ~/.local/bin/guardrail ./cmd/guardrail
 ```
 
-Then follow enrollment and plane enablement above.
+Then add `~/.local/bin` to your PATH (as above) and follow enrollment and plane enablement.
 
 </details>
 
