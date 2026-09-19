@@ -496,6 +496,45 @@ func CountUnmarkedGuardrailGroups(doc map[string]any) int {
 	return n
 }
 
+// CountUnmarkedGuardrailDuplicates counts guardrail hook groups that have the
+// command but no id, ONLY within events that also have a properly marked
+// (guardrail- prefixed id) entry — true duplicates needing absorption.
+// When Claude Code's serializer has stripped all ids (no marked entries
+// anywhere), the hooks are owned, not drift; this returns 0.
+func CountUnmarkedGuardrailDuplicates(doc map[string]any) int {
+	hooks, ok := doc["hooks"].(map[string]any)
+	if !ok {
+		return 0
+	}
+	n := 0
+	for _, ev := range hooks {
+		groups, ok := ev.([]any)
+		if !ok {
+			continue
+		}
+		hasMarked := false
+		for _, g := range groups {
+			m, ok := g.(map[string]any)
+			if !ok {
+				continue
+			}
+			if id, _ := m["id"].(string); strings.HasPrefix(id, "guardrail-") {
+				hasMarked = true
+				break
+			}
+		}
+		if !hasMarked {
+			continue // id-stripped owned hooks, not duplicates
+		}
+		for _, g := range groups {
+			if unmarkedGuardrailGroup(g) {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 // CountUnmarkedAntigravityGroups counts legacy unmarked guardrail hook groups in
 // an Antigravity hooks.json document; doctor and lifecycle reconciliation use it.
 func CountUnmarkedAntigravityGroups(doc map[string]any) int {
