@@ -23,13 +23,11 @@ document is empty, it is deleted.
 - [ ] **Unified guardrail status** — fold coverage drift, floor currency, and selftest marker into one cache key, one posture line, one command. *(claude — fight for)*
 - [ ] **Daemon mode for hooks** — long-running process, hook connects via socket; amortizes fork+exec to sub-ms. *(opencode)*
 - [ ] **PowerShell cmdlet rules** — P1/P4/P6 coverage for `Remove-Item`, `Get-Content`, `Invoke-Expression`, `Format-Volume`; must be sized before Windows is trusted. *(claude + codex + handover doc)*
-- [ ] **guardrail tail** — live decision stream (`guardrail tail` or `--follow` on audit). *(agy + opencode)*
 - [ ] **Failed updates return non-zero exit** — retain previous binary, offer explicit rollback. *(codex)*
 
 ## Policy refinements
 
 - [ ] **Inert redirect body rule** — when a shell's only effect is a redirect into a path the write rules allow, and the interpreter is cat/tee (not python/bash), the content is inert data. *(claude — hit 5× personally)*
-- [ ] **Session-scoped night mode** — `--scope session` for background agents without relaxing the primary terminal. *(agy)*
 - [ ] **Write seams ADR-0022** — the table of where writes are authorized and why. *(claude)*
 
 ## Documentation
@@ -42,12 +40,8 @@ document is empty, it is deleted.
 
 - [ ] **Multi-agent handoff protocol** — base SHA, owned files, dependencies, checks, unresolved limits; originating reviewer verifies closure. *(codex)*
 - [ ] **Pre-push branch-trap check** — "is HEAD already reachable from main?" before pushing. *(opencode)*
-- [ ] **Worktree cleanup** — `make worktree-clean`, `.worktrees/` in gitignore, teardown protocol in OPERATIONS.md. *(agy)*
-- [ ] **Contract golden linter** — check all plane fixtures against `internal/planecontract/` before PR. *(agy)*
 - [ ] **Stale code-index warning** — graft should flag when its index doesn't match current HEAD. *(codex)*
 
 ## Future milestones
 
 - [ ] **Stable release v1.0.0** — with breaking-change policy and stability guarantees. *(opencode)*
-- [ ] **Desktop approval broker** — Touch ID on macOS, Windows Hello on Windows. *(agy)*
-- [ ] **Out-of-band notification** — desktop notify when a background agent hits an ask. *(agy)*
