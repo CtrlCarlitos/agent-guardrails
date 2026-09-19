@@ -1,0 +1,29 @@
+# Normalize all text files to LF in the repository.
+* text=auto eol=lf
+
+# Force LF for files that break with CRLF.
+*.sh text eol=lf
+*.go text eol=lf
+*.mod text eol=lf
+*.sum text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.js text eol=lf
+*. golden text eol=lf
+
+# Windows-specific files that tolerate or prefer CRLF.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.psm1 text eol=crlf
+
+# Binary files — never normalize.
+*.png binary
+*.jpg binary
+*.ico binary
+*.exe binary
+*.woff binary
+*.woff2 binary
