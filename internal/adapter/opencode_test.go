@@ -170,7 +170,7 @@ func TestEmitOpencodeSanitizesReasonForEveryDecision(t *testing.T) {
 			if got["decision"] != string(tt.decision) {
 				t.Fatalf("bad payload: %v", got)
 			}
-			if tt.decision == policy.Ask && (!strings.Contains(got["reason"], "Operator authorization required: needs approval.") || !strings.Contains(got["reason"], `Request authorization for this exact action: bash {"command":"chmod -R 777 /tmp","timeout":30}.`) || !strings.Contains(got["reason"], "If the operator approves, retry this exact tool call once.") || !strings.Contains(got["reason"], "Do not alter or broaden the action.")) {
+			if tt.decision == policy.Ask && (!strings.Contains(got["reason"], "Operator authorization required: needs approval.") || !strings.Contains(got["reason"], `Request authorization for this exact action: bash {"command":"chmod -R 777 /tmp","timeout":30}.`) || !strings.Contains(got["reason"], "If the operator approves, retry this exact tool call within 10 minutes (the authorization expires after that; if it expires, ask again).") || !strings.Contains(got["reason"], "Do not alter or broaden the action.")) {
 				t.Fatalf("ask guidance = %q", got["reason"])
 			}
 			if tt.decision == policy.Deny && (!strings.Contains(got["reason"], "Guardrail denied this action: needs approval.") || !strings.Contains(got["reason"], "Do not retry this exact call.") || strings.Contains(got["reason"], "Choose a safe alternative.")) {
@@ -196,7 +196,7 @@ func TestEmitOpencodeAskPreservesCompleteActionWhenItExceedsBound(t *testing.T) 
 	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got["reason"], "Request authorization for this exact action: "+wantAction+".") || !strings.Contains(got["reason"], "If the operator approves, retry this exact tool call once.") || !strings.Contains(got["reason"], "Do not alter or broaden the action.") {
+	if !strings.Contains(got["reason"], "Request authorization for this exact action: "+wantAction+".") || !strings.Contains(got["reason"], "If the operator approves, retry this exact tool call within 10 minutes (the authorization expires after that; if it expires, ask again).") || !strings.Contains(got["reason"], "Do not alter or broaden the action.") {
 		t.Fatalf("Ask guidance = %q, want complete action and mandatory constraints", got["reason"])
 	}
 }
@@ -217,7 +217,7 @@ func TestEmitOpencodeAskRetainsMandatoryContentWhenReasonExceedsBound(t *testing
 	}
 	for _, want := range []string{
 		`Request authorization for this exact action: bash {"command":"chmod -R 777 /tmp"}.`,
-		"If the operator approves, retry this exact tool call once.",
+		"If the operator approves, retry this exact tool call within 10 minutes (the authorization expires after that; if it expires, ask again).",
 		"Do not alter or broaden the action.",
 	} {
 		if !strings.Contains(got["reason"], want) {

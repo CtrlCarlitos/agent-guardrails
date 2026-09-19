@@ -143,7 +143,7 @@ func TestEmitAntigravityPreSanitizesReasonForEveryDecision(t *testing.T) {
 			if got["decision"] != test.want {
 				t.Fatalf("bad payload: %v", got)
 			}
-			if test.decision == policy.Ask && (!strings.Contains(got["reason"], "Operator authorization required: needs approval.") || !strings.Contains(got["reason"], `Request authorization for this exact action: run_command {"CommandLine":"chmod -R 777 /tmp","Cwd":"/tmp"}.`) || !strings.Contains(got["reason"], "If the operator approves, retry this exact tool call once.") || !strings.Contains(got["reason"], "Do not alter or broaden the action.")) {
+			if test.decision == policy.Ask && (!strings.Contains(got["reason"], "Operator authorization required: needs approval.") || !strings.Contains(got["reason"], `Request authorization for this exact action: run_command {"CommandLine":"chmod -R 777 /tmp","Cwd":"/tmp"}.`) || !strings.Contains(got["reason"], "If the operator approves, retry this exact tool call within 10 minutes (the authorization expires after that; if it expires, ask again).") || !strings.Contains(got["reason"], "Do not alter or broaden the action.")) {
 				t.Fatalf("ask guidance = %q", got["reason"])
 			}
 			if test.decision == policy.Deny && (!strings.Contains(got["reason"], "Guardrail denied this action: needs approval.") || !strings.Contains(got["reason"], "Do not retry this exact call.") || strings.Contains(got["reason"], "Choose a safe alternative.")) {

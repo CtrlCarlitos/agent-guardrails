@@ -13,7 +13,7 @@ func TestGuidanceAskRequiresAuthorizationForExactAction(t *testing.T) {
 	for _, want := range []string{
 		"Operator authorization required: external egress needs approval.",
 		`Request authorization for this exact action: bash {"command":"curl https://example.test"}.`,
-		"If the operator approves, retry this exact tool call once.",
+		"If the operator approves, retry this exact tool call within 10 minutes (the authorization expires after that; if it expires, ask again).",
 		"Do not alter or broaden the action.",
 	} {
 		if !strings.Contains(got, want) {
