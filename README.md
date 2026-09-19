@@ -10,7 +10,7 @@
 
 You let an agent run shell commands, edit files and fetch web pages on your machine because that's what makes it useful. The same access lets it `rm -rf` the wrong directory, read `~/.ssh/id_ed25519` into a chat transcript, pipe a downloaded script straight into `sh`, or push to `main` while you're getting coffee. Every agent host has *some* permission system, each one different, and none of them is a policy you can read, version, and apply to all four hosts at once.
 
-`guardrail` is a single Go binary that every agent host on your machine calls before it runs a tool. It reads the call, decides **allow**, **ask**, or **deny**, and — this is the part that matters day to day — when it says no, it says *what to do next*, so the agent keeps working instead of stalling. The policy is one file you can read. It's the same on Claude Code, opencode, Antigravity and Codex. A project can tighten it by committing a `guardrail.toml`; only you, with a passkey, can loosen it.
+`guardrail` is a single Go binary that sits between every supported agent host and the tools it runs. It reads the call, decides **allow**, **ask**, or **deny**, and — this is the part that matters day to day — when it says no, it says *what to do next*, so the agent keeps working instead of stalling. The policy is one file you can read. It's the same on Claude Code, opencode, Antigravity and Codex. A project can tighten it by committing a `guardrail.toml`; only you, with a passkey, can loosen it.
 
 ## Sixty seconds of what it's like
 
@@ -46,8 +46,6 @@ Every deny ends with a next step. We treat a deny that leaves the agent stuck as
 
 There is one binary. Releases ship it for Linux, macOS and Windows (amd64 + arm64) with a `SHA256SUMS` file.
 
-### Install
-
 Pick the asset for your machine (`uname -m` shows the architecture), then download, verify, and install:
 
 | Machine | Asset |
@@ -67,11 +65,12 @@ Pick the asset for your machine (`uname -m` shows the architecture), then downlo
 
   curl -fL -o "$asset" "$url/$asset"
   curl -fL -o SHA256SUMS "$url/SHA256SUMS"
-  grep " $asset\$" SHA256SUMS | sha256sum -c -   # or: shasum -a 256 -c -
+  grep " $asset\$" SHA256SUMS | { sha256sum -c - 2>/dev/null || shasum -a 256 -c - ; }
 
   mkdir -p ~/.local/bin
   install -m 0755 "$asset" ~/.local/bin/guardrail
 )
+export PATH="$HOME/.local/bin:$PATH"   # keep this in your shell profile
 guardrail version
 ```
 
@@ -88,14 +87,16 @@ guardrail selftest
 guardrail doctor
 ```
 
-From then on, `guardrail update <version>` replaces the binary (checksum-verified), runs `doctor` and `selftest` on the new one, and refuses to install anything that doesn't pass.
+From then on, `guardrail update <version>` replaces the binary (checksum-verified) and runs `doctor` and `selftest` on the new release, calling out loudly if any probe fails. To go back, run `guardrail update <previous-version>`.
 
-If you want the *ask* verdicts to go through a passkey instead of your host's own prompt — and you want `plane enable`, egress grants and night mode — enroll once:
+Some actions are the operator's alone — registering a host with `plane enable`, granting web-host access, night mode. These require a passkey; enroll once:
 
 ```sh
-guardrail operator enroll     # opens a local page; touch your security key or use your platform authenticator
-guardrail plane enable --all  # registers every installed host with one approval
+guardrail operator enroll     # prints a localhost URL; open it and complete the passkey prompt
+guardrail plane enable --all  # registers every detected host with one approval
 ```
+
+Restart the agents you wired. **For Codex, run `/hooks` inside Codex to review and trust the generated hooks** — registered hooks alone are not executed by the runtime.
 
 Unix, WSL and macOS today. Windows runs the engine fine but keeps operator actions fail-closed until the [Windows broker](./docs/adr/0021-windows-approval-broker.md) lands.
 
@@ -106,24 +107,26 @@ Every tool call gets one of three verdicts:
 | Verdict | What happens | Example |
 |---|---|---|
 | **allow** | Nothing. The agent never notices. | Editing a file in your repo, `go build`, reading source |
-| **ask** | Your host prompts you (or the passkey ceremony runs). Approve and the agent retries once. | `git push origin main`, `chmod -R 777`, editing `go.sum` or a CI workflow, `npm install` |
+| **ask** | Your host prompts you. Approve and the agent retries once. | `git push origin main`, `chmod -R 777`, editing `go.sum` or a CI workflow, `npm install` |
 | **deny** | The call does not run. The agent gets a reason **and a next step**. | `rm -rf /`, `sudo`, reading `~/.ssh/*` or `.env`, `curl … \| sh`, editing its own hook config |
 
 ```
-              ┌──────────────────────────────┐
-              │  Attempted agent tool call   │
-              └──────────────┬───────────────┘
-                             │
-                 ┌───────────▼────────────┐
-                 │  Guardrail policy engine│
-                 └─────┬────────────┬─────┘
-      allow           │            │           deny
-  ┌───────────────────┘    ask     └──────────────────┐
-  │                         │                         │
-┌─▼──────────────┐ ┌────────▼────────┐ ┌─────────────▼──────────────┐
-│ Zero-friction  │ │ Operator prompt │ │ Hard denial + guidance    │
-│ pass-through   │ │ (retry once)    │ │ (concrete next step)      │
-└────────────────┘ └─────────────────┘ └───────────────────────────┘
+             ┌─────────────────────────────┐
+             │  Attempted agent tool call  │
+             └──────────────┬──────────────┘
+                            │
+                ┌───────────▼───────────┐
+                │ Guardrail policy engine│
+                └────┬────────┬────┬────┘
+                     │        │    │
+          allow      │   ask  │    │     deny
+     ┌───────────────┘    │    │    └────────────────┐
+     │                   │    │                     │
+┌────▼───────────┐ ┌─────▼────────┐ ┌───────────────▼─────────┐
+│ Zero-friction  │ │   Operator   │ │ Hard denial + guidance │
+│ pass-through   │ │   prompt     │ │ (concrete next step)   │
+│                │ │ (retry once) │ │                        │
+└────────────────┘ └──────────────┘ └────────────────────────┘
 ```
 
 The rules are grouped by what they defend:
@@ -132,7 +135,7 @@ The rules are grouped by what they defend:
 - **Git safety** — protected-branch pushes and history rewrites ask; `git config` that can run code later is denied.
 - **Secrets, in three tiers** — directories like `~/.ssh` and `~/.aws` always deny; files like `.env` and `id_rsa` deny unless you authorize a waiver; ambiguous files like `*.pem` ask inside the repo and deny outside it. A path mentioned inside a JSON literal or a heredoc is caught too, and the guidance says to use the editor tool instead.
 - **The agent's own machinery** — it can't edit its hook config, the guardrail binary, or the operator config. Repairs are yours: `guardrail recover`.
-- **Egress** — no web host is reachable until you grant it; downloads never flow into an interpreter.
+- **Egress** — recognized web operations (fetches through the agent's own tool) require a host grant; downloads never flow into an interpreter.
 - **Meta-dispatch** — tools that run *other* tools from code (a JS REPL, a generic MCP invoker, stdin injection into a running shell) are denied until their inner calls are proven to reach the hook ([ADR-0019](./docs/adr/0019-static-boundary-verification-vs-dynamic-meta-dispatch.md)).
 - **After edits** — Go, Python, JS/TS and Rust files are formatted and linted per edit; a real lint failure is a deny with the tool's output.
 
@@ -150,12 +153,12 @@ It is a static guard on tool calls, not a sandbox: it inspects what the agent *a
 
 | Plane | How it's wired | Worth knowing |
 |---|---|---|
-| **Claude Code** | `PreToolUse`/`PostToolUse`/`SessionStart` hooks in `~/.claude/settings.json` plus a declarative permission floor that survives even if the binary is missing | The session posture tells the agent to work autonomously and pauses only on a real ask. Subagents inherit enforcement. `guardrail doctor --coverage claude` diffs the installed Claude Code's tool surface against the contract, so a new tool can't sneak in unclassified. |
+| **Claude Code** | `PreToolUse`/`PostToolUse`/`SessionStart` hooks in `~/.claude/settings.json` plus a declarative permission floor that survives even if the binary is missing | The session posture tells the agent to work autonomously and pauses only on a real ask. Subagents inherit enforcement. `guardrail doctor --coverage claude` diffs the installed Claude Code's tool surface against the contract, reporting any tools missing from it. |
 | **opencode** | A generated plugin that spawns the engine, plus a permission floor in `opencode.json` | Asks remembered for ten minutes, one shot, exact call. |
-| **Antigravity** | `PreToolUse`/`PostToolUse` in `hooks.json` | No native permission floor exists, so the hook *is* the boundary ([ADR-0008](./docs/adr/0008-antigravity-no-declarative-floor.md)). |
-| **Codex** | Native synchronous hooks in `~/.codex/hooks.json` plus an escalation-rules floor | Codex can't prompt from a hook, so asks block with guidance. Hosted tools and `write_stdin` bypass pre-hooks; treat registration as wiring, not proof ([ADR-0014](./docs/adr/0014-codex-native-hooks-and-blocked-asks.md)). |
+| **Antigravity** | `PreToolUse`/`PostToolUse` in `~/.gemini/config/hooks.json` | No native permission floor exists, so the hook *is* the boundary ([ADR-0008](./docs/adr/0008-antigravity-no-declarative-floor.md)). Subagents (`invoke_subagent`) inherit enforcement in-process ([ADR-0013](./docs/adr/0013-delegation-inherits-enforcement-in-process.md)); `guardrail doctor --coverage antigravity` inventories MCP tool drift. |
+| **Codex** | Native synchronous hooks in `~/.codex/hooks.json` plus an escalation-rules floor | Codex can't prompt from a hook, so asks block with guidance. Delegation remains denied. Hosted tools and `write_stdin` bypass pre-hooks; treat registration as wiring, not proof ([ADR-0014](./docs/adr/0014-codex-native-hooks-and-blocked-asks.md)). |
 
-MCP tools are handled the same way on every plane: known families (serena, graft, …) are typed and their file arguments go through the same secret and containment rules as a native edit; unknown MCP tools ask.
+MCP tools are handled by a shared registry: known families (serena, graft, …) are typed and their file arguments go through the same secret and containment rules as a native edit. Unknown MCP tools ask on dialog-capable planes and deny on fail-closed planes ([ADR-0017](./docs/adr/0017-mcp-family-registry-and-projection.md)).
 
 <details>
 <summary>Prefer to build from source?</summary>
@@ -183,6 +186,7 @@ claude: probes pass (7)
 opencode: probes pass (3)
 antigravity: probes pass (7)
 codex: probes pass (2)
+note: codex probes invoke the hook directly; live runtime mediation is evidenced by audit records
 selftest: all probes passed
 ```
 
@@ -237,7 +241,7 @@ Found a missing check, or a denial with no useful next step? [Open an issue](htt
 
 ## Working on it
 
-Go 1.25. `go test ./...` runs everything including a 300+ case adversarial corpus and per-plane contract fixtures (recorded real hook payloads with the verdict, rule and projected paths pinned). CI runs the full suite on Ubuntu and the Windows-shaped subset on Windows. The house rules are simple: a failing test first, one PR per finding, conventional commits, no force-push — and if a deny doesn't tell the agent what to do next, that's the bug, not the deny.
+Go 1.25. `go test ./...` runs everything including a 300+ case adversarial corpus and per-plane contract fixtures (recorded real hook payloads with the verdict, rule and projected paths pinned). CI runs the full suite on Ubuntu and macOS, and the Windows-shaped subset on Windows. The house rules are simple: a failing test first, one PR per finding, conventional commits, no force-push — and if a deny doesn't tell the agent what to do next, that's the bug, not the deny.
 
 ```
 cmd/guardrail/     the binary: hook <plane>, gen-config, sync, doctor, selftest, update, …
