@@ -418,5 +418,8 @@ func hasGuardrailHookCommand(group map[string]any) bool {
 }
 
 func unmarkedGuardrailGroups(doc map[string]any) int {
-	return genconfig.CountUnmarkedGuardrailGroups(doc)
+	// Doctor warns only on true duplicates — unmarked entries alongside
+	// marked ones. Claude Code strips ids during normal sessions; those
+	// id-stripped hooks are owned by command pattern, not drift.
+	return genconfig.CountUnmarkedGuardrailDuplicates(doc)
 }
