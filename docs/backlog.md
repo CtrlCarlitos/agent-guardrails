@@ -17,14 +17,11 @@ document is empty, it is deleted.
 
 ## Architecture — the big structural wins
 
-- [ ] **Platform acceptance harness** — exercise real hosts end-to-end on disposable accounts: install, enroll, enable, trust hooks, provoke a deny, approve, update, disable, recover. *(codex — top priority)*
 - [ ] **Path identity centralization** — `pathutil.Canonical` used by every containment and grant comparison; prevents the /tmp-symlink, /var-folders, and 8.3-vs-long-form bug class. *(claude — fight for)*
-- [ ] **Host × OS × shell compatibility matrix** — one maintained document distinguishing binary availability, policy semantics, operator approvals, and live mediation per host. *(codex)*
 - [ ] **Unified guardrail status** — fold coverage drift, floor currency, and selftest marker into one cache key, one posture line, one command. *(claude — fight for)*
 - [ ] **Daemon mode for hooks** — long-running process, hook connects via socket; amortizes fork+exec to sub-ms. *(opencode)*
 - [ ] **PowerShell cmdlet rules** — P1/P4/P6 coverage for `Remove-Item`, `Get-Content`, `Invoke-Expression`, `Format-Volume`; must be sized before Windows is trusted. *(claude + codex + handover doc)*
 - [ ] **guardrail tail** — live decision stream (`guardrail tail` or `--follow` on audit). *(agy + opencode)*
-- [ ] **Failed updates return non-zero exit** — retain previous binary, offer explicit rollback. *(codex)*
 
 ## Policy refinements
 
@@ -35,16 +32,13 @@ document is empty, it is deleted.
 ## Documentation
 
 - [ ] **Getting-started guide** (`docs/getting-started.md`) — walk through first deny, first ask, first grant, first overlay. *(opencode)*
-- [ ] **Test documentation examples in CI** — run install snippets against fixture downloads, parse Overlay TOML, check relative links. *(codex)*
 - [ ] **Evidence directory** (`docs/evidence/`) — one file per finding with the transcript that proved it. *(claude)*
 
 ## Process
 
-- [ ] **Multi-agent handoff protocol** — base SHA, owned files, dependencies, checks, unresolved limits; originating reviewer verifies closure. *(codex)*
 - [ ] **Pre-push branch-trap check** — "is HEAD already reachable from main?" before pushing. *(opencode)*
 - [ ] **Worktree cleanup** — `make worktree-clean`, `.worktrees/` in gitignore, teardown protocol in OPERATIONS.md. *(agy)*
 - [ ] **Contract golden linter** — check all plane fixtures against `internal/planecontract/` before PR. *(agy)*
-- [ ] **Stale code-index warning** — graft should flag when its index doesn't match current HEAD. *(codex)*
 
 ## Future milestones
 
