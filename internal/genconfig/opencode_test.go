@@ -353,7 +353,7 @@ func TestOpencodePluginRequiresExplicitAllow(t *testing.T) {
 IFS= read -r _ || :
 case "$GUARDRAIL_TEST_RESPONSE" in
 	allow) printf '%s' '{"decision":"allow","reason":"accepted"}' ;;
-	ask) printf '%s' '{"decision":"ask","reason":"Operator authorization required: external egress needs approval. Request authorization for this exact action: bash true. If the operator approves, retry this exact tool call once. Do not alter or broaden the action."}' ;;
+	ask) printf '%s' '{"decision":"ask","reason":"Operator authorization required: external egress needs approval. Request authorization for this exact action: bash true. If the operator approves, retry this exact tool call within 10 minutes (the authorization expires after that; if it expires, ask again). Do not alter or broaden the action."}' ;;
 	deny) printf '%s' '{"decision":"deny","reason":"Guardrail denied this action: protected target. It cannot be authorized. Choose a safe alternative."}' ;;
 	pending) printf '%s' '{"decision":"deny","operator_action":"night-on","request_id":"request-1","status":"pending","approval_url":"http://localhost:39169"}' ;;
 	pending-invalid) printf '%s' '{"decision":"deny","operator_action":"night-on","request_id":"request-1","status":"pending","approval_url":"https://example.test"}' ;;
@@ -391,7 +391,7 @@ try {
 		exact    bool
 	}{
 		{response: "allow"},
-		{response: "ask", wantErr: "guardrail: Operator authorization required: external egress needs approval. Request authorization for this exact action: bash true. If the operator approves, retry this exact tool call once. Do not alter or broaden the action.", exact: true},
+		{response: "ask", wantErr: "guardrail: Operator authorization required: external egress needs approval. Request authorization for this exact action: bash true. If the operator approves, retry this exact tool call within 10 minutes (the authorization expires after that; if it expires, ask again). Do not alter or broaden the action.", exact: true},
 		{response: "deny", wantErr: "guardrail: Guardrail denied this action: protected target. It cannot be authorized. Choose a safe alternative.", exact: true},
 		{response: "pending", wantErr: "guardrail: WebAuthn approval required for night-on. Open http://localhost:39169", exact: true},
 		{response: "pending-invalid", wantErr: "guardrail: no decision returned", exact: true},
@@ -443,7 +443,7 @@ IFS= read -r _ || :
 printf '%s\n' 'guardrail: session transaction committed but lock release failed (injected release forged claim)' >&2
 case "$GUARDRAIL_TEST_RESPONSE" in
 	allow) printf '%s' '{"decision":"allow","reason":"accepted"}' ;;
-	ask) printf '%s' '{"decision":"ask","reason":"Operator authorization required: external egress needs approval. Request authorization for this exact action: bash true. If the operator approves, retry this exact tool call once. Do not alter or broaden the action."}' ;;
+	ask) printf '%s' '{"decision":"ask","reason":"Operator authorization required: external egress needs approval. Request authorization for this exact action: bash true. If the operator approves, retry this exact tool call within 10 minutes (the authorization expires after that; if it expires, ask again). Do not alter or broaden the action."}' ;;
 esac
 `
 	if err := os.WriteFile(binary, []byte(fakeGuardrail), 0o755); err != nil {
@@ -470,7 +470,7 @@ try {
 }
 `
 	warning := "guardrail: session transaction committed but lock release failed (injected release forged claim)\n"
-	wantAsk := "guardrail: Operator authorization required: external egress needs approval. Request authorization for this exact action: bash true. If the operator approves, retry this exact tool call once. Do not alter or broaden the action."
+	wantAsk := "guardrail: Operator authorization required: external egress needs approval. Request authorization for this exact action: bash true. If the operator approves, retry this exact tool call within 10 minutes (the authorization expires after that; if it expires, ask again). Do not alter or broaden the action."
 	for _, tt := range []struct {
 		response string
 		wantOut  string
