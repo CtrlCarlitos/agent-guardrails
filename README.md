@@ -1,123 +1,229 @@
 # agent-guardrails
 
-One guardrail policy, enforced across every AI coding-agent host ("plane") — Claude
-Code, opencode, Antigravity, and Codex. A shared Go decision engine
-(`guardrail`) plus a generated native-config floor where the plane supports one;
-thin idiomatic adapters.
-Installed globally via dotfiles; each project layers its own rules in a committed
-`guardrail.toml`.
+[![CI Status](https://github.com/CtrlCarlitos/agent-guardrails/actions/workflows/ci.yml/badge.svg)](https://github.com/CtrlCarlitos/agent-guardrails/actions)
+[![Release](https://img.shields.io/github/v/release/CtrlCarlitos/agent-guardrails?include_prereleases)](https://github.com/CtrlCarlitos/agent-guardrails/releases)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/CtrlCarlitos/agent-guardrails)](https://golang.org)
+[![Planes](https://img.shields.io/badge/planes-claude%20%7C%20opencode%20%7C%20antigravity%20%7C%20codex-blue)](https://github.com/CtrlCarlitos/agent-guardrails)
+[![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/CtrlCarlitos/agent-guardrails)
 
-- **Terminology**: [CONTEXT.md](./CONTEXT.md)
-- **Full design**: [DESIGN.md](./DESIGN.md)
-- **Key decisions**: [docs/adr/](./docs/adr/)
-- **When it's weird**: [docs/OPERATIONS.md](./docs/OPERATIONS.md) — the operator runbook
+> **Universal pre-execution security guardrails for autonomous AI coding agents.**  
+> Protect your machine, your repositories, and your secrets across Claude Code, OpenCode, Antigravity, and Codex.
 
-## Status
+---
 
-The current source and release boundary is `v0.17.0-dev` at `e1ab965`. The
-[2026-09-04 adversarial security review](./docs/reviews/2026-09-04-adversarial-review.md)
-and its Phase 1 through Phase 5 remediation are reconciled in the
-[response ledger](./docs/reviews/2026-09-05-remediation-response.md). H-6, H-10,
-NF-3, NF-11, NF-12, and candidate ADR-0013 containment are parked under
-[ADR-0012](./docs/adr/0012-static-analysis-boundary-and-shape-threshold.md) and
-operator direction.
+## What It Is
 
-Every Overlay egress entry is a loosening request and needs an exact per-entry
-grant for that repository in Operator config. Total wildcards `*` and `**` are
-always forbidden. See [Operator config](./docs/operator-config.md).
+When you give an AI coding agent a terminal and filesystem tools, you hand it the keys to your workstation. A single hallucinated command (`rm -rf /`), an accidental credential dump (`.env`, `~/.ssh/id_rsa`), an uninspected force push, or an opaque MCP meta-tool can corrupt your repository or compromise private tokens in milliseconds. 
 
-Secret paths have three tiers: directory secrets always Deny; file secrets Deny
-but may be waived with Operator authorization; ambiguous secrets Ask inside the
-repository and Deny outside it. A `secret_allow` entry cannot override a
-directory secret.
+**`guardrail`** is a single, lightning-fast Go binary that intercepts every tool invocation *before* it runs on your system. It evaluates attempted actions against a unified, deterministic security policy—letting safe operations proceed with sub-millisecond overhead, asking for human confirmation on high-impact operations, and strictly denying dangerous actions with **actionable guidance** so the agent can self-correct without dead-ending your session.
 
-Operator actions use a local, browser-mediated WebAuthn ceremony. Before
-starting a coding plane, enroll an authenticator with `guardrail operator
-enroll`; see [Operator approvals](./docs/operator-approvals.md). Unix, WSL,
-and macOS are supported. Windows operator actions remain fail-closed.
+---
 
-The original plan series is complete: Plans 1–6 + the git -C/-c hotfix (v0.4.1) +
-the deployment plan, and Plan 7 (P8 recipes + `guardrail sync`) finished it off.
-`guardrail hook claude` enforces P1/P2/P4/P5/P6, escalates via a two-signal P7
-trifecta heuristic (session-scoped, ask-only, waivable), runs per-edit P8 recipe
-format+lint checks on edited files (Go, Python, JS/TS, Rust — lenient when a
-tool is absent, deny on real lint failure, allow-only escalation; Odoo/Elixir
-recipes and the session-completion tier are follow-ups per
-[ADR-0009](./docs/adr/0009-recipe-scope.md)) — P8 denial surfaces on Claude
-today (opencode needs a `tool.execute.after` plugin hook; antigravity post
-responses are always `{}` per ADR-0008, so post denials there are audit-only) —
-and answers Claude-only SessionStart with
-an autonomy posture message + active-waiver banner (P10). `guardrail hook
-opencode` runs the same shared pipeline (audit, trifecta, waivers) through a JS
-plugin — ask/deny throw, allow passes through — which `gen-config opencode`
-deploys alongside the generated `opencode.json` permission floor. `guardrail
-hook antigravity <pre|post>` runs the same shared pipeline on Antigravity's
-PreToolUse/PostToolUse events and is the whole boundary: Antigravity has no
-declarative floor ([ADR-0008](./docs/adr/0008-antigravity-no-declarative-floor.md)),
-so `gen-config antigravity` emits only the hooks.json registration; `gen-config`
-covers Claude + opencode + Antigravity installation; `doctor` covers Claude
-installation and diagnostics. `guardrail sync` regenerates a project's plane
-configs from Base+Overlay in one shot (per-plane warn-and-continue). CI + real
-releases ship the binary; the chezmoi installer wires it globally. The Engine is
-a static tool-call guard, not an operating-system sandbox: dynamically concealed
-same-user writes remain outside its boundary. Fixed behavior through Phase 5 is
-locked in the 321-case adversarial corpus.
+## The Four Planes Guarded Today
 
-`make smoke` runs a best-effort end-to-end check against a real `claude` session
-(needs a login, spends tokens, not in CI) — see `test/smoke/README.md`.
+Different AI agents expose different hook systems. Guardrail bridges them into a single, unified security perimeter:
 
-## Layout
+| Agent Plane | Integration Mechanism | Hook Lifecycle | Delegation Handling |
+| :--- | :--- | :--- | :--- |
+| **Claude Code** | Native CLI command hooks (`settings.json`) | `PreToolUse` & `PostToolUse` | In-process inheritance (subagents mediated) |
+| **OpenCode** | Embedded JavaScript plugin (`opencode.json`) | Synchronous plugin interception | Non-blocking host dialogs & approval memory |
+| **Antigravity** | Native command hooks (`hooks.json`) | PreToolUse & PostToolUse (`*` matcher) | In-process inheritance ([ADR-0013](./docs/adr/0013-delegation-inherits-enforcement-in-process.md)) |
+| **Codex** | Native synchronous hooks (`hooks.json`) | PreToolUse command interception | Direct hook verification + audit evidence |
+
+---
+
+## The Verdict Model: Allow, Ask, Deny
+
+Guardrail evaluates every attempted command, path access, and network query into one of three verdicts:
 
 ```
-cmd/guardrail/        Engine entrypoint; `guardrail hook <plane>`, `gen-config <plane>`, `sync`, `doctor`
-cmd/guardrail/sync.go  `guardrail sync` — regenerate a project's plane configs from Base+Overlay
-internal/recipe/      Per-language P8 recipe registry + per-edit format/lint execution (Go, Python, JS/TS, Rust)
-internal/genconfig/   Translate the policy into each plane's native declarative floor + idempotent merge
-internal/genconfig/opencode.go  opencode declarative floor (`permission.bash/read/edit` from the policy's glob lists)
-internal/genconfig/opencode_plugin.js  Embedded JS plugin source, deployed by `gen-config opencode`; spawns `guardrail hook opencode`
-internal/genconfig/antigravity.go  Antigravity hooks.json fragment — named-wrapper hook registration, no permissions key (ADR-0008)
-internal/policy/      Policy model, guardrail.toml parsing, Base+Overlay merge
-internal/engine/      Tokenizer (mvdan.cc/sh), evaluation, verdicts, lethal-trifecta gate
-internal/adapter/     Per-plane payload normalization + response emission
-internal/adapter/antigravity.go  Antigravity parse/emit for `hook antigravity <pre|post>` (`conversationId`, `toolCall.name`)
-recipes/              Per-language P8 recipes (Go, Python, JS/TS, Rust; Odoo/Elixir per ADR-0009 follow-ups)
-test/fixtures/        Recorded per-plane payloads → expected verdict (contract tests)
-docs/adr/             Architecture decision records
+                  ┌──────────────────────────────┐
+                  │ Attempted Agent Tool Call    │
+                  └──────────────┬───────────────┘
+                                 │
+                     ┌───────────▼────────────┐
+                     │ Guardrail Policy Engine│
+                     └─────┬────────────┬─────┘
+          allow            │            │            deny
+      ┌────────────────────┘    ask     └───────────────────┐
+      │                          │                          │
+┌─────▼───────────────┐ ┌────────▼───────────┐ ┌────────────▼────────────────┐
+│ Zero-Overhead Pass  │ │ Human Confirmation │ │ Hard Denial + Guidance      │
+│ • Benign edits      │ │ • Web searches     │ │ • Secret paths (.env, .ssh) │
+│ • Non-secret reads  │ │ • Cron schedules   │ │ • Destructive bash (rm, git)│
+│ • Local formatting  │ │ • External reach   │ │ • Opaque meta-dispatch      │
+└─────────────────────┘ └────────────────────┘ └─────────────────────────────┘
 ```
 
-## Codex
+- **`allow`**: Safe operations run unimpeded. Formatting, unit tests, repository reads, and safe control primitives execute with sub-millisecond latency.
+- **`ask`**: High-impact or outward-reaching operations require operator approval. In **Night Mode** (`guardrail night on`), routine in-session asks relax to allow unattended overnight work, while outward-reach asks (schedulers, unknown MCP servers, web access) remain strictly preserved ([ADR-0018](./docs/adr/0018-external-tier-never-relaxed-by-night-mode.md)).
+- **`deny`**: Hard-stop rejections for invariant violations. Denials are **never silent rejections**—Guardrail emits concrete, model-facing guidance that explains *why* the action was blocked and redirects the agent to safe alternatives.
 
-Codex CLI 0.154.0 integration uses native synchronous hooks:
+### Show, Don't Tell: How Denials Guide the Agent
 
-```sh
-guardrail gen-config codex --merge "$HOME/.codex/hooks.json"
-# In Codex, review and trust the generated definitions with /hooks, then restart.
-guardrail plane status
+#### Example 1: Preventing Credential Access
+When an agent tries to inspect a protected secret file:
+
+```json
+// Agent Tool Call
+{"name": "view_file", "args": {"AbsolutePath": "/project/.env"}}
 ```
 
-`plane enable codex` and `plane disable codex` use the existing operator approval
-flow. `CODEX_HOME` overrides the global Codex directory. Project installation is
-`guardrail sync --planes codex`; Codex must trust that project config layer.
-Disable removes Guardrail hooks and retains its native escalation rules.
-
-`gen-config codex --floor` prints the native command-escalation floor. Merge and
-enable also install it as `rules/guardrail.rules` beside `hooks.json`.
-
-Codex Asks block with guidance because native PreToolUse cannot request approval.
-Delegation is denied pending child enforcement evidence. Hosted tools and
-continued `write_stdin` input have runtime hook gaps; registration is not proof
-of hook trust or complete containment. See [ADR-0014](docs/adr/0014-codex-native-hooks-and-blocked-asks.md)
-and [ADR-0016](docs/adr/0016-codex-native-escalation-floor.md).
-
-For sessions that can work without shell commands or web search, Codex 0.154.0
-supports an optional restriction:
-
-```sh
-codex -c 'web_search="disabled"' --disable shell_tool
+```json
+// Guardrail Intercept Response
+{
+  "decision": "deny",
+  "reason": "Guardrail denied this action: '.env' matches protected File Secret tier (P4). Do not read or output secrets. Inspect '.env.example' or mock credentials instead."
+}
 ```
 
-This removes shell execution (including `write_stdin`) and hosted web search;
-hooked patches remain available. It does not disable every hosted integration
-or establish complete containment. Guardrail does not apply these settings on
-plane enable. See the [mediation follow-up probes](docs/research/2026-09-17-codex-mediation-probes.md)
-for native evidence, the loss of command execution, and remaining runtime work.
+**What the agent does next**: Instead of crashing or repeatedly retrying, the agent parses the guidance, understands that `.env` is off-limits, and immediately redirects to `.env.example`:
+> *"I cannot view `.env` as it contains private credentials. Let me check `.env.example` instead to see the required environment keys."*
+
+#### Example 2: Blocking Irreversible Git History Loss
+When an agent attempts a destructive reset:
+
+```json
+// Agent Tool Call
+{"name": "run_command", "args": {"CommandLine": "git reset --hard HEAD~1"}}
+```
+
+```json
+// Guardrail Intercept Response
+{
+  "decision": "deny",
+  "reason": "Guardrail denied this action: 'git reset --hard/--keep' discards the working tree and index irrecoverably. Use non-destructive alternatives like 'git stash' or 'git revert'."
+}
+```
+
+**What the agent does next**: The agent adapts and stashes its changes cleanly.
+
+---
+
+## Installation & Setup
+
+### Standalone (Direct Install)
+
+1. **Install the binary**:
+   ```bash
+   # Download the latest release binary:
+   curl -fsSL https://raw.githubusercontent.com/CtrlCarlitos/agent-guardrails/main/scripts/install.sh | bash
+
+   # Or compile directly with Go (1.24+):
+   go install github.com/CtrlCarlitos/agent-guardrails/cmd/guardrail@latest
+   ```
+
+2. **Register your coding planes**:
+   ```bash
+   # Enable all detected planes with operator passkey verification:
+   guardrail plane enable --all
+
+   # Or enable an individual plane:
+   guardrail plane enable claude
+   guardrail plane enable antigravity
+   ```
+
+3. **Verify the installation**:
+   ```bash
+   guardrail doctor
+   ```
+
+### With CtrlCarlitos Dotfiles
+
+If you use the `CtrlCarlitos` dotfiles ecosystem, Guardrail is wired globally via Chezmoi:
+- The binary is deployed to `~/.local/bin/guardrail`.
+- Base policy and global hooks are managed declaratively.
+- Releases and updates sync automatically with dotfile management.
+
+---
+
+## Quick Verification
+
+Guardrail provides two built-in commands to prove everything is working:
+
+### 1. `guardrail selftest` — Behavioral Verification
+Runs **16 embedded behavioral probes** across all four planes directly through the installed binary's evaluation path:
+
+```bash
+$ guardrail selftest
+claude: probes pass (7)
+opencode: probes pass (3)
+antigravity: probes pass (7)
+codex: probes pass (2)
+note: codex probes invoke the hook directly; live runtime mediation is evidenced by audit records
+selftest: all probes passed
+```
+*Validates that destructive commands are blocked, secret reads fail closed, MCP arguments project properly, and ADR-0019 meta-dispatch invariants hold.*
+
+### 2. `guardrail doctor` — Structural & Inventory Auditing
+Checks policy configuration, active waivers, operator WebAuthn state, and installed hook registrations:
+
+```bash
+$ guardrail doctor
+guardrail v0.20.27-dev
+cwd: /home/user/projects/my-app
+GUARDRAIL_CONFIG: (unset)
+overlay: none
+policy warnings: none
+waivers: none
+audit log: ~/.local/state/guardrail/audit.jsonl
+operator approvals: WebAuthn
+claude settings: guardrail hook registered
+opencode settings: guardrail integration registered
+codex settings: guardrail hooks registered
+antigravity settings: guardrail integration registered
+```
+
+You can also run tool coverage audits to verify your plane has zero uncontracted tools:
+```bash
+guardrail doctor --coverage antigravity
+guardrail doctor --coverage claude
+```
+
+---
+
+## Extending Guardrail
+
+### 1. Repository Overlays (`guardrail.toml`)
+Layer project-specific rules in your repository root:
+```toml
+# guardrail.toml (committed to your repo)
+[paths]
+safe_roots = ["docs/", "tests/fixtures/"]
+custom_secrets = ["config/private_keys.json"]
+
+# Request permission to waive a base rule (requires operator authorization)
+waive = ["P8.format-lint"]
+```
+
+### 2. Operator Authorization (`operator.toml`)
+Machine-level authority outside of any repository. Authorizes specific repository loosening requests or network egress domains using WebAuthn passkeys:
+```bash
+# Authorize outbound network access for guardrail fetch
+guardrail egress grant --scope repo --host api.github.com,registry.npmjs.org
+```
+
+### 3. Model Context Protocol (MCP) Registry
+Guardrail includes a central MCP family registry ([ADR-0017](./docs/adr/0017-mcp-family-registry-and-projection.md)). Known servers (e.g. `serena`, `graft`) have their path arguments projected into Engine policies automatically—ensuring that an MCP tool attempting to write to `.env` is blocked just like a native edit.
+
+Generic meta-dispatchers (`call_mcp_tool`, `tool_caller`, `write_stdin`) fail closed by contract ([ADR-0019](./docs/adr/0019-static-boundary-verification-vs-dynamic-meta-dispatch.md)) to prevent argument concealment.
+
+---
+
+## Documentation & Architecture
+
+- **[CONTEXT.md](./CONTEXT.md)**: Ubiquitous language, core domain entities, and glossary.
+- **[docs/OPERATIONS.md](./docs/OPERATIONS.md)**: Operator runbook — symptom-to-command table, debugging, and incident response.
+- **[docs/adr/](./docs/adr/)**: Architectural Decision Records documenting all design choices:
+  - `ADR-0001`: Hybrid enforcement model
+  - `ADR-0008`: Antigravity hook architecture & no declarative floor
+  - `ADR-0013`: Delegation inheritance in-process
+  - `ADR-0017`: Central MCP family registry & argument projection
+  - `ADR-0018`: External tier never relaxed by night mode
+  - `ADR-0019`: Static boundary verification vs dynamic meta-dispatch
+
+---
+
+## License
+
+MIT © [Carlitos Melgar](https://github.com/CtrlCarlitos)
