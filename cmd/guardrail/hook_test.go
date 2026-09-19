@@ -578,7 +578,7 @@ func TestHookClaudeAskIncludesAuthorizationGuidance(t *testing.T) {
 		t.Fatal(err)
 	}
 	reason := got.HookSpecificOutput.PermissionDecisionReason
-	if got.HookSpecificOutput.PermissionDecision != "ask" || !strings.Contains(reason, "Operator authorization required: push to a protected branch.") || !strings.Contains(reason, `Bash {"command":"git push origin main"}`) || !strings.Contains(reason, "If the operator approves, retry this exact tool call within 10 minutes (the authorization expires after that; if it expires, ask again).") {
+	if got.HookSpecificOutput.PermissionDecision != "ask" || !strings.Contains(reason, "Operator authorization required: push to a protected branch.") || !strings.Contains(reason, `Bash {"command":"git push origin main"}`) || !strings.Contains(reason, "If the operator approves, retry this exact tool call within 10 minutes. If the authorization expires, stop and wait for the operator to return — say what you were doing and that approval expired; do not keep retrying.") {
 		t.Fatalf("Ask payload = %+v", got.HookSpecificOutput)
 	}
 }
@@ -1871,7 +1871,7 @@ func TestHookAntigravityAskIncludesAuthorizationGuidance(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got["decision"] != "force_ask" || !strings.Contains(got["reason"], "Operator authorization required: push to a protected branch.") || !strings.Contains(got["reason"], `run_command {"CommandLine":"git push origin main","Cwd":"/tmp"}`) || !strings.Contains(got["reason"], "If the operator approves, retry this exact tool call within 10 minutes (the authorization expires after that; if it expires, ask again).") {
+	if got["decision"] != "force_ask" || !strings.Contains(got["reason"], "Operator authorization required: push to a protected branch.") || !strings.Contains(got["reason"], `run_command {"CommandLine":"git push origin main","Cwd":"/tmp"}`) || !strings.Contains(got["reason"], "If the operator approves, retry this exact tool call within 10 minutes. If the authorization expires, stop and wait for the operator to return — say what you were doing and that approval expired; do not keep retrying.") {
 		t.Fatalf("Ask payload = %v", got)
 	}
 }
