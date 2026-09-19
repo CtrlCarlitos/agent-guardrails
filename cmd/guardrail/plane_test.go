@@ -791,3 +791,32 @@ func TestPlaneEnableClaudeSkipsWhenHooksAndFloorAreCurrent(t *testing.T) {
 		t.Fatalf("exit = %d, stdout %q, stderr %q", code, out.String(), errb.String())
 	}
 }
+
+func TestClaudeSteadyStateSurvivesIdStripping(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	settings := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Claude Code rewrote settings.json and stripped all id fields.
+	// The hooks are still functionally present by command pattern.
+	idStripped := `{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"guardrail hook claude","timeout":10}]}],"PostToolUse":[{"matcher":"Write|Edit|MultiEdit","hooks":[{"type":"command","command":"guardrail hook claude"}]}],"SessionStart":[{"matcher":"startup|clear|compact","hooks":[{"type":"command","command":"guardrail hook claude"}]}]}}`
+	if err := os.WriteFile(settings, []byte(idStripped), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !planeIntegrationRegistered("claude") {
+		t.Fatal("claude with id-stripped hooks counts as not registered; steady state broken")
+	}
+
+	// True duplicates (marked + unmarked in the same event) still drift.
+	duplicate := `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"*","hooks":[{"type":"command","command":"guardrail hook claude","timeout":10}]},{"matcher":"*","hooks":[{"type":"command","command":"guardrail hook claude","timeout":10}]}]}}`
+	if err := os.WriteFile(settings, []byte(duplicate), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if planeIntegrationRegistered("claude") {
+		t.Fatal("claude with a true unmarked duplicate counts as registered; drift missed")
+	}
+}

@@ -346,8 +346,12 @@ func cmdPlaneStatus(args []string, stdout, stderr io.Writer) int {
 
 // planeIntegrationRegistered reports whether Guardrail's integration is
 // present in the plane's global config. It drives reconciliation skipping.
-// Claude additionally requires zero unmarked legacy entries: their presence
-// is drift the enable merge must absorb.
+// Claude is registered when its hooks are present (by id or by command
+// pattern — Claude Code's serializer strips undocumented id fields during
+// normal sessions) AND there are no true unmarked duplicates: entries with
+// the guardrail command coexisting alongside properly marked entries. An
+// id-stripped hook that is the only guardrail hook for its event is owned,
+// not drift.
 func planeIntegrationRegistered(plane string) bool {
 	if plane == "claude" {
 		if claudeSettingsState() != "guardrail hook registered" {
@@ -361,7 +365,7 @@ func planeIntegrationRegistered(plane string) bool {
 		if err != nil {
 			return false
 		}
-		return genconfig.CountUnmarkedGuardrailGroups(doc) == 0
+		return genconfig.CountUnmarkedGuardrailDuplicates(doc) == 0
 	}
 	path, err := planeConfigPath(plane)
 	if err != nil {

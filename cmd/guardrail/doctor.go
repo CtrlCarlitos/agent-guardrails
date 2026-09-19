@@ -386,6 +386,32 @@ func hooksHaveOwnedGroup(doc map[string]any) bool {
 			if id, _ := m["id"].(string); strings.HasPrefix(id, "guardrail-") {
 				return true
 			}
+			// Claude Code's serializer strips undocumented fields (including
+			// our `id` marker) when it rewrites settings.json during normal
+			// sessions. The hook command is the durable ownership marker.
+			if hasGuardrailHookCommand(m) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasGuardrailHookCommand reports whether a hook group's command list invokes
+// the guardrail binary, regardless of whether the id marker survived Claude
+// Code's settings serializer.
+func hasGuardrailHookCommand(group map[string]any) bool {
+	hooks, ok := group["hooks"].([]any)
+	if !ok {
+		return false
+	}
+	for _, h := range hooks {
+		m, ok := h.(map[string]any)
+		if !ok {
+			continue
+		}
+		if cmd, _ := m["command"].(string); cmd != "" && strings.Contains(cmd, "guardrail") && strings.Contains(cmd, " hook claude") {
+			return true
 		}
 	}
 	return false
