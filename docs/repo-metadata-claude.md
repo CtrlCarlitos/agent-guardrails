@@ -6,7 +6,7 @@ What to put in the GitHub settings gear for `CtrlCarlitos/agent-guardrails`, and
 
 > One policy that keeps AI coding agents from the things you'd never forgive them for — destructive commands, secret reads, blind egress, pushes to main — across Claude Code, opencode, Antigravity and Codex. A single Go binary: allow / ask / deny, and every deny tells the agent what to do next.
 
-(283 characters.)
+(293 characters.)
 
 Shorter alternative if the field ever tightens:
 
