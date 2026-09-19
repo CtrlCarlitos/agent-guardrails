@@ -109,7 +109,7 @@ func TestEmitClaudeAsk(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := got.HookSpecificOutput
-	if h.HookEventName != "PreToolUse" || h.PermissionDecision != "ask" || !strings.Contains(h.PermissionDecisionReason, "Operator authorization required: needs approval.") || !strings.Contains(h.PermissionDecisionReason, `Request authorization for this exact action: Bash {"command":"chmod -R 777 /tmp"}.`) || !strings.Contains(h.PermissionDecisionReason, "If the operator approves, retry this exact tool call within 10 minutes (the authorization expires after that; if it expires, ask again).") || !strings.Contains(h.PermissionDecisionReason, "Do not alter or broaden the action.") {
+	if h.HookEventName != "PreToolUse" || h.PermissionDecision != "ask" || !strings.Contains(h.PermissionDecisionReason, "Operator authorization required: needs approval.") || !strings.Contains(h.PermissionDecisionReason, `Request authorization for this exact action: Bash {"command":"chmod -R 777 /tmp"}.`) || !strings.Contains(h.PermissionDecisionReason, "If the operator approves, retry this exact tool call within 10 minutes. If the authorization expires, stop and wait for the operator to return — say what you were doing and that approval expired; do not keep retrying.") || !strings.Contains(h.PermissionDecisionReason, "Do not alter or broaden the action.") {
 		t.Fatalf("bad ask json: %+v", h)
 	}
 }
