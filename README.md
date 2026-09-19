@@ -46,7 +46,7 @@ Every deny ends with a next step. We treat a deny that leaves the agent stuck as
 
 There is one binary. Releases ship it for Linux, macOS and Windows (amd64 + arm64) with a `SHA256SUMS` file.
 
-### Standalone (no dotfiles)
+### Install
 
 Pick the asset for your machine (`uname -m` shows the architecture), then download, verify, and install:
 
@@ -98,10 +98,6 @@ guardrail plane enable --all  # registers every installed host with one approval
 ```
 
 Unix, WSL and macOS today. Windows runs the engine fine but keeps operator actions fail-closed until the [Windows broker](./docs/adr/0021-windows-approval-broker.md) lands.
-
-### With the CtrlCarlitos dotfiles
-
-The [dotfiles](https://github.com/CtrlCarlitos/dotfiles) are chezmoi-managed and already know about this project. Set `packages.guardrail: true` in your chezmoi data; the release is pinned in `.chezmoidata.yaml` under `guardrail.version`. `chezmoi apply` downloads the pinned binary (or self-updates an existing one), merges the hook registration into every installed host, and re-runs on every version bump. Nothing else to do.
 
 ## What it protects
 
