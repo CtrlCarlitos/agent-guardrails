@@ -12,7 +12,7 @@ func Guidance(v policy.Verdict, action string) string {
 	case policy.Ask:
 		return fmt.Sprintf("Operator authorization required: %s. Request authorization for this exact action: %s. If the operator approves, retry this exact tool call within 10 minutes. If the authorization expires, stop and wait for the operator to return — say what you were doing and that approval expired; do not keep retrying. Do not alter or broaden the action.", v.Reason, action)
 	case policy.Deny:
-		return fmt.Sprintf("Guardrail denied this action: %s. %s", v.Reason, denyNextStep(v))
+		return fmt.Sprintf("Guardrail denied this action: %s. %s If this verdict seems wrong or blocks legitimate work, report it to the operator with: the exact tool call, the rule ID (%s), your guardrail version, what you were trying to do, and what you did instead. Do not work around it silently.", v.Reason, denyNextStep(v), v.RuleID)
 	default:
 		return v.Reason
 	}
