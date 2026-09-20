@@ -120,3 +120,14 @@ Verdicts, grants approval, relaxes `write_stdin` denial under
 [ADR-0014](0014-codex-native-hooks-and-blocked-asks.md), or changes the Codex
 delegation determination under
 [ADR-0013](0013-delegation-inherits-enforcement-in-process.md).
+
+Windows validation on 2026-09-20 did not open the gate. Codex CLI 0.154.0
+showed the user hook as Active and Trusted in `/hooks`, but four real
+`functions.exec` shell calls produced no Guardrail audit record. The subsequent
+evidence scan reported `eligible=0`, `sessions=0`, and exited 1. This matches
+[upstream #24453](https://github.com/openai/codex/issues/24453): Windows
+`command_execution` does not emit `PreToolUse`, even for a catch-all matcher.
+The generated handler was separately invoked through Codex's exact `cmd.exe`
+outer-wrap form and returned valid hook JSON, so handler correctness is not
+runtime-dispatch evidence. Full commands, controls, and limitations are in the
+[Windows validation report](../research/2026-09-20-codex-windows-validation.md).
