@@ -48,7 +48,7 @@ jobs:
         # Windows allowance-journal ACLs (ADR-0021 step c); the brokered
         # web-host action tests stay out until the step (d) gates lift.
         if: matrix.os == 'windows-latest'
-        run: go test ./internal/adapter/ ./internal/engine/ ./internal/genconfig/ ./internal/coverage/ ./internal/approval/ ./cmd/guardrail/ ./test/ -run 'Windows|BOM|ReadJSONObject|TestDefaultDaemon|Egress|Allowance'
+        run: go test ./internal/adapter/ ./internal/engine/ ./internal/genconfig/ ./internal/coverage/ ./internal/approval/ ./internal/operatorauth/ ./cmd/guardrail/ ./test/ -run 'Windows|BOM|ReadJSONObject|TestDefaultDaemon|Egress|Allowance'
       - name: gofmt
         if: matrix.os != 'windows-latest'
         run: |
