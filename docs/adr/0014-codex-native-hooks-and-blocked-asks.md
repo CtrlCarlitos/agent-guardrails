@@ -24,6 +24,13 @@ non-managed hooks until the operator reviews them in `/hooks`. Status reports
 registration and explicitly asks for trust verification; it never claims that
 registration proves active enforcement. The generated executable is shell-quoted.
 
+On Windows, registration and trust still do not establish dispatch. In the
+validated runtime, `command_execution` did not deliver `PreToolUse` to the
+registered handler ([`openai/codex#24453`](https://github.com/openai/codex/issues/24453)).
+Doctor therefore reports the Windows plane as **registered, unenforced**, exits
+nonzero for schema inventory, and makes no runtime coverage claim until an
+observed dispatch removes this external blocker.
+
 This is a local tool guardrail with known runtime gaps, not complete confinement:
 hosted web tools bypass these hooks, `write_stdin` does not rerun PreToolUse,
 and specialized paths can opt out. Hook feature disablement, untrusted hooks,

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -27,8 +28,15 @@ func TestDoctorCodexCoverage(t *testing.T) {
 			}
 			var out, errb bytes.Buffer
 			code := run([]string{"doctor", "--coverage", "codex", "--schema", path}, strings.NewReader(""), &out, &errb)
-			if code != tc.exit || !strings.Contains(out.String()+errb.String(), tc.want) {
+			wantExit := tc.exit
+			if runtime.GOOS == "windows" && wantExit == 0 {
+				wantExit = 1
+			}
+			if code != wantExit || !strings.Contains(out.String()+errb.String(), tc.want) {
 				t.Fatalf("exit %d; stdout %s; stderr %s", code, &out, &errb)
+			}
+			if runtime.GOOS == "windows" && code != 2 && !strings.Contains(out.String(), "registered, unenforced") {
+				t.Fatalf("missing Windows runtime boundary: %s", &out)
 			}
 			if code != 2 && (!strings.Contains(out.String(), "not a complete runtime inventory") || !strings.Contains(out.String(), "not proven retired")) {
 				t.Fatalf("missing scope: %s", &out)
