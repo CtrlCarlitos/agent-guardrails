@@ -7,8 +7,8 @@ import "github.com/CtrlCarlitos/agent-guardrails/internal/planecontract"
 // alongside. Antigravity has no declarative permission layer, so there is no
 // permissions key.
 func AntigravityConfig(binary string) Fragment {
-	preCmd := binary + " hook antigravity pre"
-	postCmd := binary + " hook antigravity post"
+	preCmd := HookCommand(binary, "hook", "antigravity", "pre")
+	postCmd := HookCommand(binary, "hook", "antigravity", "post")
 	return Fragment{
 		"guardrail": map[string]any{
 			"enabled": true,

@@ -103,7 +103,12 @@ func finishActionAudit(path string, journal actionAuditJournal) error {
 	if err := writeActionAudit(journal.Record, audit.DefaultPath("")); err != nil {
 		return err
 	}
-	return os.Remove(path)
+	// Concurrent grants can race journal cleanup; a journal another
+	// transaction already removed is successfully finished, not an error.
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func recoverActionAudits() error {

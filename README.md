@@ -191,7 +191,7 @@ selftest: all probes passed
 
 `selftest` runs real hook payloads through the installed binary — `rm -rf /` must deny, a secret read must deny, an unknown tool must ask — and exits 1 on any drift. `guardrail doctor` shows the resolved policy, which hosts are registered, and any warnings. `guardrail audit` summarizes what's been decided lately. When something's odd, [docs/OPERATIONS.md](./docs/OPERATIONS.md) is the runbook: symptom → command.
 
-For Codex specifically, `guardrail selftest --evidence codex` checks whether the audit log shows real (non-synthetic) session records since the binary was installed — a heuristic for whether the runtime is actually invoking its hooks. Neither a green selftest nor this evidence check proves every session is mediated; [ADR-0020](./docs/adr/0020-codex-live-mediation-evidence-gate.md) spells out that distinction.
+For Codex specifically, `guardrail selftest --evidence codex` cross-references the newest known local Codex rollout with audit records since the binary was installed. Use `--session <id>` to select one rollout, `--since <RFC3339|duration>` to set the observation window, and repeat `--expect-tool <name>` for exact normalized or native tool assertions. A newer silent session keeps the gate closed even when an older session qualified. Neither a green selftest nor this evidence check proves every session is mediated; [ADR-0020](./docs/adr/0020-codex-live-mediation-evidence-gate.md) spells out that distinction.
 
 ## Extend it
 

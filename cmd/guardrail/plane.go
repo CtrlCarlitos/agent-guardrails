@@ -513,6 +513,9 @@ func planeStatusState(plane string) string {
 	}
 	if planeIntegrationRegistered(plane) {
 		if plane == "codex" {
+			if runtime.GOOS == "windows" {
+				return "guardrail hooks registered, unenforced: Windows command_execution PreToolUse dispatch not observed (external blocker openai/codex#24453); verify trust in /hooks; no runtime coverage claim"
+			}
 			return "guardrail hooks registered; verify trust in /hooks; hosted tools and write_stdin bypass pre-hooks (ADR-0014)"
 		}
 		return "guardrail integration registered"

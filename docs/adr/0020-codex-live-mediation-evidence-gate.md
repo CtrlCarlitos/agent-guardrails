@@ -7,12 +7,20 @@ heuristic whose adversary model is **“am I fooling myself?”**, not a hostile
 writer forging authenticated telemetry.
 
 The opening condition for the future Codex approval-flow proposal is exit 0
-from this command: at least one non-synthetic session has **two distinct
-pre-hook verdict records**, both strictly newer than the running Guardrail
-binary's filesystem mtime and no later than the observation time. A session ID
-must recur across distinct records; a singleton is insufficient. Repeated
+from this command: the selected non-synthetic Codex session has **two distinct
+pre-hook verdict records**, both strictly newer than the observation cutoff and
+no later than the observation time. By default the selected session is the
+newest local Codex rollout after the running Guardrail binary's filesystem
+mtime. A session ID must recur across distinct records; a singleton is
+insufficient. Repeated
 copies of a record do not count. Records are distinct by timestamp **or** tool **or** decision; session IDs do
 not authenticate runtime execution.
+
+`--session <id>` selects an exact local rollout. `--since <RFC3339|duration>`
+replaces the binary-mtime cutoff. Repeated `--expect-tool <name>` assertions
+must each match an eligible record's normalized `tool` or `native_tool`; a
+missing expected tool keeps the gate closed. Without `--session`, a newer silent
+rollout wins over older qualifying audit evidence.
 
 ## Synthetic provenance exclusions
 
@@ -39,8 +47,13 @@ Copying those logs into the real audit directory can fool this heuristic.
 
 - Read the default audit destination used by `guardrail audit`, honoring the
   platform state-directory environment, plus retained rotated segments. Report
-  the path and binary-mtime cutoff. An Overlay's custom audit destination is not
-  selected automatically; absence here is absence of evidence in this scope.
+  the path, cutoff, and whether it came from binary mtime or explicit `--since`.
+  An Overlay's custom audit destination is not selected automatically; absence
+  here is absence of evidence in this scope.
+- Read session identity and start time from regular `rollout-*.jsonl` files
+  beneath `$CODEX_HOME/sessions` (or `~/.codex/sessions`), bounded to 10,000
+  files and 1 MiB of metadata per file. Missing, malformed, or unreadable
+  session inventory keeps the gate closed. Synthetic IDs remain excluded.
 - Evidence mode does not run selftest probes, start Codex, create session state,
   or mutate the audit log. Plain `guardrail selftest` keeps its existing behavior.
 - Require `plane: codex`, `event: pre`, a nonempty tool name, a nonempty session
@@ -54,8 +67,9 @@ Copying those logs into the real audit directory can fool this heuristic.
   Equivalent timestamp spellings are one instant. There is no tool-call identity
   field, so this does not prove two different executions.
 - Show total records, Codex records, excluded synthetic records, stale records,
-  rejected records, duplicates, malformed records, eligible distinct records,
-  eligible sessions and qualifying sessions. Synthetic records are excluded
+  rejected records, records belonging to other sessions, duplicates, malformed
+  records, eligible distinct records, eligible sessions and qualifying sessions.
+  Also show observed, expected, and missing tool names. Synthetic records are excluded
   before time filtering; stale/rejected/duplicate counters cover the remaining
   Codex records. Malformed counts cover invalid JSON across all planes.
 - Exit **0** means the heuristic observed live-mediation evidence and the
@@ -80,24 +94,22 @@ intentional. Genuine repeated calls with the same timestamp, tool, and decision
 also count only once. Rotation or a binary update can remove otherwise useful evidence.
 Filesystem mtime is an installation heuristic, not a signed build identity.
 
-The command is **not a per-session regression tripwire**: an older qualifying
-session after the same binary mtime can mask a newer hosted-tool session that
-leaves no records. Likewise, shell pre-hooks in a session do not establish that
-hosted tools or `write_stdin` were mediated. A future targeted tripwire needs a
-selected session/observation window and evidence for the specific attempted
-tool; this aggregate command cannot establish that from absent records.
+The command is session-scoped but still not authenticated telemetry. A silent
+newest rollout is now reported and keeps the gate closed instead of being masked
+by older evidence. Likewise, shell pre-hooks in a selected session do not
+establish that hosted tools or `write_stdin` were mediated. Expected-tool
+assertions only prove matching audit records exist for the names the operator
+supplied; absence of an assertion is not evidence of coverage.
 
 The gate establishes a **proposal precondition**: heuristic evidence that
 mediation exists and works in at least one session. It does not guarantee that
 every session is mediated. The approval-flow ADR must claim exactly that scope;
 an evidence log alone cannot enumerate sessions that left no records.
 
-After the upstream mediation fixes (#46372/#46373) land and are validated,
-`selftest --evidence codex` can be strengthened by cross-referencing an
-authoritative runtime session list against audit records for the same observation
-window. This is a future extension, not current behavior. Sessions known to have
-attempted guarded tools should then have corresponding records; a missing match
-is a provable gap in expected audit evidence **provided collection, retention,
+The local rollout inventory establishes that a Codex session existed, not which
+tools it attempted. Sessions known to have attempted guarded tools should have
+corresponding expected-tool assertions; a missing match is a gap in expected
+audit evidence **provided collection, retention,
 and session identity correlation are verified complete**. Idle sessions need not
 produce tool records. Without those prerequisites, the result remains absence
 of evidence, not proof of bypass. This adds an independent source of expected
