@@ -849,11 +849,10 @@ func strictWriteRoots(tc ToolCall, candidate pathCandidate) []string {
 			roots = append(roots, memoryRoot)
 		}
 	}
-	for _, root := range tc.PermittedRoots {
-		if root != "" {
-			roots = append(roots, root)
-		}
-	}
+	// ADR-0021 step (c) antigravity slice: the active session's brain
+	// directory is a strict permitted root - writes strictly inside it are
+	// authorized, the root itself and other sessions' brain dirs still ask.
+	roots = append(roots, tc.PermittedRoots...)
 	return roots
 }
 
@@ -926,18 +925,7 @@ func checkOutOfRepoWrite(tc ToolCall) *policy.Verdict {
 	}
 	for _, p := range tc.Paths {
 		candidate := pathCandidate{path: p, cwd: tc.CWD, repoRoot: tc.RepoRoot}
-<<<<<<< HEAD
-<<<<<<< HEAD
-		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, nil, strictWriteRoots(tc, candidate), false); !authorized {
-||||||| parent of 7b98e6b (feat(engine): linked worktrees of the session repository stay in-repo)
-		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, nil, strictWriteRoots(tc.Plane, candidate), false); !authorized {
-=======
-		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, nil, strictWriteRoots(tc.Plane, candidate), false); !authorized {
-||||||| parent of e948fc8 (fix(engine): worktree escape hatch respects strict roots and host path spelling)
-		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, nil, strictWriteRoots(tc.Plane, candidate), false); !authorized {
-=======
-		if authorized, lexical := authorizedPath(candidate, tc.RepoRoot, nil, strictWriteRoots(tc.Plane, candidate), false); !authorized {
->>>>>>> e948fc8 (fix(engine): worktree escape hatch respects strict roots and host path spelling)
+		if authorized, lexical := authorizedPath(candidate, tc.RepoRoot, nil, strictWriteRoots(tc, candidate), false); !authorized {
 			// A linked worktree of the same repository is the same repo
 			// under the same policy (one-branch-per-PR discipline); the
 			// git-directory round trip fails closed on forged pointers.
@@ -951,7 +939,6 @@ func checkOutOfRepoWrite(tc ToolCall) *policy.Verdict {
 					continue
 				}
 			}
->>>>>>> 7b98e6b (feat(engine): linked worktrees of the session repository stay in-repo)
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P5.out-of-repo",
 				Reason: "write target is outside the repo/worktree root: " + p}
 		}
