@@ -52,6 +52,9 @@ func applyGlobalWebHost(host string, grant bool) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
+	if err := securePrivateDir(filepath.Dir(path)); err != nil {
+		return err
+	}
 	return writeSyncedPrivateFile(path, raw, 0o600)
 }
 
@@ -95,6 +98,9 @@ func applyRepoWebHost(repo, host string, grant bool) error {
 	if err := os.MkdirAll(filepath.Dir(operatorPath), 0o700); err != nil {
 		return err
 	}
+	if err := securePrivateDir(filepath.Dir(operatorPath)); err != nil {
+		return err
+	}
 	journalPath := filepath.Join(dir, filepath.Base(mustAllowanceJournalPath(repo)))
 	journal := allowanceJournal{OverlayPath: overlayPath, OverlayAfter: overlay, OverlayMode: uint32(mode), OperatorPath: operatorPath, OperatorAfter: operator}
 	if err := writeAllowanceJournal(journalPath, journal); err != nil {
@@ -112,6 +118,13 @@ func allowanceJournalPath(repo string) (string, error) {
 }
 
 func allowanceJournalDir() (string, error) {
+	if runtime.GOOS == "windows" {
+		base := os.Getenv("LOCALAPPDATA")
+		if base == "" || !filepath.IsAbs(base) {
+			return "", fmt.Errorf("LOCALAPPDATA must be an absolute path")
+		}
+		return filepath.Join(base, "guardrail", "allowances"), nil
+	}
 	base := os.Getenv("XDG_STATE_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
@@ -152,7 +165,7 @@ func recoverAllowanceJournal(path string) error {
 	if err := ensureAllowanceDir(filepath.Dir(path)); err != nil {
 		return err
 	}
-	if info, err := os.Lstat(path); err == nil && (!info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || validateAllowanceOwner(info) != nil) {
+	if info, err := os.Lstat(path); err == nil && validatePrivateFile(path, info) != nil {
 		return fmt.Errorf("unsafe allowance journal")
 	}
 	raw, err := os.ReadFile(path)
@@ -190,6 +203,9 @@ func recoverAllowanceJournal(path string) error {
 	if err := os.MkdirAll(filepath.Dir(journal.OperatorPath), 0o700); err != nil {
 		return err
 	}
+	if err := securePrivateDir(filepath.Dir(journal.OperatorPath)); err != nil {
+		return err
+	}
 	if err := writeSyncedPrivateFile(journal.OperatorPath, journal.OperatorAfter, 0o600); err != nil {
 		return err
 	}
@@ -218,8 +234,11 @@ func ensureAllowanceDir(dir string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
+	if err := securePrivateDir(dir); err != nil {
+		return err
+	}
 	info, err := os.Stat(dir)
-	if err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 || validateAllowanceOwner(info) != nil {
+	if err != nil || !info.IsDir() || validatePrivateDir(dir, info) != nil {
 		return fmt.Errorf("allowance journal directory is not private")
 	}
 	return nil
@@ -228,7 +247,7 @@ func ensureAllowanceDir(dir string) error {
 func allowanceKey(dir string) ([]byte, error) {
 	path := filepath.Join(dir, "auth.key")
 	if info, err := os.Lstat(path); err == nil {
-		if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || validateAllowanceOwner(info) != nil {
+		if validatePrivateFile(path, info) != nil {
 			return nil, fmt.Errorf("unsafe allowance journal key")
 		}
 		return os.ReadFile(path)

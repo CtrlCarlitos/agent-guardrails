@@ -223,6 +223,22 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			}
 		}
 	}
+	for _, report := range tc.DegradedAllows {
+		degraded := audit.Record{
+			TS:         report.TS,
+			SessionID:  tc.SessionID,
+			Plane:      tc.Plane,
+			Tool:       report.Tool,
+			NativeTool: report.Tool,
+			Event:      "pre",
+			Decision:   "allow",
+			Transport:  "plugin-degraded",
+			Reason:     "engine unreachable; degraded allow reported by adapter",
+		}
+		if err := audit.Write(degraded, audit.DefaultPath(merged.Slots.AuditLog)); err != nil {
+			highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: degraded-allow audit write failed (%v)", err))
+		}
+	}
 	stderrWarnings := append(append([]string{}, highPriorityWarnings...), mergeWarnings...)
 	adapter.EmitModelWarnings(stderrWarnings, stderr)
 

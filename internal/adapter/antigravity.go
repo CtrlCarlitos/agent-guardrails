@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
@@ -232,6 +234,9 @@ func ParseAntigravity(phase string, r io.Reader) (engine.ToolCall, error) {
 		Arguments:  native.ToolCall.Args,
 		Raw:        raw,
 	}
+	if brainDir := AntigravityBrainDir(p.ConversationID); brainDir != "" {
+		tc.PermittedRoots = []string{brainDir}
+	}
 	if p.ToolCall.Name == "manage_task" {
 		action, _ := input["Action"].(string)
 		switch action {
@@ -321,4 +326,27 @@ func EmitAntigravity(v policy.Verdict, phase string, tc engine.ToolCall, stdout 
 	b, _ := json.Marshal(payload)
 	stdout.Write(append(b, '\n'))
 	return 0
+}
+
+func AntigravityAppDataDir() string {
+	if dir := os.Getenv("ANTIGRAVITY_APP_DATA_DIR"); dir != "" {
+		return filepath.Clean(dir)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".gemini", "antigravity-cli")
+}
+
+func AntigravityBrainDir(sessionID string) string {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" || strings.Contains(sessionID, "..") || strings.ContainsAny(sessionID, `/\`) {
+		return ""
+	}
+	appData := AntigravityAppDataDir()
+	if appData == "" {
+		return ""
+	}
+	return filepath.Join(appData, "brain", sessionID)
 }

@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"fmt"
+	"runtime"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -10,7 +11,15 @@ import (
 func Guidance(v policy.Verdict, action string) string {
 	switch v.Decision {
 	case policy.Ask:
-		return fmt.Sprintf("Operator authorization required: %s. Request authorization for this exact action: %s. If the operator approves, retry this exact tool call within 10 minutes. If the authorization expires, stop and wait for the operator to return — say what you were doing and that approval expired; do not keep retrying. Do not alter or broaden the action.", v.Reason, action)
+		// In-session approval is gated on Windows until the ADR-0021 broker
+		// lands (step d); the operator's terminal is the working path, and
+		// the guidance must say so instead of pointing at a door that is not
+		// there yet. Remove this suffix with the step (d) gate.
+		windowsApprovalNote := ""
+		if runtime.GOOS == "windows" {
+			windowsApprovalNote = " On Windows, in-session approval is not yet available: the operator can run this exact action from a terminal instead."
+		}
+		return fmt.Sprintf("Operator authorization required: %s. Request authorization for this exact action: %s. If the operator approves, retry this exact tool call within 10 minutes. If the authorization expires, stop and wait for the operator to return — say what you were doing and that approval expired; do not keep retrying. Do not alter or broaden the action.%s", v.Reason, action, windowsApprovalNote)
 	case policy.Deny:
 		return fmt.Sprintf("Guardrail denied this action: %s. %s If this verdict seems wrong or blocks legitimate work, report it to the operator with: the exact tool call, the rule ID (%s), your guardrail version, what you were trying to do, and what you did instead. Do not work around it silently.", v.Reason, denyNextStep(v), v.RuleID)
 	default:

@@ -69,6 +69,9 @@ func TestDoctorCoveragePlaneSpecificFlags(t *testing.T) {
 		{"codex reversed", []string{"--schema", "tools.json", "--coverage", "codex"}, true},
 		{"claude", []string{"--coverage", "claude", "--bundle", "cli.js"}, true},
 		{"antigravity", []string{"--coverage", "antigravity", "--config", "mcp.json", "--schemas", "schemas"}, true},
+		{"codex hooks", []string{"--codex-hooks"}, true},
+		{"codex hooks with coverage", []string{"--codex-hooks", "--coverage", "codex", "--schema", "tools.json"}, false},
+		{"duplicate codex hooks", []string{"--codex-hooks", "--codex-hooks"}, false},
 		{"schema without plane", []string{"--schema", "tools.json"}, false},
 		{"schema without value", []string{"--coverage", "codex", "--schema"}, false},
 		{"claude schema", []string{"--coverage", "claude", "--schema", "tools.json"}, false},
@@ -85,6 +88,9 @@ func TestDoctorCoveragePlaneSpecificFlags(t *testing.T) {
 			}
 			if ok && opts.coverage == "codex" && opts.schema != "tools.json" {
 				t.Fatalf("schema = %q", opts.schema)
+			}
+			if ok && tc.name == "codex hooks" && !opts.codexHooks {
+				t.Fatal("--codex-hooks was not retained")
 			}
 		})
 	}
