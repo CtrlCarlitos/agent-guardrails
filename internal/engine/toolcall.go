@@ -27,6 +27,21 @@ type ToolCall struct {
 	RepoRoot       string // git top-level for CWD, or CWD if not a repo
 	Raw            json.RawMessage
 	PermittedRoots []string // plane-owned writable roots for this call (e.g. Antigravity session brain dir)
+
+	// DegradedAllows carries adapter-reported records of calls that were
+	// allowed locally while the engine was unreachable (the B+ communication
+	// valve): the engine was down, the ask channel stayed open, and these
+	// reports restore the audit evidence the outage would otherwise lose.
+	DegradedAllows []DegradedAllowReport
+}
+
+// DegradedAllowReport is one adapter-reported degraded allow. The engine
+// validates eligibility and boundedness on parse and writes each report as
+// an audit record tagged Transport "plugin-degraded".
+type DegradedAllowReport struct {
+	Tool   string `json:"tool"`
+	CallID string `json:"call_id,omitempty"`
+	TS     string `json:"ts"`
 }
 
 func (tc ToolCall) IsBash() bool {

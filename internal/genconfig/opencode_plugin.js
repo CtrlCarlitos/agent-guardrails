@@ -30,27 +30,63 @@ function isPendingOperatorAction(decision) {
 const SPAWN_RETRIES = 2;
 const SPAWN_BASE_TIMEOUT_MS = 15000;
 
+// Degraded communication allow (B+): the tool list is baked by gen-config
+// from planecontract.DegradedAllow — argument-independent, direct human
+// communication only. While the engine is unreachable (transport failure on
+// a single short attempt), these calls allow locally, loudly: a stderr
+// notice, a reason naming the outage, and a buffered report flushed into
+// the next healthy call's envelope so the audit trail keeps the mediation
+// evidence. Everything else — including a reachable engine that denies,
+// exits non-zero, or returns garbage — still fails closed.
+const DEGRADED_ALLOW_TOOLS = new Set("__DEGRADED_ALLOW_TOOLS__");
+const DEGRADED_PROBE_TIMEOUT_MS = 5000;
+const degradedAllowReports = [];
+
 function callGuardrail(envelope) {
 	const serializedEnvelope = JSON.stringify(envelope);
 	if (Buffer.byteLength(serializedEnvelope, "utf8") > MAX_OPENCODE_HOOK_ENVELOPE_BYTES) {
 		throw new Error("guardrail: OpenCode hook envelope exceeds 8 MiB; failing closed");
 	}
+	// Piggyback buffered degraded-allow reports on this call; they are only
+	// cleared once the engine actually answers.
+	const flushReports = degradedAllowReports.length > 0 ? degradedAllowReports.slice(0, 32) : null;
+	if (flushReports) envelope.degraded_allows = flushReports;
 	let res;
-	for (let attempt = 0; attempt <= SPAWN_RETRIES; attempt++) {
+	if (DEGRADED_ALLOW_TOOLS.has(envelope.tool)) {
+		// One short attempt: a hung engine must not stall the operator's
+		// communication channel behind the retry ladder.
 		res = spawnSync(GUARDRAIL_BIN, ["hook", "opencode"], {
 			input: serializedEnvelope,
 			encoding: "utf8",
-			timeout: SPAWN_BASE_TIMEOUT_MS + attempt * 10000,
+			timeout: DEGRADED_PROBE_TIMEOUT_MS,
 		});
-		if (!res.error) break;
-		if (attempt < SPAWN_RETRIES) {
-			// Brief backoff before retry — Defender scans are transient.
-			const waitUntil = Date.now() + 500 * (attempt + 1);
-			while (Date.now() < waitUntil) {}
+		if (res.error) {
+			degradedAllowReports.push({ tool: envelope.tool, call_id: envelope.call_id || "", ts: new Date().toISOString() });
+			process.stderr.write(`[guardrail: engine unreachable; degraded allow for ${envelope.tool} — enforcement is offline for this call]\n`);
+			return { decision: "allow", reason: `guardrail: engine unreachable; degraded allow for ${envelope.tool} — enforcement is offline for this call` };
+		}
+		// The engine answered: fall through to shared handling — a deny or a
+		// malformed response must still fail closed, question included.
+	} else {
+		for (let attempt = 0; attempt <= SPAWN_RETRIES; attempt++) {
+			res = spawnSync(GUARDRAIL_BIN, ["hook", "opencode"], {
+				input: serializedEnvelope,
+				encoding: "utf8",
+				timeout: SPAWN_BASE_TIMEOUT_MS + attempt * 10000,
+			});
+			if (!res.error) break;
+			if (attempt < SPAWN_RETRIES) {
+				// Brief backoff before retry — Defender scans are transient.
+				const waitUntil = Date.now() + 500 * (attempt + 1);
+				while (Date.now() < waitUntil) {}
+			}
+		}
+		if (res.error) {
+			throw new Error(`guardrail: could not run after ${SPAWN_RETRIES + 1} attempts (${res.error.message}); failing closed`);
 		}
 	}
-	if (res.error) {
-		throw new Error(`guardrail: could not run after ${SPAWN_RETRIES + 1} attempts (${res.error.message}); failing closed`);
+	if (flushReports) {
+		degradedAllowReports.splice(0, flushReports.length);
 	}
 	if (res.signal) {
 		throw new Error(`guardrail: killed by signal ${res.signal}; failing closed`);
