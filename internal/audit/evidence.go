@@ -16,7 +16,7 @@ import (
 // Counts describe the retained log segments, not the lifetime of the install.
 type CodexEvidence struct {
 	Records, Codex, Synthetic, Stale, Rejected, Duplicates, Eligible, Sessions, QualifiedSessions, Malformed, OtherSessions int
-	ObservedTools, MissingExpectedTools                                                                                     []string
+	ObservedTools, MissingExpectedTools, Capabilities                                                                       []string
 }
 
 // Observed requires two distinct eligible pre-hook records in one session.
@@ -108,6 +108,7 @@ func readPlaneEvidence(segments []string, plane string, synthetic func(string) b
 	seen := map[[4]string]bool{}
 	sessions := map[string]int{}
 	observedTools := map[string]bool{}
+	capabilities := map[string]bool{}
 	expected := map[string]bool{}
 	for _, tool := range expectedTools {
 		tool = strings.TrimSpace(tool)
@@ -178,6 +179,9 @@ func readPlaneEvidence(segments []string, plane string, synthetic func(string) b
 				if rec.NativeTool != "" {
 					observedTools[rec.NativeTool] = true
 				}
+				if rec.Capability != "" {
+					capabilities[rec.Capability] = true
+				}
 				sessions[rec.SessionID]++
 				if sessions[rec.SessionID] == 1 {
 					result.Sessions++
@@ -205,5 +209,9 @@ func readPlaneEvidence(segments []string, plane string, synthetic func(string) b
 		}
 	}
 	sort.Strings(result.MissingExpectedTools)
+	for capability := range capabilities {
+		result.Capabilities = append(result.Capabilities, capability)
+	}
+	sort.Strings(result.Capabilities)
 	return result, nil
 }

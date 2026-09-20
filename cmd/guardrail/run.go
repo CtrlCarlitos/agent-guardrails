@@ -47,6 +47,7 @@ usage: guardrail <command> [arguments]
       --session <id> --since <time|duration> --expect-tool <name>  scope Codex evidence
   audit [--path <file>]              summarize the audit log (decisions, rules, drift)
   doctor [flags]                    print resolved policy/overlay/audit/hook state
+      --codex-hooks         inspect Codex registration, trust, direct runnability, and evidence
       --coverage claude    diff the installed Claude Code tool surface against the contract
       --bundle <path>      scan this bundle instead of the claude on PATH
       --coverage codex --schema <path>  inventory a captured Responses tool schema
