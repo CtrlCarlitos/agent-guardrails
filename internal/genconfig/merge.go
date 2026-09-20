@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -213,8 +214,11 @@ func absorbGuardrailPluginEntries(existing map[string]any) {
 	}
 	kept := plugins[:0]
 	for _, entry := range plugins {
-		path, _ := entry.(string)
-		if path != "" && strings.EqualFold(filepath.Base(filepath.FromSlash(path)), "guardrail.js") {
+		entryPath, _ := entry.(string)
+		// Match the plugin file name regardless of host separator spelling:
+		// a backslashed Windows path in a merged file must absorb on POSIX
+		// CI hosts too, so normalize before Base.
+		if entryPath != "" && strings.EqualFold(path.Base(strings.ReplaceAll(entryPath, "\\", "/")), "guardrail.js") {
 			continue
 		}
 		kept = append(kept, entry)
