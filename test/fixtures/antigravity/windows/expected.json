@@ -61,5 +61,25 @@
       "C:\\repo\\.env"
     ],
     "rule": "P4.secret-path"
+  },
+  "write-brain-task.json": {
+    "decision": "allow",
+    "paths": [
+      "C:\\test-gemini\\antigravity-cli\\brain\\w1\\task.md"
+    ]
+  },
+  "write-brain-other-session.json": {
+    "decision": "force_ask",
+    "paths": [
+      "C:\\test-gemini\\antigravity-cli\\brain\\other-session\\task.md"
+    ],
+    "rule": "P5.out-of-repo"
+  },
+  "write-brain-secret.json": {
+    "decision": "deny",
+    "paths": [
+      "C:\\test-gemini\\antigravity-cli\\brain\\w1\\.env"
+    ],
+    "rule": "P4.secret-path"
   }
 }

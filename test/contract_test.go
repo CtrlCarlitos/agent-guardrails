@@ -324,6 +324,7 @@ func TestAntigravityWindowsContractFixtures(t *testing.T) {
 				"XDG_STATE_HOME="+state,
 				"XDG_CONFIG_HOME="+t.TempDir(),
 				"GUARDRAIL_CONFIG=",
+				"ANTIGRAVITY_APP_DATA_DIR=C:\\test-gemini\\antigravity-cli",
 			)
 			out, err := cmd.Output()
 			if err != nil {

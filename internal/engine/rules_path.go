@@ -842,11 +842,16 @@ func checkCIInfraLockfileCandidates(tc ToolCall, candidates []pathCandidate) *po
 	return nil
 }
 
-func strictWriteRoots(plane string, candidate pathCandidate) []string {
+func strictWriteRoots(tc ToolCall, candidate pathCandidate) []string {
 	roots := systemTempRoots()
-	if plane == "claude" {
+	if tc.Plane == "claude" {
 		if memoryRoot := claudeMemoryRoot(candidate); memoryRoot != "" {
 			roots = append(roots, memoryRoot)
+		}
+	}
+	for _, root := range tc.PermittedRoots {
+		if root != "" {
+			roots = append(roots, root)
 		}
 	}
 	return roots
@@ -921,7 +926,7 @@ func checkOutOfRepoWrite(tc ToolCall) *policy.Verdict {
 	}
 	for _, p := range tc.Paths {
 		candidate := pathCandidate{path: p, cwd: tc.CWD, repoRoot: tc.RepoRoot}
-		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, nil, strictWriteRoots(tc.Plane, candidate), false); !authorized {
+		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, nil, strictWriteRoots(tc, candidate), false); !authorized {
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P5.out-of-repo",
 				Reason: "write target is outside the repo/worktree root: " + p}
 		}

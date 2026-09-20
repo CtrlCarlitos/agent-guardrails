@@ -2,9 +2,12 @@ package adapter
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
@@ -69,5 +72,132 @@ func TestParseAntigravityWindowsCommandsProjectVerbatim(t *testing.T) {
 		if tc.Capability != policy.CapabilityCommand || tc.Command != cmd || tc.Tool != "Bash" {
 			t.Fatalf("command %q -> %+v", cmd, tc)
 		}
+	}
+}
+
+func TestAntigravityBrainDirPermittedRoot(t *testing.T) {
+	appData := filepath.Join(t.TempDir(), ".gemini", "antigravity-cli")
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", appData)
+	sessionID := "ses-live-123"
+	brainDir := filepath.Join(appData, "brain", sessionID)
+
+	// Valid session populates permitted root
+	payload := fmt.Sprintf(`{"conversationId":%q,"workspacePaths":["C:\\repo"],"toolCall":{"name":"write_to_file","args":{"TargetFile":%q}}}`,
+		sessionID, filepath.Join(brainDir, "task.md"))
+	tc, err := ParseAntigravity("pre", strings.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tc.PermittedRoots) != 1 || tc.PermittedRoots[0] != brainDir {
+		t.Fatalf("tc.PermittedRoots = %v, want [%s]", tc.PermittedRoots, brainDir)
+	}
+
+	// Traversal session does not populate permitted root
+	badPayload := `{"conversationId":"../escape","workspacePaths":["C:\\repo"],"toolCall":{"name":"write_to_file","args":{"TargetFile":"C:\\repo\\a.go"}}}`
+	tcBad, err := ParseAntigravity("pre", strings.NewReader(badPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tcBad.PermittedRoots) != 0 {
+		t.Fatalf("traversal session gave PermittedRoots: %v", tcBad.PermittedRoots)
+	}
+
+	// Slashes in session do not populate permitted root
+	slashPayload := `{"conversationId":"foo/bar","workspacePaths":["C:\\repo"],"toolCall":{"name":"write_to_file","args":{"TargetFile":"C:\\repo\\a.go"}}}`
+	tcSlash, err := ParseAntigravity("pre", strings.NewReader(slashPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tcSlash.PermittedRoots) != 0 {
+		t.Fatalf("slash session gave PermittedRoots: %v", tcSlash.PermittedRoots)
+	}
+
+	// Empty session does not populate permitted root
+	emptyPayload := `{"conversationId":"","workspacePaths":["C:\\repo"],"toolCall":{"name":"write_to_file","args":{"TargetFile":"C:\\repo\\a.go"}}}`
+	tcEmpty, err := ParseAntigravity("pre", strings.NewReader(emptyPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tcEmpty.PermittedRoots) != 0 {
+		t.Fatalf("empty session gave PermittedRoots: %v", tcEmpty.PermittedRoots)
+	}
+}
+
+func TestAntigravityBrainDirEvaluation(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseDir := filepath.Join(home, ".test-guardrails-"+strings.ReplaceAll(t.Name(), "/", "-"))
+	if err := os.MkdirAll(baseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(baseDir) })
+
+	appData := filepath.Join(baseDir, "appdata")
+	repoDir := filepath.Join(baseDir, "repo")
+	if err := os.MkdirAll(appData, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", appData)
+	sessionID := "ses-live-123"
+	brainDir := filepath.Join(appData, "brain", sessionID)
+	pol := &policy.Policy{
+		Slots: policy.Slots{
+			SecretGlobs: []string{"**/.env", "**/.env.*"},
+		},
+	}
+
+	// 1. task.md in session brain dir -> allow (no P5.out-of-repo ask)
+	payload := fmt.Sprintf(`{"conversationId":%q,"workspacePaths":[%q],"toolCall":{"name":"write_to_file","args":{"TargetFile":%q,"Description":"task tracking"}}}`,
+		sessionID, repoDir, filepath.Join(brainDir, "task.md"))
+	tc, err := ParseAntigravity("pre", strings.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := engine.Evaluate(tc, pol)
+	if v.Decision != policy.Allow {
+		t.Fatalf("task.md in brain dir -> %+v, want allow", v)
+	}
+
+	// 2. task.md in ANOTHER session brain dir -> ask (P5.out-of-repo)
+	otherBrainDir := filepath.Join(appData, "brain", "ses-other-999")
+	otherPayload := fmt.Sprintf(`{"conversationId":%q,"workspacePaths":[%q],"toolCall":{"name":"write_to_file","args":{"TargetFile":%q,"Description":"task tracking"}}}`,
+		sessionID, repoDir, filepath.Join(otherBrainDir, "task.md"))
+	tcOther, err := ParseAntigravity("pre", strings.NewReader(otherPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	vOther := engine.Evaluate(tcOther, pol)
+	if vOther.Decision != policy.Ask || vOther.RuleID != "P5.out-of-repo" {
+		t.Fatalf("task.md in other session brain dir -> %+v, want ask/P5.out-of-repo", vOther)
+	}
+
+	// 3. Brain dir root itself -> ask (P5.out-of-repo)
+	rootPayload := fmt.Sprintf(`{"conversationId":%q,"workspacePaths":[%q],"toolCall":{"name":"write_to_file","args":{"TargetFile":%q,"Description":"task tracking"}}}`,
+		sessionID, repoDir, brainDir)
+	tcRoot, err := ParseAntigravity("pre", strings.NewReader(rootPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	vRoot := engine.Evaluate(tcRoot, pol)
+	if vRoot.Decision != policy.Ask || vRoot.RuleID != "P5.out-of-repo" {
+		t.Fatalf("brain dir root write -> %+v, want ask/P5.out-of-repo", vRoot)
+	}
+
+	// 4. Secret inside session brain dir (.env) -> deny (P4.secret-path)
+	secretPayload := fmt.Sprintf(`{"conversationId":%q,"workspacePaths":[%q],"toolCall":{"name":"write_to_file","args":{"TargetFile":%q,"Description":"env"}}}`,
+		sessionID, repoDir, filepath.Join(brainDir, ".env"))
+	tcSecret, err := ParseAntigravity("pre", strings.NewReader(secretPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	vSecret := engine.Evaluate(tcSecret, pol)
+	if vSecret.Decision != policy.Deny || vSecret.RuleID != "P4.secret-path" {
+		t.Fatalf("secret in brain dir -> %+v, want deny/P4.secret-path", vSecret)
 	}
 }
