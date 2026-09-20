@@ -34,6 +34,7 @@ const plugin = await loaded.default({ directory: "/repo" });
 const before = plugin["tool.execute.before"];
 try { await before({ tool: "question", sessionID: "s" }, { args: {} }); } catch {}
 try { await before({ tool: "read", sessionID: "s" }, { args: { filePath: "/repo/a.txt" } }); } catch {}
+try { await before({ tool: "bash", sessionID: "s" }, { args: { command: "ls" } }); } catch {}
 `
 	var output bytes.Buffer
 	cmd := exec.Command(node, "--input-type=module", "--eval", runner, pluginPath)
@@ -54,7 +55,10 @@ try { await before({ tool: "read", sessionID: "s" }, { args: { filePath: "/repo/
 	if !strings.Contains(log, "degraded-allow tool=question") {
 		t.Fatalf("degraded-allow line missing:\n%s", log)
 	}
-	if !strings.Contains(log, "engine-unreachable tool=read") {
+	if !strings.Contains(log, "floor-fallback tool=read") {
+		t.Fatalf("floor-fallback line missing:\n%s", log)
+	}
+	if !strings.Contains(log, "engine-unreachable tool=bash") {
 		t.Fatalf("engine-unreachable line missing:\n%s", log)
 	}
 }

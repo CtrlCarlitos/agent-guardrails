@@ -16,12 +16,14 @@ func stripWrapper(prefix, s string) (string, bool) {
 }
 
 // OpencodePluginFor returns the embedded plugin source with the absolute
-// guardrail path and the engine-contract degraded-allow tool list baked in.
+// guardrail path and the engine-contract degraded-mode tool lists baked in.
 func OpencodePluginFor(binary string) []byte {
 	encoded, _ := json.Marshal(binary)
 	tools, _ := json.Marshal(planecontract.OpencodeDegradedAllowTools())
+	floor, _ := json.Marshal(planecontract.OpencodeFloorFallbackTools())
 	source := strings.ReplaceAll(string(OpencodePluginJS), `"__GUARDRAIL_BIN__"`, string(encoded))
-	return []byte(strings.ReplaceAll(source, `"__DEGRADED_ALLOW_TOOLS__"`, string(tools)))
+	source = strings.ReplaceAll(source, `"__DEGRADED_ALLOW_TOOLS__"`, string(tools))
+	return []byte(strings.ReplaceAll(source, `"__FLOOR_FALLBACK_TOOLS__"`, string(floor)))
 }
 
 func OpencodeConfig(pol *policy.Policy, pluginPath string) Fragment {

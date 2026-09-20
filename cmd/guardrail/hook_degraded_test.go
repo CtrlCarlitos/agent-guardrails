@@ -23,7 +23,7 @@ func TestHookDegradedAllowReportsWrittenToAudit(t *testing.T) {
 		t.Setenv("LOCALAPPDATA", t.TempDir())
 	}
 	t.Setenv("GUARDRAIL_CONFIG", "")
-	payload := `{"event":"pre","tool":"question","cwd":"/repo","arguments":{},"degraded_allows":[{"tool":"question","call_id":"c1","ts":"2026-09-20T05:00:00Z"},{"tool":"bash","ts":"2026-09-20T05:00:01Z"}]}`
+	payload := `{"event":"pre","tool":"question","cwd":"/repo","arguments":{},"degraded_allows":[{"tool":"question","call_id":"c1","ts":"2026-09-20T05:00:00Z"},{"tool":"read","call_id":"c2","ts":"2026-09-20T05:00:01Z"},{"tool":"bash","ts":"2026-09-20T05:00:02Z"}]}`
 	var out, errb bytes.Buffer
 	run([]string{"hook", "opencode"}, strings.NewReader(payload), &out, &errb)
 
@@ -32,6 +32,7 @@ func TestHookDegradedAllowReportsWrittenToAudit(t *testing.T) {
 		t.Fatalf("audit log not written: %v", err)
 	}
 	found := false
+	floorFound := false
 	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
 		var rec audit.Record
 		if json.Unmarshal([]byte(line), &rec) != nil {
@@ -40,8 +41,11 @@ func TestHookDegradedAllowReportsWrittenToAudit(t *testing.T) {
 		if rec.Transport == "plugin-degraded" && rec.Tool == "question" && rec.Decision == "allow" && rec.TS == "2026-09-20T05:00:00Z" {
 			found = true
 		}
+		if rec.Transport == "plugin-degraded" && rec.Tool == "read" && rec.TS == "2026-09-20T05:00:01Z" {
+			floorFound = true
+		}
 	}
-	if !found {
-		t.Fatalf("no plugin-degraded audit record in log:\n%s", raw)
+	if !found || !floorFound {
+		t.Fatalf("plugin-degraded audit records missing (question=%t read=%t):\n%s", found, floorFound, raw)
 	}
 }

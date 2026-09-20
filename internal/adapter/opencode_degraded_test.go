@@ -12,20 +12,24 @@ import (
 func TestWindowsDegradedAllowReportsSanitized(t *testing.T) {
 	payload := `{"event":"pre","tool":"bash","cwd":"/repo","degraded_allows":[` +
 		`{"tool":"question","call_id":"c1","ts":"2026-09-20T05:00:00Z"},` +
-		`{"tool":"bash","ts":"2026-09-20T05:00:01Z"},` +
+		`{"tool":"read","call_id":"c2","ts":"2026-09-20T05:00:01Z"},` +
+		`{"tool":"bash","ts":"2026-09-20T05:00:02Z"},` +
 		`{"tool":"todowrite","ts":"not-a-time"},` +
-		`{"tool":"todowrite","ts":"2026-09-20T05:00:02Z"}]}`
+		`{"tool":"todowrite","ts":"2026-09-20T05:00:03Z"}]}`
 	tc, err := ParseOpencode(strings.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tc.DegradedAllows) != 2 {
-		t.Fatalf("kept %d reports, want 2: %+v", len(tc.DegradedAllows), tc.DegradedAllows)
+	if len(tc.DegradedAllows) != 3 {
+		t.Fatalf("kept %d reports, want 3: %+v", len(tc.DegradedAllows), tc.DegradedAllows)
 	}
 	if tc.DegradedAllows[0].Tool != "question" || tc.DegradedAllows[0].CallID != "c1" {
 		t.Fatalf("first report = %+v, want question/c1", tc.DegradedAllows[0])
 	}
-	if tc.DegradedAllows[1].Tool != "todowrite" || tc.DegradedAllows[1].TS != "2026-09-20T05:00:02Z" {
-		t.Fatalf("second report = %+v, want todowrite with valid ts", tc.DegradedAllows[1])
+	if tc.DegradedAllows[1].Tool != "read" || tc.DegradedAllows[1].CallID != "c2" {
+		t.Fatalf("second report = %+v, want read/c2 (floor fallback)", tc.DegradedAllows[1])
+	}
+	if tc.DegradedAllows[2].Tool != "todowrite" || tc.DegradedAllows[2].TS != "2026-09-20T05:00:03Z" {
+		t.Fatalf("third report = %+v, want todowrite with valid ts", tc.DegradedAllows[2])
 	}
 }
