@@ -4,11 +4,34 @@
 // written out by `guardrail gen-config opencode --merge` — it is not meant
 // to be hand-edited in place; edit this source and rebuild instead.
 import { spawnSync } from "node:child_process";
+import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
 // Absolute path baked in by `guardrail gen-config opencode` at deploy time.
 // Deliberately NOT read from the environment: an agent that can set
 // GUARDRAIL_BIN could otherwise point the enforcer at /bin/true.
 const GUARDRAIL_BIN = "__GUARDRAIL_BIN__";
+
+// Engine-down events write no engine audit records (the engine never ran).
+// The plugin leaves its own greppable trail so an outage is diagnosable
+// after the fact; the runbook points here. Diagnostics must never break
+// mediation: every failure here is swallowed.
+const FAILURE_LOG = process.platform === "win32"
+	? join(process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local"), "guardrail", "plugin-failures.log")
+	: join(process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "guardrail", "plugin-failures.log");
+
+function logPluginFailure(kind, tool, detail) {
+	try {
+		mkdirSync(dirname(FAILURE_LOG), { recursive: true });
+		try {
+			if (statSync(FAILURE_LOG).size > 1024 * 1024) {
+				renameSync(FAILURE_LOG, FAILURE_LOG + ".old");
+			}
+		} catch {}
+		appendFileSync(FAILURE_LOG, `${new Date().toISOString()} ${kind} tool=${tool} ${detail}\n`);
+	} catch {}
+}
 
 // Adapter contract mirrored by maxOpencodeHookEnvelopeBytes in internal/adapter/opencode.go.
 const MAX_OPENCODE_HOOK_ENVELOPE_BYTES = 8 * 1024 * 1024;
@@ -62,6 +85,7 @@ function callGuardrail(envelope) {
 		});
 		if (res.error) {
 			degradedAllowReports.push({ tool: envelope.tool, call_id: envelope.call_id || "", ts: new Date().toISOString() });
+			logPluginFailure("degraded-allow", envelope.tool, res.error.message);
 			process.stderr.write(`[guardrail: engine unreachable; degraded allow for ${envelope.tool} — enforcement is offline for this call]\n`);
 			return { decision: "allow", reason: `guardrail: engine unreachable; degraded allow for ${envelope.tool} — enforcement is offline for this call` };
 		}
@@ -82,6 +106,7 @@ function callGuardrail(envelope) {
 			}
 		}
 		if (res.error) {
+			logPluginFailure("engine-unreachable", envelope.tool, res.error.message);
 			throw new Error(`guardrail: could not run after ${SPAWN_RETRIES + 1} attempts (${res.error.message}); failing closed`);
 		}
 	}
