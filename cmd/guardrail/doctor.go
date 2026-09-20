@@ -327,6 +327,7 @@ func printDoctor(stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "  WARNING: Antigravity has no declarative floor (ADR-0008); without hooks.json, Antigravity runs completely unguarded. Run `guardrail plane enable antigravity`.\n")
 		}
 	}
+	printSpawnProbe(stdout)
 	return 0
 }
 
