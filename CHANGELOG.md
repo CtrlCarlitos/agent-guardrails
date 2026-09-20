@@ -5,6 +5,16 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **CI's windows job can no longer hide a Windows test.** That job runs a fixed
+  package list filtered by `-run 'Windows|BOM|ReadJSONObject'`, not the full
+  suite, so a Windows test is invisible there unless its name matches *and* its
+  package is listed. Both halves had been missed: eight PowerShell tests for
+  #111 would have run only on ubuntu and macos until they were renamed, and
+  `internal/policy` has carried two Windows-named tests the job never ran.
+  Two guards now read `ci.yml` itself — so they cannot drift from what CI does
+  — and assert that every Windows-named test file contributes a selected test,
+  and that every selected test lives in a package the job runs.
+  `internal/policy` is added to that list, which the second guard found.
 - **macOS is a first-class platform**: CI runs the full POSIX suite on
   ubuntu, windows, and macos. Two real engine bugs fixed (temp-root
   symlink divergence, operator-config grant matching); symlink-escape
