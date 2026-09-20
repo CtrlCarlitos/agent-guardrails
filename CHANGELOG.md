@@ -13,7 +13,17 @@ explicitly in **Breaking** notes.
   `Initialize-Disk` join the `P1.mkfs` family; `Set-ExecutionPolicy
   Bypass|Unrestricted` asks. Measured before: every one allowed.
   P4's secret tier already covered cmdlets — it keys on operands, not
-  command names — so #111's P4 premise was wrong; P6 egress is still open.
+  command names — so #111's P4 premise was wrong.
+- **PowerShell egress and dynamic eval are covered (#111, P6)**:
+  `Invoke-WebRequest`/`Invoke-RestMethod` and their aliases join the
+  egress allowlist, the download-pipe-shell walk (`iwr … | iex` is
+  `curl … | sh`), and P7's network signal; `-Uri` binds the destination
+  and every other value-taking parameter consumes its own argument, so
+  `-OutFile payload.exe` is a file and not a host. Bare
+  `Invoke-Expression` asks under a new `P6.dynamic-eval`: its argument is
+  PowerShell source, and reading it with a POSIX shell parser would be a
+  guess. Parity with `curl` is asserted, including for destinations the
+  analyser cannot read. **#111's enforcement gap is closed.**
 - **macOS is a first-class platform**: CI runs the full POSIX suite on
   ubuntu, windows, and macos. Two real engine bugs fixed (temp-root
   symlink divergence, operator-config grant matching); symlink-escape

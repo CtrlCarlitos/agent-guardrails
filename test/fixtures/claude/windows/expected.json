@@ -41,6 +41,31 @@
     "exit": 2,
     "rule": "P4.secret-path"
   },
+  "powershell-invoke-expression.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "P6.dynamic-eval"
+  },
+  "powershell-invoke-webrequest-egress.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P6.egress"
+  },
+  "powershell-irm-uri-egress.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P6.egress"
+  },
+  "powershell-iwr-outfile-egress.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P6.egress"
+  },
+  "powershell-iwr-pipe-iex.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P6.download-pipe-shell"
+  },
   "powershell-remove-item-alias.json": {
     "decision": "deny",
     "exit": 2,
