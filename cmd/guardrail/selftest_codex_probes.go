@@ -41,11 +41,23 @@ func codexSelftestProbes(goos string) []selftestProbe {
 		}
 		return string(raw)
 	}
+	// On Windows an allowed command cannot be emitted at all: EmitCodex refuses
+	// to rewrite updatedInput when it cannot prove the shell, and fails closed
+	// (#152). #157 records the same conclusion at the plane level — codex is
+	// registered and unenforced there, pending openai/codex#24453. So the
+	// benign probe asserts the fail-closed exit rather than an allow that the
+	// landed design guarantees will not happen; deleting it would drop the only
+	// check that the fail-closed path still works.
+	benign := selftestProbe{Plane: "codex", Name: "benign command allows", Args: []string{"codex"},
+		Payload: payload("ls"), WantDecision: "allow"}
+	if goos == "windows" {
+		benign.Name = "benign command fails closed (no provable shell)"
+		benign.WantDecision = "exit-2"
+	}
 	return []selftestProbe{
 		// Direct invocation proves the binary path and the verdicts; live
 		// runtime mediation is a separate question (see audit records).
-		{Plane: "codex", Name: "benign command allows", Args: []string{"codex"},
-			Payload: payload("ls"), WantDecision: "allow"},
+		benign,
 		{Plane: "codex", Name: "destructive denies", Args: []string{"codex"},
 			Payload: payload("rm -rf " + filesystemRoot), WantDecision: "deny", WantRuleID: "P1.rm-rf"},
 	}
