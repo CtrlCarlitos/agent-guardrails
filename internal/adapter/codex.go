@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
@@ -143,6 +144,10 @@ func codexPatchPaths(patch, cwd string, post bool) ([]string, error) {
 func EmitCodex(v policy.Verdict, event string, tc engine.ToolCall, stdout, stderr io.Writer) int {
 	if v.Decision == policy.Allow {
 		if event == "pre" && tc.Capability == policy.CapabilityCommand {
+			if runtime.GOOS == "windows" {
+				fmt.Fprintln(stderr, "guardrail: cannot prove the Windows command shell; refusing to emit a POSIX updatedInput rewrite and failing closed")
+				return 2
+			}
 			cwd, err := filepath.EvalSymlinks(tc.CWD)
 			if err != nil {
 				fmt.Fprintln(stderr, "guardrail: cannot verify Codex working directory; failing closed")
