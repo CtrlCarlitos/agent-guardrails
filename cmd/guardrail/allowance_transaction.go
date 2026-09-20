@@ -98,6 +98,9 @@ func applyRepoWebHost(repo, host string, grant bool) error {
 	if err := os.MkdirAll(filepath.Dir(operatorPath), 0o700); err != nil {
 		return err
 	}
+	if err := securePrivateDir(filepath.Dir(operatorPath)); err != nil {
+		return err
+	}
 	journalPath := filepath.Join(dir, filepath.Base(mustAllowanceJournalPath(repo)))
 	journal := allowanceJournal{OverlayPath: overlayPath, OverlayAfter: overlay, OverlayMode: uint32(mode), OperatorPath: operatorPath, OperatorAfter: operator}
 	if err := writeAllowanceJournal(journalPath, journal); err != nil {
@@ -198,6 +201,9 @@ func recoverAllowanceJournal(path string) error {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(journal.OperatorPath), 0o700); err != nil {
+		return err
+	}
+	if err := securePrivateDir(filepath.Dir(journal.OperatorPath)); err != nil {
 		return err
 	}
 	if err := writeSyncedPrivateFile(journal.OperatorPath, journal.OperatorAfter, 0o600); err != nil {
