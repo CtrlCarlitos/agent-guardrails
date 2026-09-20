@@ -246,8 +246,14 @@ func TestWindowsPipeOwnerOnlyDACL(t *testing.T) {
 	}
 
 	wantSID := currentUserSIDString(t)
-	if owner == nil || owner.String() != wantSID {
-		t.Fatalf("pipe owner = %v, want current user %s", owner, wantSID)
+	// The owner of a created object is the process's token owner: the
+	// user's SID for non-elevated processes, BUILTIN\Administrators
+	// (S-1-5-32-544) when elevated - CI's windows runners run elevated.
+	// The privacy property lives in the DACL below, which grants only the
+	// current user; Administrators-as-owner is the accepted root
+	// equivalence (ADR-0021 §3).
+	if owner == nil || (owner.String() != wantSID && owner.String() != "S-1-5-32-544") {
+		t.Fatalf("pipe owner = %v, want the process principal %s (or Administrators when elevated)", owner, wantSID)
 	}
 	if dacl == nil {
 		t.Fatal("pipe DACL is null")
