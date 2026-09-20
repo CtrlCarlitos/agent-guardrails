@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"unicode"
 
@@ -260,10 +261,34 @@ func secretPathVerdict(decision policy.Decision, ruleID, secret string) *policy.
 func pathCandidateForms(candidate pathCandidate) []string {
 	raw := strings.TrimPrefix(strings.TrimPrefix(candidate.path, "~/"), "~")
 	forms := []string{raw}
-	if resolved, ok := resolvePathCandidate(pathCandidate{path: raw, cwd: candidate.cwd, cwdUnknown: candidate.cwdUnknown}); ok && resolved != raw {
+	expanded := expandWindowsUserProfile(raw)
+	if expanded != raw {
+		forms = append(forms, expanded)
+	}
+	if resolved, ok := resolvePathCandidate(pathCandidate{path: expanded, cwd: candidate.cwd, cwdUnknown: candidate.cwdUnknown}); ok && resolved != raw && resolved != expanded {
 		forms = append(forms, resolved)
 	}
 	return forms
+}
+
+func expandWindowsUserProfile(value string) string {
+	if runtime.GOOS != "windows" {
+		return value
+	}
+	profile := os.Getenv("USERPROFILE")
+	if profile == "" {
+		return value
+	}
+	for _, marker := range []string{"%USERPROFILE%", "$env:USERPROFILE"} {
+		for {
+			index := strings.Index(strings.ToLower(value), strings.ToLower(marker))
+			if index < 0 {
+				break
+			}
+			value = value[:index] + profile + value[index+len(marker):]
+		}
+	}
+	return value
 }
 
 func resolveExistingPath(candidate, cwd string) (string, bool) {

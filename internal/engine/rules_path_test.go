@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1519,6 +1520,22 @@ func TestOperatorConfigOpaqueWindowsDrivePaths(t *testing.T) {
 	}
 	if v := checkPaths(tc, pathPol()); v != nil {
 		t.Fatalf("non-file HTTPS text -> %+v, want nil", v)
+	}
+}
+
+func TestWindowsUserProfilePathCandidateExpansion(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows environment forms are evaluated on a Windows host")
+	}
+	t.Setenv("USERPROFILE", `C:\Users\fixture-user`)
+	for _, input := range []string{
+		`%USERPROFILE%\.ssh\id_ed25519`,
+		`$env:USERPROFILE\.ssh\id_ed25519`,
+	} {
+		forms := pathCandidateForms(pathCandidate{path: input, cwd: `C:\repo`})
+		if !slices.Contains(forms, `C:\Users\fixture-user\.ssh\id_ed25519`) {
+			t.Fatalf("pathCandidateForms(%q) = %q, want expanded USERPROFILE path", input, forms)
+		}
 	}
 }
 
