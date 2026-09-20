@@ -105,15 +105,27 @@ var selftestProbes = []selftestProbe{
 // runtime invokes its hooks (codex's hosted-tool gap); audit records remain
 // the live-mediation evidence.
 func cmdSelftest(args []string, stdout, stderr io.Writer) int {
-	if len(args) >= 2 && args[0] == "--evidence" && args[1] == "codex" {
-		opts, ok := parseCodexEvidenceOptions(args[2:], time.Now(), stderr)
-		if !ok {
-			return 2
+	if len(args) >= 2 && args[0] == "--evidence" {
+		switch args[1] {
+		case "codex":
+			opts, ok := parseCodexEvidenceOptions(args[2:], time.Now(), stderr)
+			if !ok {
+				return 2
+			}
+			return cmdCodexEvidence(opts, stdout, stderr)
+		case "claude":
+			// The claude gate answers one question and takes no options: the
+			// codex selectors exist to pin a specific live session, and the
+			// claude question is whether any real session was mediated at all.
+			if len(args) != 2 {
+				fmt.Fprintln(stderr, "guardrail: selftest --evidence claude takes no further arguments")
+				return 2
+			}
+			return cmdClaudeEvidence(stdout, stderr)
 		}
-		return cmdCodexEvidence(opts, stdout, stderr)
 	}
 	if len(args) != 0 {
-		fmt.Fprintln(stderr, "guardrail: selftest accepts only [--evidence codex [--session <id>] [--since <RFC3339|duration>] [--expect-tool <name>]]")
+		fmt.Fprintln(stderr, "guardrail: selftest accepts only [--evidence claude] or [--evidence codex [--session <id>] [--since <RFC3339|duration>] [--expect-tool <name>]]")
 		return 2
 	}
 	// A unique session suffix per invocation keeps selftest idempotent: a

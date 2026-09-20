@@ -288,7 +288,7 @@ func printDoctor(stdout, stderr io.Writer) int {
 	enrolled, _ := defaultOperatorAuthStore().Enrolled()
 	fmt.Fprintln(stdout, operatorApprovalStatus(runtime.GOOS == "windows", enrolled))
 
-	fmt.Fprintf(stdout, "claude settings: %s\n", safetext.SingleLine(claudeSettingsState()))
+	fmt.Fprintf(stdout, "claude settings: %s\n", safetext.SingleLine(claudeSettingsLine()))
 	fmt.Fprintf(stdout, "opencode settings: %s\n", safetext.SingleLine(planeStatusState("opencode")))
 	fmt.Fprintf(stdout, "codex settings: %s\n", safetext.SingleLine(planeStatusState("codex")))
 	fmt.Fprintf(stdout, "antigravity settings: %s\n", safetext.SingleLine(planeStatusState("antigravity")))
@@ -340,6 +340,38 @@ func operatorApprovalStatus(windows, enrolled bool) string {
 	return "operator approvals: disabled"
 }
 
+// claudeRegisteredPrefix and claudeCannotSpawnMarker label the two states the
+// composed doctor line has to tell apart. Shared so it can do so without
+// matching prose.
+const (
+	claudeRegisteredPrefix  = "guardrail hook registered"
+	claudeCannotSpawnMarker = "CANNOT SPAWN"
+)
+
+// claudeSettingsLine is doctor's claude line, composed from the two different
+// questions doctor can answer about a hook.
+//
+// claudeSettingsState says whether it is registered, and — because that is a
+// hard fault the lifecycle must act on — whether the command can spawn at all.
+// claudeMediationCaveat says whether it has ever been seen to run, which is a
+// soft caveat a fresh enrolment legitimately trips.
+//
+// A command that cannot spawn has necessarily never fired, so the two would
+// otherwise print the cause and then its consequence. Naming the cause once is
+// the more useful line.
+func claudeSettingsLine() string {
+	state := claudeSettingsState()
+	if !strings.HasPrefix(state, claudeRegisteredPrefix) {
+		// Nothing is registered, so "never observed firing" would be noise on
+		// top of a more basic finding the operator has to fix first.
+		return state
+	}
+	if strings.Contains(state, claudeCannotSpawnMarker) {
+		return state
+	}
+	return state + claudeMediationCaveat()
+}
+
 func claudeSettingsState() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -358,7 +390,7 @@ func claudeSettingsState() string {
 	if err == nil {
 		if hooksHaveOwnedGroup(doc) {
 			if hazard := guardrailHookSpawnHazard(doc); hazard != "" {
-				return "guardrail hook registered but CANNOT SPAWN — " + hazard +
+				return "guardrail hook registered but " + claudeCannotSpawnMarker + " — " + hazard +
 					". Nothing is being enforced; re-run `guardrail plane enable claude` to rewrite the command"
 			}
 			return "guardrail hook registered"
@@ -416,6 +448,45 @@ func guardrailHookSpawnHazard(doc map[string]any) string {
 		}
 	}
 	return ""
+}
+
+// claudeMediationCaveat qualifies a registered hook with what the audit log
+// says about it actually running, or "" once it demonstrably has.
+//
+// Registration and execution are different claims and doctor only ever checked
+// the first. On Windows the registered command could not spawn, so the claude
+// line read a bare green for four days while nothing was enforced (#149). A
+// green that cannot tell those apart is the most expensive kind, because it is
+// the one an operator trusts.
+//
+// This is deliberately appended at doctor's print site rather than inside
+// claudeSettingsState, and the distinction matters. That string is also the
+// lifecycle's ownership test — planeIntegrationRegistered compares it for
+// exact equality — and it reaches the model in the SessionStart line, which is
+// meant to fall silent in steady state. A missing record is not drift and not
+// something an agent can act on: a freshly enrolled plane has none yet and is
+// not broken. So this is an operator-facing caveat only, and it disappears on
+// its own the first time a real session is mediated.
+func claudeMediationCaveat() string {
+	segments, err := audit.Segments(audit.DefaultPath(""))
+	if err != nil {
+		return " (mediation unverified: audit log unreadable)"
+	}
+	cutoff := time.Time{}
+	if binary, err := os.Executable(); err == nil {
+		if info, err := os.Stat(binary); err == nil {
+			cutoff = info.ModTime()
+		}
+	}
+	evidence, err := audit.ReadClaudeEvidence(segments, cutoff, time.Now())
+	if err != nil {
+		return " (mediation unverified: audit scan incomplete)"
+	}
+	if evidence.Observed() {
+		return ""
+	}
+	return " but NEVER OBSERVED FIRING — no audit record from a real session since this binary was built." +
+		" Registration is not enforcement; confirm with `guardrail selftest --evidence claude`"
 }
 
 func hooksHaveOwnedGroup(doc map[string]any) bool {
