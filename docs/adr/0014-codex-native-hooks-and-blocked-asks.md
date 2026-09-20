@@ -24,6 +24,13 @@ non-managed hooks until the operator reviews them in `/hooks`. Status reports
 registration and explicitly asks for trust verification; it never claims that
 registration proves active enforcement. The generated executable is shell-quoted.
 
+On Windows, registration and trust still do not establish dispatch. In the
+validated runtime, `command_execution` did not deliver `PreToolUse` to the
+registered handler ([`openai/codex#24453`](https://github.com/openai/codex/issues/24453)).
+Doctor therefore reports the Windows plane as **registered, unenforced**, exits
+nonzero for schema inventory, and makes no runtime coverage claim until an
+observed dispatch removes this external blocker.
+
 This is a local tool guardrail with known runtime gaps, not complete confinement:
 hosted web tools bypass these hooks, `write_stdin` does not rerun PreToolUse,
 and specialized paths can opt out. Hook feature disablement, untrusted hooks,
@@ -54,6 +61,8 @@ to a different directory. Code-mode calls receive the same precondition.
 
 The generated command handler maps nonzero evaluator exits (including a missing
 binary) to native blocking exit 2. Codex-level hook timeout, skipped hook trust,
-and hooks-disabled settings remain runtime limitations. This guard assumes the
-same POSIX shell boundary as the Engine; Windows build support does not imply
-PowerShell semantic parity.
+and hooks-disabled settings remain runtime limitations. The directory rewrite
+requires a proven POSIX shell boundary. On Windows, Codex does not identify
+whether the effective command interpreter is PowerShell or `cmd.exe`, so an
+otherwise allowed command hook exits 2 without emitting `updatedInput`. A
+POSIX-shaped rewrite must never reach an unproven Windows shell.

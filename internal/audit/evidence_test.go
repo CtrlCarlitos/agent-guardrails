@@ -148,6 +148,32 @@ func TestCodexEvidenceRotationsAndDuplicates(t *testing.T) {
 	}
 }
 
+func TestCodexEvidenceFiltersSessionAndAssertsExpectedTools(t *testing.T) {
+	cutoff := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	records := []Record{
+		{TS: cutoff.Add(time.Second).Format(time.RFC3339), Plane: "codex", SessionID: "older", Event: "pre", Tool: "Bash", NativeTool: "command_execution", Decision: "allow"},
+		{TS: cutoff.Add(2 * time.Second).Format(time.RFC3339), Plane: "codex", SessionID: "older", Event: "pre", Tool: "Bash", NativeTool: "command_execution", Decision: "deny"},
+		{TS: cutoff.Add(3 * time.Second).Format(time.RFC3339), Plane: "codex", SessionID: "newest", Event: "pre", Tool: "apply_patch", NativeTool: "apply_patch", Decision: "allow"},
+	}
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	var lines strings.Builder
+	for _, record := range records {
+		raw, _ := json.Marshal(record)
+		lines.Write(raw)
+		lines.WriteByte('\n')
+	}
+	if err := os.WriteFile(path, []byte(lines.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := ReadCodexEvidenceFiltered([]string{path}, cutoff, cutoff.Add(time.Hour), "newest", []string{"command_execution", "apply_patch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evidence.Observed() || evidence.Eligible != 1 || evidence.OtherSessions != 2 || strings.Join(evidence.MissingExpectedTools, ",") != "command_execution" {
+		t.Fatalf("evidence = %+v", evidence)
+	}
+}
+
 func TestCodexEvidenceLargeHistoricalRecord(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
 	// Old audit segments can contain a single unrelated command above 8 MiB.

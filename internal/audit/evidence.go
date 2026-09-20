@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -14,15 +15,23 @@ import (
 // CodexEvidence is an audit heuristic, not authentication of runtime dispatch.
 // Counts describe the retained log segments, not the lifetime of the install.
 type CodexEvidence struct {
-	Records, Codex, Synthetic, Stale, Rejected, Duplicates, Eligible, Sessions, QualifiedSessions, Malformed int
+	Records, Codex, Synthetic, Stale, Rejected, Duplicates, Eligible, Sessions, QualifiedSessions, Malformed, OtherSessions int
+	ObservedTools, MissingExpectedTools                                                                                     []string
 }
 
 // Observed requires two distinct eligible pre-hook records in one session.
-func (e CodexEvidence) Observed() bool { return e.QualifiedSessions > 0 && e.Malformed == 0 }
+func (e CodexEvidence) Observed() bool {
+	return e.QualifiedSessions > 0 && e.Malformed == 0 && len(e.MissingExpectedTools) == 0
+}
 
 // syntheticCodexSession is deliberately an explicit prefix list (ADR-0020).
 // A prefix matches only the whole ID or a hyphen-delimited suffix.
 func syntheticCodexSession(id string) bool {
+	return IsSyntheticCodexSession(id)
+}
+
+// IsSyntheticCodexSession reports the documented ADR-0020 fixture prefixes.
+func IsSyntheticCodexSession(id string) bool {
 	for _, prefix := range []string{"selftest", "codex-fixture", "fixture"} {
 		if id == prefix || strings.HasPrefix(id, prefix+"-") {
 			return true
@@ -37,9 +46,24 @@ func syntheticCodexSession(id string) bool {
 // JSON formatting and changes to other fields do not create evidence points.
 // Callers must treat read errors as an incomplete scan and keep the gate shut.
 func ReadCodexEvidence(segments []string, cutoff, now time.Time) (CodexEvidence, error) {
+	return ReadCodexEvidenceFiltered(segments, cutoff, now, "", nil)
+}
+
+// ReadCodexEvidenceFiltered applies an optional exact session selection and
+// expected-tool assertions. Expected tools match either normalized tool or
+// native tool names from eligible records.
+func ReadCodexEvidenceFiltered(segments []string, cutoff, now time.Time, sessionID string, expectedTools []string) (CodexEvidence, error) {
 	var result CodexEvidence
 	seen := map[[4]string]bool{}
 	sessions := map[string]int{}
+	observedTools := map[string]bool{}
+	expected := map[string]bool{}
+	for _, tool := range expectedTools {
+		tool = strings.TrimSpace(tool)
+		if tool != "" {
+			expected[tool] = true
+		}
+	}
 	for _, path := range segments {
 		err := func() error {
 			info, err := os.Lstat(path)
@@ -88,6 +112,10 @@ func ReadCodexEvidence(segments []string, cutoff, now time.Time) (CodexEvidence,
 					result.Stale++
 					continue
 				}
+				if sessionID != "" && rec.SessionID != sessionID {
+					result.OtherSessions++
+					continue
+				}
 				key := [4]string{rec.SessionID, ts.UTC().Format(time.RFC3339Nano), rec.Tool, rec.Decision}
 				if seen[key] {
 					result.Duplicates++
@@ -95,6 +123,10 @@ func ReadCodexEvidence(segments []string, cutoff, now time.Time) (CodexEvidence,
 				}
 				seen[key] = true
 				result.Eligible++
+				observedTools[rec.Tool] = true
+				if rec.NativeTool != "" {
+					observedTools[rec.NativeTool] = true
+				}
 				sessions[rec.SessionID]++
 				if sessions[rec.SessionID] == 1 {
 					result.Sessions++
@@ -112,5 +144,15 @@ func ReadCodexEvidence(segments []string, cutoff, now time.Time) (CodexEvidence,
 			return result, fmt.Errorf("reading audit segment %q: %w", path, err)
 		}
 	}
+	for tool := range observedTools {
+		result.ObservedTools = append(result.ObservedTools, tool)
+	}
+	sort.Strings(result.ObservedTools)
+	for tool := range expected {
+		if !observedTools[tool] {
+			result.MissingExpectedTools = append(result.MissingExpectedTools, tool)
+		}
+	}
+	sort.Strings(result.MissingExpectedTools)
 	return result, nil
 }

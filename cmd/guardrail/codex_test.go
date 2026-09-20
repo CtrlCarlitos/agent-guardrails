@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -13,6 +14,9 @@ import (
 )
 
 func TestCodexLifecycleRoundTrip(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("operator actions are unavailable on Windows")
+	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CODEX_HOME", filepath.Join(home, "custom-codex"))
@@ -49,6 +53,37 @@ func TestCodexLifecycleRoundTrip(t *testing.T) {
 	raw, _ := os.ReadFile(path)
 	if !strings.Contains(string(raw), "user-hook") || !strings.Contains(string(raw), "keep") {
 		t.Fatal(string(raw))
+	}
+}
+
+func TestCodexWindowsStatusReportsRegisteredUnenforced(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows runtime dispatch boundary")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", filepath.Join(home, "codex"))
+	path, err := planeConfigPath("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := genconfig.MergePlaneInto(path, "codex", genconfig.CodexConfig("guardrail")); err != nil {
+		t.Fatal(err)
+	}
+	rulesPath := filepath.Join(filepath.Dir(path), "rules", "guardrail.rules")
+	if err := os.MkdirAll(filepath.Dir(rulesPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rulesPath, genconfig.CodexRules(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	status := planeStatusState("codex")
+	if !strings.Contains(status, "registered, unenforced") || !strings.Contains(status, "#24453") {
+		t.Fatal(status)
+	}
+	if strings.Contains(status, "coverage confirmed") || strings.Contains(status, "enforced") && !strings.Contains(status, "unenforced") {
+		t.Fatalf("status overclaims coverage: %s", status)
 	}
 }
 

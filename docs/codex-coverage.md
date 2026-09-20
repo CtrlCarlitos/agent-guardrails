@@ -15,6 +15,14 @@ python3 test/smoke/codex_probe.py /absolute/path/to/guardrail
 guardrail doctor --coverage codex --schema /path/from/report/tools.json
 ```
 
+On Windows, invoke the same script with the active Python interpreter and an
+`.exe` Guardrail build; the harness itself selects `sys.executable`, emits a
+`.cmd` logger, and escapes Windows paths in disposable TOML:
+
+```powershell
+python test/smoke/codex_probe.py "$env:TEMP\guardrail-codex.exe" --mediation
+```
+
 Keep the probe's `report.json` alongside the schema to identify the CLI version
 and execution mode. The doctor output includes the schema's SHA-256 digest.
 This is coverage of the supplied configuration, not an inventory of all
@@ -22,6 +30,13 @@ possible runtime features, providers, or MCP servers. Code-mode exec/wait
 schemas do not enumerate inner tools. Recollect schemas after runtime or
 configuration changes. The installed CLI currently has no complete tool-schema
 export command; automatic installed-runtime discovery is not provided here.
+
+On Windows, the Codex plane is **registered, unenforced**: the generated hooks
+can be present and trusted while `command_execution` still does not dispatch
+`PreToolUse`. This is tracked upstream as
+[`openai/codex#24453`](https://github.com/openai/codex/issues/24453). Until that
+blocker is resolved and runtime dispatch is observed, doctor exits 1 on Windows
+and its rows are contract inventory only—never a runtime coverage claim.
 
 | Classification | Meaning |
 | --- | --- |
@@ -34,7 +49,8 @@ export command; automatic installed-runtime discovery is not provided here.
 
 Exit 0 means every supplied tool has a native contract or MCP classification.
 It does not mean hooks fired or that every runtime tool was supplied. Exit 1
-means an uncontracted, hosted, or unsupported declaration was found. Exit 2
+means an uncontracted, hosted, or unsupported declaration was found, or that
+Windows runtime enforcement remains unobserved. Exit 2
 means invalid arguments, unreadable input, or an incomplete/malformed inventory.
 Empty inventories, duplicate names, nested namespaces, invalid identifiers and
 inputs larger than 8 MiB are rejected.
