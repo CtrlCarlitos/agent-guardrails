@@ -50,8 +50,13 @@ func validatePrivateACL(path string) error {
 	if err != nil {
 		return fmt.Errorf("read owner: %w", err)
 	}
-	if owner == nil || owner.String() != wantOwner {
-		return fmt.Errorf("allowance path is not owned by the current user")
+	// The owner of a created artifact is the process's token owner: the
+	// user's SID when non-elevated, BUILTIN\Administrators (S-1-5-32-544)
+	// when elevated - operator terminals and CI runners both run elevated.
+	// Administrators-as-owner is the accepted root equivalence (ADR-0021
+	// §3); the privacy property is the DACL's absence of broad-group ACEs.
+	if owner == nil || (owner.String() != wantOwner && owner.String() != "S-1-5-32-544") {
+		return fmt.Errorf("allowance path is not owned by the current principal")
 	}
 	dacl, _, err := sd.DACL()
 	if err != nil {
