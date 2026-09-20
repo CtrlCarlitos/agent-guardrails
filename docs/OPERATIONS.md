@@ -32,6 +32,7 @@ recognise. If all three are clean, the problem is not Guardrail.
 | `update` printed `selftest failed on the new binary` | `guardrail selftest` (read the FAILED lines) then `guardrail update <previous version>` | The new release drifted on a probe. Roll back with the same command; it is checksum-verified either way |
 | Agent needs a website | agent runs `guardrail egress grant --scope repo --host a.example.com,b.example.com` inside its session → you approve with passkey; or you run the same at a terminal (immediate, no passkey) | Grants live in `~/.config/guardrail/waivers.toml` plus the repo's `guardrail.toml`; **both** must agree. Native WebFetch is always denied; `guardrail fetch <url>` is the sanctioned path |
 | Too many asks tonight | `guardrail night on --for 8h` (terminal only) | Relaxes routine asks to allow until then. External-tier asks (publishing, schedulers, unknown MCP) are never relaxed (ADR-0018). `guardrail night off` restores. `guardrail night status` works from anywhere and exits 1 when inactive — a state, not a failure. |
+| Windows: an opencode agent reports *every* tool call failing `guardrail: could not run (spawnSync … ETIMEDOUT); failing closed` | see **Windows: engine unreachable** below | Per-spawn latency (Defender scan + NTFS `CreateProcess`, #132) exceeded the opencode plugin's budget; the plugin denies everything when the engine cannot run — fail-closed by design. Other planes have larger hook budgets and keep working; opencode failing alone is expected, not evidence of a binary bug. |
 
 ## Things that look like bugs and aren't
 
@@ -44,6 +45,39 @@ recognise. If all three are clean, the problem is not Guardrail.
 - **`guardrail night on` / `off` from inside a session is denied**, and so is anything longer than the exact three-word `guardrail night status` (which is read-only and allowed). Changing the posture is an operator action: run on/off from a terminal.
 - **`git push --delete <branch>` asks** (`P2.git-push-delete`) even for an unprotected branch, and any command that reaches a policy position through a shell variable asks (`P3.unresolved`). Both are the intended fail-closed shape: spell the names out and answer the prompt.
 - **`plane enable` says `already enabled`** and a session still reports floor drift → the installed release predates the floor-drift check (#33); `guardrail update` to current.
+
+## Windows: engine unreachable (opencode `spawnSync ETIMEDOUT`)
+
+The opencode plugin spawns the engine once per tool call and denies the call
+when the spawn misses its budget — even with retries (v0.21.6+, #133), a
+sustained latency storm (Defender real-time scan, NTFS, a CPU-bound process on
+the machine) can lock an entire session out. Recovery, in order:
+
+```powershell
+# 1. Version floor: the retry fix must be in the installed binary
+guardrail version                                  # need >= v0.21.6-dev
+
+# 2. The deployed plugin must carry the retry. Plugins load from the FIRST
+#    guardrail entry in opencode.json's "plugin" array — a stale copy there
+#    silently wins over a fresh deploy (#145)
+Select-String -Path "$env:USERPROFILE\.local\share\guardrail\guardrail.js" -Pattern SPAWN_RETRIES
+
+# 3. Redeploy the plugin from the installed binary…
+guardrail gen-config opencode -merge "$env:USERPROFILE\.config\opencode\opencode.json" -plugin-dir "$env:USERPROFILE\.local\share\guardrail"
+
+# 4. …then RESTART the opencode host process. Plugins are cached at host
+#    startup; restarting the session is not enough.
+
+# 5. Still failing? It is load: find the CPU burner, check Defender state
+Get-Process | Sort-Object CPU -Descending | Select-Object -First 5 Id,Name,CPU,StartTime
+```
+
+The agent itself cannot run any of this — the tool that would diagnose the
+guard is gated by the guard. Recovery is an operator-terminal action by
+necessity. Two standing cautions: the Defender exclusion for the binary path
+must stay scoped to the exact file (#146), and never hand-copy a new binary
+over the installed one except as a deliberate terminal recovery (#146) —
+`guardrail update` is the only sanctioned replacement.
 
 ## What a healthy update looks like
 
@@ -92,6 +126,11 @@ Everything under `~/.config/guardrail` and `~/.local/state/guardrail` is
 operator-owned: sessions are denied from editing or deleting it, on purpose.
 The selftest marker is a trust record, not a cache — if you want a session to
 re-prove a release, delete the marker yourself.
+
+On Windows the paths differ: binary `~\.local\bin\guardrail.exe`, audit log
+`%LOCALAPPDATA%\guardrail\audit.jsonl`, operator config `%APPDATA%\guardrail\`,
+and the approval broker's private endpoint is a per-user named pipe rather
+than a socket (ADR-0021 step a).
 
 ## Escalate when
 
