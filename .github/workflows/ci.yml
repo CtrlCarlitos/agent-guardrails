@@ -54,7 +54,7 @@ jobs:
         # and both halves have been missed before. Add the package when you add
         # the test.
         if: matrix.os == 'windows-latest'
-        run: go test ./internal/adapter/ ./internal/engine/ ./internal/genconfig/ ./internal/coverage/ ./internal/policy/ ./internal/approval/ ./cmd/guardrail/ ./test/ -run 'Windows|BOM|ReadJSONObject|TestDefaultDaemon|Egress|Allowance'
+        run: go test ./internal/adapter/ ./internal/engine/ ./internal/genconfig/ ./internal/coverage/ ./internal/policy/ ./internal/approval/ ./internal/operatorauth/ ./cmd/guardrail/ ./test/ -run 'Windows|BOM|ReadJSONObject|TestDefaultDaemon|Egress|Allowance'
       - name: gofmt
         if: matrix.os != 'windows-latest'
         run: |
