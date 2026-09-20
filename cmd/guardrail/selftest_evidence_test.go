@@ -151,7 +151,17 @@ func TestSelftestEvidenceDoesNotRunProbes(t *testing.T) {
 	if len(entries) != 0 {
 		t.Fatalf("evidence mode wrote state: %v", entries)
 	}
-	for _, args := range [][]string{{"--evidence"}, {"--evidence", "claude"}, {"--evidence", "codex", "extra"}, {"--evidence", "codex", "--session"}} {
+	// `--evidence claude` became a supported gate (#149), so it leaves this
+	// list; opencode and antigravity have no gate and take its place, and
+	// claude with a trailing argument exercises the guard that it takes none.
+	for _, args := range [][]string{
+		{"--evidence"},
+		{"--evidence", "opencode"},
+		{"--evidence", "antigravity"},
+		{"--evidence", "claude", "extra"},
+		{"--evidence", "codex", "extra"},
+		{"--evidence", "codex", "--session"},
+	} {
 		if code := cmdSelftest(args, &out, &errb); code != 2 {
 			t.Errorf("args=%v exit=%d", args, code)
 		}

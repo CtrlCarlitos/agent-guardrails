@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -19,6 +20,19 @@ func gitRepo(t *testing.T) string {
 	return repo
 }
 
+// setOperatorEnv points the operator config and allowance journal roots at
+// throwaway directories on every platform: XDG on Unix, APPDATA and
+// LOCALAPPDATA on Windows.
+func setOperatorEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	if runtime.GOOS == "windows" {
+		t.Setenv("APPDATA", t.TempDir())
+		t.Setenv("LOCALAPPDATA", t.TempDir())
+	}
+}
+
 func TestEgressIsAnOperatorActionOutsideATerminal(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := cmdEgress([]string{"grant", "--scope", "repo", "--host", "api.example.test"}, false, t.TempDir(), &out, &errb)
@@ -28,8 +42,7 @@ func TestEgressIsAnOperatorActionOutsideATerminal(t *testing.T) {
 }
 
 func TestEgressGrantFromTerminalAuthorizesRepositoryHosts(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setOperatorEnv(t)
 	repo := gitRepo(t)
 	var out, errb bytes.Buffer
 	code := cmdEgress([]string{"grant", "--scope", "repo", "--host", "a.example.test,b.example.test"}, true, filepath.Join(repo), &out, &errb)
@@ -69,8 +82,7 @@ func TestEgressGrantFromTerminalAuthorizesRepositoryHosts(t *testing.T) {
 }
 
 func TestEgressGlobalGrantFromTerminalDoesNotTouchOverlay(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setOperatorEnv(t)
 	dir := t.TempDir()
 	var out, errb bytes.Buffer
 	if code := cmdEgress([]string{"grant", "--scope", "global", "--host", "g.example.test"}, true, dir, &out, &errb); code != 0 {

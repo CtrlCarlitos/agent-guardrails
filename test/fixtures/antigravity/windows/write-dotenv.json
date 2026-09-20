@@ -1,0 +1,1 @@
+{"conversationId":"w1","workspacePaths":["C:\\repo"],"toolCall":{"name":"write_to_file","args":{"TargetFile":"C:\\repo\\.env","Overwrite":true,"CodeContent":"LEAKED=1","Description":"env"}}}

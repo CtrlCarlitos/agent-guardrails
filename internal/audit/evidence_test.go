@@ -95,6 +95,33 @@ func TestCodexSyntheticProvenance(t *testing.T) {
 	}
 }
 
+func TestCodexEvidenceReportsOnlyEligibleObservedCapabilities(t *testing.T) {
+	cutoff := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	records := []Record{
+		{TS: cutoff.Add(time.Second).Format(time.RFC3339), Plane: "codex", SessionID: "live", Event: "pre", Tool: "Bash", Capability: "command", Decision: "allow"},
+		{TS: cutoff.Add(2 * time.Second).Format(time.RFC3339), Plane: "codex", SessionID: "live", Event: "pre", Tool: "apply_patch", Capability: "mutation", Decision: "deny"},
+		{TS: cutoff.Add(3 * time.Second).Format(time.RFC3339), Plane: "codex", SessionID: "fixture-read", Event: "pre", Tool: "Read", Capability: "read_discovery", Decision: "allow"},
+		{TS: cutoff.Add(4 * time.Second).Format(time.RFC3339), Plane: "claude", SessionID: "other", Event: "pre", Tool: "Bash", Capability: "external", Decision: "allow"},
+	}
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	var lines strings.Builder
+	for _, record := range records {
+		raw, _ := json.Marshal(record)
+		lines.Write(raw)
+		lines.WriteByte('\n')
+	}
+	if err := os.WriteFile(path, []byte(lines.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := ReadCodexEvidence([]string{path}, cutoff, cutoff.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(evidence.Capabilities, ","); got != "command,mutation" {
+		t.Fatalf("capabilities = %q", got)
+	}
+}
+
 func TestCodexEvidenceRotationsAndDuplicates(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.jsonl")

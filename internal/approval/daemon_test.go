@@ -32,12 +32,14 @@ func TestDaemonUsesPrivateSocketAndSubmitsRequestOnce(t *testing.T) {
 	}
 	defer daemon.Close()
 
-	info, err := os.Stat(filepath.Dir(socket))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o700 {
-		t.Fatalf("socket directory mode = %o, want 0700", info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(filepath.Dir(socket))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o700 {
+			t.Fatalf("socket directory mode = %o, want 0700", info.Mode().Perm())
+		}
 	}
 	r, err := approval.Submit(socket, request())
 	if err != nil {
@@ -55,9 +57,6 @@ func TestDaemonUsesPrivateSocketAndSubmitsRequestOnce(t *testing.T) {
 }
 
 func TestDaemonDoesNotReplaceALiveSocket(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("persistent approvals are unavailable on Windows")
-	}
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	socket := shortSocketPath(t)
 	first, err := approval.StartDaemon(socket, approval.New(), browserStore(t), func(string) error { return nil })
@@ -76,13 +75,20 @@ func TestDaemonDoesNotReplaceALiveSocket(t *testing.T) {
 }
 
 func TestDefaultDaemonSupportsLongStateDirectory(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", filepath.Join(t.TempDir(), strings.Repeat("state-", 30)))
+	if runtime.GOOS == "windows" {
+		t.Setenv("LOCALAPPDATA", filepath.Join(t.TempDir(), strings.Repeat("state-", 30)))
+	} else {
+		t.Setenv("XDG_STATE_HOME", filepath.Join(t.TempDir(), strings.Repeat("state-", 30)))
+	}
 	socket := approval.DefaultSocketPath()
 	daemon, err := approval.StartDaemon(socket, approval.New(), nil, func(string) error { return nil })
 	if err != nil {
 		t.Fatalf("start daemon with long state directory: %v", err)
 	}
 	defer daemon.Close()
+	if runtime.GOOS == "windows" {
+		return // pipe privacy is asserted by the DACL test, not mode bits
+	}
 	info, err := os.Stat(filepath.Dir(socket))
 	if err != nil {
 		t.Fatal(err)
@@ -199,13 +205,26 @@ func TestDaemonListsAndPresentsPendingRequests(t *testing.T) {
 // shortSocketPath returns a socket path within darwin's ~104-char unix
 // socket limit: runner temp dirs (/var/folders/...) exceed it, so tests
 // hand-roll short paths the way DefaultSocketPath's fallback does in
-// production.
+// production. On Windows the broker endpoint is a named pipe, not a file.
 func shortSocketPath(t *testing.T) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		return shortPipeName(t)
+	}
 	dir, err := os.MkdirTemp("", "grdsock")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	return filepath.Join(dir, "broker", "approvals.sock")
+}
+
+func shortPipeName(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "grdpipe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return `\\.\pipe\guardrail-test-` + filepath.Base(dir)
 }

@@ -1,15 +1,12 @@
 package approval
 
 import (
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
-	"fmt"
 	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"time"
 )
@@ -44,23 +41,7 @@ type Daemon struct {
 	once     sync.Once
 }
 
-func DefaultSocketPath() string {
-	base := os.Getenv("XDG_STATE_HOME")
-	if base == "" {
-		home, _ := os.UserHomeDir()
-		base = filepath.Join(home, ".local", "state")
-	}
-	socket := filepath.Join(base, "guardrail", "approval", "broker.sock")
-	// Unix socket path limits: Linux ~108, darwin ~104. The direct path
-	// usually fits; the deterministic fallback must fit on darwin even when
-	// os.TempDir() itself is long (/var/folders/...), so it uses a short
-	// prefix and a truncated digest.
-	if len(socket) < 90 {
-		return socket
-	}
-	digest := sha256.Sum256([]byte(base))
-	return filepath.Join(os.TempDir(), "grd-"+fmt.Sprintf("%x", digest[:8]), "b.sock")
-}
+func DefaultSocketPath() string { return defaultPrivateEndpoint() }
 
 // SubmitOnDemand starts the user-level daemon if no authenticated socket is live.
 func SubmitOnDemand(request Request) (Request, error) {
