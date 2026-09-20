@@ -65,6 +65,13 @@ const DEGRADED_ALLOW_TOOLS = new Set("__DEGRADED_ALLOW_TOOLS__");
 const DEGRADED_PROBE_TIMEOUT_MS = 5000;
 const degradedAllowReports = [];
 
+// ADR-0022 floor fallback: ReadDiscovery and Mutation tools proceed under
+// the host-side Declarative floor when the engine is unreachable after the
+// full retry ladder — the floor already evaluated them before this plugin
+// ran. Commands, egress, unknown, and MCP surfaces are not in this set and
+// keep failing closed.
+const FLOOR_FALLBACK_TOOLS = new Set("__FLOOR_FALLBACK_TOOLS__");
+
 function callGuardrail(envelope) {
 	const serializedEnvelope = JSON.stringify(envelope);
 	if (Buffer.byteLength(serializedEnvelope, "utf8") > MAX_OPENCODE_HOOK_ENVELOPE_BYTES) {
@@ -106,6 +113,12 @@ function callGuardrail(envelope) {
 			}
 		}
 		if (res.error) {
+			if (FLOOR_FALLBACK_TOOLS.has(envelope.tool)) {
+				degradedAllowReports.push({ tool: envelope.tool, call_id: envelope.call_id || "", ts: new Date().toISOString() });
+				logPluginFailure("floor-fallback", envelope.tool, res.error.message);
+				process.stderr.write(`[guardrail: engine unreachable; ${envelope.tool} proceeds under the declarative floor — engine policy is offline for this call]\n`);
+				return { decision: "allow", reason: `guardrail: engine unreachable; ${envelope.tool} proceeds under the declarative floor (ADR-0022) — enforcement is offline for this call` };
+			}
 			logPluginFailure("engine-unreachable", envelope.tool, res.error.message);
 			throw new Error(`guardrail: could not run after ${SPAWN_RETRIES + 1} attempts (${res.error.message}); failing closed`);
 		}
