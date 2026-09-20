@@ -89,14 +89,8 @@ var selftestProbes = []selftestProbe{
 		Payload:      `{"conversationId":"selftest","toolCall":{"name":"call_mcp_tool","args":{"ServerName":"serena","ToolName":"find_symbol"}}}`,
 		WantDecision: "deny"},
 
-	// codex — direct invocation proves the binary path and verdicts; live
-	// runtime mediation is a separate question (see audit records).
-	{Plane: "codex", Name: "benign command allows", Args: []string{"codex"},
-		Payload:      `{"hook_event_name":"PreToolUse","session_id":"selftest","cwd":"/tmp","tool_name":"Bash","tool_input":{"command":"ls"}}`,
-		WantDecision: "allow"},
-	{Plane: "codex", Name: "destructive denies", Args: []string{"codex"},
-		Payload:      `{"hook_event_name":"PreToolUse","session_id":"selftest","cwd":"/tmp","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}`,
-		WantDecision: "deny"},
+	// codex probes are host-shaped and appended by init(): see
+	// codexSelftestProbes.
 }
 
 // cmdSelftest runs the embedded probe matrix through the installed binary's

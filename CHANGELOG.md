@@ -5,6 +5,16 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Fix: `guardrail selftest` passes on a Windows host.** Both codex probes
+  carried a hardcoded `/tmp` cwd, which is a relative path on Windows, so
+  codex's fail-closed adapter rejected them as unparseable — the plane's
+  selftest reported nothing about enforcement either way. Their cwd is now
+  `os.TempDir()` and the destructive probe spells the filesystem root the way
+  the host does (`rm -rf /` is a cwd-relative delete on Windows). The claude
+  probe count is read from the matrix instead of hardcoded at 7, which a
+  Windows host exceeds. Six Windows test failures fixed; the whole matrix now
+  has a `Windows`-named regression guard, because CI's windows job selects
+  tests by name and could not see any of this.
 - **macOS is a first-class platform**: CI runs the full POSIX suite on
   ubuntu, windows, and macos. Two real engine bugs fixed (temp-root
   symlink divergence, operator-config grant matching); symlink-escape
