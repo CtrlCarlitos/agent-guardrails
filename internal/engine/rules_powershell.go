@@ -259,3 +259,109 @@ func checkPSExecutionPolicy(s Simple) *policy.Verdict {
 	}
 	return nil
 }
+
+// psReadOnlyCmdlets read a path and change nothing. The list holds only names
+// PowerShell owns: `cat`, `ls`, `dir` and `type` are aliases too, but they are
+// real POSIX commands as well, and nothing here should change what a POSIX
+// host does.
+var psReadOnlyCmdlets = map[string]bool{
+	"get-content": true, "gc": true,
+	"select-string": true, "sls": true,
+	"get-childitem": true, "gci": true,
+	"get-item": true, "gi": true,
+	"test-path": true, "resolve-path": true,
+}
+
+// psEnvOnlyUnresolved reports whether the only thing the Engine cannot read in
+// a word is a leading `$env:NAME`.
+//
+// The bash tokenizer splits PowerShell's environment reference at the wrong
+// place — `$env` is an unset variable to it and `:NAME\tail` is literal text —
+// so the whole word is marked unresolved even though every character after the
+// variable name is known. Anything else unknown in the tail (`$other`, a
+// subexpression, a backtick) disqualifies the word: this forgives the prefix,
+// not the path.
+func psEnvOnlyUnresolved(word string) bool {
+	rest, ok := cutPSEnvPrefix(word)
+	if !ok {
+		return false
+	}
+	return !strings.ContainsAny(rest, "$`")
+}
+
+// cutPSEnvPrefix strips a leading `$env:NAME` or `${env:NAME}` and returns the
+// remainder. PowerShell is case-insensitive about both the `env` scope and the
+// variable name.
+func cutPSEnvPrefix(word string) (rest string, ok bool) {
+	lower := strings.ToLower(word)
+	switch {
+	case strings.HasPrefix(lower, "${env:"):
+		end := strings.IndexByte(word, '}')
+		if end < 0 || !validEnvName(word[len("${env:"):end]) {
+			return "", false
+		}
+		return word[end+1:], true
+	case strings.HasPrefix(lower, "$env:"):
+		rest = word[len("$env:"):]
+		name := rest
+		for i := 0; i < len(rest); i++ {
+			if !isASCIILetterOrDigit(rest[i]) && rest[i] != '_' {
+				name = rest[:i]
+				rest = rest[i:]
+				break
+			}
+			if i == len(rest)-1 {
+				rest = ""
+			}
+		}
+		if !validEnvName(name) {
+			return "", false
+		}
+		return rest, true
+	}
+	return "", false
+}
+
+func validEnvName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		if isASCIILetterOrDigit(name[i]) || name[i] == '_' {
+			continue
+		}
+		return false
+	}
+	return !(name[0] >= '0' && name[0] <= '9')
+}
+
+func isASCIILetterOrDigit(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
+}
+
+// psEnvReadIsResolved reports whether this command is a PowerShell read whose
+// only unreadable part is an `$env:NAME` prefix.
+//
+// The Engine does not learn what the variable holds — ADR-0012 rules out
+// simulating an environment, and this does not try. It declines to raise
+// P3.unresolved for the prefix alone, leaving the literal tail to the path
+// families. That is safe for a read because the secret tier matches the tail,
+// which is why `$env:USERPROFILE\.ssh\id_ed25519` still denies. It is not safe
+// for a write, where containment needs the very root the variable withholds,
+// so writes are absent from psReadOnlyCmdlets and keep their ask.
+func psEnvReadIsResolved(s Simple) bool {
+	if !psReadOnlyCmdlets[head(s.Argv)] {
+		return false
+	}
+	found := false
+	for index := range s.Argv {
+		if !s.wordUnresolved(index) {
+			continue
+		}
+		if index == 0 || !psEnvOnlyUnresolved(s.Argv[index]) {
+			return false
+		}
+		found = true
+	}
+	return found
+}

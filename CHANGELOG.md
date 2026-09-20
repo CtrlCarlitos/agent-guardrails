@@ -5,6 +5,18 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **PowerShell `$env:NAME` no longer forces an ask on an ordinary read.** The
+  bash tokenizer splits the reference at the wrong place — `$env` is an unset
+  variable to it and everything after it is literal — so every read through one
+  asked,
+  however ordinary. The Engine still does not learn what the variable holds
+  (ADR-0012 rules out simulating an environment); it stops raising
+  `P3.unresolved` for the prefix alone and lets the path families judge the
+  literal tail. `$env:USERPROFILE\.ssh\id_ed25519` still denies
+  `P4.secret-path`, `$env:X\.kube\config` still denies, and a write or delete
+  through `$env:` keeps its ask, because containment needs the very root the
+  variable withholds. A read now reaches the same verdict as the literal path
+  it stands for, which it did not before.
 - **PowerShell destructive cmdlets are covered (#111, P1)**: `Remove-Item`
   and its aliases project onto the `rm` rule — one containment decision,
   one waiver, both spellings — honouring `-WhatIf`, parameter prefixes
