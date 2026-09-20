@@ -23,6 +23,13 @@ schemas do not enumerate inner tools. Recollect schemas after runtime or
 configuration changes. The installed CLI currently has no complete tool-schema
 export command; automatic installed-runtime discovery is not provided here.
 
+On Windows, the Codex plane is **registered, unenforced**: the generated hooks
+can be present and trusted while `command_execution` still does not dispatch
+`PreToolUse`. This is tracked upstream as
+[`openai/codex#24453`](https://github.com/openai/codex/issues/24453). Until that
+blocker is resolved and runtime dispatch is observed, doctor exits 1 on Windows
+and its rows are contract inventory only—never a runtime coverage claim.
+
 | Classification | Meaning |
 | --- | --- |
 | `contracted` | The projected hook name has a native contract entry. Deny and delegation entries are still reported as contracted. |
@@ -34,7 +41,8 @@ export command; automatic installed-runtime discovery is not provided here.
 
 Exit 0 means every supplied tool has a native contract or MCP classification.
 It does not mean hooks fired or that every runtime tool was supplied. Exit 1
-means an uncontracted, hosted, or unsupported declaration was found. Exit 2
+means an uncontracted, hosted, or unsupported declaration was found, or that
+Windows runtime enforcement remains unobserved. Exit 2
 means invalid arguments, unreadable input, or an incomplete/malformed inventory.
 Empty inventories, duplicate names, nested namespaces, invalid identifiers and
 inputs larger than 8 MiB are rejected.
