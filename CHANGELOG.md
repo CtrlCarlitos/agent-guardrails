@@ -37,25 +37,6 @@ explicitly in **Breaking** notes.
   Windows host exceeds. Six Windows test failures fixed; the whole matrix now
   has a `Windows`-named regression guard, because CI's windows job selects
   tests by name and could not see any of this.
-- **PowerShell destructive cmdlets are covered (#111, P1)**: `Remove-Item`
-  and its aliases project onto the `rm` rule — one containment decision,
-  one waiver, both spellings — honouring `-WhatIf`, parameter prefixes
-  (`-rec`, `-fo`), `-Path`/`-LiteralPath` binding, and leaving POSIX
-  `rmdir` to `P1.rmdir`. `Format-Volume`/`Clear-Disk`/`Remove-Partition`/
-  `Initialize-Disk` join the `P1.mkfs` family; `Set-ExecutionPolicy
-  Bypass|Unrestricted` asks. Measured before: every one allowed.
-  P4's secret tier already covered cmdlets — it keys on operands, not
-  command names — so #111's P4 premise was wrong.
-- **PowerShell egress and dynamic eval are covered (#111, P6)**:
-  `Invoke-WebRequest`/`Invoke-RestMethod` and their aliases join the
-  egress allowlist, the download-pipe-shell walk (`iwr … | iex` is
-  `curl … | sh`), and P7's network signal; `-Uri` binds the destination
-  and every other value-taking parameter consumes its own argument, so
-  `-OutFile payload.exe` is a file and not a host. Bare
-  `Invoke-Expression` asks under a new `P6.dynamic-eval`: its argument is
-  PowerShell source, and reading it with a POSIX shell parser would be a
-  guess. Parity with `curl` is asserted, including for destinations the
-  analyser cannot read. **#111's enforcement gap is closed.**
 - **`guardrail selftest --evidence claude`**: registration is a claim, an audit
   record is evidence. ADR-0020 built this gate for codex; #149 showed claude
   needed it just as badly — a hook that registered and could not spawn read as
@@ -95,6 +76,37 @@ explicitly in **Breaking** notes.
   floor whose command is an unquoted path containing a backslash or a space now
   reads "guardrail hook registered but CANNOT SPAWN — … Nothing is being
   enforced".
+- **PowerShell `$env:NAME` no longer forces an ask on an ordinary read.** The
+  bash tokenizer splits the reference at the wrong place — `$env` is an unset
+  variable to it and everything after it is literal — so every read through one
+  asked,
+  however ordinary. The Engine still does not learn what the variable holds
+  (ADR-0012 rules out simulating an environment); it stops raising
+  `P3.unresolved` for the prefix alone and lets the path families judge the
+  literal tail. `$env:USERPROFILE\.ssh\id_ed25519` still denies
+  `P4.secret-path`, `$env:X\.kube\config` still denies, and a write or delete
+  through `$env:` keeps its ask, because containment needs the very root the
+  variable withholds. A read now reaches the same verdict as the literal path
+  it stands for, which it did not before.
+- **PowerShell destructive cmdlets are covered (#111, P1)**: `Remove-Item`
+  and its aliases project onto the `rm` rule — one containment decision,
+  one waiver, both spellings — honouring `-WhatIf`, parameter prefixes
+  (`-rec`, `-fo`), `-Path`/`-LiteralPath` binding, and leaving POSIX
+  `rmdir` to `P1.rmdir`. `Format-Volume`/`Clear-Disk`/`Remove-Partition`/
+  `Initialize-Disk` join the `P1.mkfs` family; `Set-ExecutionPolicy
+  Bypass|Unrestricted` asks. Measured before: every one allowed.
+  P4's secret tier already covered cmdlets — it keys on operands, not
+  command names — so #111's P4 premise was wrong.
+- **PowerShell egress and dynamic eval are covered (#111, P6)**:
+  `Invoke-WebRequest`/`Invoke-RestMethod` and their aliases join the
+  egress allowlist, the download-pipe-shell walk (`iwr … | iex` is
+  `curl … | sh`), and P7's network signal; `-Uri` binds the destination
+  and every other value-taking parameter consumes its own argument, so
+  `-OutFile payload.exe` is a file and not a host. Bare
+  `Invoke-Expression` asks under a new `P6.dynamic-eval`: its argument is
+  PowerShell source, and reading it with a POSIX shell parser would be a
+  guess. Parity with `curl` is asserted, including for destinations the
+  analyser cannot read. **#111's enforcement gap is closed.**
 - **macOS is a first-class platform**: CI runs the full POSIX suite on
   ubuntu, windows, and macos. Two real engine bugs fixed (temp-root
   symlink divergence, operator-config grant matching); symlink-escape

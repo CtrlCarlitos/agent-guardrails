@@ -657,6 +657,12 @@ func unresolvedPolicyPosition(s Simple) bool {
 	if !s.Unresolved {
 		return false
 	}
+	if psEnvReadIsResolved(s) {
+		// A PowerShell read whose only unknown is an `$env:NAME` prefix. The
+		// literal tail still reaches the path families, which is what keeps a
+		// secret tail denied; writes are excluded and keep the ask.
+		return false
+	}
 	unresolved := make(map[int]bool)
 	for index := range s.Argv {
 		if s.wordUnresolved(index) {
