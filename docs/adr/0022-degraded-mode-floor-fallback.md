@@ -2,8 +2,9 @@
 
 ## Status
 
-Proposed (the communication valve is landed as PR #161; the read/mutation
-generalization below lands only after this ADR is accepted)
+Accepted (operator, 2026-09-20). The communication valve is landed as
+PR #161; the read/mutation generalization lands per the capability table
+below.
 
 ## Context
 
