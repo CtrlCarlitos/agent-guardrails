@@ -5,6 +5,7 @@
         "hooks": [
           {
             "command": "'/usr/local/bin/guardrail' hook codex || { printf '%s\\n' 'guardrail: evaluator unavailable or blocked; continue independent work.' \u003e\u00262; exit 2; }",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JgAgACcALwB1AHMAcgAvAGwAbwBjAGEAbAAvAGIAaQBuAC8AZwB1AGEAcgBkAHIAYQBpAGwAJwAgAGgAbwBvAGsAIABjAG8AZABlAHgAOwAgAGUAeABpAHQAIAAkAEwAQQBTAFQARQBYAEkAVABDAE8ARABFAA== || (echo guardrail: evaluator unavailable or blocked; continue independent work. 1\u003e\u00262 \u0026 exit /b 2)",
             "timeout": 10,
             "type": "command"
           }
@@ -18,6 +19,7 @@
         "hooks": [
           {
             "command": "'/usr/local/bin/guardrail' hook codex || { printf '%s\\n' 'guardrail: evaluator unavailable or blocked; continue independent work.' \u003e\u00262; exit 2; }",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JgAgACcALwB1AHMAcgAvAGwAbwBjAGEAbAAvAGIAaQBuAC8AZwB1AGEAcgBkAHIAYQBpAGwAJwAgAGgAbwBvAGsAIABjAG8AZABlAHgAOwAgAGUAeABpAHQAIAAkAEwAQQBTAFQARQBYAEkAVABDAE8ARABFAA== || (echo guardrail: evaluator unavailable or blocked; continue independent work. 1\u003e\u00262 \u0026 exit /b 2)",
             "timeout": 10,
             "type": "command"
           }
@@ -31,6 +33,7 @@
         "hooks": [
           {
             "command": "'/usr/local/bin/guardrail' hook codex || { printf '%s\\n' 'guardrail: evaluator unavailable or blocked; continue independent work.' \u003e\u00262; exit 2; }",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JgAgACcALwB1AHMAcgAvAGwAbwBjAGEAbAAvAGIAaQBuAC8AZwB1AGEAcgBkAHIAYQBpAGwAJwAgAGgAbwBvAGsAIABjAG8AZABlAHgAOwAgAGUAeABpAHQAIAAkAEwAQQBTAFQARQBYAEkAVABDAE8ARABFAA== || (echo guardrail: evaluator unavailable or blocked; continue independent work. 1\u003e\u00262 \u0026 exit /b 2)",
             "timeout": 10,
             "type": "command"
           }

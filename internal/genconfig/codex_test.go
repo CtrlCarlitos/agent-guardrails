@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -31,6 +32,24 @@ func TestCodexMergeRemoveAndDrift(t *testing.T) {
 		t.Fatal("not registered")
 	}
 	hooks := doc["hooks"].(map[string]any)
+	var pre map[string]any
+	for _, raw := range hooks["PreToolUse"].([]any) {
+		group := raw.(map[string]any)
+		if group["id"] == "guardrail-codex-PreToolUse" {
+			pre = group
+			break
+		}
+	}
+	if pre == nil {
+		t.Fatal("owned PreToolUse group missing")
+	}
+	handler := pre["hooks"].([]any)[0].(map[string]any)
+	windowsCommand := handler["commandWindows"]
+	delete(handler, "commandWindows")
+	if CodexHooksRegistered(doc) {
+		t.Fatal("missing Windows command accepted")
+	}
+	handler["commandWindows"] = windowsCommand
 	delete(hooks, "PreToolUse")
 	if CodexHooksRegistered(doc) {
 		t.Fatal("missing pre accepted")
@@ -73,5 +92,47 @@ func TestCodexMissingBinaryBlocksAndQuotedPathCannotExecute(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatal("binary path was interpreted as shell code")
+	}
+}
+
+func TestCodexWindowsCommandRunsAndFailsClosed(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows command handlers execute through cmd.exe")
+	}
+	dir := filepath.Join(t.TempDir(), "guardrail tools & helpers 'quoted'")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(dir, "guardrail.cmd")
+	if err := os.WriteFile(binary, []byte("@findstr /c:\"session_id\" >nul || exit /b 9\r\n@exit /b %GUARDRAIL_TEST_EXIT%\r\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	frag := CodexConfig(binary)
+	hooks := frag["hooks"].(map[string]any)
+	group := hooks["PreToolUse"].([]any)[0].(map[string]any)
+	handler := group["hooks"].([]any)[0].(map[string]any)
+	command, ok := handler["commandWindows"].(string)
+	if !ok || command == "" {
+		t.Fatalf("Windows command override = %#v, want nonempty string", handler["commandWindows"])
+	}
+
+	for _, test := range []struct {
+		name     string
+		exit     string
+		wantExit int
+	}{
+		{name: "evaluator allows", exit: "0", wantExit: 0},
+		{name: "evaluator fails", exit: "7", wantExit: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cmd := exec.Command(os.Getenv("ComSpec"), "/d", "/s", "/c", command)
+			cmd.Env = append(os.Environ(), "GUARDRAIL_TEST_EXIT="+test.exit)
+			cmd.Stdin = strings.NewReader(`{"session_id":"fixture"}`)
+			_ = cmd.Run()
+			if got := cmd.ProcessState.ExitCode(); got != test.wantExit {
+				t.Fatalf("exit = %d, want %d; command: %s", got, test.wantExit, command)
+			}
+		})
 	}
 }

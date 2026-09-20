@@ -2,18 +2,29 @@ package genconfig
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf16"
 )
 
 const codexHookFailureSuffix = " || { printf '%s\\n' 'guardrail: evaluator unavailable or blocked; continue independent work.' >&2; exit 2; }"
+const codexWindowsHookPrefix = "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand "
+const codexWindowsHookFailureSuffix = " || (echo guardrail: evaluator unavailable or blocked; continue independent work. 1>&2 & exit /b 2)"
 
 func CodexConfig(binary string) Fragment {
 	// Quote the executable as a shell word, including paths with spaces/apostrophes.
 	command := "'" + strings.ReplaceAll(binary, "'", "'\"'\"'") + "' hook codex" + codexHookFailureSuffix
+	// Codex executes commandWindows through cmd.exe. Encode the PowerShell
+	// payload so binary paths containing shell metacharacters remain data, then
+	// map every evaluator failure (including a missing PowerShell) to blocking
+	// exit 2 instead of cmd.exe's fail-open exit 1.
+	windowsScript := "& '" + strings.ReplaceAll(binary, "'", "''") + "' hook codex; exit $LASTEXITCODE"
+	commandWindows := codexWindowsHookPrefix + encodePowerShellCommand(windowsScript) + codexWindowsHookFailureSuffix
 	hooks := map[string]any{}
 	for _, event := range []string{"PreToolUse", "PostToolUse", "SessionStart"} {
 		matcher := "*"
@@ -22,10 +33,19 @@ func CodexConfig(binary string) Fragment {
 		}
 		hooks[event] = []any{map[string]any{
 			"id": "guardrail-codex-" + event, "matcher": matcher,
-			"hooks": []any{map[string]any{"type": "command", "command": command, "timeout": 10}},
+			"hooks": []any{map[string]any{"type": "command", "command": command, "commandWindows": commandWindows, "timeout": 10}},
 		}}
 	}
 	return Fragment{"hooks": hooks}
+}
+
+func encodePowerShellCommand(script string) string {
+	units := utf16.Encode([]rune(script))
+	raw := make([]byte, len(units)*2)
+	for i, unit := range units {
+		binary.LittleEndian.PutUint16(raw[i*2:], unit)
+	}
+	return base64.StdEncoding.EncodeToString(raw)
 }
 
 // CodexRules is a coarse native floor for command escalation, not a filesystem
@@ -105,7 +125,11 @@ func CodexHooksRegistered(doc map[string]any) bool {
 			for _, raw := range handlers {
 				h, _ := raw.(map[string]any)
 				command, _ := h["command"].(string)
-				if h["type"] == "command" && h["async"] != true && strings.HasSuffix(command, " hook codex"+codexHookFailureSuffix) {
+				commandWindows, _ := h["commandWindows"].(string)
+				if h["type"] == "command" && h["async"] != true &&
+					strings.HasSuffix(command, " hook codex"+codexHookFailureSuffix) &&
+					strings.HasPrefix(commandWindows, codexWindowsHookPrefix) &&
+					strings.HasSuffix(commandWindows, codexWindowsHookFailureSuffix) {
 					found = true
 				}
 			}
