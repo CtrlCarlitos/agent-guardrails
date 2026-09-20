@@ -174,9 +174,21 @@ start — `Get-Content`, `Select-String`, `Set-Content`, `Out-File` and
 spellings, and through a pipeline. Re-measure before trusting a gap claim.
 
 Closed by #135 (P1) and #136 (P6), which project each cmdlet onto the POSIX
-command it stands for rather than building a parallel rule set. Still open:
-`cmd.exe` (`del /s /q C:\` — forward-slash switches nothing parses) and
-shutdown/reboot, which is uncovered in *both* shells. Verified 2026-09-20.
+command it stands for rather than building a parallel rule set.
+
+**Still open, and the same disease in a second shell: `cmd.exe` (#139).**
+Measured 2026-09-20:
+
+    del /s /q C:\Windows              allow
+    cmd /c "rd /s /q C:\Windows"      allow
+    type C:\Users\u\.ssh\id_ed25519   deny  P4.secret-path
+
+Forward-slash switches tokenise as path operands, so P1 never sees a
+recursive delete — while P4 covers cmd for the same operand-keyed reason it
+covered PowerShell. **A Windows host must not be trusted with a cmd tool
+until #139 lands**, which is the sentence this section used to carry for
+PowerShell. Also open: shutdown/reboot (#140), uncovered in *both* shells
+and so a parity question rather than a Windows one.
 
 ## Program mechanics (settled this session)
 
