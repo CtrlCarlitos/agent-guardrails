@@ -1,0 +1,1 @@
+{"conversationId":"w1","workspacePaths":["C:\\repo"],"toolCall":{"name":"run_command","args":{"CommandLine":"rm -rf C:\\","Cwd":"C:\\repo"}}}

@@ -1,0 +1,1 @@
+{"conversationId":"w1","workspacePaths":["C:\\repo"],"toolCall":{"name":"write_to_file","args":{"TargetFile":"C:\\test-gemini\\antigravity-cli\\brain\\w1\\task.md","Description":"task tracking"}}}
