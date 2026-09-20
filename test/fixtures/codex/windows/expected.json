@@ -1,0 +1,24 @@
+{
+  "bash-type-ssh-key.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P4.secret-path"
+  },
+  "cmd-userprofile-ssh-key.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P4.secret-path"
+  },
+  "patch-safe-backslash.json": {
+    "decision": "allow",
+    "exit": 0,
+    "paths": [
+      "C:\\repo\\internal\\a.go"
+    ]
+  },
+  "powershell-userprofile-ssh-key.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P4.secret-in-text"
+  }
+}
