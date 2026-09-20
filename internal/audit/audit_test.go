@@ -160,6 +160,65 @@ func TestRedact(t *testing.T) {
 	}
 }
 
+func TestRedactPreservesProseAndRequiresAssignmentOrHighEntropy(t *testing.T) {
+	// 1. Exact commit message from operational report must survive verbatim.
+	commitMsg := `Ten contract fixtures under fixtures/antigravity/windows/ verifying native file tools, Serena MCP, Graft MCP, and destructive/secret commands`
+	if got := redact(commitMsg); got != commitMsg {
+		t.Fatalf("prose commit message was redacted: got %q, want %q", got, commitMsg)
+	}
+
+	// 2. Prose phrases with secret keywords without assignment context survive verbatim.
+	proseCases := []string{
+		"run destructive/secret commands in test environment",
+		"enter your password please",
+		"pass the token to the caller",
+		"secret document regarding project status",
+		"verify api_key parameter in documentation",
+	}
+	for _, prose := range proseCases {
+		if got := redact(prose); got != prose {
+			t.Errorf("prose %q was redacted: got %q", prose, got)
+		}
+	}
+
+	// 3. Secrets with assignment context (=, :) must be redacted.
+	assignmentCases := []struct {
+		input  string
+		secret string
+	}{
+		{`password=supersecret`, `supersecret`},
+		{`password: mypassword123`, `mypassword123`},
+		{`--password="quoted-secret"`, `quoted-secret`},
+		{`api_key = abcdef`, `abcdef`},
+		{`token: "secret-token"`, `secret-token`},
+		{`AWS_SECRET=topsecret`, `topsecret`},
+		{`Authorization: Bearer my-token-12345`, `my-token-12345`},
+	}
+	for _, tt := range assignmentCases {
+		got := redact(tt.input)
+		if strings.Contains(got, tt.secret) {
+			t.Errorf("assignment secret leaked in %q: got %q", tt.input, got)
+		}
+	}
+
+	// 4. Secrets without assignment context but with high entropy or bearer auth must be redacted.
+	highEntropyCases := []struct {
+		input  string
+		secret string
+	}{
+		{`token 4a8f9b2c3d1e0f7a5b6c7d8e9f0a1b2c`, `4a8f9b2c3d1e0f7a5b6c7d8e9f0a1b2c`},
+		{`secret d41d8cd98f00b204e9800998ecf8427e`, `d41d8cd98f00b204e9800998ecf8427e`},
+		{`Authorization Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9`, `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9`},
+		{`Bearer sk-proj-1234567890abcdef`, `sk-proj-1234567890abcdef`},
+	}
+	for _, tt := range highEntropyCases {
+		got := redact(tt.input)
+		if strings.Contains(got, tt.secret) {
+			t.Errorf("high-entropy secret leaked in %q: got %q", tt.input, got)
+		}
+	}
+}
+
 func TestDefaultPath(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Setenv("XDG_STATE_HOME", "/xdg")
