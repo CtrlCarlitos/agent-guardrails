@@ -98,6 +98,9 @@ func mergeInto(path, plane string, frag Fragment) error {
 		return fmt.Errorf("%s is not a JSON object; refusing to overwrite: %w", path, err)
 	}
 	removeRetiredBashFloorRules(existing, plane)
+	if plane == "" || plane == "opencode" {
+		absorbGuardrailPluginEntries(existing)
+	}
 
 	if permission, ok := toStringAnyMap(frag["permission"]); ok {
 		mergeOpencodePermission(existing, permission)
@@ -195,6 +198,32 @@ func retiredBashFloorRule(value any, wrapped bool) bool {
 		}
 	}
 	return false
+}
+
+// absorbGuardrailPluginEntries drops previously deployed guardrail plugin
+// entries so a merge replaces them instead of appending (#145): the plugin
+// file legitimately lives in more than one location (state root, config
+// dir, repository .guardrail/), and opencode loads the first-listed entry —
+// a stale earlier deployment would silently win over the fresh one. Foreign
+// plugins are untouched; the incoming fragment's entry lands last.
+func absorbGuardrailPluginEntries(existing map[string]any) {
+	plugins, ok := toAnySlice(existing["plugin"])
+	if !ok {
+		return
+	}
+	kept := plugins[:0]
+	for _, entry := range plugins {
+		path, _ := entry.(string)
+		if path != "" && strings.EqualFold(filepath.Base(filepath.FromSlash(path)), "guardrail.js") {
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	if len(kept) == 0 {
+		delete(existing, "plugin")
+		return
+	}
+	existing["plugin"] = kept
 }
 
 type orderedPermissionRules map[string]any
