@@ -1,0 +1,1 @@
+{"conversationId":"w1","workspacePaths":["C:\\repo"],"toolCall":{"name":"replace_file_content","args":{"TargetFile":"C:\\repo\\internal\\a.go","Instruction":"a","Description":"b","AllowMultiple":false,"TargetContent":"a","ReplacementContent":"b","StartLine":1,"EndLine":2}}}

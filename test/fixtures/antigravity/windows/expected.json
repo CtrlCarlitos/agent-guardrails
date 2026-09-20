@@ -1,0 +1,65 @@
+{
+  "graft-mcp-safe.json": {
+    "decision": "allow",
+    "paths": [
+      "pkg\\safe.go"
+    ]
+  },
+  "graft-mcp-secret.json": {
+    "decision": "deny",
+    "paths": [
+      "C:\\Users\\u\\.ssh\\id_ed25519"
+    ],
+    "rule": "P4.secret-path"
+  },
+  "multi-replace-secret.json": {
+    "decision": "deny",
+    "paths": [
+      "C:\\repo\\a.go",
+      "C:\\repo\\b.go",
+      "C:\\Users\\u\\.ssh\\id_ed25519"
+    ],
+    "rule": "P4.secret-path"
+  },
+  "replace-repo-file.json": {
+    "decision": "allow",
+    "paths": [
+      "C:\\repo\\internal\\a.go"
+    ]
+  },
+  "run-command-rm-rf-drive.json": {
+    "decision": "deny",
+    "rule": "P1.rm-rf"
+  },
+  "run-command-type-secret.json": {
+    "decision": "deny",
+    "rule": "P4.secret-path"
+  },
+  "serena-mcp-safe.json": {
+    "decision": "allow",
+    "paths": [
+      "pkg\\safe.go"
+    ]
+  },
+  "serena-mcp-secret.json": {
+    "decision": "deny",
+    "paths": [
+      "C:\\repo\\.env"
+    ],
+    "rule": "P4.secret-path"
+  },
+  "view-file-ssh-key.json": {
+    "decision": "deny",
+    "paths": [
+      "C:\\Users\\u\\.ssh\\id_ed25519"
+    ],
+    "rule": "P4.secret-path"
+  },
+  "write-dotenv.json": {
+    "decision": "deny",
+    "paths": [
+      "C:\\repo\\.env"
+    ],
+    "rule": "P4.secret-path"
+  }
+}

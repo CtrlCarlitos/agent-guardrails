@@ -1,0 +1,1 @@
+{"conversationId":"w1","workspacePaths":["C:\\repo"],"toolCall":{"name":"mcp_serena_replace_content","args":{"relative_path":"pkg\\safe.go","content":"fmt.Println(1)"}}}

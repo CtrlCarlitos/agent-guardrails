@@ -291,3 +291,62 @@ func TestClaudeWindowsContractFixtures(t *testing.T) {
 		})
 	}
 }
+
+func TestAntigravityWindowsContractFixtures(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows-shaped fixtures are evaluated on a windows host")
+	}
+	bin := buildBinary(t)
+	raw, err := os.ReadFile(filepath.Join("fixtures", "antigravity", "windows", "expected.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expected map[string]struct {
+		Decision string   `json:"decision"`
+		Rule     string   `json:"rule"`
+		Paths    []string `json:"paths"`
+	}
+	if err := json.Unmarshal(raw, &expected); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range expected {
+		t.Run(name, func(t *testing.T) {
+			payload, err := os.ReadFile(filepath.Join("fixtures", "antigravity", "windows", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := t.TempDir()
+			cmd := exec.Command(bin, "hook", "antigravity", "pre")
+			cmd.Stdin = bytes.NewReader(payload)
+			cmd.Env = append(os.Environ(),
+				"LOCALAPPDATA="+state,
+				"APPDATA="+t.TempDir(),
+				"XDG_STATE_HOME="+state,
+				"XDG_CONFIG_HOME="+t.TempDir(),
+				"GUARDRAIL_CONFIG=",
+			)
+			out, err := cmd.Output()
+			if err != nil {
+				t.Fatalf("%s: hook failed: %v", name, err)
+			}
+			var got struct {
+				Decision string `json:"decision"`
+			}
+			if err := json.Unmarshal(out, &got); err != nil {
+				t.Fatalf("%s: invalid JSON %q: %v", name, out, err)
+			}
+			if got.Decision != want.Decision {
+				t.Fatalf("%s: decision %q, want %q", name, got.Decision, want.Decision)
+			}
+			if want.Rule != "" || want.Paths != nil {
+				rec := lastAuditRecord(t, filepath.Join(state, "guardrail", "audit.jsonl"))
+				if want.Rule != "" && rec.RuleID != want.Rule {
+					t.Fatalf("%s: rule %q, want %q", name, rec.RuleID, want.Rule)
+				}
+				if want.Paths != nil && strings.Join(rec.Paths, "\n") != strings.Join(want.Paths, "\n") {
+					t.Fatalf("%s: paths %q, want %q", name, rec.Paths, want.Paths)
+				}
+			}
+		})
+	}
+}
