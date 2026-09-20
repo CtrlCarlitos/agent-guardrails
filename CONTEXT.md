@@ -152,3 +152,23 @@ by candidate ADR-0014. It is not implemented.
 A heuristic indication that a Plane has delivered multiple tool calls to its
 Adapter. It is neither proof of runtime provenance nor a guarantee that every
 tool call is mediated.
+
+**Plane registration**:
+The Plane's configuration contains Guardrail-owned entries. Registration says
+nothing about trust, launchability, or runtime dispatch.
+
+**Handler trust**:
+The Plane reports that the current handler hash is trusted or managed. A stored
+hash is not by itself Handler trust: it may describe a modified older handler.
+
+**Direct handler runnability**:
+The effective configured command starts when invoked through the host operating
+system's shell. It does not prove the Plane dispatched the handler.
+
+**Runtime dispatch observation**:
+Live-mediation evidence that the Plane invoked the Adapter. It remains a
+heuristic and does not imply complete tool coverage.
+
+**Capability observation**:
+The distinct capabilities recorded by eligible live Adapter calls. An absent
+capability is unobserved, never proven covered or retired.

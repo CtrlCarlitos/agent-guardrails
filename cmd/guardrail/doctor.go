@@ -26,6 +26,22 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	code := printDoctor(stdout, stderr)
+	if opts.codexHooks {
+		path, err := planeConfigPath("codex")
+		if err != nil {
+			fmt.Fprintf(stderr, "guardrail: Codex hooks path: %s\n", safetext.SingleLine(err.Error()))
+			return 1
+		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(stderr, "guardrail: Codex diagnostic cwd: %s\n", safetext.SingleLine(err.Error()))
+			return 1
+		}
+		if diagnosticCode := printCodexHookDiagnostics(path, cwd, runtime.GOOS, stdout, stderr); diagnosticCode != 0 {
+			return diagnosticCode
+		}
+		return code
+	}
 	if opts.coverage == "" {
 		return code
 	}
@@ -47,11 +63,12 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 }
 
 type doctorOptions struct {
-	schema   string // captured Responses tool schema (codex)
-	coverage string // plane to inventory; "" means none
-	bundle   string // explicit bundle path; "" resolves the installed one (claude)
-	config   string // explicit mcp_config.json path; "" resolves default (antigravity)
-	schemas  string // explicit mcp schemas dir; "" resolves default (antigravity)
+	schema     string // captured Responses tool schema (codex)
+	coverage   string // plane to inventory; "" means none
+	bundle     string // explicit bundle path; "" resolves the installed one (claude)
+	config     string // explicit mcp_config.json path; "" resolves default (antigravity)
+	schemas    string // explicit mcp schemas dir; "" resolves default (antigravity)
+	codexHooks bool   // inspect trust, direct execution, and observed Codex runtime evidence
 }
 
 func parseDoctorArgs(args []string, stderr io.Writer) (doctorOptions, bool) {
@@ -93,6 +110,12 @@ func parseDoctorArgs(args []string, stderr io.Writer) (doctorOptions, bool) {
 			}
 			i++
 			opts.schemas = args[i]
+		case "--codex-hooks":
+			if opts.codexHooks {
+				fmt.Fprintln(stderr, "guardrail: duplicate --codex-hooks")
+				return opts, false
+			}
+			opts.codexHooks = true
 		default:
 			fmt.Fprintf(stderr, "guardrail: doctor: unknown argument %q\n", safetext.SingleLine(args[i]))
 			return opts, false
@@ -116,6 +139,10 @@ func parseDoctorArgs(args []string, stderr io.Writer) (doctorOptions, bool) {
 	}
 	if opts.coverage != "" && opts.coverage != "claude" && opts.coverage != "antigravity" && opts.coverage != "codex" {
 		fmt.Fprintf(stderr, "guardrail: doctor --coverage supports claude, antigravity, codex (got %q)\n", safetext.SingleLine(opts.coverage))
+		return opts, false
+	}
+	if opts.codexHooks && (opts.coverage != "" || opts.bundle != "" || opts.config != "" || opts.schema != "" || opts.schemas != "") {
+		fmt.Fprintln(stderr, "guardrail: doctor --codex-hooks cannot be combined with coverage options")
 		return opts, false
 	}
 	return opts, true
