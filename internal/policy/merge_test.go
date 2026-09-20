@@ -362,12 +362,15 @@ func TestMergeSafeRootsDropUnresolvableRoot(t *testing.T) {
 }
 
 func TestMergeEgressRequiresExactGrantAndRejectsTotalWildcards(t *testing.T) {
+	// Host-absolute: grant matching requires filepath.IsAbs, and "/repo" is
+	// absolute only on POSIX, so on Windows this asserted nothing.
+	repo := operatorRepo("repo")
 	op := &OperatorConfig{Repos: map[string]RepoGrant{
-		"/repo": {EgressAllowlist: []string{"*", "**", "*.example.com", "api.github.com"}},
+		repo: {EgressAllowlist: []string{"*", "**", "*.example.com", "api.github.com"}},
 	}}
 	m, warns, err := Merge(&Policy{Waived: map[string]bool{}}, &Overlay{
 		EgressAllowlist: []string{"*", "**", "*.example.com", "api.github.com"},
-	}, "1.0.0", op, "/repo")
+	}, "1.0.0", op, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,14 +386,16 @@ func TestMergeEgressRequiresExactGrantAndRejectsTotalWildcards(t *testing.T) {
 func TestMergeEgressGrantDoesNotTransferAcrossEntryOrRepo(t *testing.T) {
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("APPDATA", configHome) // operatorConfigDir reads APPDATA on Windows
 	configPath := filepath.Join(configHome, "guardrail", "waivers.toml")
+	repo := operatorRepo("repo")
 	op := &OperatorConfig{Repos: map[string]RepoGrant{
-		"/repo": {EgressAllowlist: []string{"api.example.com"}},
+		repo: {EgressAllowlist: []string{"api.example.com"}},
 	}}
 	base := &Policy{Slots: Slots{EgressAllowlist: []string{"base.example.com"}}, Waived: map[string]bool{}}
 	ov := &Overlay{EgressAllowlist: []string{"API.example.com", "other.example.com", "api.example.com"}}
 
-	for _, repoRoot := range []string{"/repo/subrepo", "/repo-other"} {
+	for _, repoRoot := range []string{operatorRepo("repo", "subrepo"), operatorRepo("repo-other")} {
 		m, warns, err := Merge(base, ov, "1.0.0", op, repoRoot)
 		if err != nil {
 			t.Fatal(err)
@@ -403,7 +408,7 @@ func TestMergeEgressGrantDoesNotTransferAcrossEntryOrRepo(t *testing.T) {
 		}
 	}
 
-	m, warns, err := Merge(base, ov, "1.0.0", op, "/repo/./")
+	m, warns, err := Merge(base, ov, "1.0.0", op, filepath.Join(repo, "."))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,6 +459,7 @@ func TestMergeIncludesOperatorGlobalWebHosts(t *testing.T) {
 func TestMergeEgressCannotBeAuthorizedByOtherGrants(t *testing.T) {
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("APPDATA", configHome) // operatorConfigDir reads APPDATA on Windows
 	op := &OperatorConfig{Repos: map[string]RepoGrant{
 		"/repo": {Waive: []string{"P6.egress"}, SecretAllow: true, AuditLog: true},
 	}}
@@ -477,6 +483,7 @@ func TestMergeEgressCannotBeAuthorizedByOtherGrants(t *testing.T) {
 func TestMergeDroppedRequestWarningsAreStable(t *testing.T) {
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("APPDATA", configHome) // operatorConfigDir reads APPDATA on Windows
 	configPath := filepath.Join(configHome, "guardrail", "waivers.toml")
 	base := &Policy{Slots: Slots{AuditLog: "/base/audit.jsonl"}, Waived: map[string]bool{}}
 	ov := &Overlay{

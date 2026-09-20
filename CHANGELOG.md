@@ -15,10 +15,18 @@ explicitly in **Breaking** notes.
   — and assert that every Windows-named test file contributes a selected test,
   and that every selected test lives in a package the job runs.
   The guards respect build constraints, and a package deliberately outside
-  the job is exempted with a written reason rather than silently skipped:
-  `test/adversarial` is POSIX-shaped, and `internal/policy` is blocked
-  rather than declined — its two Windows tests would pass, but the widened
-  filter also selects a POSIX-path egress test in the same package.
+  the job is exempted with a written reason rather than silently skipped —
+  `test/adversarial` is POSIX-shaped and its harness builds the probe binary
+  without a `.exe` suffix.
+- **`internal/policy` joins the Windows job, and its tests stop reading the
+  operator's real config.** `writeOperatorConfig` and three merge tests
+  sandboxed only `XDG_CONFIG_HOME`, but `operatorConfigDir` reads `APPDATA`
+  on Windows — so on a Windows host these tests were loading
+  `%APPDATA%\guardrail\waivers.toml`, the machine's actual operator grants.
+  Non-hermetic, and the reason the package could not join the job. With both
+  roots sandboxed and four grant paths spelled host-absolutely (grant matching
+  requires `filepath.IsAbs`, and `/repo` is absolute only on POSIX), all seven
+  filter-selected policy tests pass on Windows.
 - **`guardrail selftest --evidence claude`**: registration is a claim, an audit
   record is evidence. ADR-0020 built this gate for codex; #149 showed claude
   needed it just as badly — a hook that registered and could not spawn read as

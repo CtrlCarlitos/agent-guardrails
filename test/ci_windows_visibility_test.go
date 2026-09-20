@@ -148,11 +148,6 @@ func TestWindowsSelectedTestsLiveInPackagesTheWindowsJobRuns(t *testing.T) {
 	exempt := map[string]string{
 		"test/adversarial": "the adversarial corpus is POSIX-shaped and does not run on Windows at all;" +
 			" its harness also builds the probe binary without a .exe suffix, so the package cannot pass there yet",
-		"internal/policy": "blocked, not declined: TestOperatorConfigRejectsInvalidWindowsConfigRoot and" +
-			" TestOperatorConfigPathUsesAbsoluteWindowsConfigDirectory are Windows tests that would pass there," +
-			" but the widened filter also selects TestOperatorConfigEgressGrantRequiresExactEntryAndRepo in the" +
-			" same package, whose POSIX repo paths (/home/u/trusted/../trusted) do not clean to themselves on" +
-			" Windows. Making that one test host-neutral is what unblocks adding ./internal/policy/ to the list",
 	}
 	for file, names := range goTestFiles(t) {
 		dir := filepath.ToSlash(filepath.Dir(file))
