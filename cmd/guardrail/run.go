@@ -44,6 +44,7 @@ usage: guardrail <command> [arguments]
       subcommands: enroll | add-authenticator | remove-authenticator | recover-reset
   selftest                           probe installed enforcement per plane
       --evidence codex     check retained audit evidence after this binary's mtime (heuristic)
+      --session <id> --since <time|duration> --expect-tool <name>  scope Codex evidence
   audit [--path <file>]              summarize the audit log (decisions, rules, drift)
   doctor [flags]                    print resolved policy/overlay/audit/hook state
       --coverage claude    diff the installed Claude Code tool surface against the contract
