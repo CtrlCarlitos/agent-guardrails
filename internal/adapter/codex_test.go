@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -86,6 +87,9 @@ func TestCodexEmitNeverReturnsUnsupportedAsk(t *testing.T) {
 }
 
 func TestCodexAllowedShellGuardsActualDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows command hooks fail closed until Codex identifies the runtime shell")
+	}
 	cwd := t.TempDir()
 	tc := engine.ToolCall{Capability: policy.CapabilityCommand, Command: "printf original-command", CWD: cwd}
 	var out, errb bytes.Buffer
@@ -113,5 +117,19 @@ func TestCodexAllowedShellGuardsActualDirectory(t *testing.T) {
 		} else if err == nil || strings.Contains(string(output), "original-command") || !strings.Contains(string(output), "workdir differs") {
 			t.Fatalf("other directory: %v %s", err, output)
 		}
+	}
+}
+
+func TestCodexAllowedShellFailsClosedWhenRuntimeShellUnknown(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only shell boundary")
+	}
+	tc := engine.ToolCall{Capability: policy.CapabilityCommand, Command: "Write-Output original-command", CWD: t.TempDir()}
+	var out, errb bytes.Buffer
+	if code := EmitCodex(policy.Verdict{Decision: policy.Allow}, "pre", tc, &out, &errb); code != 2 {
+		t.Fatalf("exit %d, want 2; stdout=%q stderr=%q", code, out.String(), errb.String())
+	}
+	if out.Len() != 0 || !strings.Contains(errb.String(), "cannot prove the Windows command shell") {
+		t.Fatalf("stdout=%q stderr=%q", out.String(), errb.String())
 	}
 }

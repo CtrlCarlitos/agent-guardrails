@@ -54,6 +54,8 @@ to a different directory. Code-mode calls receive the same precondition.
 
 The generated command handler maps nonzero evaluator exits (including a missing
 binary) to native blocking exit 2. Codex-level hook timeout, skipped hook trust,
-and hooks-disabled settings remain runtime limitations. This guard assumes the
-same POSIX shell boundary as the Engine; Windows build support does not imply
-PowerShell semantic parity.
+and hooks-disabled settings remain runtime limitations. The directory rewrite
+requires a proven POSIX shell boundary. On Windows, Codex does not identify
+whether the effective command interpreter is PowerShell or `cmd.exe`, so an
+otherwise allowed command hook exits 2 without emitting `updatedInput`. A
+POSIX-shaped rewrite must never reach an unproven Windows shell.
