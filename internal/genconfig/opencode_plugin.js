@@ -23,18 +23,34 @@ function isPendingOperatorAction(decision) {
 	}
 }
 
+// Spawn latency on Windows (CreateProcess + NTFS + Defender scan) can
+// intermittently exceed the timeout even on an idle machine. The engine is
+// our own local policy process, not an untrusted call — retry internally
+// with backoff before failing closed (#132).
+const SPAWN_RETRIES = 2;
+const SPAWN_BASE_TIMEOUT_MS = 15000;
+
 function callGuardrail(envelope) {
 	const serializedEnvelope = JSON.stringify(envelope);
 	if (Buffer.byteLength(serializedEnvelope, "utf8") > MAX_OPENCODE_HOOK_ENVELOPE_BYTES) {
 		throw new Error("guardrail: OpenCode hook envelope exceeds 8 MiB; failing closed");
 	}
-	const res = spawnSync(GUARDRAIL_BIN, ["hook", "opencode"], {
-		input: serializedEnvelope,
-		encoding: "utf8",
-		timeout: 15000,
-	});
+	let res;
+	for (let attempt = 0; attempt <= SPAWN_RETRIES; attempt++) {
+		res = spawnSync(GUARDRAIL_BIN, ["hook", "opencode"], {
+			input: serializedEnvelope,
+			encoding: "utf8",
+			timeout: SPAWN_BASE_TIMEOUT_MS + attempt * 10000,
+		});
+		if (!res.error) break;
+		if (attempt < SPAWN_RETRIES) {
+			// Brief backoff before retry — Defender scans are transient.
+			const waitUntil = Date.now() + 500 * (attempt + 1);
+			while (Date.now() < waitUntil) {}
+		}
+	}
 	if (res.error) {
-		throw new Error(`guardrail: could not run (${res.error.message}); failing closed`);
+		throw new Error(`guardrail: could not run after ${SPAWN_RETRIES + 1} attempts (${res.error.message}); failing closed`);
 	}
 	if (res.signal) {
 		throw new Error(`guardrail: killed by signal ${res.signal}; failing closed`);
@@ -110,9 +126,21 @@ export const GuardrailPlugin = async ({ directory, client }) => {
 			} else if (["read", "edit", "write"].includes(tool)) {
 				const p = args.filePath;
 				if (p) envelope.paths = [p];
-			} else if (["glob", "grep"].includes(tool)) {
+			} else if (tool === "grep") {
+				// grep with no path searches the CWD — project that (#132).
+				const p = args.path ?? ".";
+				envelope.paths = [p];
+			} else if (tool === "glob") {
+				// Glob with brace expansion projects the base directory
+				// before the braces so the engine evaluates the containing
+				// path (#132).
 				const p = args.path;
-				if (p) envelope.paths = [p];
+				if (p) {
+					const braceIndex = p.indexOf("{");
+					envelope.paths = [braceIndex > 0 ? p.slice(0, braceIndex) : p];
+				} else {
+					envelope.paths = ["."];
+				}
 			} else if (tool === "lsp") {
 				const p = args.filePath;
 				if (p) envelope.paths = [p];
