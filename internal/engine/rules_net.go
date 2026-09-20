@@ -13,12 +13,20 @@ import (
 var netTools = map[string]bool{
 	"curl": true, "wget": true, "nc": true, "ncat": true, "socat": true,
 	"scp": true, "rsync": true, "ftp": true, "telnet": true, "ssh": true, "sftp": true,
+	// PowerShell's spelling of curl, with its shipped aliases. Windows
+	// PowerShell also aliases `curl` and `wget` to Invoke-WebRequest; those
+	// names are already here and reach the same allowlist either way.
+	"invoke-webrequest": true, "iwr": true, "invoke-restmethod": true, "irm": true,
 }
 
-var fetchTools = map[string]bool{"curl": true, "wget": true}
+var fetchTools = map[string]bool{
+	"curl": true, "wget": true,
+	"invoke-webrequest": true, "iwr": true, "invoke-restmethod": true, "irm": true,
+}
 var interpreters = map[string]bool{
 	"sh": true, "bash": true, "zsh": true, "dash": true,
 	"python": true, "python3": true, "perl": true, "ruby": true, "node": true,
+	"invoke-expression": true, "iex": true, "powershell": true, "pwsh": true,
 }
 
 func checkDownloadPipeShell(simples []Simple) *policy.Verdict {
@@ -551,6 +559,8 @@ func colonFields(value string, count int) ([]string, bool) {
 
 func extractHosts(argv []string, tool string) ([]string, bool, error) {
 	switch tool {
+	case "invoke-webrequest", "invoke-restmethod", "iwr", "irm":
+		return psWebRequestHosts(argv)
 	case "curl", "wget":
 		spec := curlOptions
 		if tool == "wget" {
