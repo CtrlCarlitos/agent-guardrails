@@ -849,11 +849,10 @@ func strictWriteRoots(tc ToolCall, candidate pathCandidate) []string {
 			roots = append(roots, memoryRoot)
 		}
 	}
-	for _, root := range tc.PermittedRoots {
-		if root != "" {
-			roots = append(roots, root)
-		}
-	}
+	// ADR-0021 step (c) antigravity slice: the active session's brain
+	// directory is a strict permitted root - writes strictly inside it are
+	// authorized, the root itself and other sessions' brain dirs still ask.
+	roots = append(roots, tc.PermittedRoots...)
 	return roots
 }
 
@@ -926,7 +925,20 @@ func checkOutOfRepoWrite(tc ToolCall) *policy.Verdict {
 	}
 	for _, p := range tc.Paths {
 		candidate := pathCandidate{path: p, cwd: tc.CWD, repoRoot: tc.RepoRoot}
-		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, nil, strictWriteRoots(tc, candidate), false); !authorized {
+		if authorized, lexical := authorizedPath(candidate, tc.RepoRoot, nil, strictWriteRoots(tc, candidate), false); !authorized {
+			// A linked worktree of the same repository is the same repo
+			// under the same policy (one-branch-per-PR discipline); the
+			// git-directory round trip fails closed on forged pointers.
+			// Two rejections must NOT be escaped: strict-root rejections
+			// (lexical, e.g. a Claude memory root inside the repo) keep
+			// asking, and host-foreign spellings (drive letters on POSIX)
+			// keep failing closed instead of resolving into the local
+			// checkout's tree.
+			if !lexical && filepath.IsAbs(p) {
+				if target, err := filepath.Abs(resolvePath(p, tc.CWD)); err == nil && sameRepository(target, tc.RepoRoot) {
+					continue
+				}
+			}
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P5.out-of-repo",
 				Reason: "write target is outside the repo/worktree root: " + p}
 		}
