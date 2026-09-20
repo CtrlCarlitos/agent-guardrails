@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/planecontract"
@@ -17,15 +18,16 @@ const maxOpencodeHookEnvelopeBytes = 8 << 20
 var errOpencodeHookEnvelopeTooLarge = errors.New("OpenCode hook envelope exceeds 8 MiB")
 
 type opencodePayload struct {
-	SessionID    string          `json:"session_id"`
-	Event        string          `json:"event"`
-	Tool         string          `json:"tool"`
-	CallID       string          `json:"call_id"`
-	HostApproved bool            `json:"host_approved"`
-	Command      string          `json:"command"`
-	Paths        []string        `json:"paths"`
-	CWD          string          `json:"cwd"`
-	Arguments    json.RawMessage `json:"arguments"`
+	SessionID      string                       `json:"session_id"`
+	Event          string                       `json:"event"`
+	Tool           string                       `json:"tool"`
+	CallID         string                       `json:"call_id"`
+	HostApproved   bool                         `json:"host_approved"`
+	Command        string                       `json:"command"`
+	Paths          []string                     `json:"paths"`
+	CWD            string                       `json:"cwd"`
+	Arguments      json.RawMessage              `json:"arguments"`
+	DegradedAllows []engine.DegradedAllowReport `json:"degraded_allows,omitempty"`
 }
 
 func ParseOpencode(r io.Reader) (engine.ToolCall, error) {
@@ -108,7 +110,32 @@ func ParseOpencode(r io.Reader) (engine.ToolCall, error) {
 		tc.InputShape = "opaque-object"
 	}
 	tc.RepoRoot = repoRoot(p.CWD)
+	tc.DegradedAllows = sanitizeDegradedAllows(p.DegradedAllows)
 	return tc, nil
+}
+
+// sanitizeDegradedAllows keeps only contract-eligible, bounded, well-formed
+// reports: an adapter must never land audit records for tools outside the
+// DegradedAllow contract, and the batch is capped so a reporting loop
+// cannot bloat the audit log.
+func sanitizeDegradedAllows(reports []engine.DegradedAllowReport) []engine.DegradedAllowReport {
+	kept := make([]engine.DegradedAllowReport, 0, len(reports))
+	for _, report := range reports {
+		if len(kept) >= 32 {
+			break
+		}
+		if report.Tool == "" || len(report.Tool) > 64 || len(report.CallID) > 128 {
+			continue
+		}
+		if !planecontract.DegradedAllow("opencode", report.Tool) {
+			continue
+		}
+		if _, err := time.Parse(time.RFC3339, report.TS); err != nil {
+			continue
+		}
+		kept = append(kept, report)
+	}
+	return kept
 }
 
 func EmitOpencode(v policy.Verdict, tc engine.ToolCall, stdout, stderr io.Writer) int {

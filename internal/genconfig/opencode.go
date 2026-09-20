@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/planecontract"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
@@ -15,10 +16,12 @@ func stripWrapper(prefix, s string) (string, bool) {
 }
 
 // OpencodePluginFor returns the embedded plugin source with the absolute
-// guardrail path baked in.
+// guardrail path and the engine-contract degraded-allow tool list baked in.
 func OpencodePluginFor(binary string) []byte {
 	encoded, _ := json.Marshal(binary)
-	return []byte(strings.ReplaceAll(string(OpencodePluginJS), `"__GUARDRAIL_BIN__"`, string(encoded)))
+	tools, _ := json.Marshal(planecontract.OpencodeDegradedAllowTools())
+	source := strings.ReplaceAll(string(OpencodePluginJS), `"__GUARDRAIL_BIN__"`, string(encoded))
+	return []byte(strings.ReplaceAll(source, `"__DEGRADED_ALLOW_TOOLS__"`, string(tools)))
 }
 
 func OpencodeConfig(pol *policy.Policy, pluginPath string) Fragment {
