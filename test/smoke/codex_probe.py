@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the installed Codex runtime with a deterministic local Responses fixture.
 No model service or credentials; all tool effects stay in a disposable directory.
-Usage: python3 test/smoke/codex_probe.py /absolute/path/to/guardrail
+Usage: <python3> test/smoke/codex_probe.py /absolute/path/to/guardrail
 """
 import argparse
 import http.server
@@ -10,15 +10,26 @@ import os
 import re
 from pathlib import Path
 import subprocess
-import shutil
 import sys
 import tempfile
 import threading
 
+from codex_probe_support import (
+    interactive_probe_controls,
+    render_codex_config,
+    resolve_command,
+    run_probe_command,
+    probe_timeout,
+    write_guardrail_wrapper,
+)
+
+commands = {}
 for required in ("codex", "git", "gofmt"):
-    if shutil.which(required) is None:
+    commands[required] = resolve_command(required, windows=os.name == "nt")
+    if commands[required] is None:
         print(f"SKIP: {required} is required", file=sys.stderr)
         sys.exit(77)
+codex_executable = commands["codex"]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("binary", help="Guardrail executable")
 parser.add_argument("--code-mode", action="store_true", help="Exercise nested tools")
@@ -37,15 +48,13 @@ workspace.mkdir()
 config = root / "codex"
 config.mkdir()
 log = root / "hooks.jsonl"
-wrapper = root / "guardrail-probe"
-wrapper.write_text("#!/usr/bin/env python3\nimport json,sys,subprocess\nraw=sys.stdin.buffer.read()\np=subprocess.run(" + repr([binary]) + "+sys.argv[1:],input=raw,capture_output=True)\nwith open(" + repr(str(log)) + ", 'a') as f: f.write(json.dumps({'input':json.loads(raw),'exit':p.returncode,'stderr':p.stderr.decode()})+'\\n')\nsys.stdout.buffer.write(p.stdout)\nsys.stderr.buffer.write(p.stderr)\nsys.exit(p.returncode)\n")
-wrapper.chmod(0o755)
+wrapper = write_guardrail_wrapper(root, Path(binary), log, windows=os.name == "nt")
 subprocess.run([binary, "gen-config", "codex", "--merge", str(config / "hooks.json"), "--binary", str(wrapper)], check=True, capture_output=True)
 (workspace / ".env").write_text("FAKE_SECRET=fixture-only\n")
 (workspace / "file.txt").write_text("old\n")
 (workspace / ".ssh").mkdir()
 (workspace / ".ssh/token.txt").write_text("fake secret-directory fixture\n")
-subprocess.run(["git", "init", "-q", str(workspace)], check=True)
+subprocess.run([commands["git"], "init", "-q", str(workspace)], check=True)
 # Scripted calls exercise native dispatch without asking a model to cooperate.
 calls = [
     ("exec_command", {"cmd": "echo codex-safe", "workdir": str(workspace)}, 0),
@@ -70,11 +79,12 @@ calls = [
 if code_mode:
     calls = [call for call in calls if call[0] not in ("spawn_agent", "future_tool", "request_user_input")]
 if mediation:
+    interactive_command, interactive_eof = interactive_probe_controls(windows=os.name == "nt")
     calls = [
-        ("exec_command", {"cmd": "cat > stdin.txt", "tty": True, "yield_time_ms": 1000}, None if restricted else 0),
+        ("exec_command", {"cmd": interactive_command, "tty": True, "yield_time_ms": 1000}, None if restricted else 0),
         ("write_stdin", {"session_id": 0, "chars": "codex-stdin-fixture\n", "yield_time_ms": 1000}, None),
         ("write_stdin", {"session_id": 0, "chars": "", "yield_time_ms": 1000}, None),
-        ("write_stdin", {"session_id": 0, "chars": "\u0004", "yield_time_ms": 1000}, None),
+        ("write_stdin", {"session_id": 0, "chars": interactive_eof, "yield_time_ms": 1000}, None),
         ("apply_patch", "*** Begin Patch\n*** Add File: edit-only.txt\n+fixture edit\n*** End Patch", 0),
     ]
 def output_text(item):
@@ -128,28 +138,23 @@ catalog = json.loads((Path(__file__).resolve().parents[1] / "fixtures/codex/mode
 if code_mode:
     catalog["models"][0]["tool_mode"] = "code_mode_only"
 catalog_path.write_text(json.dumps(catalog))
-(config / "config.toml").write_text(f'''model = "codex-fixture"
-web_search = "{'disabled' if restricted else 'cached'}"
-model_provider = "fixture"
-model_catalog_json = "{catalog_path}"
-[model_providers.fixture]
-name = "Deterministic local fixture"
-base_url = "http://127.0.0.1:{server.server_port}/v1"
-wire_api = "responses"
-requires_openai_auth = false
-[features]
-shell_snapshot = false
-shell_tool = {'false' if restricted else 'true'}
-[mcp_servers.fixture]
-command = "python3"
-args = [{json.dumps(str(Path(__file__).resolve().parents[1] / "fixtures/codex/mcp_server.py"))}, {json.dumps(str(root / "mcp-executed"))}]
-''')
+(config / "config.toml").write_text(
+    render_codex_config(
+        catalog_path=catalog_path,
+        server_port=server.server_port,
+        restricted=restricted,
+        python_executable=Path(sys.executable),
+        mcp_script=Path(__file__).resolve().parents[1] / "fixtures/codex/mcp_server.py",
+        mcp_marker=root / "mcp-executed",
+    ),
+    encoding="utf-8",
+)
 env = dict(os.environ, CODEX_HOME=str(config), XDG_STATE_HOME=str(root / "state"), XDG_CONFIG_HOME=str(root / "xdg"), GUARDRAIL_CONFIG="")
 # The only trust override is for the generated, vetted fixture hook definitions.
 # Codex's command sandbox remains enabled throughout.
-command = ["codex", "exec", "--ephemeral", "--dangerously-bypass-hook-trust", "--sandbox", "workspace-write", "-C", str(workspace), "Run the supplied deterministic tool probe sequence."]
+command = [codex_executable, "exec", "--ephemeral", "--dangerously-bypass-hook-trust", "--sandbox", "workspace-write", "-C", str(workspace), "Run the supplied deterministic tool probe sequence."]
 try:
-    result = subprocess.run(command, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=90)
+    result = run_probe_command(command, env=env, timeout=probe_timeout(windows=os.name == "nt"))
     (root / "stdout.txt").write_text(result.stdout)
     (root / "stderr.txt").write_text(result.stderr)
     (root / "requests.json").write_text(json.dumps(requests, indent=2))
@@ -163,7 +168,7 @@ try:
             if not line.startswith("prefix_rule("):
                 continue
             pattern = json.loads(line.split("pattern = ", 1)[1].split(", decision =", 1)[0])
-            checked = subprocess.run(["codex", "execpolicy", "check", "--rules", str(rules_path), "--", *pattern], env=env, capture_output=True, text=True)
+            checked = subprocess.run([codex_executable, "execpolicy", "check", "--rules", str(rules_path), "--", *pattern], env=env, capture_output=True, text=True)
             if checked.returncode != 0 or json.loads(checked.stdout).get("decision") != "forbidden":
                 errors.append(f"Native floor failed for {pattern}: {checked.stdout} {checked.stderr}")
             rules_checked += 1
@@ -221,7 +226,7 @@ try:
         if not path.exists() or path.read_text() != "fixture edit\n":
             errors.append("Allowed patch failed in mediation fixture")
         report = {
-            "codex": subprocess.check_output(["codex", "--version"], text=True).strip(),
+            "codex": subprocess.check_output([codex_executable, "--version"], text=True).strip(),
             "code_mode": code_mode, "restricted": restricted, "cases": len(calls),
             "pre_hooks": len(pre), "stdin_pre_hooks": sum(e["input"]["tool_name"] == "write_stdin" for e in pre),
             "web_search_advertised": web_enabled, "hosted_execution_tested": False,
@@ -259,7 +264,7 @@ try:
             errors.append(f"Denied patch executed: {path}")
     if (workspace / ".env").read_text() != "FAKE_SECRET=fixture-only\n":
         errors.append("Denied move changed secret fixture")
-    report = {"codex": subprocess.check_output(["codex", "--version"], text=True).strip(), "code_mode": code_mode, "cases": len(calls), "pre_hooks": len(pre), "post_hooks": len(post), "runtime_rejections": len(calls)-expected_hooks, "rules_checked": rules_checked, "errors": errors, "artifacts": str(root)}
+    report = {"codex": subprocess.check_output([codex_executable, "--version"], text=True).strip(), "code_mode": code_mode, "cases": len(calls), "pre_hooks": len(pre), "post_hooks": len(post), "runtime_rejections": len(calls)-expected_hooks, "rules_checked": rules_checked, "errors": errors, "artifacts": str(root)}
     (root / "report.json").write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))
     sys.exit(bool(errors))

@@ -15,6 +15,14 @@ python3 test/smoke/codex_probe.py /absolute/path/to/guardrail
 guardrail doctor --coverage codex --schema /path/from/report/tools.json
 ```
 
+On Windows, invoke the same script with the active Python interpreter and an
+`.exe` Guardrail build; the harness itself selects `sys.executable`, emits a
+`.cmd` logger, and escapes Windows paths in disposable TOML:
+
+```powershell
+python test/smoke/codex_probe.py "$env:TEMP\guardrail-codex.exe" --mediation
+```
+
 Keep the probe's `report.json` alongside the schema to identify the CLI version
 and execution mode. The doctor output includes the schema's SHA-256 digest.
 This is coverage of the supplied configuration, not an inventory of all
