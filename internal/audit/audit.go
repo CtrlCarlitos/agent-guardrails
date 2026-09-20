@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type Record struct {
@@ -52,18 +54,57 @@ func DefaultPath(override string) string {
 	return filepath.Join(base, "guardrail", "audit.jsonl")
 }
 
+var (
+	assignmentSecretRE = regexp.MustCompile(`(?i)(?:--|-)?(pass(?:word)?|secret|token|api[_-]?key|authorization|bearer)["']?\s*[:=]\s*["']?(?:(?:bearer|basic)\s+)?[^\s"']+["']?`)
+	bearerAuthRE       = regexp.MustCompile(`(?i)(?:authorization\s+)?bearer\s+[^\s"']+`)
+	unassignedSecretRE = regexp.MustCompile(`(?i)(?:--|-)?(pass(?:word)?|secret|token|api[_-]?key)\s+([^\s"']+)`)
+)
+
 var redactors = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)(pass(word)?|secret|token|api[_-]?key|authorization|bearer)(["']?\s*[:=]\s*["']?|\s+)(?:(?:bearer|basic)\s+)?[^\s"']+`),
+	assignmentSecretRE,
+	bearerAuthRE,
 	regexp.MustCompile(`AKIA[0-9A-Z]{16}`),
 	regexp.MustCompile(`ghp_[A-Za-z0-9]{20,}`),
 	regexp.MustCompile(`xox[baprs]-[A-Za-z0-9-]+`),
 	regexp.MustCompile(`-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----`),
 }
 
+func isHighEntropy(s string) bool {
+	s = strings.Trim(s, `"'`)
+	if len(s) < 16 {
+		return false
+	}
+	freq := make(map[rune]float64)
+	hasDigit := false
+	hasLetter := false
+	for _, r := range s {
+		freq[r]++
+		if unicode.IsDigit(r) {
+			hasDigit = true
+		} else if unicode.IsLetter(r) {
+			hasLetter = true
+		}
+	}
+	total := float64(len([]rune(s)))
+	var entropy float64
+	for _, count := range freq {
+		p := count / total
+		entropy -= p * math.Log2(p)
+	}
+	return (entropy >= 3.0 && hasDigit && hasLetter) || entropy >= 3.8
+}
+
 func redact(s string) string {
 	for _, re := range redactors {
 		s = re.ReplaceAllString(s, "«redacted»")
 	}
+	s = unassignedSecretRE.ReplaceAllStringFunc(s, func(match string) string {
+		sub := unassignedSecretRE.FindStringSubmatch(match)
+		if len(sub) >= 3 && isHighEntropy(sub[2]) {
+			return "«redacted»"
+		}
+		return match
+	})
 	return s
 }
 

@@ -31,6 +31,15 @@ Doctor therefore reports the Windows plane as **registered, unenforced**, exits
 nonzero for schema inventory, and makes no runtime coverage claim until an
 observed dispatch removes this external blocker.
 
+`guardrail doctor --codex-hooks` keeps five diagnostic states independent:
+Plane registration, Handler trust reported by Codex's `hooks/list` RPC, Direct
+handler runnability, Runtime dispatch observation, and Capability observation.
+For each owned handler it prints the handler ID, the decoded effective command,
+Codex's current trust hash/status, and the direct probe's exit code and bounded
+stderr. The probe supplies malformed input and must fail closed with noise. Even
+when every diagnostic is healthy, doctor prints `runtime coverage claim: none`;
+hosted tools and `write_stdin` remain outside the local pre-hook boundary.
+
 This is a local tool guardrail with known runtime gaps, not complete confinement:
 hosted web tools bypass these hooks, `write_stdin` does not rerun PreToolUse,
 and specialized paths can opt out. Hook feature disablement, untrusted hooks,

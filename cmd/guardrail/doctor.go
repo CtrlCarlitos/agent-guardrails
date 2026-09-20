@@ -26,6 +26,22 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	code := printDoctor(stdout, stderr)
+	if opts.codexHooks {
+		path, err := planeConfigPath("codex")
+		if err != nil {
+			fmt.Fprintf(stderr, "guardrail: Codex hooks path: %s\n", safetext.SingleLine(err.Error()))
+			return 1
+		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(stderr, "guardrail: Codex diagnostic cwd: %s\n", safetext.SingleLine(err.Error()))
+			return 1
+		}
+		if diagnosticCode := printCodexHookDiagnostics(path, cwd, runtime.GOOS, stdout, stderr); diagnosticCode != 0 {
+			return diagnosticCode
+		}
+		return code
+	}
 	if opts.coverage == "" {
 		return code
 	}
@@ -47,11 +63,12 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 }
 
 type doctorOptions struct {
-	schema   string // captured Responses tool schema (codex)
-	coverage string // plane to inventory; "" means none
-	bundle   string // explicit bundle path; "" resolves the installed one (claude)
-	config   string // explicit mcp_config.json path; "" resolves default (antigravity)
-	schemas  string // explicit mcp schemas dir; "" resolves default (antigravity)
+	schema     string // captured Responses tool schema (codex)
+	coverage   string // plane to inventory; "" means none
+	bundle     string // explicit bundle path; "" resolves the installed one (claude)
+	config     string // explicit mcp_config.json path; "" resolves default (antigravity)
+	schemas    string // explicit mcp schemas dir; "" resolves default (antigravity)
+	codexHooks bool   // inspect trust, direct execution, and observed Codex runtime evidence
 }
 
 func parseDoctorArgs(args []string, stderr io.Writer) (doctorOptions, bool) {
@@ -93,6 +110,12 @@ func parseDoctorArgs(args []string, stderr io.Writer) (doctorOptions, bool) {
 			}
 			i++
 			opts.schemas = args[i]
+		case "--codex-hooks":
+			if opts.codexHooks {
+				fmt.Fprintln(stderr, "guardrail: duplicate --codex-hooks")
+				return opts, false
+			}
+			opts.codexHooks = true
 		default:
 			fmt.Fprintf(stderr, "guardrail: doctor: unknown argument %q\n", safetext.SingleLine(args[i]))
 			return opts, false
@@ -116,6 +139,10 @@ func parseDoctorArgs(args []string, stderr io.Writer) (doctorOptions, bool) {
 	}
 	if opts.coverage != "" && opts.coverage != "claude" && opts.coverage != "antigravity" && opts.coverage != "codex" {
 		fmt.Fprintf(stderr, "guardrail: doctor --coverage supports claude, antigravity, codex (got %q)\n", safetext.SingleLine(opts.coverage))
+		return opts, false
+	}
+	if opts.codexHooks && (opts.coverage != "" || opts.bundle != "" || opts.config != "" || opts.schema != "" || opts.schemas != "") {
+		fmt.Fprintln(stderr, "guardrail: doctor --codex-hooks cannot be combined with coverage options")
 		return opts, false
 	}
 	return opts, true
@@ -288,7 +315,7 @@ func printDoctor(stdout, stderr io.Writer) int {
 	enrolled, _ := defaultOperatorAuthStore().Enrolled()
 	fmt.Fprintln(stdout, operatorApprovalStatus(runtime.GOOS == "windows", enrolled))
 
-	fmt.Fprintf(stdout, "claude settings: %s\n", safetext.SingleLine(claudeSettingsState()))
+	fmt.Fprintf(stdout, "claude settings: %s\n", safetext.SingleLine(claudeSettingsLine()))
 	fmt.Fprintf(stdout, "opencode settings: %s\n", safetext.SingleLine(planeStatusState("opencode")))
 	fmt.Fprintf(stdout, "codex settings: %s\n", safetext.SingleLine(planeStatusState("codex")))
 	fmt.Fprintf(stdout, "antigravity settings: %s\n", safetext.SingleLine(planeStatusState("antigravity")))
@@ -327,6 +354,7 @@ func printDoctor(stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "  WARNING: Antigravity has no declarative floor (ADR-0008); without hooks.json, Antigravity runs completely unguarded. Run `guardrail plane enable antigravity`.\n")
 		}
 	}
+	printSpawnProbe(stdout)
 	return 0
 }
 
@@ -338,6 +366,38 @@ func operatorApprovalStatus(windows, enrolled bool) string {
 		return "operator approvals: WebAuthn"
 	}
 	return "operator approvals: disabled"
+}
+
+// claudeRegisteredPrefix and claudeCannotSpawnMarker label the two states the
+// composed doctor line has to tell apart. Shared so it can do so without
+// matching prose.
+const (
+	claudeRegisteredPrefix  = "guardrail hook registered"
+	claudeCannotSpawnMarker = "CANNOT SPAWN"
+)
+
+// claudeSettingsLine is doctor's claude line, composed from the two different
+// questions doctor can answer about a hook.
+//
+// claudeSettingsState says whether it is registered, and — because that is a
+// hard fault the lifecycle must act on — whether the command can spawn at all.
+// claudeMediationCaveat says whether it has ever been seen to run, which is a
+// soft caveat a fresh enrolment legitimately trips.
+//
+// A command that cannot spawn has necessarily never fired, so the two would
+// otherwise print the cause and then its consequence. Naming the cause once is
+// the more useful line.
+func claudeSettingsLine() string {
+	state := claudeSettingsState()
+	if !strings.HasPrefix(state, claudeRegisteredPrefix) {
+		// Nothing is registered, so "never observed firing" would be noise on
+		// top of a more basic finding the operator has to fix first.
+		return state
+	}
+	if strings.Contains(state, claudeCannotSpawnMarker) {
+		return state
+	}
+	return state + claudeMediationCaveat()
 }
 
 func claudeSettingsState() string {
@@ -358,7 +418,7 @@ func claudeSettingsState() string {
 	if err == nil {
 		if hooksHaveOwnedGroup(doc) {
 			if hazard := guardrailHookSpawnHazard(doc); hazard != "" {
-				return "guardrail hook registered but CANNOT SPAWN — " + hazard +
+				return "guardrail hook registered but " + claudeCannotSpawnMarker + " — " + hazard +
 					". Nothing is being enforced; re-run `guardrail plane enable claude` to rewrite the command"
 			}
 			return "guardrail hook registered"
@@ -416,6 +476,45 @@ func guardrailHookSpawnHazard(doc map[string]any) string {
 		}
 	}
 	return ""
+}
+
+// claudeMediationCaveat qualifies a registered hook with what the audit log
+// says about it actually running, or "" once it demonstrably has.
+//
+// Registration and execution are different claims and doctor only ever checked
+// the first. On Windows the registered command could not spawn, so the claude
+// line read a bare green for four days while nothing was enforced (#149). A
+// green that cannot tell those apart is the most expensive kind, because it is
+// the one an operator trusts.
+//
+// This is deliberately appended at doctor's print site rather than inside
+// claudeSettingsState, and the distinction matters. That string is also the
+// lifecycle's ownership test — planeIntegrationRegistered compares it for
+// exact equality — and it reaches the model in the SessionStart line, which is
+// meant to fall silent in steady state. A missing record is not drift and not
+// something an agent can act on: a freshly enrolled plane has none yet and is
+// not broken. So this is an operator-facing caveat only, and it disappears on
+// its own the first time a real session is mediated.
+func claudeMediationCaveat() string {
+	segments, err := audit.Segments(audit.DefaultPath(""))
+	if err != nil {
+		return " (mediation unverified: audit log unreadable)"
+	}
+	cutoff := time.Time{}
+	if binary, err := os.Executable(); err == nil {
+		if info, err := os.Stat(binary); err == nil {
+			cutoff = info.ModTime()
+		}
+	}
+	evidence, err := audit.ReadClaudeEvidence(segments, cutoff, time.Now())
+	if err != nil {
+		return " (mediation unverified: audit scan incomplete)"
+	}
+	if evidence.Observed() {
+		return ""
+	}
+	return " but NEVER OBSERVED FIRING — no audit record from a real session since this binary was built." +
+		" Registration is not enforcement; confirm with `guardrail selftest --evidence claude`"
 }
 
 func hooksHaveOwnedGroup(doc map[string]any) bool {

@@ -1,0 +1,1 @@
+{"conversationId":"w1","workspacePaths":["C:\\repo"],"toolCall":{"name":"mcp_graft_graft_find_code","args":{"file_path":"pkg\\safe.go","query":"FindMe"}}}

@@ -16,7 +16,7 @@ import (
 // Counts describe the retained log segments, not the lifetime of the install.
 type CodexEvidence struct {
 	Records, Codex, Synthetic, Stale, Rejected, Duplicates, Eligible, Sessions, QualifiedSessions, Malformed, OtherSessions int
-	ObservedTools, MissingExpectedTools                                                                                     []string
+	ObservedTools, MissingExpectedTools, Capabilities                                                                       []string
 }
 
 // Observed requires two distinct eligible pre-hook records in one session.
@@ -53,10 +53,62 @@ func ReadCodexEvidence(segments []string, cutoff, now time.Time) (CodexEvidence,
 // expected-tool assertions. Expected tools match either normalized tool or
 // native tool names from eligible records.
 func ReadCodexEvidenceFiltered(segments []string, cutoff, now time.Time, sessionID string, expectedTools []string) (CodexEvidence, error) {
+	return readPlaneEvidence(segments, "codex", syntheticCodexSession, cutoff, now, sessionID, expectedTools)
+}
+
+// ReadClaudeEvidence answers for claude the question ADR-0020 asks for codex:
+// did the registered hook actually run? Registration alone read as green for
+// four days on a Windows host while an unspawnable command enforced nothing
+// (#149).
+//
+// The one difference from codex is which sessions count as real. codex uses an
+// explicit prefix denylist (ADR-0020). claude cannot: every claude record in
+// this repo's own audit log came from an ad-hoc fixture or probe id —
+// night-claude, trifecta-sess-1, ../unsafe, c1, manual-probe-1 — and a denylist
+// that misses one opens the gate falsely, which is the failure class the gate
+// exists to catch. A real Claude Code session id is a UUID, so the shape is
+// required positively: forging one is deliberate, forgetting to denylist a
+// prefix is an accident. If Claude Code ever changes that format the gate
+// closes, which is the safe direction.
+func ReadClaudeEvidence(segments []string, cutoff, now time.Time) (CodexEvidence, error) {
+	return readPlaneEvidence(segments, "claude", nonRealClaudeSession, cutoff, now, "", nil)
+}
+
+// nonRealClaudeSession reports whether a session id is anything other than a
+// live Claude Code session: the synthetic prefixes, and anything not
+// UUID-shaped.
+func nonRealClaudeSession(id string) bool {
+	return IsSyntheticCodexSession(id) || !uuidShaped(id)
+}
+
+// uuidShaped matches 8-4-4-4-12 hex, the shape Claude Code's session_id carries.
+func uuidShaped(id string) bool {
+	groups := strings.Split(id, "-")
+	if len(groups) != 5 {
+		return false
+	}
+	for i, want := range []int{8, 4, 4, 4, 12} {
+		if len(groups[i]) != want {
+			return false
+		}
+		for _, r := range groups[i] {
+			if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// readPlaneEvidence is the shared scanner. Every count, the exact-session
+// filter and the expected-tool assertions behave identically for each plane;
+// only the plane name and the definition of a synthetic session differ.
+func readPlaneEvidence(segments []string, plane string, synthetic func(string) bool, cutoff, now time.Time, sessionID string, expectedTools []string) (CodexEvidence, error) {
 	var result CodexEvidence
 	seen := map[[4]string]bool{}
 	sessions := map[string]int{}
 	observedTools := map[string]bool{}
+	capabilities := map[string]bool{}
 	expected := map[string]bool{}
 	for _, tool := range expectedTools {
 		tool = strings.TrimSpace(tool)
@@ -95,11 +147,11 @@ func ReadCodexEvidenceFiltered(segments []string, cutoff, now time.Time, session
 					result.Malformed++
 					continue
 				}
-				if rec.Plane != "codex" {
+				if rec.Plane != plane {
 					continue
 				}
 				result.Codex++
-				if syntheticCodexSession(rec.SessionID) {
+				if synthetic(rec.SessionID) {
 					result.Synthetic++
 					continue
 				}
@@ -126,6 +178,9 @@ func ReadCodexEvidenceFiltered(segments []string, cutoff, now time.Time, session
 				observedTools[rec.Tool] = true
 				if rec.NativeTool != "" {
 					observedTools[rec.NativeTool] = true
+				}
+				if rec.Capability != "" {
+					capabilities[rec.Capability] = true
 				}
 				sessions[rec.SessionID]++
 				if sessions[rec.SessionID] == 1 {
@@ -154,5 +209,9 @@ func ReadCodexEvidenceFiltered(segments []string, cutoff, now time.Time, session
 		}
 	}
 	sort.Strings(result.MissingExpectedTools)
+	for capability := range capabilities {
+		result.Capabilities = append(result.Capabilities, capability)
+	}
+	sort.Strings(result.Capabilities)
 	return result, nil
 }

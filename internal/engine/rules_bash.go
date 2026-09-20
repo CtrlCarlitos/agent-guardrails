@@ -993,7 +993,7 @@ func checkRmRf(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		if candidate.cwdUnknown && !filepath.IsAbs(raw) {
 			continue // P3 owns runtime-relative targets whose cwd is unknowable.
 		}
-		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, strictWriteRoots(tc.Plane, candidate), false); !authorized {
+		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, strictWriteRoots(tc, candidate), false); !authorized {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.rm-rf",
 				Reason: "recursive/forced rm of a path outside the repo and configured safe roots: " + raw}
 		}
@@ -1516,7 +1516,7 @@ func checkAskTierWithFindFSExemption(s Simple, tc ToolCall, pol *policy.Policy, 
 				continue
 			}
 		}
-		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, strictWriteRoots(tc.Plane, candidate), false); !authorized {
+		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, strictWriteRoots(tc, candidate), false); !authorized {
 			return ask("P1.redirect", "output redirection onto a path outside the repo/safe roots: "+r)
 		}
 	}
