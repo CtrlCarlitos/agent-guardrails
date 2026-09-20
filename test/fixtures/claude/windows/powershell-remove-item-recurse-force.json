@@ -1,0 +1,1 @@
+{"session_id": "w1", "cwd": "C:\\repo", "hook_event_name": "PreToolUse", "tool_name": "PowerShell", "tool_input": {"command": "Remove-Item -Recurse -Force C:\\Windows\\System32"}}
