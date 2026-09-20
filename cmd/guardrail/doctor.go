@@ -357,6 +357,10 @@ func claudeSettingsState() string {
 	}
 	if err == nil {
 		if hooksHaveOwnedGroup(doc) {
+			if hazard := guardrailHookSpawnHazard(doc); hazard != "" {
+				return "guardrail hook registered but CANNOT SPAWN — " + hazard +
+					". Nothing is being enforced; re-run `guardrail plane enable claude` to rewrite the command"
+			}
 			return "guardrail hook registered"
 		}
 		return "present, hook NOT registered"
@@ -366,6 +370,52 @@ func claudeSettingsState() string {
 		return "guardrail hook registered (unparsed match)"
 	}
 	return "present, hook NOT registered"
+}
+
+// guardrailHookSpawnHazard returns why one of our registered hook commands
+// cannot be spawned by a shell, or "" when all of them can.
+//
+// Registration and execution are different claims, and doctor could only see
+// the first. An unquoted Windows path registers perfectly and dies in a POSIX
+// shell on the first backslash, so the floor looked installed and enforced
+// nothing (#149). A green that cannot distinguish the two is worse than no
+// check, because it is the thing an operator trusts.
+func guardrailHookSpawnHazard(doc map[string]any) string {
+	hooks, ok := doc["hooks"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	for _, ev := range hooks {
+		groups, ok := ev.([]any)
+		if !ok {
+			continue
+		}
+		for _, g := range groups {
+			group, ok := g.(map[string]any)
+			if !ok {
+				continue
+			}
+			id, _ := group["id"].(string)
+			if !strings.HasPrefix(id, "guardrail-") && !hasGuardrailHookCommand(group) {
+				continue
+			}
+			handlers, ok := group["hooks"].([]any)
+			if !ok {
+				continue
+			}
+			for _, h := range handlers {
+				handler, ok := h.(map[string]any)
+				if !ok {
+					continue
+				}
+				command, _ := handler["command"].(string)
+				if hazard := genconfig.UnquotedShellHazard(command); hazard != "" {
+					return hazard
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func hooksHaveOwnedGroup(doc map[string]any) bool {

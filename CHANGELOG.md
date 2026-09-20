@@ -5,6 +5,28 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Fix (P0, #149): claude and antigravity hooks could not spawn on Windows.**
+  `gen-config` concatenated the bare binary path, so the floor registered
+  `C:\Users\u\.local\bin\guardrail.exe hook claude`. A POSIX shell reads every
+  backslash as an escape, the spawn failed as `command not found`, and a
+  PreToolUse hook that cannot spawn is a silent no-op — registered, green in
+  `doctor`, enforcing nothing. Measured on a Windows host: **not one real
+  Claude Code session in 3,896 audit records across four days**, while
+  opencode and antigravity (which spawn the binary directly, with no shell)
+  were mediated normally. All hooked planes now render through one
+  `HookCommand`: Windows paths as `"C:/…/guardrail.exe"` (double quotes and
+  forward slashes, the spelling cmd.exe and POSIX shells both accept), and a
+  POSIX word quoted only when a shell would act on it. **POSIX output is
+  unchanged** — `guardrail hook claude` and `/usr/local/bin/guardrail hook
+  claude` still render exactly as before, so no existing floor drifts and the
+  distinction that only opencode pins an absolute binary is preserved. codex
+  is untouched: it already quoted correctly, and its Windows spelling goes
+  through the `commandWindows` key its runtime supports.
+- **`doctor` no longer reports green for a hook it cannot spawn.** Registration
+  and execution are different claims, and only the first was ever checked. A
+  floor whose command is an unquoted path containing a backslash or a space now
+  reads "guardrail hook registered but CANNOT SPAWN — … Nothing is being
+  enforced".
 - **macOS is a first-class platform**: CI runs the full POSIX suite on
   ubuntu, windows, and macos. Two real engine bugs fixed (temp-root
   symlink divergence, operator-config grant matching); symlink-escape

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
 )
 
@@ -747,5 +748,62 @@ func TestDoctorReadsBOMPrefixedClaudeSettings(t *testing.T) {
 	}
 	if !planeIntegrationRegistered("claude") {
 		t.Fatal("planeIntegrationRegistered(claude) = false with a BOM")
+	}
+}
+
+// A floor that registers a command no shell can spawn is worse than a missing
+// one: every other check goes green while nothing is enforced. doctor has to
+// name it. Measured on a Windows host — the pre-fix string below was live in
+// settings.json for four days (#149, fail-open class #151).
+func TestWindowsDoctorRejectsAnUnspawnableHookCommand(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		command string
+		hazard  bool
+	}{
+		{"pre-fix windows string", `C:\Users\carlitos\.local\bin\guardrail.exe hook claude`, true},
+		{"unquoted path with a space", `C:/Program Files/guardrail.exe hook claude`, true},
+		{"quoted forward-slash windows", `"C:/Users/carlitos/.local/bin/guardrail.exe" hook claude`, false},
+		{"quoted posix", `'/home/u/.local/bin/guardrail' hook claude`, false},
+		{"bare posix name", `guardrail hook claude`, false},
+		{"bare posix path", `/usr/local/bin/guardrail hook claude`, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := genconfig.UnquotedShellHazard(tt.command)
+			if tt.hazard && got == "" {
+				t.Fatalf("%q reported no hazard; it cannot spawn", tt.command)
+			}
+			if !tt.hazard && got != "" {
+				t.Fatalf("%q reported hazard %q; it spawns fine", tt.command, got)
+			}
+		})
+	}
+}
+
+// The hazard has to reach the operator through doctor's own output, not just
+// through a helper nobody calls.
+func TestWindowsDoctorReportsTheHazardInClaudeSettingsState(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The exact string gen-config emitted before #149, JSON-escaped: the hook
+	// Claude Code registered, and could not spawn, for four days.
+	settings := `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"*","hooks":[` +
+		`{"type":"command","command":"C:\\Users\\u\\.local\\bin\\guardrail.exe hook claude"}]}]}}`
+	if err := os.WriteFile(filepath.Join(home, ".claude", "settings.json"), []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state := claudeSettingsState()
+	if !strings.Contains(strings.ToLower(state), "cannot spawn") {
+		t.Fatalf("claudeSettingsState() = %q, want it to name the unspawnable command", state)
+	}
+	if !strings.Contains(state, "Nothing is being enforced") {
+		t.Fatalf("claudeSettingsState() = %q, want it to say enforcement is absent, not just that something is odd", state)
+	}
+	if strings.TrimSpace(state) == "guardrail hook registered" {
+		t.Fatal("doctor reported a bare green for a hook that cannot run")
 	}
 }
