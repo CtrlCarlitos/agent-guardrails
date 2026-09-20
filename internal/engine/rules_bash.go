@@ -104,6 +104,7 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 			return simpleWorst
 		}
 		takeSimple(checkRmRf(s, tc, pol))
+		takeSimple(checkPowerShell(s, tc, pol))
 		takeSimple(checkDiskDestroyers(s))
 		takeSimple(checkDestinationWrites(s, tc, pol))
 		takeSimple(checkNightControlInvocation(s, tc.Command))
@@ -1453,6 +1454,12 @@ func checkDiskDestroyers(s Simple) *policy.Verdict {
 			}
 		}
 	case command == "mkfs" || strings.HasPrefix(command, "mkfs.") || command == "mke2fs" || command == "wipefs":
+		return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.mkfs",
+			Reason: "filesystem-destroying command: " + command}
+	case psDiskDestroyers[command]:
+		// The PowerShell spelling of the same act. It belongs to this family
+		// rather than a Windows one: the cmdlet destroys a filesystem or a
+		// partition table, and takes no path operand another rule would see.
 		return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.mkfs",
 			Reason: "filesystem-destroying command: " + command}
 	case command == "shred" || command == "srm":

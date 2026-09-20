@@ -5,6 +5,15 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **PowerShell destructive cmdlets are covered (#111, P1)**: `Remove-Item`
+  and its aliases project onto the `rm` rule — one containment decision,
+  one waiver, both spellings — honouring `-WhatIf`, parameter prefixes
+  (`-rec`, `-fo`), `-Path`/`-LiteralPath` binding, and leaving POSIX
+  `rmdir` to `P1.rmdir`. `Format-Volume`/`Clear-Disk`/`Remove-Partition`/
+  `Initialize-Disk` join the `P1.mkfs` family; `Set-ExecutionPolicy
+  Bypass|Unrestricted` asks. Measured before: every one allowed.
+  P4's secret tier already covered cmdlets — it keys on operands, not
+  command names — so #111's P4 premise was wrong; P6 egress is still open.
 - **macOS is a first-class platform**: CI runs the full POSIX suite on
   ubuntu, windows, and macos. Two real engine bugs fixed (temp-root
   symlink divergence, operator-config grant matching); symlink-escape
