@@ -94,8 +94,7 @@ func TestRejectedOverlayLeavesOperatorGrantUnchanged(t *testing.T) {
 }
 
 func TestCompletedWebHostMutationWritesAuditRecord(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setOperatorEnv(t)
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := executeWebHostApproval(approval.Request{ID: "web-host-request", Plane: "opencode", RepoRoot: repo, Parameters: map[string]string{"hosts": "api.example.test"}, Scope: approval.RepoScope, Action: "web-host-grant", CredentialFingerprint: "a1b2c3d4e5f60708", Transport: "webauthn"}); err != nil {
 		t.Fatal(err)
@@ -114,8 +113,7 @@ func TestCompletedWebHostMutationWritesAuditRecord(t *testing.T) {
 }
 
 func TestWebHostDoesNotMutateWhenAuditIntentFails(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setOperatorEnv(t)
 	repo := filepath.Join(t.TempDir(), "repo")
 	previous := writeActionAudit
 	writeActionAudit = func(audit.Record, string) error { return os.ErrPermission }
@@ -130,8 +128,7 @@ func TestWebHostDoesNotMutateWhenAuditIntentFails(t *testing.T) {
 }
 
 func TestWebHostCompletionAuditFailureKeepsCompletedActionRecoverable(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setOperatorEnv(t)
 	repo := filepath.Join(t.TempDir(), "repo")
 	previous := writeActionAudit
 	calls := 0
@@ -159,8 +156,7 @@ func TestWebHostCompletionAuditFailureKeepsCompletedActionRecoverable(t *testing
 func TestWebHostRecoveryReplayIsStateIdempotent(t *testing.T) {
 	for _, action := range []string{"web-host-grant", "web-host-revoke"} {
 		t.Run(action, func(t *testing.T) {
-			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			setOperatorEnv(t)
 			repo := filepath.Join(t.TempDir(), "repo")
 			host := "replay.example.test"
 			if err := os.MkdirAll(repo, 0o755); err != nil {
@@ -200,8 +196,7 @@ func TestWebHostRecoveryReplayIsStateIdempotent(t *testing.T) {
 }
 
 func TestConcurrentRepositoryGrantsRetainEveryHost(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setOperatorEnv(t)
 	repo := filepath.Join(t.TempDir(), "repo")
 	hosts := []string{"one.example.test", "two.example.test", "three.example.test", "four.example.test"}
 	start := make(chan struct{})
@@ -246,8 +241,7 @@ func TestConcurrentRepositoryGrantsRetainEveryHost(t *testing.T) {
 }
 
 func TestAllowanceJournalRecoversAfterOverlayWriteBeforeOperatorWrite(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setOperatorEnv(t)
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
@@ -304,8 +298,7 @@ func TestAllowanceJournalRecoversAfterOverlayWriteBeforeOperatorWrite(t *testing
 }
 
 func TestForgedAllowanceJournalCannotGrantHost(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setOperatorEnv(t)
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
@@ -330,8 +323,7 @@ func TestForgedAllowanceJournalCannotGrantHost(t *testing.T) {
 }
 
 func TestUnsafeAllowanceJournalDirectoryIsRejected(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setOperatorEnv(t)
 	repo := filepath.Join(t.TempDir(), "repo")
 	journalPath, err := allowanceJournalPath(repo)
 	if err != nil {
@@ -340,14 +332,18 @@ func TestUnsafeAllowanceJournalDirectoryIsRejected(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(journalPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// On Windows the 0o755 mode conveys nothing: an unsafe directory is one
+	// whose ACL grants a broad group, so widen it explicitly.
+	if err := widenArtifactForTest(filepath.Dir(journalPath)); err != nil {
+		t.Fatal(err)
+	}
 	if err := executeWebHostApproval(approval.Request{RepoRoot: repo, Parameters: map[string]string{"hosts": "unsafe.example.test"}, Scope: approval.RepoScope, Action: "web-host-grant"}); err == nil {
 		t.Fatal("grant accepted an unsafe journal directory")
 	}
 }
 
 func TestConcurrentRepositoryGrantsAcrossReposRetainEveryHost(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setOperatorEnv(t)
 	repos := []string{filepath.Join(t.TempDir(), "one"), filepath.Join(t.TempDir(), "two")}
 	start := make(chan struct{})
 	errs := make(chan error, len(repos))
@@ -381,8 +377,7 @@ func TestConcurrentRepositoryGrantsAcrossReposRetainEveryHost(t *testing.T) {
 }
 
 func TestConcurrentGlobalAndRepositoryGrantsRetainEveryHost(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setOperatorEnv(t)
 	repo := filepath.Join(t.TempDir(), "repo")
 	// Distinct logical actions require distinct idempotency-journal identities.
 	requests := []approval.Request{
@@ -428,7 +423,7 @@ func mustJSON(t *testing.T, value any) []byte {
 
 func TestExecuteWebHostApprovalGrantsHostBatchAtomically(t *testing.T) {
 	repo := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setOperatorEnv(t)
 	r := approval.Request{ID: "web-host-batch-1", Plane: "opencode", RepoRoot: repo, Scope: approval.RepoScope, Action: "web-host-grant", Parameters: map[string]string{"scope": "repo", "hosts": "api.example.com,cdn.example.com"}}
 	if err := executeWebHostApproval(r); err != nil {
 		t.Fatal(err)
