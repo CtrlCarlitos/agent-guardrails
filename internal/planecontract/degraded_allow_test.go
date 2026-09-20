@@ -75,3 +75,32 @@ func TestOpencodeDegradedAllowToolsIsSortedAndComplete(t *testing.T) {
 		t.Fatalf("OpencodeDegradedAllowTools() = %v, want %v", got, want)
 	}
 }
+
+// TestFloorFallbackClassification pins the ADR-0022 capability table's
+// middle rows: ReadDiscovery and Mutation tools proceed under the floor in
+// degraded mode; commands, egress, delegation, unknown, MCP, and the
+// communication valve's own set are separate concerns.
+func TestFloorFallbackClassification(t *testing.T) {
+	eligible := []string{"apply_patch", "edit", "glob", "grep", "lsp", "read", "write"}
+	for _, tool := range eligible {
+		if !FloorFallback("opencode", tool) {
+			t.Fatalf("FloorFallback(opencode, %s) = false, want true", tool)
+		}
+	}
+	for _, tool := range []string{"bash", "webfetch", "websearch", "task", "custom", "mcp_foo", "question", "todowrite", "skill"} {
+		if FloorFallback("opencode", tool) {
+			t.Fatalf("FloorFallback(opencode, %s) = true, want false", tool)
+		}
+	}
+	if FloorFallback("claude", "Read") || FloorFallback("antigravity", "view_file") || FloorFallback("codex", "shell") {
+		t.Fatal("floor fallback is opencode-only until other planes own an adapter shim (ADR-0022 per-plane applicability)")
+	}
+}
+
+// TestOpencodeFloorFallbackToolsIsSortedAndComplete pins the codegen surface.
+func TestOpencodeFloorFallbackToolsIsSortedAndComplete(t *testing.T) {
+	want := []string{"apply_patch", "edit", "glob", "grep", "lsp", "read", "write"}
+	if got := OpencodeFloorFallbackTools(); !slices.Equal(got, want) {
+		t.Fatalf("OpencodeFloorFallbackTools() = %v, want %v", got, want)
+	}
+}

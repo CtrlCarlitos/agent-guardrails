@@ -50,3 +50,37 @@ func OpencodeDegradedAllowTools() []string {
 	sort.Strings(tools)
 	return tools
 }
+
+// floorFallbackTools is the ADR-0022 capability table's middle rows: the
+// ReadDiscovery and Mutation tools that proceed under the host-side
+// Declarative floor when the engine is unreachable after the full retry
+// ladder. Commands, egress, delegation, unknown, and MCP surfaces are NOT
+// floor-fallback-eligible — the floor has no equivalent for them — and
+// communication tools are handled by degradedAllowTools above.
+var floorFallbackTools = map[string]map[string]bool{
+	"opencode": {"apply_patch": true, "edit": true, "glob": true, "grep": true, "lsp": true, "read": true, "write": true},
+}
+
+// FloorFallback reports whether the plane's native tool proceeds under the
+// Declarative floor during degraded mode (ADR-0022).
+func FloorFallback(plane, nativeTool string) bool {
+	tools, ok := floorFallbackTools[plane]
+	if !ok {
+		return false
+	}
+	if plane == "opencode" {
+		nativeTool = strings.ToLower(nativeTool)
+	}
+	return tools[nativeTool]
+}
+
+// OpencodeFloorFallbackTools returns the opencode floor-fallback native
+// tools for adapter codegen, sorted.
+func OpencodeFloorFallbackTools() []string {
+	tools := make([]string, 0, len(floorFallbackTools["opencode"]))
+	for name := range floorFallbackTools["opencode"] {
+		tools = append(tools, name)
+	}
+	sort.Strings(tools)
+	return tools
+}

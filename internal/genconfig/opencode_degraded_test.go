@@ -23,10 +23,12 @@ func TestOpencodePluginBakesDegradedAllowTools(t *testing.T) {
 	}
 }
 
-// TestOpencodePluginDegradedAllowOnTransportFailure pins the B+ valve: with
-// the engine unspawnable, a communication tool (question) allows locally
-// with a stderr notice, while everything else (read) still fails closed.
-// The missing binary fails instantly with ENOENT, so no retry ladder runs.
+// TestOpencodePluginDegradedAllowOnTransportFailure pins the B+ valve and
+// the ADR-0022 floor fallback: with the engine unspawnable, a communication
+// tool (question) allows locally with a stderr notice, a floor-covered tool
+// (read) proceeds under the declarative floor, and a command (bash) still
+// fails closed. The missing binary fails instantly with ENOENT, so the
+// retry ladder adds no wall-clock cost.
 func TestOpencodePluginDegradedAllowOnTransportFailure(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -43,15 +45,14 @@ import { pathToFileURL } from "node:url";
 const loaded = await import(pathToFileURL(process.argv[1]).href);
 const plugin = await loaded.default({ directory: "/repo" });
 const before = plugin["tool.execute.before"];
-let questionThrew = false;
-try {
-	await before({ tool: "question", sessionID: "s" }, { args: { question: "engine is down, are you there?" } });
-} catch (e) { questionThrew = true; console.log("QUESTION_THREW: " + e.message); }
-let readThrew = false;
-try {
-	await before({ tool: "read", sessionID: "s" }, { args: { filePath: "/repo/a.txt" } });
-} catch (e) { readThrew = true; console.log("READ_THREW: " + e.message); }
-console.log("DONE questionThrew=" + questionThrew + " readThrew=" + readThrew);
+async function attempt(tool, args) {
+	try { await before({ tool, sessionID: "s" }, { args }); return false; }
+	catch (e) { console.log(tool.toUpperCase() + "_THREW: " + e.message); return true; }
+}
+const questionThrew = await attempt("question", { question: "engine is down, are you there?" });
+const readThrew = await attempt("read", { filePath: "/repo/a.txt" });
+const bashThrew = await attempt("bash", { command: "ls" });
+console.log("DONE questionThrew=" + questionThrew + " readThrew=" + readThrew + " bashThrew=" + bashThrew);
 `
 	var output bytes.Buffer
 	cmd := exec.Command(node, "--input-type=module", "--eval", runner, pluginPath)
@@ -64,11 +65,17 @@ console.log("DONE questionThrew=" + questionThrew + " readThrew=" + readThrew);
 	if !strings.Contains(got, "questionThrew=false") {
 		t.Fatalf("question must degraded-allow on transport failure:\n%s", got)
 	}
-	if !strings.Contains(got, "readThrew=true") {
-		t.Fatalf("read must fail closed on transport failure:\n%s", got)
+	if !strings.Contains(got, "readThrew=false") {
+		t.Fatalf("read must proceed under the floor on transport failure (ADR-0022):\n%s", got)
+	}
+	if !strings.Contains(got, "bashThrew=true") {
+		t.Fatalf("bash must fail closed on transport failure:\n%s", got)
 	}
 	if !strings.Contains(got, "[guardrail: engine unreachable; degraded allow for question") {
-		t.Fatalf("stderr notice missing:\n%s", got)
+		t.Fatalf("degraded-allow notice missing:\n%s", got)
+	}
+	if !strings.Contains(got, "read proceeds under the declarative floor") {
+		t.Fatalf("floor-fallback notice missing:\n%s", got)
 	}
 }
 

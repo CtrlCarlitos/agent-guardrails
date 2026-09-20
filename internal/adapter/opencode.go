@@ -127,7 +127,7 @@ func sanitizeDegradedAllows(reports []engine.DegradedAllowReport) []engine.Degra
 		if report.Tool == "" || len(report.Tool) > 64 || len(report.CallID) > 128 {
 			continue
 		}
-		if !planecontract.DegradedAllow("opencode", report.Tool) {
+		if !planecontract.DegradedAllow("opencode", report.Tool) && !planecontract.FloorFallback("opencode", report.Tool) {
 			continue
 		}
 		if _, err := time.Parse(time.RFC3339, report.TS); err != nil {
