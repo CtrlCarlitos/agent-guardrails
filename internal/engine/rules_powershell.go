@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -32,6 +33,26 @@ var removeItemParams = psParams{
 	switches: []string{"recurse", "force", "whatif", "confirm", "usetransaction"},
 	values:   []string{"path", "literalpath", "filter", "include", "exclude", "credential", "stream"},
 	paths:    []string{"path", "literalpath"},
+}
+
+// webRequestParams covers Invoke-WebRequest and Invoke-RestMethod, which share
+// a parameter set. Only `-Uri` names a destination; everything else that takes
+// a value is listed so its argument is consumed rather than read as one.
+var webRequestParams = psParams{
+	switches: []string{
+		"usebasicparsing", "usedefaultcredentials", "disablekeepalive", "passthru",
+		"resume", "skipcertificatecheck", "skiphttperrorcheck", "nonproxy",
+		"allowunencryptedauthentication", "preserveauthorizationonredirect",
+		"skipheadervalidation", "allowinsecureredirect", "nopagination",
+	},
+	values: []string{
+		"uri", "outfile", "infile", "method", "headers", "body", "contenttype",
+		"proxy", "proxycredential", "credential", "useragent", "timeoutsec",
+		"maximumredirection", "maximumretrycount", "retryintervalsec",
+		"sessionvariable", "websession", "transferencoding", "certificate",
+		"certificatethumbprint", "form", "authentication", "token",
+		"statuscodevariable", "responseheadersvariable", "operationtimeoutseconds",
+	},
 }
 
 var executionPolicyParams = psParams{
@@ -132,9 +153,41 @@ var psDiskDestroyers = map[string]bool{
 	"initialize-disk": true, "clear-partition": true,
 }
 
+// psWebRequestHosts reads the destinations of an Invoke-WebRequest family
+// call: `-Uri`, and the first positional operand, which is what `-Uri` binds
+// to when it is not named.
+func psWebRequestHosts(argv []string) ([]string, bool, error) {
+	binding := bindPS(argv, webRequestParams)
+	targets := append([]string(nil), binding.operands...)
+	if named, ok := binding.values["uri"]; ok {
+		targets = append(targets, named)
+	}
+	if len(targets) == 0 {
+		return nil, true, fmt.Errorf("missing host")
+	}
+	var hosts []string
+	for _, target := range targets {
+		host, err := hostFromURLCandidate(target)
+		if err != nil {
+			return nil, true, err
+		}
+		hosts = append(hosts, host)
+	}
+	return hosts, true, nil
+}
+
+// psDynamicEval evaluates PowerShell source at runtime. Reading that source
+// with a POSIX shell parser would be a guess, so the analyser does not make
+// one: it declares the command unreadable and asks. ADR-0012's boundary —
+// model the minimum, fail closed at everything unmodelled.
+var psDynamicEval = map[string]bool{"invoke-expression": true, "iex": true}
+
 func checkPowerShell(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	command := head(s.Argv)
 	switch {
+	case psDynamicEval[command]:
+		return ask("P6.dynamic-eval",
+			command+" evaluates source at runtime, so the command that runs is not the command shown")
 	case command == "set-executionpolicy":
 		return checkPSExecutionPolicy(s)
 	case removeItemAliases[command]:
