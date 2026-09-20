@@ -202,7 +202,7 @@ func claudeFloorAllow() []string {
 }
 
 func claudeHooks(binary string) map[string]any {
-	cmd := binary + " hook claude"
+	cmd := HookCommand(binary, "hook", "claude")
 	return map[string]any{
 		"PreToolUse": []any{
 			map[string]any{
