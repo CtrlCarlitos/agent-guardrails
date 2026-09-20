@@ -288,7 +288,7 @@ func printDoctor(stdout, stderr io.Writer) int {
 	enrolled, _ := defaultOperatorAuthStore().Enrolled()
 	fmt.Fprintln(stdout, operatorApprovalStatus(runtime.GOOS == "windows", enrolled))
 
-	fmt.Fprintf(stdout, "claude settings: %s\n", safetext.SingleLine(claudeSettingsState()))
+	fmt.Fprintf(stdout, "claude settings: %s\n", safetext.SingleLine(claudeSettingsState()+claudeMediationCaveat()))
 	fmt.Fprintf(stdout, "opencode settings: %s\n", safetext.SingleLine(planeStatusState("opencode")))
 	fmt.Fprintf(stdout, "codex settings: %s\n", safetext.SingleLine(planeStatusState("codex")))
 	fmt.Fprintf(stdout, "antigravity settings: %s\n", safetext.SingleLine(planeStatusState("antigravity")))
@@ -366,6 +366,45 @@ func claudeSettingsState() string {
 		return "guardrail hook registered (unparsed match)"
 	}
 	return "present, hook NOT registered"
+}
+
+// claudeMediationCaveat qualifies a registered hook with what the audit log
+// says about it actually running, or "" once it demonstrably has.
+//
+// Registration and execution are different claims and doctor only ever checked
+// the first. On Windows the registered command could not spawn, so the claude
+// line read a bare green for four days while nothing was enforced (#149). A
+// green that cannot tell those apart is the most expensive kind, because it is
+// the one an operator trusts.
+//
+// This is deliberately appended at doctor's print site rather than inside
+// claudeSettingsState, and the distinction matters. That string is also the
+// lifecycle's ownership test — planeIntegrationRegistered compares it for
+// exact equality — and it reaches the model in the SessionStart line, which is
+// meant to fall silent in steady state. A missing record is not drift and not
+// something an agent can act on: a freshly enrolled plane has none yet and is
+// not broken. So this is an operator-facing caveat only, and it disappears on
+// its own the first time a real session is mediated.
+func claudeMediationCaveat() string {
+	segments, err := audit.Segments(audit.DefaultPath(""))
+	if err != nil {
+		return " (mediation unverified: audit log unreadable)"
+	}
+	cutoff := time.Time{}
+	if binary, err := os.Executable(); err == nil {
+		if info, err := os.Stat(binary); err == nil {
+			cutoff = info.ModTime()
+		}
+	}
+	evidence, err := audit.ReadClaudeEvidence(segments, cutoff, time.Now())
+	if err != nil {
+		return " (mediation unverified: audit scan incomplete)"
+	}
+	if evidence.Observed() {
+		return ""
+	}
+	return " but NEVER OBSERVED FIRING — no audit record from a real session since this binary was built." +
+		" Registration is not enforcement; confirm with `guardrail selftest --evidence claude`"
 }
 
 func hooksHaveOwnedGroup(doc map[string]any) bool {

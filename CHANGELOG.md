@@ -5,6 +5,21 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **`guardrail selftest --evidence claude`**: registration is a claim, an audit
+  record is evidence. ADR-0020 built this gate for codex; #149 showed claude
+  needed it just as badly — a hook that registered and could not spawn read as
+  green in `doctor` for four days while nothing was enforced. The gate opens on
+  two distinct pre-hook records from one real session, and `doctor`'s claude
+  line now reads "registered but NEVER OBSERVED FIRING" until it does. On the
+  machine that found #149 it reports `claude=2774 synthetic=2774 eligible=0` —
+  every claude record in the log was a fixture or a probe.
+  Unlike codex's explicit prefix denylist, the claude gate requires a
+  UUID-shaped session id: claude's fixture ids are ad-hoc (`night-claude`,
+  `trifecta-sess-1`, `../unsafe`, `c1`), a denylist that misses one opens the
+  gate falsely, and that is the failure class the gate exists to catch. The
+  caveat is operator-facing only — it stays out of the lifecycle's ownership
+  string and the SessionStart line, because a newly enrolled plane has no
+  records yet and is not drifted.
 - **macOS is a first-class platform**: CI runs the full POSIX suite on
   ubuntu, windows, and macos. Two real engine bugs fixed (temp-root
   symlink divergence, operator-config grant matching); symlink-escape

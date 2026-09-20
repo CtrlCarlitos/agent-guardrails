@@ -13,6 +13,8 @@ import (
 
 // CodexEvidence is an audit heuristic, not authentication of runtime dispatch.
 // Counts describe the retained log segments, not the lifetime of the install.
+// The shape is shared by every plane's gate; Codex counts records for whichever
+// plane was scanned.
 type CodexEvidence struct {
 	Records, Codex, Synthetic, Stale, Rejected, Duplicates, Eligible, Sessions, QualifiedSessions, Malformed int
 }
@@ -37,6 +39,54 @@ func syntheticCodexSession(id string) bool {
 // JSON formatting and changes to other fields do not create evidence points.
 // Callers must treat read errors as an incomplete scan and keep the gate shut.
 func ReadCodexEvidence(segments []string, cutoff, now time.Time) (CodexEvidence, error) {
+	return readPlaneEvidence(segments, "codex", syntheticCodexSession, cutoff, now)
+}
+
+// ReadClaudeEvidence answers the same question for the claude plane: did the
+// registered hook actually run? Registration alone read as green for four days
+// on a Windows host while an unspawnable command enforced nothing (#149).
+//
+// The one difference from codex is which sessions count as real. codex uses an
+// explicit prefix denylist (ADR-0020). claude cannot: every claude record in
+// this repo's own audit log came from an ad-hoc fixture or probe id —
+// night-claude, trifecta-sess-1, ../unsafe, c1, manual-probe-1 — and a
+// denylist that misses one opens the gate falsely, which is the failure class
+// the gate exists to catch. A real Claude Code session id is a UUID, so the
+// shape is required positively: forging one is deliberate, forgetting to
+// denylist a prefix is an accident. If Claude Code ever changes that format
+// the gate closes, which is the safe direction.
+func ReadClaudeEvidence(segments []string, cutoff, now time.Time) (CodexEvidence, error) {
+	return readPlaneEvidence(segments, "claude", nonRealClaudeSession, cutoff, now)
+}
+
+// nonRealClaudeSession reports whether a session id is anything other than a
+// live Claude Code session: the synthetic prefixes, and anything that is not
+// UUID-shaped.
+func nonRealClaudeSession(id string) bool {
+	return syntheticCodexSession(id) || !uuidShaped(id)
+}
+
+// uuidShaped matches 8-4-4-4-12 lowercase-or-uppercase hex, the shape Claude
+// Code's session_id carries.
+func uuidShaped(id string) bool {
+	groups := strings.Split(id, "-")
+	if len(groups) != 5 {
+		return false
+	}
+	for i, want := range []int{8, 4, 4, 4, 12} {
+		if len(groups[i]) != want {
+			return false
+		}
+		for _, r := range groups[i] {
+			if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func readPlaneEvidence(segments []string, plane string, synthetic func(string) bool, cutoff, now time.Time) (CodexEvidence, error) {
 	var result CodexEvidence
 	seen := map[[4]string]bool{}
 	sessions := map[string]int{}
@@ -71,11 +121,11 @@ func ReadCodexEvidence(segments []string, cutoff, now time.Time) (CodexEvidence,
 					result.Malformed++
 					continue
 				}
-				if rec.Plane != "codex" {
+				if rec.Plane != plane {
 					continue
 				}
 				result.Codex++
-				if syntheticCodexSession(rec.SessionID) {
+				if synthetic(rec.SessionID) {
 					result.Synthetic++
 					continue
 				}

@@ -105,11 +105,16 @@ var selftestProbes = []selftestProbe{
 // runtime invokes its hooks (codex's hosted-tool gap); audit records remain
 // the live-mediation evidence.
 func cmdSelftest(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 2 && args[0] == "--evidence" && args[1] == "codex" {
-		return cmdCodexEvidence(stdout, stderr)
+	if len(args) == 2 && args[0] == "--evidence" {
+		switch args[1] {
+		case "codex":
+			return cmdCodexEvidence(stdout, stderr)
+		case "claude":
+			return cmdClaudeEvidence(stdout, stderr)
+		}
 	}
 	if len(args) != 0 {
-		fmt.Fprintln(stderr, "guardrail: selftest accepts only [--evidence codex]")
+		fmt.Fprintln(stderr, "guardrail: selftest accepts only [--evidence claude|codex]")
 		return 2
 	}
 	// A unique session suffix per invocation keeps selftest idempotent: a
