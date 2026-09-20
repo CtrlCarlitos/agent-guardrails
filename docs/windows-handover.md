@@ -18,8 +18,13 @@ Windows host, not just CI runners.
   approval-gated returns exit 2: `operator *`, `plane enable|disable`,
   `recover`, egress grants, approvals. See `cmdOperator` / `cmdPlaneLifecycle`
   / `cmdRecover` for the exact gates.
-- CI already runs `windows-latest` for the full unit suite and builds all
-  Windows release assets. That is the floor you start from.
+- CI runs `windows-latest` for **build + vet + a name-filtered slice of the
+  suite** (`-run 'Windows|BOM|ReadJSONObject'`), and builds all Windows
+  release assets. It does **not** run the full unit suite there, and an
+  earlier revision of this document said it did. The POSIX-native engine
+  tests are ubuntu/macos only by design (see the comment in `ci.yml`), so
+  **a new Windows test is invisible to CI unless its name matches that
+  filter** — name Windows tests `TestWindows…`. Verified 2026-09-20.
 - **Read first, in this order:** `CONTEXT.md` (glossary), `CHANGELOG.md`
   (v0.19.0→v0.20.26 history), `docs/adr/0021-*.md` (the Windows broker
   design — your build sheet), `docs/OPERATIONS.md` (the runbook),
@@ -83,11 +88,19 @@ validation-only items):
   `apply_patch` extraction, MCP `relative_path` projection); `selftest` on
   Windows (probe payloads are POSIX-shaped — add Windows variants rather
   than breaking the Linux ones); audit-log location; `doctor --coverage`
-  equivalents.
+  equivalents. The whole `selftest` matrix was red on Windows until #137;
+  `codexSelftestProbes` there is the pattern for a host-shaped probe.
 - **claude:** `%USERPROFILE%\.claude\settings.json` floor merge (BOM),
   Windows hook payload shapes from real Claude Code, coverage scanner
   against the Windows bundle install path, selftest probes with Windows
-  paths.
+  paths. **Bundle path resolved 2026-09-20 on a real host:** the CLI's
+  native installer uses the *same* layout as Unix —
+  `~/.local/bin/claude.exe` (a full bundle copy, not a shim) plus
+  `~/.local/share/claude/versions/<semver>` — so `claudeVersionsDir()`
+  needs no Windows branch. `%LOCALAPPDATA%\AnthropicClaude` is the **desktop
+  app** (Squirrel), not the CLI; do not point the scanner at it.
+  `doctor --coverage claude` there reports the bundle, its version, 31
+  runtime tools from 17 tool lists, and zero uncontracted tools.
 - **antigravity:** does `agy` run on Windows at all; `%USERPROFILE%\.gemini`
   paths; `run_command` parity incl. the PowerShell question above.
 - **codex:** does the CLI run on Windows; **do hooks fire** — the
@@ -97,9 +110,19 @@ validation-only items):
 ## Environment setup (Windows box)
 
 git + Go (version from `go.mod`) + `gh auth login`; clone the repo;
-`go build ./cmd/guardrail`; `go test ./...` (windows suite is green in CI —
-if it isn't green locally, fix that first, it's environment). Install the
-release binary (`guardrail update` is broken on Windows by design until (d);
+`go build ./cmd/guardrail`; `go vet ./...`. **Do not expect `go test ./...`
+to be green on Windows and do not try to make it so** — an earlier revision
+of this document said a red local run was an environment problem to fix
+first. It is not: ~125 engine and cmd tests are POSIX-shaped by design and CI
+never runs them on Windows. The Windows-relevant run is CI's own:
+
+    go test ./internal/adapter/ ./internal/engine/ ./internal/genconfig/             ./internal/coverage/ ./cmd/guardrail/ ./test/             -run 'Windows|BOM|ReadJSONObject'
+
+Take a baseline of the full run before you start and diff against it after;
+new failures are yours, the rest are the floor. A Linux second opinion is
+cheap if WSL is present (`go` under `/usr/local/go/bin`, repo readable at
+`/mnt/c/...`) and covers the ubuntu leg before you push. Install the release
+binary (`guardrail update` is broken on Windows by design until (d);
 use the dotfiles ps1 installer or the release asset directly). Then:
 `guardrail doctor`, `guardrail selftest`, `guardrail plane status`.
 
@@ -138,18 +161,30 @@ audit-record rule verification.
 
 ## Confirmed: the PowerShell gap is real (measured, not theorized)
 
-`Remove-Item -Recurse -Force C:\` and `Get-Content <secret>` currently pass
-through the bash analyzer as unknown commands and allow. P1/P4 cmdlet
-coverage is a precondition for trusting any Windows host with a PowerShell
-tool — size it first (see "The hidden giant" above; claude's #66 supplies the
-repro).
+`Remove-Item -Recurse -Force C:\` passed through the bash analyzer as an
+unknown command and allowed. So did `Format-Volume`, `Clear-Disk`,
+`Set-ExecutionPolicy Bypass`, `Invoke-WebRequest <host>`, `iwr … | iex` and
+`Invoke-Expression`.
+
+**`Get-Content <secret>` did not.** That half of the claim was wrong, and
+it was the half that made this look like a week of work: the secret tier
+keys on the *operand*, not the command name, so it covered cmdlets from the
+start — `Get-Content`, `Select-String`, `Set-Content`, `Out-File` and
+`Copy-Item`, in their `-Path`, quoted, `$env:USERPROFILE` and `$HOME`
+spellings, and through a pipeline. Re-measure before trusting a gap claim.
+
+Closed by #135 (P1) and #136 (P6), which project each cmdlet onto the POSIX
+command it stands for rather than building a parallel rule set. Still open:
+`cmd.exe` (`del /s /q C:\` — forward-slash switches nothing parses) and
+shutdown/reboot, which is uncovered in *both* shells. Verified 2026-09-20.
 
 ## Program mechanics (settled this session)
 
 - CI ubuntu+windows matrix catches cross-platform regressions; no SSH-back
   needed. Live-machine verification = `guardrail selftest` after updates.
-- macOS is build-only today (darwin assets compile; no test job). Adding
-  `macos-latest` is a billing decision (private repo, 10x minutes).
+- macOS runs the full POSIX suite in CI as of v0.20.27-dev; this document
+  previously said it was build-only and that adding it was an open billing
+  decision. That decision was taken. Verified 2026-09-20.
 - Living-on-Windows remains necessary regardless of CI: PATHEXT,
   USERPROFILE, 8.3 paths, the update rename lock, Windows Hello, and the
   daemon in daily use are all invisible to unit tests.
