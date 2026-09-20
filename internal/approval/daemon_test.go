@@ -13,7 +13,7 @@ import (
 )
 
 func TestDaemonUsesPrivateSocketAndSubmitsRequestOnce(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	if err := os.Mkdir(filepath.Join(os.Getenv("XDG_STATE_HOME"), "guardrail"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestDaemonUsesPrivateSocketAndSubmitsRequestOnce(t *testing.T) {
 }
 
 func TestDaemonDoesNotReplaceALiveSocket(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	socket := shortSocketPath(t)
 	first, err := approval.StartDaemon(socket, approval.New(), browserStore(t), func(string) error { return nil })
 	if err != nil {
@@ -78,7 +78,7 @@ func TestDefaultDaemonSupportsLongStateDirectory(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Setenv("LOCALAPPDATA", filepath.Join(t.TempDir(), strings.Repeat("state-", 30)))
 	} else {
-		t.Setenv("XDG_STATE_HOME", filepath.Join(t.TempDir(), strings.Repeat("state-", 30)))
+		setStateHome(t, filepath.Join(t.TempDir(), strings.Repeat("state-", 30)))
 	}
 	socket := approval.DefaultSocketPath()
 	daemon, err := approval.StartDaemon(socket, approval.New(), nil, func(string) error { return nil })
@@ -99,7 +99,7 @@ func TestDefaultDaemonSupportsLongStateDirectory(t *testing.T) {
 }
 
 func TestQueryStatusReportsRequestState(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	socket := shortSocketPath(t)
 	daemon, err := approval.StartDaemon(socket, approval.New(), browserStore(t), func(string) error { return nil })
 	if err != nil {
@@ -126,7 +126,7 @@ func TestQueryStatusReportsRequestState(t *testing.T) {
 }
 
 func TestShutdownDaemonClosesALiveDaemon(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	socket := shortSocketPath(t)
 	_, err := approval.StartDaemon(socket, approval.New(), browserStore(t), func(string) error { return nil })
 	if err != nil {
@@ -149,7 +149,7 @@ func TestShutdownDaemonClosesALiveDaemon(t *testing.T) {
 }
 
 func TestDaemonListsAndPresentsPendingRequests(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	socket := shortSocketPath(t)
 	presented := make(chan string, 4)
 	daemon, err := approval.StartDaemon(socket, approval.New(), browserStore(t), func(rawURL string) error {

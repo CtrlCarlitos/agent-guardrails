@@ -12,11 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 	"github.com/gofrs/flock"
 )
 
 func TestTransactionMissingIsZeroState(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	if err := Transaction("nonexistent-session", func(s *State) error {
 		if s.SawPrivateRead || s.SawNetworkCall {
 			t.Fatalf("want zero state, got %+v", s)
@@ -28,7 +29,7 @@ func TestTransactionMissingIsZeroState(t *testing.T) {
 }
 
 func TestTransactionRoundTrip(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	if err := Transaction("sess1", func(s *State) error {
 		s.SawPrivateRead = true
 		return nil
@@ -49,7 +50,7 @@ func TestTransactionRoundTrip(t *testing.T) {
 }
 
 func TestTransactionClassifiesReleaseFailureAfterPersistence(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	injected := errors.New("injected release failure")
 	realUnlock := unlockTransaction
 	unlockTransaction = func(lock *flock.Flock) error {
@@ -76,7 +77,7 @@ func TestTransactionClassifiesReleaseFailureAfterPersistence(t *testing.T) {
 }
 
 func TestTransactionReleaseFailurePreservesPreCommitCallbackError(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	injected := errors.New("injected release failure")
 	realUnlock := unlockTransaction
 	unlockTransaction = func(lock *flock.Flock) error {
@@ -103,7 +104,7 @@ func TestTransactionReleaseFailurePreservesPreCommitCallbackError(t *testing.T) 
 }
 
 func TestAdditiveStatePreservesExistingM7JSON(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	const sessionID = "existing-m7-state"
 	path := Path(sessionID)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -132,7 +133,7 @@ func TestAdditiveStatePreservesExistingM7JSON(t *testing.T) {
 }
 
 func TestPendingApprovalRoundTripOmitsRawIdentity(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	const (
 		sessionID   = "distinctive-raw-session-id"
 		rawArgument = "distinctive raw argument text"
@@ -171,7 +172,7 @@ func TestPendingApprovalRoundTripOmitsRawIdentity(t *testing.T) {
 }
 
 func TestTransactionMigratesLegacyStateAfterSuccessfulHashedPersistence(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	const sessionID = "legacy-session"
 	legacyPath := filepath.Join(dir(), sessionID+".json")
 	writeStateFixture(t, legacyPath, State{SawPrivateRead: true, UpdatedAt: "legacy"})
@@ -197,7 +198,7 @@ func TestTransactionMigratesLegacyStateAfterSuccessfulHashedPersistence(t *testi
 }
 
 func TestTransactionPreservesLegacyPathReplacement(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	const sessionID = "replaced-legacy"
 	legacyPath := filepath.Join(dir(), sessionID+".json")
 	writeStateFixture(t, legacyPath, State{SawPrivateRead: true})
@@ -231,7 +232,7 @@ func TestTransactionPreservesLegacyPathReplacement(t *testing.T) {
 }
 
 func TestTransactionMigratesDigestShapedLegacySessionID(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	sessionID := strings.Repeat("a", 64)
 	legacyPath := filepath.Join(dir(), sessionID+".json")
 	writeStateFixture(t, legacyPath, State{SawPrivateRead: true})
@@ -254,7 +255,7 @@ func TestTransactionMigratesDigestShapedLegacySessionID(t *testing.T) {
 }
 
 func TestTransactionPrefersHashedStateOverLegacyState(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	const sessionID = "state-precedence"
 	legacyPath := filepath.Join(dir(), sessionID+".json")
 	writeStateFixture(t, legacyPath, State{SawPrivateRead: true})
@@ -274,7 +275,7 @@ func TestTransactionPrefersHashedStateOverLegacyState(t *testing.T) {
 }
 
 func TestTransactionDoesNotFallbackFromCorruptV2State(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	const sessionID = "corrupt-v2"
 	legacyPath := filepath.Join(dir(), sessionID+".json")
 	writeStateFixture(t, legacyPath, State{SawPrivateRead: true})
@@ -304,7 +305,7 @@ func TestTransactionDoesNotFallbackFromCorruptV2State(t *testing.T) {
 }
 
 func TestV2NamespaceDoesNotCollideWithLegacySessionID(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	const originalID = "original-session"
 	if err := Transaction(originalID, func(s *State) error {
 		s.SawPrivateRead = true
@@ -350,7 +351,7 @@ func TestTransactionUsesV2ForEveryNonemptyNativeID(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			testenv.SetState(t, t.TempDir())
 			if err := Transaction(tt.id, func(s *State) error {
 				if s.SawPrivateRead || s.SawNetworkCall {
 					t.Fatalf("first transaction state = %+v, want zero state", s)
@@ -392,7 +393,7 @@ func TestTransactionRejectsLegacySymlink(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("creating symlinks requires privileges not guaranteed on Windows")
 	}
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	const sessionID = "linked-legacy"
 	externalPath := filepath.Join(t.TempDir(), "external.json")
 	writeStateFixture(t, externalPath, State{SawPrivateRead: true})
@@ -420,7 +421,7 @@ func TestTransactionRejectsLegacySymlink(t *testing.T) {
 func TestTransactionNeverReadsFormerlyRejectedLegacyIDs(t *testing.T) {
 	for _, sessionID := range []string{".", "..", "legacy..session", "nested/session", `nested\session`} {
 		t.Run(sessionID, func(t *testing.T) {
-			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			testenv.SetState(t, t.TempDir())
 			legacyPath := filepath.Join(dir(), sessionID+".json")
 			writeStateFixture(t, legacyPath, State{SawPrivateRead: true})
 
@@ -446,7 +447,7 @@ func TestTransactionNeverReadsFormerlyRejectedLegacyIDs(t *testing.T) {
 
 func TestTransactionKeepsLegacyStateOnFailure(t *testing.T) {
 	t.Run("decode", func(t *testing.T) {
-		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		testenv.SetState(t, t.TempDir())
 		const sessionID = "corrupt-legacy"
 		legacyPath := filepath.Join(dir(), sessionID+".json")
 		if err := os.MkdirAll(dir(), 0o700); err != nil {
@@ -469,7 +470,7 @@ func TestTransactionKeepsLegacyStateOnFailure(t *testing.T) {
 	})
 
 	t.Run("callback", func(t *testing.T) {
-		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		testenv.SetState(t, t.TempDir())
 		const sessionID = "callback-failure"
 		legacyPath := filepath.Join(dir(), sessionID+".json")
 		writeStateFixture(t, legacyPath, State{SawPrivateRead: true})
@@ -487,7 +488,7 @@ func TestTransactionKeepsLegacyStateOnFailure(t *testing.T) {
 	})
 
 	t.Run("hashed write", func(t *testing.T) {
-		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		testenv.SetState(t, t.TempDir())
 		const sessionID = "write-failure"
 		legacyPath := filepath.Join(dir(), sessionID+".json")
 		writeStateFixture(t, legacyPath, State{SawPrivateRead: true})
@@ -507,7 +508,7 @@ func TestTransactionKeepsLegacyStateOnFailure(t *testing.T) {
 }
 
 func TestTransactionRejectsEmptySessionID(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	called := false
 	err := Transaction("", func(*State) error {
 		called = true
@@ -523,7 +524,7 @@ func TestTransactionRejectsEmptySessionID(t *testing.T) {
 
 func TestPortableSessionStorageKeys(t *testing.T) {
 	base := filepath.Join(t.TempDir(), "state", "nested")
-	t.Setenv("XDG_STATE_HOME", base)
+	testenv.SetState(t, base)
 	sessionsDir := filepath.Join(base, "guardrail", "sessions", "v2")
 	if got := Path(""); got != "" {
 		t.Fatalf("Path(empty) = %q, want invalid", got)
@@ -566,7 +567,7 @@ func TestPortableSessionStorageKeys(t *testing.T) {
 }
 
 func TestPruneRemovesOldSessions(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	if err := Transaction("old", func(*State) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
@@ -615,7 +616,7 @@ func TestPruneRemovesOldSessions(t *testing.T) {
 }
 
 func TestConcurrentTransactionsPreserveMonotonicSignals(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	const updates = 100
 	start := make(chan struct{})
 	errs := make(chan error, updates)
@@ -676,7 +677,7 @@ func TestStoreWideTransactionSerializesDifferentSessionsAcrossProcesses(t *testi
 	}
 
 	stateHome := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", stateHome)
+	testenv.SetState(t, stateHome)
 	if err := Transaction(holderSessionID, func(s *State) error {
 		s.SawPrivateRead = true
 		return nil

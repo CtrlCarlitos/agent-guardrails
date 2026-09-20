@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func mergeNoOp(t *testing.T, base *Policy, ov *Overlay) (*Policy, []string) {
@@ -385,8 +387,7 @@ func TestMergeEgressRequiresExactGrantAndRejectsTotalWildcards(t *testing.T) {
 
 func TestMergeEgressGrantDoesNotTransferAcrossEntryOrRepo(t *testing.T) {
 	configHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configHome)
-	t.Setenv("APPDATA", configHome) // operatorConfigDir reads APPDATA on Windows
+	testenv.SetConfig(t, configHome)
 	configPath := filepath.Join(configHome, "guardrail", "waivers.toml")
 	repo := operatorRepo("repo")
 	op := &OperatorConfig{Repos: map[string]RepoGrant{
@@ -458,8 +459,7 @@ func TestMergeIncludesOperatorGlobalWebHosts(t *testing.T) {
 
 func TestMergeEgressCannotBeAuthorizedByOtherGrants(t *testing.T) {
 	configHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configHome)
-	t.Setenv("APPDATA", configHome) // operatorConfigDir reads APPDATA on Windows
+	testenv.SetConfig(t, configHome)
 	op := &OperatorConfig{Repos: map[string]RepoGrant{
 		"/repo": {Waive: []string{"P6.egress"}, SecretAllow: true, AuditLog: true},
 	}}
@@ -482,8 +482,7 @@ func TestMergeEgressCannotBeAuthorizedByOtherGrants(t *testing.T) {
 
 func TestMergeDroppedRequestWarningsAreStable(t *testing.T) {
 	configHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configHome)
-	t.Setenv("APPDATA", configHome) // operatorConfigDir reads APPDATA on Windows
+	testenv.SetConfig(t, configHome)
 	configPath := filepath.Join(configHome, "guardrail", "waivers.toml")
 	base := &Policy{Slots: Slots{AuditLog: "/base/audit.jsonl"}, Waived: map[string]bool{}}
 	ov := &Overlay{
