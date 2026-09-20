@@ -122,3 +122,27 @@ func TestWindowsPowerShellLiteralPathShapes(t *testing.T) {
 		}
 	}
 }
+
+// A redirect is a write to a target the Engine cannot see, and forgiving an
+// `$env:` prefix among the operands must never forgive that.
+//
+// The first version of this rule returned before unresolvedPolicyPosition
+// reached its redirect loops, so `Get-Content $env:X\a.txt > $unknown` — a
+// write to a wholly unknown target — allowed. Found pre-merge; this is the
+// test that keeps it found.
+func TestWindowsPowerShellEnvReadDoesNotForgiveARedirect(t *testing.T) {
+	for _, cmd := range []string{
+		`Get-Content $env:X\a.txt > $unknown`,
+		`Get-Content $env:X\a.txt > $env:Y\out.txt`,
+		`Get-Content $env:X\a.txt >> $env:Y\out.txt`,
+		`Get-Content $env:X\a.txt < $env:Z\in.txt`,
+	} {
+		if v := evalEnv(t, cmd); v.Decision == policy.Allow {
+			t.Errorf("%q -> %+v, want a non-allow: the redirect target is unreadable", cmd, v)
+		}
+	}
+	// The same read without a redirect is the case the rule exists for.
+	if v := evalEnv(t, `Get-Content $env:X\a.txt`); v.Decision != policy.Allow {
+		t.Errorf(`Get-Content $env:X\a.txt -> %+v, want allow`, v)
+	}
+}
