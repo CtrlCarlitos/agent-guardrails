@@ -926,7 +926,19 @@ func checkOutOfRepoWrite(tc ToolCall) *policy.Verdict {
 	}
 	for _, p := range tc.Paths {
 		candidate := pathCandidate{path: p, cwd: tc.CWD, repoRoot: tc.RepoRoot}
+<<<<<<< HEAD
 		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, nil, strictWriteRoots(tc, candidate), false); !authorized {
+||||||| parent of 7b98e6b (feat(engine): linked worktrees of the session repository stay in-repo)
+		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, nil, strictWriteRoots(tc.Plane, candidate), false); !authorized {
+=======
+		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, nil, strictWriteRoots(tc.Plane, candidate), false); !authorized {
+			// A linked worktree of the same repository is the same repo
+			// under the same policy (one-branch-per-PR discipline); the
+			// git-directory round trip fails closed on forged pointers.
+			if target, err := filepath.Abs(resolvePath(p, tc.CWD)); err == nil && sameRepository(target, tc.RepoRoot) {
+				continue
+			}
+>>>>>>> 7b98e6b (feat(engine): linked worktrees of the session repository stay in-repo)
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P5.out-of-repo",
 				Reason: "write target is outside the repo/worktree root: " + p}
 		}
