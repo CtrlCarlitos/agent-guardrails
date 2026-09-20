@@ -1,0 +1,1 @@
+{"session_id":"codex-fixture-windows","cwd":"C:\\repo","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"Get-Content -LiteralPath \"$env:USERPROFILE\\.ssh\\id_ed25519\""}}

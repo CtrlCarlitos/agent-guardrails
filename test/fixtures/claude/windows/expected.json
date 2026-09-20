@@ -26,6 +26,64 @@
     ],
     "rule": "P4.secret-path"
   },
+  "powershell-execution-policy-bypass.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "P1.execution-policy"
+  },
+  "powershell-format-volume.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P1.mkfs"
+  },
+  "powershell-get-content-ssh-key.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P4.secret-path"
+  },
+  "powershell-invoke-expression.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "P6.dynamic-eval"
+  },
+  "powershell-invoke-webrequest-egress.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P6.egress"
+  },
+  "powershell-irm-uri-egress.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P6.egress"
+  },
+  "powershell-iwr-outfile-egress.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P6.egress"
+  },
+  "powershell-iwr-pipe-iex.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P6.download-pipe-shell"
+  },
+  "powershell-remove-item-alias.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P1.rm-rf"
+  },
+  "powershell-remove-item-in-repo.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "powershell-remove-item-recurse-force.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "P1.rm-rf"
+  },
+  "powershell-remove-item-whatif.json": {
+    "decision": "allow",
+    "exit": 0
+  },
   "read-ssh-key.json": {
     "decision": "deny",
     "exit": 2,
