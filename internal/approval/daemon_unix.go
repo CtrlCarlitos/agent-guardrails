@@ -3,6 +3,7 @@
 package approval
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net"
@@ -13,6 +14,24 @@ import (
 )
 
 func persistentApprovalError() error { return nil }
+
+func defaultPrivateEndpoint() string {
+	base := os.Getenv("XDG_STATE_HOME")
+	if base == "" {
+		home, _ := os.UserHomeDir()
+		base = filepath.Join(home, ".local", "state")
+	}
+	socket := filepath.Join(base, "guardrail", "approval", "broker.sock")
+	// Unix socket path limits: Linux ~108, darwin ~104. The direct path
+	// usually fits; the deterministic fallback must fit on darwin even when
+	// os.TempDir() itself is long (/var/folders/...), so it uses a short
+	// prefix and a truncated digest.
+	if len(socket) < 90 {
+		return socket
+	}
+	digest := sha256.Sum256([]byte(base))
+	return filepath.Join(os.TempDir(), "grd-"+fmt.Sprintf("%x", digest[:8]), "b.sock")
+}
 
 func listenPrivate(socket string) (net.Listener, error) {
 	if socket == "" || !filepath.IsAbs(socket) {
