@@ -75,7 +75,32 @@ like from the outside for four days: `registered`, green, enforcing nothing.
 - **Re-running an approved `egress grant` says "already authorized"** instead of asking again — the broker applied it the moment you approved; the command is never re-run.
 - **`guardrail night on` / `off` from inside a session is denied**, and so is anything longer than the exact three-word `guardrail night status` (which is read-only and allowed). Changing the posture is an operator action: run on/off from a terminal.
 - **`git push --delete <branch>` asks** (`P2.git-push-delete`) even for an unprotected branch, and any command that reaches a policy position through a shell variable asks (`P3.unresolved`). Both are the intended fail-closed shape: spell the names out and answer the prompt.
+- **`git push origin v1.2.3` asks even when `v1.2.3` is a branch, not a tag** (`P2.git-push-protected`). A named-tag push and a branch push are the same command shape — which one it is depends on what exists in the repository, and the Engine is a pure function of the call it is handed: it never execs and never reads the repo, so it classifies a version-shaped destination on the name alone and errs toward asking (#218). A destination spelled `refs/tags/…` is unambiguous and asks exactly. Push the branch under a name that does not read as a release, or answer the prompt.
 - **`plane enable` says `already enabled`** and a session still reports floor drift → the installed release predates the floor-drift check (#33); `guardrail update` to current.
+
+## Tag lifecycle: creation asks, deletion is blocked, recovery is manual
+
+The gate sits on creation and the ruleset sits on deletion, so a tag is easy to
+publish by accident and hard to retract. Know the whole shape before you tag.
+
+| step | what happens |
+|---|---|
+| `git push origin v1.2.3` | **asks** (`P2.git-push-protected`, #218) — a release pointer goes public, so it is an operator decision |
+| `git push --tags` | asks (existing) |
+| `git push origin :refs/tags/v1.2.3` | asks locally, then **the remote refuses**: `GH013: Cannot delete this tag` |
+| retracting a pushed tag | **admin UI only** — GitHub → Releases/Tags → delete |
+
+The failure this prevents: a tag pushed unasked starts a release build from that
+exact tree. If the tree is missing a fix that merged afterwards, CI produces and
+publishes assets built without it, and the tag cannot be deleted from the
+command line to stop the cascade. That happened on 2026-09-21 with
+`v0.21.8-dev` (#218) — the pointer was stranded until an admin deleted it by
+hand, and an asset built from it had already been deployed.
+
+So: **check what the tag will point at before answering the prompt.** `git log
+--oneline -1 <ref>` and confirm the fixes you expect are ancestors
+(`git merge-base --is-ancestor <fix-sha> <ref>`). Answering the ask is cheap;
+un-publishing is not.
 
 ## Windows: engine unreachable (opencode `spawnSync ETIMEDOUT`)
 

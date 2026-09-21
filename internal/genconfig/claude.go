@@ -61,6 +61,11 @@ func bashAskGlobs() []string {
 		"Bash(git remote add *)", "Bash(git remote set-url *)",
 		"Bash(git stash clear)", "Bash(git stash drop*)",
 		"Bash(git push * main)", "Bash(git push * master)", "Bash(git push --tags*)",
+		// Backstop for #218. The Engine classifies a tag destination properly;
+		// this is the floor's best effort for when the Engine is unreachable
+		// (ADR-0022). It is crude by construction: a glob cannot tell a tag
+		// from a branch, so it also asks for a branch literally named v1.2.3.
+		"Bash(git push * v[0-9]*)",
 		"Bash(pip install *)", "Bash(pip3 install *)",
 		"Bash(npm install *)", "Bash(npm i *)", "Bash(npm ci*)",
 		"Bash(yarn add *)", "Bash(pnpm add *)",

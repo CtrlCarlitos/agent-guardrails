@@ -5,6 +5,36 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Fix (#218): publishing a tag now asks.** The floor and the Engine asked for
+  `git push --tags`, `git push * main` and a deletion refspec, but a *named*
+  tag push matched none of them: `git push origin v0.21.8-dev` allowed, and a
+  premature release pointer went public from a guarded session. The cascade is
+  the reason this matters — CI built release assets from the tagged tree, the
+  asset was deployed, and cleanup was then blocked, because tag-deletion
+  rulesets correctly refuse `git push origin :refs/tags/…` (`GH013`). The gate
+  held at deletion and missed at creation, so the wrong pointer was stranded
+  until an admin deleted it by hand.
+  The Engine now classifies the push *destination*. A destination under
+  `refs/tags/` is unambiguous — it says what it is in the command text — so it
+  asks exactly, with no false positive to trade away; that case allowed before
+  and was the larger hole, since `git push origin HEAD:refs/tags/v1.0.0` states
+  its intent plainly and still sailed through.
+  A bare destination is genuinely ambiguous: `git push origin v0.21.8-dev` and
+  `git push origin some-branch` are the same command shape, and which one it is
+  depends on what exists in the repository. The Engine cannot find out — it is
+  a pure function of the call it is handed, it never execs and never reads the
+  repo — so a version-shaped name is classified on its own shape and the error
+  is taken on the asking side. **A branch named `v2.0.0` therefore also asks**,
+  which is pinned by a test named for the trade rather than left to be
+  discovered. Resolving the name properly would mean running `git rev-parse`
+  from a rule that runs on every tool call: a subprocess on the hot path, a
+  verdict that depends on state which can change between check and push, and
+  the end of "the same call always produces the same verdict".
+  The floor gains `git push * v[0-9]*` as an ADR-0022 backstop for when the
+  Engine is unreachable, crude by construction since a glob cannot tell a tag
+  from a branch. `docs/OPERATIONS.md` gains the tag lifecycle: creation asks,
+  deletion is ruleset-blocked, the admin UI is the only retraction path — and
+  therefore to check what the tag points at before answering the prompt.
 - **One place names the executable suffix, and a guard keeps it that way.**
   Closing out the caution filed with #198: three test files had each
   open-coded `if runtime.GOOS == "windows" { name += ".exe" }` for a helper
