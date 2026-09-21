@@ -66,6 +66,9 @@ jobs:
         # on Windows as well as the POSIX hosts.
         if: matrix.os == 'windows-latest'
         run: go test ./cmd/guardrail/ -run 'Test(Trifecta|TrackingUnavailable|HookHashesNativeSessionID)'
+      - name: windows portable OpenCode binary path fixtures
+        if: matrix.os == 'windows-latest'
+        run: go test ./cmd/guardrail/ -run 'Test(GenConfig|Sync)OpencodeBakesAbsoluteBinary'
       - name: gofmt
         if: matrix.os != 'windows-latest'
         run: |
