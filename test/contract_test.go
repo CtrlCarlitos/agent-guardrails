@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func goCmd() string {
@@ -23,10 +25,7 @@ func goCmd() string {
 
 func buildBinary(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "guardrail")
-	if runtime.GOOS == "windows" {
-		bin += ".exe"
-	}
+	bin := filepath.Join(t.TempDir(), testenv.ExecutableName("guardrail"))
 	out, err := exec.Command(goCmd(), "build", "-o", bin, "../cmd/guardrail").CombinedOutput()
 	if err != nil {
 		t.Fatalf("build: %v\n%s", err, out)

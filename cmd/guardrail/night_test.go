@@ -316,11 +316,7 @@ func TestNightOffRefusesNullStdinWithoutRemovingMarker(t *testing.T) {
 func TestRenamedNightBinaryCannotMutateWithoutTerminal(t *testing.T) {
 	configHome := t.TempDir()
 	testenv.SetConfig(t, configHome)
-	binaryName := "renamed-guard"
-	if runtime.GOOS == "windows" {
-		binaryName += ".exe"
-	}
-	binary := filepath.Join(t.TempDir(), binaryName)
+	binary := filepath.Join(t.TempDir(), testenv.ExecutableName("renamed-guard"))
 	build := exec.Command(filepath.Join(runtime.GOROOT(), "bin", "go"), "build", "-o", binary, ".")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build renamed guardrail: %v\n%s", err, output)

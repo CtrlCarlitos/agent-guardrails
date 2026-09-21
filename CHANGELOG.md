@@ -5,6 +5,21 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **One place names the executable suffix, and a guard keeps it that way.**
+  Closing out the caution filed with #198: three test files had each
+  open-coded `if runtime.GOOS == "windows" { name += ".exe" }` for a helper
+  binary they build and then run. The hazard itself is gone repo-wide — a full
+  Windows suite now reports zero `executable file not found in %PATH%`, the
+  signature of the defect #198 described — so this is consistency rather than
+  correctness. It still matters, because the failure mode is neither a compile
+  error nor an obviously wrong assertion: a fourth hand-rolled copy works on
+  its author's machine and silently misbehaves on the other platform, which is
+  exactly how the adversarial corpus went unrun on Windows for so long. All
+  three now call `testenv.ExecutableName`, and
+  `TestNoTestRollsItsOwnExecutableSuffix` fails if a new copy appears.
+  One documented exemption: `update_test.go` asserts the *release asset* name
+  the updater downloads, which is part of the published artifact contract
+  rather than the host's executable-naming rule.
 - **Fix (#174 family K): the output-sanitization fixtures now run on Windows.**
   Tests that assert guardrail neutralizes hostile bytes in its own reports
   build real files whose names carry newlines, tabs and escapes, so a path can

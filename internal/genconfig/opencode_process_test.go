@@ -6,8 +6,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 const opencodeHelperEnv = "GO_WANT_OPENCODE_ENGINE_HELPER"
@@ -23,10 +24,7 @@ func writeOpencodeEngine(t testFataler, dir, name string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, name)
-	if runtime.GOOS == "windows" {
-		path += ".exe"
-	}
+	path := filepath.Join(dir, testenv.ExecutableName(name))
 	in, err := os.Open(testBinary)
 	if err != nil {
 		t.Fatal(err)
