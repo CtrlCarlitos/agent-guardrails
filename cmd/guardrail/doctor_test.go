@@ -121,7 +121,7 @@ func TestDoctorShowsEveryPolicyWarningOnceInMergeOrder(t *testing.T) {
 	testenv.SetConfig(t, "/nonexistent/doctor-config")
 	testenv.SetState(t, "/nonexistent/doctor-state")
 	parent := t.TempDir()
-	dir := filepath.Join(parent, "repo\npolicy warnings:\nwaivers:\t\x7fdir")
+	dir := filepath.Join(parent, testenv.HostilePathSegment("repo\npolicy warnings:\nwaivers:\t\x7fdir"))
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ safe_roots = ["/outside\npolicy warnings:\nwaivers:\t\u007froot"]
 secret_allow = [".env"]
 egress_allowlist = ["*"]
 `
-	configPath := filepath.Join(dir, "guardrail\npolicy warnings:\nwaivers:\t\x7f.toml")
+	configPath := filepath.Join(dir, testenv.HostilePathSegment("guardrail\npolicy warnings:\nwaivers:\t\x7f.toml"))
 	if err := os.WriteFile(configPath, []byte(overlay), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -165,9 +165,12 @@ egress_allowlist = ["*"]
 	if resolved, err := filepath.EvalSymlinks(parent); err == nil {
 		resolvedParent = resolved
 	}
-	displayCwd := filepath.Join(resolvedParent, "repo policy warnings: waivers: dir")
-	displayDir := filepath.Join(parent, "repo policy warnings: waivers: dir")
-	displayConfig := filepath.Join(displayDir, "guardrail policy warnings: waivers: .toml")
+	// The expected rendering follows the fixture: the colon is inert to the
+	// sanitizer and identical on both sides, so adapting it here changes only
+	// which harmless glyph appears, not what the sanitizer is asked to do.
+	displayCwd := filepath.Join(resolvedParent, testenv.HostilePathSegment("repo policy warnings: waivers: dir"))
+	displayDir := filepath.Join(parent, testenv.HostilePathSegment("repo policy warnings: waivers: dir"))
+	displayConfig := filepath.Join(displayDir, testenv.HostilePathSegment("guardrail policy warnings: waivers: .toml"))
 	for _, want := range []string{
 		"cwd: " + displayCwd,
 		"GUARDRAIL_CONFIG: " + displayConfig,
@@ -194,6 +197,9 @@ egress_allowlist = ["*"]
 
 func TestDoctorStaleConfig(t *testing.T) {
 	testenv.SetHome(t, t.TempDir())
+	// Not adapted for the host: this path is never created, only handed to
+	// GUARDRAIL_CONFIG, so there is no filesystem constraint and Windows keeps
+	// the canonical hostile bytes. Substituting here would weaken the test.
 	missing := filepath.Join(t.TempDir(), strings.Repeat("m", 180), "missing\npolicy warnings:\nwaivers:\t\x7f.toml")
 	t.Setenv("GUARDRAIL_CONFIG", missing)
 	var out, errb bytes.Buffer
@@ -272,7 +278,7 @@ func TestDoctorSanitizesOverlayParseErrorPath(t *testing.T) {
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	configPath := filepath.Join(configDir, "broken\npolicy warnings:\nwaivers:\t\x7f.toml")
+	configPath := filepath.Join(configDir, testenv.HostilePathSegment("broken\npolicy warnings:\nwaivers:\t\x7f.toml"))
 	if err := os.WriteFile(configPath, []byte(`malformed = [`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +306,7 @@ func TestDoctorSanitizesOverlayParseErrorPath(t *testing.T) {
 func TestDoctorSanitizesOperatorConfigError(t *testing.T) {
 	home := t.TempDir()
 	testenv.SetHome(t, home)
-	configHome := filepath.Join(t.TempDir(), "config\npolicy warnings:\nwaivers:\t\x7fdir")
+	configHome := filepath.Join(t.TempDir(), testenv.HostilePathSegment("config\npolicy warnings:\nwaivers:\t\x7fdir"))
 	configDir := filepath.Join(configHome, "guardrail")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatal(err)

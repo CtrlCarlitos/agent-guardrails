@@ -76,3 +76,63 @@ func TestPathListRoundTripsHostileExecutableDirectory(t *testing.T) {
 		t.Fatalf("SplitList(PathList(%q)) = %q, want one exact entry", want, got)
 	}
 }
+
+// The helper's whole contract is that the result can actually be created on
+// the running host. Asserting the substitution table would only restate the
+// code; creating the file is the property.
+func TestHostilePathSegmentProducesACreatableName(t *testing.T) {
+	segments := []string{
+		"repo\npolicy warnings:\nwaivers:\t\x7fdir",
+		"guardrail\nforged\t\x7f.toml",
+		"repo\nsynced opencode -> forged\t\x1b[31m\x7f\u0080\u009b31m\u009f",
+		"a\rb|c?d*e<f>g\"h",
+	}
+	for _, segment := range segments {
+		path := filepath.Join(t.TempDir(), ExecutableName("x")+"-dir")
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(path, HostilePathSegment(segment))
+		if err := os.Mkdir(target, 0o755); err != nil {
+			t.Errorf("HostilePathSegment(%q) is still not creatable on %s: %v", segment, runtime.GOOS, err)
+		}
+	}
+}
+
+// POSIX must keep the canonical bytes: they are legal there, and they are the
+// strongest form of the input the sanitizer has to neutralize.
+func TestHostilePathSegmentIsIdentityOnPosix(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("substitution applies only on windows")
+	}
+	const segment = "repo\npolicy warnings:\nwaivers:\t\x1b[31m\x7fdir"
+	if got := HostilePathSegment(segment); got != segment {
+		t.Errorf("HostilePathSegment altered a POSIX-legal segment: %q -> %q", segment, got)
+	}
+}
+
+// Every character the helper substitutes in must still be something the
+// sanitizer neutralizes or passes through deliberately — otherwise the
+// adapted fixture would assert less than the original.
+func TestHostilePathSegmentSubstitutesStayHostileOrInert(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("substitution applies only on windows")
+	}
+	for _, c := range []struct {
+		from, to string
+		hostile  bool
+	}{
+		{"\n", "\u2028", true},
+		{"\r", "\u2029", true},
+		{"\t", "\u00a0", true},
+		{"\x1b", "\u009b", true},
+		{":", "\ua789", false},
+		{">", "\uff1e", false},
+	} {
+		got := HostilePathSegment("a" + c.from + "b")
+		want := "a" + c.to + "b"
+		if got != want {
+			t.Errorf("HostilePathSegment(%q) = %q, want %q", "a"+c.from+"b", got, want)
+		}
+	}
+}

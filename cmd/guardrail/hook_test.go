@@ -52,7 +52,7 @@ func hookFailureInput(t *testing.T, plane, failure string) io.Reader {
 		return strings.NewReader("{")
 	}
 
-	overlayPath := filepath.Join(t.TempDir(), "guardrail\nforged\t\x7f.toml")
+	overlayPath := filepath.Join(t.TempDir(), testenv.HostilePathSegment("guardrail\nforged\t\x7f.toml"))
 	var overlay string
 	switch failure {
 	case "malformed_overlay":
@@ -735,6 +735,8 @@ func TestHookStaleGuardrailConfigDegrades(t *testing.T) {
 func TestHookSanitizesOverlayDiscoveryWarning(t *testing.T) {
 	testenv.SetState(t, t.TempDir())
 	testenv.SetConfig(t, t.TempDir())
+	// Never created, only handed to GUARDRAIL_CONFIG: no filesystem
+	// constraint, so the canonical hostile bytes stay on every host.
 	missing := filepath.Join(t.TempDir(), "missing\nforged\tconfig\x7f.toml")
 	t.Setenv("GUARDRAIL_CONFIG", missing)
 
@@ -899,7 +901,7 @@ func TestHookLateAuditWarningCannotExceedCumulativeCap(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(configDir, "waivers.toml"), []byte("[\"/tmp\"]\naudit_log = true\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	blocker := filepath.Join(t.TempDir(), "not-a-directory\nforged\tpath\x7f")
+	blocker := filepath.Join(t.TempDir(), testenv.HostilePathSegment("not-a-directory\nforged\tpath\x7f"))
 	if err := os.WriteFile(blocker, []byte("block"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -1504,7 +1506,7 @@ func TestOpenCodeApprovalMemoryRejectsIncompleteIdentity(t *testing.T) {
 }
 
 func TestOpenCodeApprovalMemoryTransactionFailurePreservesAsk(t *testing.T) {
-	stateRoot := filepath.Join(t.TempDir(), "state\nforged\twarning\x7f")
+	stateRoot := filepath.Join(t.TempDir(), testenv.HostilePathSegment("state\nforged\twarning\x7f"))
 	if err := os.WriteFile(stateRoot, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -2159,7 +2161,7 @@ func TestHookUsesTopLevelRepoGrantFromSubdirectory(t *testing.T) {
 }
 
 func TestHookSessionStartSanitizesOperatorConfigLoadError(t *testing.T) {
-	configHome := filepath.Join(t.TempDir(), "config\nforged\tpath\x7f")
+	configHome := filepath.Join(t.TempDir(), testenv.HostilePathSegment("config\nforged\tpath\x7f"))
 	testenv.SetConfig(t, configHome)
 	configDir := filepath.Join(configHome, "guardrail")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {

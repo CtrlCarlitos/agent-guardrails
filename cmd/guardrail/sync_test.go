@@ -344,11 +344,13 @@ egress_allowlist = [` + strings.Join(egress, ", ") + "]\n"
 }
 
 func TestSyncSanitizesWarningCallbackAndSuccessfulTargetPath(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "repo\nsynced opencode -> forged\t\x1b[31m\x7f\u0080\u009b31m\u009f")
+	dir := filepath.Join(t.TempDir(), testenv.HostilePathSegment("repo\nsynced opencode -> forged\t\x1b[31m\x7f\u0080\u009b31m\u009f"))
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	gitInitSync(t, dir)
+	// Never created, only handed to GUARDRAIL_CONFIG: no filesystem
+	// constraint, so the canonical hostile bytes stay on every host.
 	t.Setenv("GUARDRAIL_CONFIG", filepath.Join(dir, "missing\nsynced antigravity -> forged\t\x1b[32m\x7f\u0080\u009b31m\u009f.toml"))
 
 	var out, errb bytes.Buffer
@@ -369,7 +371,7 @@ func TestSyncSanitizesWarningCallbackAndSuccessfulTargetPath(t *testing.T) {
 func TestSyncSanitizesEverySuccessfulTargetPath(t *testing.T) {
 	for _, plane := range []string{"claude", "opencode", "antigravity"} {
 		t.Run(plane, func(t *testing.T) {
-			dir := filepath.Join(t.TempDir(), "repo\nsynced forged\t\x1b[31m\x7f\u0080\u009b31m\u009f")
+			dir := filepath.Join(t.TempDir(), testenv.HostilePathSegment("repo\nsynced forged\t\x1b[31m\x7f\u0080\u009b31m\u009f"))
 			if err := os.Mkdir(dir, 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -397,7 +399,7 @@ func TestSyncSanitizesSyncPlaneErrorsAndUnknownName(t *testing.T) {
 		{plane: "antigravity", blocker: ".agents"},
 	} {
 		t.Run(tt.plane, func(t *testing.T) {
-			dir := filepath.Join(t.TempDir(), "repo\nforged status\t\x1b[31m\x7f\u0080\u009b31m\u009f")
+			dir := filepath.Join(t.TempDir(), testenv.HostilePathSegment("repo\nforged status\t\x1b[31m\x7f\u0080\u009b31m\u009f"))
 			if err := os.Mkdir(dir, 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -482,7 +484,7 @@ decision = "allow\tforged\u007f"
 	t.Run("operator config", func(t *testing.T) {
 		dir := t.TempDir()
 		gitInitSync(t, dir)
-		configHome := filepath.Join(t.TempDir(), "config\nsynced forged\t\x1b[31m\x7f\u0080\u009b31m\u009f")
+		configHome := filepath.Join(t.TempDir(), testenv.HostilePathSegment("config\nsynced forged\t\x1b[31m\x7f\u0080\u009b31m\u009f"))
 		configDir := filepath.Join(configHome, "guardrail")
 		if err := os.MkdirAll(configDir, 0o755); err != nil {
 			t.Fatal(err)
