@@ -15,12 +15,42 @@ Healthy looks like: `policy warnings: none`, every plane `registered`,
 `selftest: all probes passed`, and no rule in the audit top list you don't
 recognise. If all three are clean, the problem is not Guardrail.
 
+**`registered` is a claim, not enforcement.** doctor can see that a hook is
+installed; only an audit record shows it ran. A claude plane that is healthy
+but has not yet been exercised legitimately reads:
+
+```
+claude settings: guardrail hook registered but NEVER OBSERVED FIRING — no audit
+record from a real session since this binary was built. Registration is not
+enforcement; confirm with `guardrail selftest --evidence claude`
+```
+
+That is not a fault. It clears itself the first time a real session is
+mediated, and `guardrail selftest --evidence claude` is the direct check —
+exit 0 once two pre-hook records from one real session exist, exit 1 until
+then. A freshly built or freshly installed binary resets the window, because
+the scan starts at the binary's mtime.
+
+The line that *is* a fault names its own cause instead:
+
+```
+claude settings: guardrail hook registered but CANNOT SPAWN — <reason>. Nothing
+is being enforced; re-run `guardrail plane enable claude` to rewrite the command
+```
+
+A command that cannot spawn has necessarily never fired, so doctor prints the
+spawn fault and suppresses the never-observed caveat — cause, not consequence.
+Neither is appended when nothing is registered at all. This is what #149 looked
+like from the outside for four days: `registered`, green, enforcing nothing.
+
 ## Symptom → command
 
 | You see | Run | Why |
 |---|---|---|
 | Agent says it was blocked and you don't know why | `guardrail audit` then `grep '"decision":"deny"' ~/.local/state/guardrail/audit.jsonl \| grep -v selftest \| tail -5` | Every verdict is a JSONL record with `rule_id` and `reason`. Selftest writes deny probes to the same log on every update — filter them out or you will be reading the last selftest. |
 | doctor: `N unmarked guardrail-like hook entries in settings.json` | `guardrail plane enable claude` | Legacy pre-marker hook groups; enable absorbs them (ADR-0004). Passkey. |
+| doctor: `guardrail hook registered but CANNOT SPAWN` | `guardrail plane enable claude`, or `guardrail gen-config claude --merge <settings.json> --binary <path>` where plane commands are gated | The registered command cannot be spawned by a shell — an unquoted path with a backslash or a space. Nothing is being enforced while it reads this. Re-merging rewrites it (#149). |
+| doctor: `guardrail hook registered but NEVER OBSERVED FIRING` | `guardrail selftest --evidence claude` | Registered, spawnable, not yet exercised. Expected on a fresh enrolment or a freshly built binary; clears itself once a real session is mediated. Exit 1 until two pre-hook records from one real session exist. If it persists across real sessions, the hook is not being invoked — treat as #149's shape. |
 | doctor: `present, hook NOT registered` / `no settings.json` | `guardrail plane enable <plane>` (or `--all`) | Re-registers the integration and merges the declarative floor. Passkey. |
 | Claude session posture: `Claude plane lifecycle: … drift` or `permissions floor drifted` | `guardrail plane enable claude` | A release changed the floor; enable re-merges idempotently |
 | Claude session posture: `claude coverage: Claude Code X — N uncontracted tool(s)` | `guardrail doctor --coverage claude` | Claude Code shipped a tool the contract doesn't know; it is **allow-by-default** until contracted. Open an issue with the doctor output. |
@@ -95,6 +125,8 @@ waivers: none
 audit log: /home/you/.local/state/guardrail/audit.jsonl
 operator approvals: WebAuthn
 claude settings: guardrail hook registered
+  ↑ on a plane not yet exercised this reads "… but NEVER OBSERVED FIRING"; that is
+    expected, not a fault — see "Healthy looks like" above
 opencode settings: guardrail integration registered
 codex settings: guardrail hooks registered; …
 antigravity settings: guardrail integration registered
