@@ -2403,7 +2403,7 @@ func cdOutcome(state cwdState, simple Simple, argv []string) cwdOutcome {
 }
 
 func cdUsesSearchPath(state cwdState, target string) bool {
-	if filepath.IsAbs(target) || target == "." || target == ".." || strings.HasPrefix(target, "."+string(filepath.Separator)) || strings.HasPrefix(target, ".."+string(filepath.Separator)) {
+	if posixIsAbs(target) || filepath.IsAbs(target) || target == "." || target == ".." || strings.HasPrefix(target, "./") || strings.HasPrefix(target, "../") || strings.HasPrefix(target, "."+string(filepath.Separator)) || strings.HasPrefix(target, ".."+string(filepath.Separator)) {
 		return false
 	}
 	return state.cdpathUnknown || state.cdpathSet && state.cdpath != ""
@@ -2448,7 +2448,7 @@ func parseCdArgs(args []string) (target string, physical bool, ok bool) {
 }
 
 func resolveCdTarget(state cwdState, target string, physical bool) (string, cdDirectoryStatus) {
-	if filepath.IsAbs(target) || strings.HasPrefix(target, "."+string(filepath.Separator)) || target == "." || target == ".." || strings.HasPrefix(target, ".."+string(filepath.Separator)) {
+	if posixIsAbs(target) || filepath.IsAbs(target) || strings.HasPrefix(target, "./") || target == "." || target == ".." || strings.HasPrefix(target, "../") || strings.HasPrefix(target, "."+string(filepath.Separator)) || strings.HasPrefix(target, ".."+string(filepath.Separator)) {
 		candidate := cdCandidate(state.cwd, target, physical)
 		return candidate, cdDirectoryState(candidate)
 	}
@@ -2461,11 +2461,15 @@ func resolveCdTarget(state cwdState, target string, physical bool) (string, cdDi
 			return candidate, cdDirectoryState(candidate)
 		}
 		unknown := false
-		for _, entry := range filepath.SplitList(state.cdpath) {
+		for _, entry := range posixSplitList(state.cdpath) {
 			if entry == "" {
 				entry = state.cwd
-			} else if !filepath.IsAbs(entry) {
-				entry = filepath.Join(state.cwd, entry)
+			} else if !posixIsAbs(entry) && !filepath.IsAbs(entry) {
+				if filepath.IsAbs(state.cwd) {
+					entry = filepath.Join(state.cwd, entry)
+				} else {
+					entry = posixJoin(state.cwd, entry)
+				}
 			}
 			candidate := cdCandidate(entry, target, physical)
 			switch status := cdDirectoryState(candidate); status {
@@ -2489,20 +2493,33 @@ func resolveCdTarget(state cwdState, target string, physical bool) (string, cdDi
 
 func cdCandidate(base, target string, physical bool) string {
 	candidate := target
-	if !filepath.IsAbs(candidate) {
+	if !posixIsAbs(candidate) && !filepath.IsAbs(candidate) {
 		if physical {
 			candidate = strings.TrimSuffix(base, string(filepath.Separator)) + string(filepath.Separator) + candidate
 		} else {
-			candidate = filepath.Join(base, candidate)
+			if filepath.IsAbs(base) {
+				candidate = filepath.Join(base, candidate)
+			} else {
+				candidate = posixJoin(base, candidate)
+			}
 		}
 	}
 	if physical {
 		return candidate
 	}
-	return filepath.Clean(candidate)
+	if filepath.IsAbs(candidate) {
+		return filepath.Clean(candidate)
+	}
+	return posixClean(candidate)
 }
 
 func cdDirectoryState(candidate string) cdDirectoryStatus {
+	// On Windows the host OS cannot probe POSIX-absolute paths (starting
+	// with '/') through Win32 os.Stat.  Treat them as unknown (fail-closed)
+	// rather than missing (which would collapse the outcome to the prior cwd).
+	if !hostCanProbe(candidate) {
+		return cdDirectoryUnknown
+	}
 	info, err := os.Stat(candidate)
 	if err != nil {
 		if os.IsNotExist(err) {

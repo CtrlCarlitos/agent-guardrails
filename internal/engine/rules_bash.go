@@ -474,7 +474,7 @@ func literalHarmlessTeeInput(redirs []*syntax.Redirect) bool {
 			return false
 		}
 		target, literal := literalNF14Word(redirect.Word)
-		if !literal || filepath.Clean(target) != filepath.Clean("/dev/null") {
+		if !literal || posixClean(target) != posixClean("/dev/null") {
 			return false
 		}
 	}
@@ -1558,15 +1558,14 @@ func checkAskTierWithFindFSExemption(s Simple, tc ToolCall, pol *policy.Policy, 
 	}
 	for _, r := range s.Redirects {
 		candidate := pathCandidate{path: r, cwd: simpleCwd(s, tc), cwdUnknown: s.cwdUnknown}
-		if candidate.cwdUnknown && !filepath.IsAbs(r) {
+		if candidate.cwdUnknown && !posixIsAbs(r) {
 			continue // Preserve P3 without resolving against the guardrail process cwd.
 		}
-		redirectPath, err := filepath.Abs(resolvePath(r, candidate.cwd))
-		if err == nil {
-			switch filepath.Clean(redirectPath) {
-			case "/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty":
-				continue
-			}
+		// Recognize the four POSIX standard devices using POSIX lexical
+		// semantics before any host-path conversion.  filepath.Abs on Windows
+		// would produce a Win32-shaped string that can never equal /dev/null.
+		if posixStandardDevice(r) {
+			continue
 		}
 		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, strictWriteRoots(tc, candidate), false); !authorized {
 			return ask("P1.redirect", "output redirection onto a path outside the repo/safe roots: "+r)

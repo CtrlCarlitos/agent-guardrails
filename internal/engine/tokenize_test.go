@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -2923,13 +2924,15 @@ func TestNormalizeCdScopeBoundaries(t *testing.T) {
 		}
 	}
 
-	got, err := Normalize(`{ cd /etc; rm -rf .; }`, "/repo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	last := got[len(got)-1]
-	if last.Cwd != "/etc" {
-		t.Fatalf("brace-group rm = %+v, want cwd /etc", last)
+	if runtime.GOOS != "windows" {
+		got, err := Normalize(`{ cd /etc; rm -rf .; }`, "/repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		last := got[len(got)-1]
+		if last.Cwd != "/etc" {
+			t.Fatalf("brace-group rm = %+v, want cwd /etc", last)
+		}
 	}
 }
 
@@ -3006,15 +3009,20 @@ func TestNormalizeCdSuccessAndFailureOutcomes(t *testing.T) {
 	if err := os.WriteFile(notDir, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, target := range []string{missing, notDir} {
-		command := fmt.Sprintf(`cd /etc; cd %q; rm -rf .`, target)
-		got, err := Normalize(command, repo)
-		if err != nil {
-			t.Fatal(err)
-		}
-		last := got[len(got)-1]
-		if last.Cwd != "/etc" || last.Unresolved {
-			t.Errorf("Normalize(%q) last = %+v, want known cwd /etc", command, last)
+	// /etc is only probeable on POSIX hosts.  On Windows cdDirectoryState
+	// correctly returns cdDirectoryUnknown for POSIX-absolute paths, so
+	// the expected cwd-tracking behavior only holds on Unix/macOS.
+	if runtime.GOOS != "windows" {
+		for _, target := range []string{missing, notDir} {
+			command := fmt.Sprintf(`cd /etc; cd %q; rm -rf .`, target)
+			got, err := Normalize(command, repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			last := got[len(got)-1]
+			if last.Cwd != "/etc" || last.Unresolved {
+				t.Errorf("Normalize(%q) last = %+v, want known cwd /etc", command, last)
+			}
 		}
 	}
 
@@ -3167,8 +3175,12 @@ func TestNormalizeEvalUsesCurrentShellState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if last := got[len(got)-1]; last.Cwd != "/etc" || last.Unresolved {
-		t.Fatalf("eval cd last = %+v, want cwd /etc", last)
+	// /etc is only probeable on POSIX hosts; on Windows the normalizer
+	// correctly returns cdDirectoryUnknown for POSIX-absolute paths.
+	if runtime.GOOS != "windows" {
+		if last := got[len(got)-1]; last.Cwd != "/etc" || last.Unresolved {
+			t.Fatalf("eval cd last = %+v, want cwd /etc", last)
+		}
 	}
 	foundRm := false
 	got, err = Normalize(`eval 'rm -rf /'`, "/repo")
@@ -3240,8 +3252,12 @@ func TestNormalizeFunctionsOnlyWhenInvoked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if last := got[len(got)-1]; last.Cwd != "/etc" || last.Unresolved {
-		t.Fatalf("function cwd last = %+v, want /etc", last)
+	// /etc is only probeable on POSIX hosts; on Windows the normalizer
+	// correctly returns cdDirectoryUnknown for POSIX-absolute paths.
+	if runtime.GOOS != "windows" {
+		if last := got[len(got)-1]; last.Cwd != "/etc" || last.Unresolved {
+			t.Fatalf("function cwd last = %+v, want /etc", last)
+		}
 	}
 
 	for _, command := range []string{
@@ -3387,8 +3403,12 @@ func TestNormalizeRecursiveSourcesCarryCdPathEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if last := got[len(got)-1]; last.Cwd != "/etc/ssl" || last.Unresolved {
-		t.Fatalf("function CDPATH assignment last = %+v, want /etc/ssl", last)
+	// /etc/ssl is only probeable on POSIX hosts; on Windows cdDirectoryState
+	// correctly returns cdDirectoryUnknown for POSIX-absolute CDPATH entries.
+	if runtime.GOOS != "windows" {
+		if last := got[len(got)-1]; last.Cwd != "/etc/ssl" || last.Unresolved {
+			t.Fatalf("function CDPATH assignment last = %+v, want /etc/ssl", last)
+		}
 	}
 }
 
@@ -3561,18 +3581,22 @@ func TestUnknownTransitionsPreserveOrthogonalState(t *testing.T) {
 }
 
 func TestNormalizeParsesCommandAndBuiltinOptionsBeforeDispatch(t *testing.T) {
-	for _, command := range []string{
-		`command -- cd /etc; pwd`,
-		`command -p -- cd /etc; pwd`,
-		`command -- eval 'cd /etc'; pwd`,
-		`builtin -- cd /etc; pwd`,
-	} {
-		got, err := Normalize(command, "/repo")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if last := got[len(got)-1]; last.Cwd != "/etc" || last.Unresolved {
-			t.Errorf("Normalize(%q) last = %+v, want cwd /etc", command, last)
+	// /etc is only probeable on POSIX hosts; on Windows the normalizer
+	// correctly returns cdDirectoryUnknown for POSIX-absolute paths.
+	if runtime.GOOS != "windows" {
+		for _, command := range []string{
+			`command -- cd /etc; pwd`,
+			`command -p -- cd /etc; pwd`,
+			`command -- eval 'cd /etc'; pwd`,
+			`builtin -- cd /etc; pwd`,
+		} {
+			got, err := Normalize(command, "/repo")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if last := got[len(got)-1]; last.Cwd != "/etc" || last.Unresolved {
+				t.Errorf("Normalize(%q) last = %+v, want cwd /etc", command, last)
+			}
 		}
 	}
 
