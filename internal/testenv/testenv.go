@@ -3,6 +3,7 @@
 package testenv
 
 import (
+	"os"
 	"runtime"
 	"strings"
 )
@@ -73,6 +74,21 @@ func ExecutableName(base string) string {
 		return base
 	}
 	return base + ".exe"
+}
+
+// PathList joins test-owned executable directories into a host-valid PATH.
+// Windows accepts a semicolon inside a quoted PATH entry; without the quotes,
+// filepath.SplitList and exec.LookPath read it as two directories instead.
+func PathList(paths ...string) string {
+	entries := append([]string(nil), paths...)
+	if runtime.GOOS == "windows" {
+		for i, path := range entries {
+			if strings.ContainsRune(path, os.PathListSeparator) {
+				entries[i] = `"` + path + `"`
+			}
+		}
+	}
+	return strings.Join(entries, string(os.PathListSeparator))
 }
 
 // filepathExt is path/filepath.Ext without the import cycle risk of pulling

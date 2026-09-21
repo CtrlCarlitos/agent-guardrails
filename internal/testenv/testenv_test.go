@@ -2,6 +2,7 @@ package testenv
 
 import (
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 )
@@ -65,5 +66,13 @@ func TestExecutableNameIsIdempotentOnWindows(t *testing.T) {
 	}
 	if got := ExecutableName(ExecutableName("guardrail")); got != "guardrail.exe" {
 		t.Errorf("double application = %q, want %q", got, "guardrail.exe")
+	}
+}
+
+func TestPathListRoundTripsHostileExecutableDirectory(t *testing.T) {
+	want := filepath.Join(t.TempDir(), "bin with spaces;$(not-run)")
+	got := filepath.SplitList(PathList(want))
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("SplitList(PathList(%q)) = %q, want one exact entry", want, got)
 	}
 }

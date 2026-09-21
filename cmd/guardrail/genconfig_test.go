@@ -7,11 +7,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func writePathExecutable(t *testing.T, dir, name string) string {
 	t.Helper()
-	path := filepath.Join(dir, name)
+	path := filepath.Join(dir, testenv.ExecutableName(name))
 	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -21,11 +23,16 @@ func writePathExecutable(t *testing.T, dir, name string) string {
 func opencodeBinaryFixture(t *testing.T) (string, string) {
 	t.Helper()
 	binary := filepath.Join(t.TempDir(), "guardrail sentinel")
+	return binary, opencodeBinaryDeclaration(t, binary)
+}
+
+func opencodeBinaryDeclaration(t *testing.T, binary string) string {
+	t.Helper()
 	encoded, err := json.Marshal(binary)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return binary, "const GUARDRAIL_BIN = " + string(encoded) + ";"
+	return "const GUARDRAIL_BIN = " + string(encoded) + ";"
 }
 
 func TestGenConfigNoPlane(t *testing.T) {
@@ -241,7 +248,7 @@ func TestGenConfigOpencodeResolvesBareBinaryFromPATH(t *testing.T) {
 	}
 	binDir := t.TempDir()
 	wantBinary := writePathExecutable(t, binDir, "guardrail-sentinel")
-	t.Setenv("PATH", binDir)
+	t.Setenv("PATH", testenv.PathList(binDir))
 
 	var out, errb bytes.Buffer
 	code := run([]string{"gen-config", "opencode", "--merge", settings, "--binary", "guardrail-sentinel"}, strings.NewReader(""), &out, &errb)
@@ -252,7 +259,7 @@ func TestGenConfigOpencodeResolvesBareBinaryFromPATH(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(js), wantBinary) {
+	if !strings.Contains(string(js), opencodeBinaryDeclaration(t, wantBinary)) {
 		t.Fatalf("deployed plugin does not contain PATH-resolved binary %q:\n%s", wantBinary, js)
 	}
 }
