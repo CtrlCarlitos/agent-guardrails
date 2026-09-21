@@ -3,27 +3,12 @@
 package operatorauth
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"golang.org/x/sys/windows"
 )
-
-func validateLockFile(path string) error {
-	info, err := os.Lstat(path)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("inspect enrollment lock: %w", err)
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("enrollment lock is not a regular file")
-	}
-	return nil
-}
 
 // acquireEnrollmentLock holds an exclusive lock through initial-enrollment
 // reread and persistence via Windows LockFileEx. The file may remain after a
@@ -34,7 +19,9 @@ func acquireEnrollmentLock(dir string) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("open enrollment lock: %w", err)
 	}
-	if err := validateLockFile(path); err != nil {
+	// Use the shared validator (privatefs.ValidateFile → validateACL on Windows)
+	// to enforce owner-SID and deny broad-group ACEs, matching lock_unix.go.
+	if err := validateRegularFile(path); err != nil {
 		_ = file.Close()
 		return nil, fmt.Errorf("inspect enrollment lock: %w", err)
 	}
