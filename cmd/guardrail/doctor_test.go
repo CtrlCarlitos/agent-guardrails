@@ -117,9 +117,12 @@ func TestDoctorPrintsActiveNightBannerFirst(t *testing.T) {
 }
 
 func TestDoctorShowsEveryPolicyWarningOnceInMergeOrder(t *testing.T) {
-	testenv.SetHome(t, "/nonexistent/doctor-home")
-	testenv.SetConfig(t, "/nonexistent/doctor-config")
-	testenv.SetState(t, "/nonexistent/doctor-state")
+	homeRoot := filepath.Join(t.TempDir(), "doctor-home")
+	configRoot := filepath.Join(t.TempDir(), "doctor-config")
+	stateRoot := filepath.Join(t.TempDir(), "doctor-state")
+	testenv.SetHome(t, homeRoot)
+	testenv.SetConfig(t, configRoot)
+	testenv.SetState(t, stateRoot)
 	parent := t.TempDir()
 	dir := filepath.Join(parent, testenv.HostilePathSegment("repo\npolicy warnings:\nwaivers:\t\x7fdir"))
 	if err := os.Mkdir(dir, 0o755); err != nil {
@@ -147,6 +150,10 @@ egress_allowlist = ["*"]
 	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
+	reportedCWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		if err := os.Chdir(oldCWD); err != nil {
 			t.Errorf("restore cwd: %v", err)
@@ -158,17 +165,14 @@ egress_allowlist = ["*"]
 		t.Fatalf("doctor exit = %d, want 0; stderr=%q", code, errb.String())
 	}
 	got := out.String()
-	// cwd prints via os.Getwd (physically resolved on darwin:
-	// /private/var/...), while GUARDRAIL_CONFIG and the overlay path echo
-	// their raw sources. Build both spellings of the display strings.
-	resolvedParent := parent
-	if resolved, err := filepath.EvalSymlinks(parent); err == nil {
-		resolvedParent = resolved
-	}
+	// cwd prints via os.Getwd, whose host spelling can differ after chdir:
+	// Darwin physically resolves /private/var, and Windows can return an 8.3
+	// parent. GUARDRAIL_CONFIG and the overlay path echo their raw sources.
+	// Build both spellings while preserving the exact sanitized fixture name.
 	// The expected rendering follows the fixture: the colon is inert to the
 	// sanitizer and identical on both sides, so adapting it here changes only
 	// which harmless glyph appears, not what the sanitizer is asked to do.
-	displayCwd := filepath.Join(resolvedParent, testenv.HostilePathSegment("repo policy warnings: waivers: dir"))
+	displayCwd := filepath.Join(filepath.Dir(reportedCWD), testenv.HostilePathSegment("repo policy warnings: waivers: dir"))
 	displayDir := filepath.Join(parent, testenv.HostilePathSegment("repo policy warnings: waivers: dir"))
 	displayConfig := filepath.Join(displayDir, testenv.HostilePathSegment("guardrail policy warnings: waivers: .toml"))
 	for _, want := range []string{
@@ -180,7 +184,7 @@ egress_allowlist = ["*"]
 			t.Fatalf("doctor output must contain sanitized status line %q exactly once:\n%s", want, got)
 		}
 	}
-	operatorConfig := "/nonexistent/doctor-config/guardrail/waivers.toml"
+	operatorConfig := filepath.Join(configRoot, "guardrail", "waivers.toml")
 	want := []string{
 		"  - guardrail: repo requested safe_root /outside policy warnings: waivers: root outside the repository — DROPPED",
 		"  - guardrail: repo requested a wildcard egress_allowlist entry * — DROPPED",
