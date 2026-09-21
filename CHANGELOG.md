@@ -5,6 +5,15 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Fix (#184): Codex `collaboration.*` tools are classified by native name.**
+  Observed dotted identities (`collaboration.spawn_agent`,
+  `collaboration.send_message`, `collaboration.followup_task`,
+  `collaboration.interrupt_agent`, `collaboration.list_agents`,
+  `collaboration.wait_agent`) follow the same capability policy as the bare
+  names: spawn/send/followup stay denied delegation until child mediation is
+  proven; interrupt/list/wait stay safe-control. The unobserved spelling
+  `collaboration.resume_agent` is left unclassified. Windows Codex remains
+  registered-unenforced.
 - **CI's windows job can no longer hide a Windows test.** That job runs a fixed
   package list filtered by `-run 'Windows|BOM|ReadJSONObject'`, not the full
   suite, so a Windows test is invisible there unless its name matches *and* its

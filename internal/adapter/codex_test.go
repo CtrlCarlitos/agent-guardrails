@@ -31,7 +31,10 @@ func TestCodexNativeProjection(t *testing.T) {
 		{"spawn_agent", map[string]any{"message": "work"}, policy.CapabilityDelegation, "", ""},
 		{"collaboration.spawn_agent", map[string]any{"message": "work"}, policy.CapabilityDelegation, "", ""},
 		{"collaboration.send_message", map[string]any{"message": "hello"}, policy.CapabilityDelegation, "", ""},
-		{"collaboration.resume_agent", map[string]any{"agent_id": "a1"}, policy.CapabilityDelegation, "", ""},
+		{"collaboration.followup_task", map[string]any{"task": "work"}, policy.CapabilityDelegation, "", ""},
+		{"collaboration.interrupt_agent", map[string]any{"agent_id": "a1"}, policy.CapabilitySafeControl, "", ""},
+		{"collaboration.list_agents", map[string]any{}, policy.CapabilitySafeControl, "", ""},
+		{"collaboration.wait_agent", map[string]any{"agent_id": "a1"}, policy.CapabilitySafeControl, "", ""},
 		{"mcp__server__read", map[string]any{}, policy.CapabilityDeny, "", ""},
 		{"future_tool", map[string]any{}, policy.CapabilityUnknown, "", ""},
 	}
@@ -66,22 +69,51 @@ func TestCodexUnknownCannotBeWaivedByAuditPosture(t *testing.T) {
 	}
 }
 
-func TestCodexCollaborationSpawnAgentIsDelegationNotUnknown(t *testing.T) {
-	for _, tool := range []string{"collaboration.spawn_agent", "collaboration.send_message", "collaboration.resume_agent"} {
-		tc, err := ParseCodex(strings.NewReader(codexEnvelope(tool, map[string]any{"message": "work"})))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if tc.Capability != policy.CapabilityDelegation {
-			t.Fatalf("%s capability = %q, want delegation", tool, tc.Capability)
-		}
-		v := engine.Evaluate(tc, &policy.Policy{})
-		if v.Decision != policy.Deny || v.RuleID != "capability-delegation-unverified" {
-			t.Fatalf("%s verdict = %+v, want deny/capability-delegation-unverified", tool, v)
-		}
-		if v.RuleID == "unknown-native-tool" {
-			t.Fatalf("%s still unknown-native-tool", tool)
-		}
+func TestCodexCollaborationDottedIdentities(t *testing.T) {
+	cases := []struct {
+		tool       string
+		capability policy.Capability
+		decision   policy.Decision
+		ruleID     string
+	}{
+		{"collaboration.spawn_agent", policy.CapabilityDelegation, policy.Deny, "capability-delegation-unverified"},
+		{"collaboration.send_message", policy.CapabilityDelegation, policy.Deny, "capability-delegation-unverified"},
+		{"collaboration.followup_task", policy.CapabilityDelegation, policy.Deny, "capability-delegation-unverified"},
+		{"collaboration.interrupt_agent", policy.CapabilitySafeControl, policy.Allow, ""},
+		{"collaboration.list_agents", policy.CapabilitySafeControl, policy.Allow, ""},
+		{"collaboration.wait_agent", policy.CapabilitySafeControl, policy.Allow, ""},
+	}
+	for _, tt := range cases {
+		t.Run(tt.tool, func(t *testing.T) {
+			tc, err := ParseCodex(strings.NewReader(codexEnvelope(tt.tool, map[string]any{"message": "work"})))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.Capability != tt.capability {
+				t.Fatalf("capability = %q, want %q", tc.Capability, tt.capability)
+			}
+			v := engine.Evaluate(tc, &policy.Policy{})
+			if v.Decision != tt.decision || v.RuleID != tt.ruleID {
+				t.Fatalf("verdict = %+v, want decision=%s ruleID=%q", v, tt.decision, tt.ruleID)
+			}
+			if v.RuleID == "unknown-native-tool" {
+				t.Fatalf("%s still unknown-native-tool", tt.tool)
+			}
+		})
+	}
+}
+
+func TestCodexCollaborationResumeAgentStaysUnknownWithoutRuntimeEvidence(t *testing.T) {
+	tc, err := ParseCodex(strings.NewReader(codexEnvelope("collaboration.resume_agent", map[string]any{"agent_id": "a1"})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc.Capability != policy.CapabilityUnknown {
+		t.Fatalf("capability = %q, want unknown", tc.Capability)
+	}
+	v := engine.Evaluate(tc, &policy.Policy{})
+	if v.Decision != policy.Deny || v.RuleID != "unknown-native-tool" {
+		t.Fatalf("verdict = %+v, want deny/unknown-native-tool", v)
 	}
 }
 

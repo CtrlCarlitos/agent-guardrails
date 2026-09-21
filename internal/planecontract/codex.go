@@ -32,15 +32,20 @@ var codexTools = []ToolSpec{
 	{"followup_task", "followup_task", policy.CapabilityDelegation},
 	{"interrupt_agent", "interrupt_agent", policy.CapabilitySafeControl},
 	{"resume_agent", "resume_agent", policy.CapabilityDelegation},
-	// Codex collaboration.* is the live native spelling; the bare names
-	// above stay for the documented hook surface. Unlisted names fail
-	// closed as unknown-native-tool instead of the delegation guidance.
-	{"collaboration.spawn_agent", "collaboration.spawn_agent", policy.CapabilityDelegation},
-	{"collaboration.send_message", "collaboration.send_message", policy.CapabilityDelegation},
-	{"collaboration.resume_agent", "collaboration.resume_agent", policy.CapabilityDelegation},
 	{"wait_agent", "wait_agent", policy.CapabilitySafeControl},
 	{"close_agent", "close_agent", policy.CapabilitySafeControl},
 	{"list_agents", "list_agents", policy.CapabilitySafeControl},
+	// Codex collaboration.* is the live native spelling observed on the
+	// current runtime schema. Bare names above stay for the documented
+	// hook surface. collaboration.resume_agent is omitted: #184 listed it
+	// as a sibling, but it is not in the current schema and we have no
+	// captured hook payload for that spelling.
+	{"collaboration.spawn_agent", "collaboration.spawn_agent", policy.CapabilityDelegation},
+	{"collaboration.send_message", "collaboration.send_message", policy.CapabilityDelegation},
+	{"collaboration.followup_task", "collaboration.followup_task", policy.CapabilityDelegation},
+	{"collaboration.interrupt_agent", "collaboration.interrupt_agent", policy.CapabilitySafeControl},
+	{"collaboration.list_agents", "collaboration.list_agents", policy.CapabilitySafeControl},
+	{"collaboration.wait_agent", "collaboration.wait_agent", policy.CapabilitySafeControl},
 	{"list_mcp_resources", "list_mcp_resources", policy.CapabilityDeny},
 	{"list_mcp_resource_templates", "list_mcp_resource_templates", policy.CapabilityDeny},
 	{"read_mcp_resource", "read_mcp_resource", policy.CapabilityDeny},
