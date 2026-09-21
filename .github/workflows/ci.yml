@@ -61,6 +61,11 @@ jobs:
         # the selected-test name filter above.
         if: matrix.os == 'windows-latest'
         run: go test ./internal/approval/ ./internal/policy/
+      - name: windows portable hook tracking fixtures
+        # These assertions use host-native repository coordinates and must run
+        # on Windows as well as the POSIX hosts.
+        if: matrix.os == 'windows-latest'
+        run: go test ./cmd/guardrail/ -run 'Test(Trifecta|TrackingUnavailable|HookHashesNativeSessionID)'
       - name: gofmt
         if: matrix.os != 'windows-latest'
         run: |
