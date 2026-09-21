@@ -113,11 +113,20 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	// be renamed aside: rename the superseded binary out of the way, move
 	// the staged binary into the freed name, and leave the superseded copy
 	// for the next update's cleanup (it is unremovable while this process
-	// still runs from it).
+	// still runs from it). The rename can transiently fail while a scanner
+	// holds the fresh file from a prior cycle — bounded retry (#205 flake).
 	if runtime.GOOS == "windows" {
-		if err := os.Rename(exe, superseded); err != nil {
+		var asideErr error
+		for attempt := 0; attempt < 3; attempt++ {
+			asideErr = os.Rename(exe, superseded)
+			if asideErr == nil {
+				break
+			}
+			time.Sleep(time.Duration(250*(attempt+1)) * time.Millisecond)
+		}
+		if asideErr != nil {
 			_ = os.Remove(staged)
-			fmt.Fprintf(stderr, "guardrail: cannot set aside %s: %v\n", exe, err)
+			fmt.Fprintf(stderr, "guardrail: cannot set aside %s: %v\n", exe, asideErr)
 			return 1
 		}
 	}
