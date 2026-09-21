@@ -41,6 +41,14 @@ var (
 	ErrScope     = errors.New("approval scope does not match request")
 	ErrMalformed = errors.New("malformed approval request")
 
+	// ErrForeignServer means the process serving the approval endpoint is not
+	// running this binary. On Windows `\\.\pipe\` is a flat, world-creatable
+	// namespace: the owner-only DACL protects our pipe once it exists but does
+	// not reserve the name, so another local process can hold it first and
+	// answer in our place (#191). Callers must treat a reply from such a peer
+	// as unauthenticated and discard it.
+	ErrForeignServer = errors.New("approval endpoint is served by a different program")
+
 	actionsMu sync.RWMutex
 	actions   = map[string]func(Request) error{}
 )
