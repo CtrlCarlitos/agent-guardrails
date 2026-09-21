@@ -69,6 +69,14 @@ func TestExecutableNameIsIdempotentOnWindows(t *testing.T) {
 	}
 }
 
+func TestPathListRoundTripsHostileExecutableDirectory(t *testing.T) {
+	want := filepath.Join(t.TempDir(), "bin with spaces;$(not-run)")
+	got := filepath.SplitList(PathList(want))
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("SplitList(PathList(%q)) = %q, want one exact entry", want, got)
+	}
+}
+
 // The helper's whole contract is that the result can actually be created on
 // the running host. Asserting the substitution table would only restate the
 // code; creating the file is the property.

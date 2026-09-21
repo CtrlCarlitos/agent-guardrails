@@ -126,7 +126,7 @@ func TestSyncOpencodeResolvesBareBinaryFromPATH(t *testing.T) {
 	gitInitSync(t, dir)
 	binDir := t.TempDir()
 	wantBinary := writePathExecutable(t, binDir, "guardrail-sentinel")
-	t.Setenv("PATH", binDir)
+	t.Setenv("PATH", testenv.PathList(binDir))
 
 	var out, errb bytes.Buffer
 	code := run([]string{"sync", "--dir", dir, "--planes", "opencode", "--binary", "guardrail-sentinel"}, strings.NewReader(""), &out, &errb)
@@ -137,7 +137,7 @@ func TestSyncOpencodeResolvesBareBinaryFromPATH(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(js), wantBinary) {
+	if !strings.Contains(string(js), opencodeBinaryDeclaration(t, wantBinary)) {
 		t.Fatalf("synced plugin does not contain PATH-resolved binary %q:\n%s", wantBinary, js)
 	}
 }
@@ -150,7 +150,7 @@ func TestSyncMixedPlanesResolveBinaryOnlyForOpencode(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantBinary := writePathExecutable(t, binDir, "guardrail-sentinel")
-	t.Setenv("PATH", binDir)
+	t.Setenv("PATH", testenv.PathList(binDir))
 
 	var out, errb bytes.Buffer
 	code := run([]string{"sync", "--dir", dir, "--planes", "claude,opencode,antigravity", "--binary", "guardrail-sentinel"}, strings.NewReader(""), &out, &errb)
@@ -162,11 +162,7 @@ func TestSyncMixedPlanesResolveBinaryOnlyForOpencode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encodedBinary, err := json.Marshal(wantBinary)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantDeclaration := "const GUARDRAIL_BIN = " + string(encodedBinary) + ";"
+	wantDeclaration := opencodeBinaryDeclaration(t, wantBinary)
 	if !strings.Contains(string(plugin), wantDeclaration) {
 		t.Fatalf("OpenCode plugin does not pin the exact PATH result %q:\n%s", wantBinary, plugin)
 	}

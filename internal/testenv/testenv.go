@@ -3,6 +3,7 @@
 package testenv
 
 import (
+	"os"
 	"runtime"
 	"strings"
 )
@@ -75,6 +76,21 @@ func ExecutableName(base string) string {
 	return base + ".exe"
 }
 
+// PathList joins test-owned executable directories into a host-valid PATH.
+// Windows accepts a semicolon inside a quoted PATH entry; without the quotes,
+// filepath.SplitList and exec.LookPath read it as two directories instead.
+func PathList(paths ...string) string {
+	entries := append([]string(nil), paths...)
+	if runtime.GOOS == "windows" {
+		for i, path := range entries {
+			if strings.ContainsRune(path, os.PathListSeparator) {
+				entries[i] = `"` + path + `"`
+			}
+		}
+	}
+	return strings.Join(entries, string(os.PathListSeparator))
+}
+
 // filepathExt is path/filepath.Ext without the import cycle risk of pulling
 // filepath into a helper this small; it only ever sees a bare file name.
 func filepathExt(name string) string {
@@ -124,9 +140,10 @@ func ChildRootEnv(roots Roots) []string {
 // The ESC substitution is the faithful one rather than a convenience: U+009B
 // *is* the control-sequence introducer, so a Windows filename carrying it is
 // the same terminal-injection attack the POSIX fixture spells with ESC [.
+//
 // The punctuation below is a second, different category. None of it is
-// hostile to a report \u2014 it is inert, and the sanitizer passes it through
-// unchanged on every platform \u2014 but Windows reserves all of it in a filename,
+// hostile to a report -- it is inert, and the sanitizer passes it through
+// unchanged on every platform -- but Windows reserves all of it in a filename,
 // so a fixture spelling a forged `policy warnings:` line or a `synced x -> y`
 // status line cannot create the file at all. Each maps to a printable
 // look-alike that NTFS accepts (measured: every ASCII form below is rejected

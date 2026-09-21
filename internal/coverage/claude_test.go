@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 // A synthetic bundle with the two structures the scanner anchors on — a
@@ -107,7 +109,7 @@ func TestClaudeBundlePathResolvesSymlinkOnPATH(t *testing.T) {
 	if err := os.WriteFile(real, []byte(syntheticBundle), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(real, filepath.Join(dir, "claude")); err != nil {
+	if err := os.Symlink(real, filepath.Join(dir, testenv.ExecutableName("claude"))); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)

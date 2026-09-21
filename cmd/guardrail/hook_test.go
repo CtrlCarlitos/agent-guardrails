@@ -2340,10 +2340,10 @@ var tools=["Bash","Read","Write","Edit","Glob","Grep","NotebookEdit","WebFetch",
 func setClaudeBundle(t *testing.T, body string) {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(body), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, testenv.ExecutableName("claude")), []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", dir)
+	t.Setenv("PATH", testenv.PathList(dir))
 	t.Setenv("XDG_DATA_HOME", t.TempDir()) // never fall back to a real installer versions dir
 }
 

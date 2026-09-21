@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/privatefs"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 type sampleEntry struct {
@@ -100,7 +101,7 @@ func TestClaudeBundleVersionIsFoundDeepInACompiledBundle(t *testing.T) {
 func TestClaudeDriftScansOnceThenAnswersFromCache(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	dir := t.TempDir()
-	bundle := filepath.Join(dir, "claude")
+	bundle := filepath.Join(dir, testenv.ExecutableName("claude"))
 	if err := os.WriteFile(bundle, []byte(syntheticBundle), 0o755); err != nil {
 		t.Fatal(err)
 	}
