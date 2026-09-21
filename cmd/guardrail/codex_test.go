@@ -100,6 +100,7 @@ func TestCodexHookBlocksAskAndMalformedAndDelegation(t *testing.T) {
 	}{
 		{"Bash", map[string]any{"command": "chmod 777 file.txt"}, "cannot request approval"},
 		{"spawn_agent", map[string]any{"message": "work"}, "perform the work yourself"},
+		{"collaboration.spawn_agent", map[string]any{"message": "work"}, "perform the work yourself"},
 		{"future_tool", map[string]any{}, "unclassified"},
 		{"Bash", map[string]any{"command": 3}, "failing closed"},
 	} {

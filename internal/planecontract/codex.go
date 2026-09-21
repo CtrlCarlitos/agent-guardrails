@@ -32,6 +32,12 @@ var codexTools = []ToolSpec{
 	{"followup_task", "followup_task", policy.CapabilityDelegation},
 	{"interrupt_agent", "interrupt_agent", policy.CapabilitySafeControl},
 	{"resume_agent", "resume_agent", policy.CapabilityDelegation},
+	// Codex collaboration.* is the live native spelling; the bare names
+	// above stay for the documented hook surface. Unlisted names fail
+	// closed as unknown-native-tool instead of the delegation guidance.
+	{"collaboration.spawn_agent", "collaboration.spawn_agent", policy.CapabilityDelegation},
+	{"collaboration.send_message", "collaboration.send_message", policy.CapabilityDelegation},
+	{"collaboration.resume_agent", "collaboration.resume_agent", policy.CapabilityDelegation},
 	{"wait_agent", "wait_agent", policy.CapabilitySafeControl},
 	{"close_agent", "close_agent", policy.CapabilitySafeControl},
 	{"list_agents", "list_agents", policy.CapabilitySafeControl},
