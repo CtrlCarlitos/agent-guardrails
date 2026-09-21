@@ -81,7 +81,7 @@ jobs:
         # Expected diagnostics follow the host-native rendering of the real
         # hostile-path fixtures while preserving the full sanitization checks.
         if: matrix.os == 'windows-latest'
-        run: go test ./cmd/guardrail/ -run 'Test(DoctorSanitizesOperatorConfigError|DoctorShowsEveryPolicyWarningOnceInMergeOrder|HookSessionStartSanitizesOperatorConfigLoadError)'
+        run: go test ./cmd/guardrail/ -run 'Test(DoctorDoesNotTruncatePolicyWarningDispositions|DoctorSanitizesOperatorConfigError|DoctorShowsEveryPolicyWarningOnceInMergeOrder|HookSessionStartSanitizesOperatorConfigLoadError)'
       - name: windows portable adapter suite
         # Codex envelopes use host-absolute working directories, so every
         # capability and fail-closed assertion can run on Windows.

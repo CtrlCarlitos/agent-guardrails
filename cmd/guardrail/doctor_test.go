@@ -226,11 +226,13 @@ func TestDoctorDoesNotTruncatePolicyWarningDispositions(t *testing.T) {
 	home := t.TempDir()
 	testenv.SetHome(t, home)
 	configHome := filepath.Join(t.TempDir(), strings.Repeat("c", 180))
-	testenv.SetConfig(t, configHome)
 	testenv.SetState(t, filepath.Join(home, "state"))
 	dir := t.TempDir()
 	gitInitSync(t, dir)
-	longSafeRoot := "/outside/" + strings.Repeat("s", 220)
+	// Keep Git from probing <XDG_CONFIG_HOME>/git/config before the assertion:
+	// the deliberately long operator path is test input for Doctor, not Git.
+	testenv.SetConfig(t, configHome)
+	longSafeRoot := filepath.Join(t.TempDir(), strings.Repeat("s", 220))
 	longWaiver := "P6." + strings.Repeat("w", 220)
 	longSecret := strings.Repeat("x", 220)
 	longAudit := "/tmp/" + strings.Repeat("a", 220) + ".jsonl"
