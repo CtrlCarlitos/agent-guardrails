@@ -19,6 +19,13 @@ func head(argv []string) string {
 		return ""
 	}
 	name := strings.ToLower(path.Base(strings.ReplaceAll(argv[0], `\`, "/")))
+	// Win32 strips trailing dots and spaces during path resolution, so
+	// C:\bin\rm.exe. and "C:\bin\rm.exe " still run rm.exe. Drop those
+	// characters here so command-name rules cannot be evaded. Keep "."
+	// and ".." as themselves — TrimRight would otherwise empty them.
+	if trimmed := strings.TrimRight(name, ". "); trimmed != "" {
+		name = trimmed
+	}
 	return strings.TrimSuffix(name, ".exe")
 }
 

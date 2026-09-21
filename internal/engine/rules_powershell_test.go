@@ -59,6 +59,8 @@ func TestWindowsPowerShellRemoveItemRecursiveForceDenies(t *testing.T) {
 		`REMOVE-ITEM -RECURSE -FORCE ` + target,
 		// Separators and pipelines do not hide the operand.
 		`Get-Date; Remove-Item -Recurse -Force ` + target,
+		// Win32 trailing-dot spelling of the cmdlet name.
+		`Remove-Item. -Recurse -Force ` + target,
 	} {
 		v := evalPowerShell(t, cmd)
 		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
@@ -137,6 +139,7 @@ func TestWindowsPowerShellAliasesDoNotCapturePosixCommands(t *testing.T) {
 func TestWindowsPowerShellDiskDestroyersDeny(t *testing.T) {
 	for _, cmd := range []string{
 		`Format-Volume -DriveLetter C`,
+		`Format-Volume. -DriveLetter C`,
 		`Clear-Disk -Number 0 -RemoveData`,
 		`Remove-Partition -DiskNumber 0 -PartitionNumber 1`,
 		`Initialize-Disk -Number 0`,

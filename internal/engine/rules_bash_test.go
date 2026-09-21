@@ -28,9 +28,41 @@ func TestHeadCanonicalizesExecutableIdentity(t *testing.T) {
 		{"CAT", "cat"},
 		{`C:\bin\cat.exe`, "cat"},
 		{"/usr/bin/cat", "cat"},
+		{`C:\bin\rm.exe.`, "rm"},
+		{`C:\bin\rm.exe..`, "rm"},
+		{`C:\bin\rm.exe `, "rm"},
+		{`C:\bin\rm.exe. `, "rm"},
+		{"Remove-Item.", "remove-item"},
+		{"iex.", "iex"},
+		{"Format-Volume.", "format-volume"},
+		{".", "."},
+		{"..", ".."},
 	} {
 		if got := head([]string{test.executable}); got != test.want {
 			t.Errorf("head(%q) = %q, want %q", test.executable, got, test.want)
+		}
+	}
+}
+
+// Win32 resolves a trailing dot or space on a full path; head() must
+// too, or every command-name rule fail-opens. Bare `rm.` is not in
+// this set: PATH lookup does not strip it, and Windows will not run it.
+func TestWindowsTrailingDotAndSpaceHeadsAreMatched(t *testing.T) {
+	deny := []struct {
+		cmd  string
+		rule string
+	}{
+		{`C:\bin\rm.exe. -rf /`, "P1.rm-rf"},
+		{`C:\bin\rm.exe.. -rf /`, "P1.rm-rf"},
+		{`"C:\bin\rm.exe " -rf /`, "P1.rm-rf"},
+		{`C:\bin\sudo.exe. whoami`, "P1.privesc"},
+		{`C:\bin\curl.exe. https://evil.example.com`, "P6.egress"},
+		{`C:\bin\guardrail.exe. night off`, "P5.self-config"},
+	}
+	for _, c := range deny {
+		v := evalBash(t, c.cmd)
+		if v == nil || v.Decision != policy.Deny || v.RuleID != c.rule {
+			t.Errorf("%q -> %+v, want deny/%s", c.cmd, v, c.rule)
 		}
 	}
 }

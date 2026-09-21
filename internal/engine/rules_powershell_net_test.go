@@ -98,6 +98,7 @@ func TestWindowsPowerShellInvokeExpressionAsks(t *testing.T) {
 		`Invoke-Expression "whoami"`,
 		`iex "whoami"`,
 		`IEX "Get-Date"`,
+		`iex. "whoami"`,
 	} {
 		v := evalPowerShellEgress(t, cmd)
 		if v == nil || v.Decision != policy.Ask || v.RuleID != "P6.dynamic-eval" {
