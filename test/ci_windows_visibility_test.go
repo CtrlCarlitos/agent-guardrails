@@ -1,6 +1,8 @@
 package test
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -64,6 +66,15 @@ func goTestFiles(t *testing.T) map[string][]string {
 	root := ".."
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			// `go test ./...` runs every package concurrently, and a sibling
+			// package's test can create and remove a tree under the repo while
+			// this walk is in flight. A path that vanished between listing and
+			// visiting is not a Windows-visibility gap, so it must not fail the
+			// guard — this test failed once on ubuntu for exactly that and
+			// passed on re-run, which is the worst kind of guard.
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
 			return err
 		}
 		if info.IsDir() {
@@ -78,6 +89,9 @@ func goTestFiles(t *testing.T) map[string][]string {
 		}
 		body, err := os.ReadFile(path)
 		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil // same race, one step later
+			}
 			return err
 		}
 		if !buildsOnWindows(info.Name(), string(body)) {
