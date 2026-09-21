@@ -68,6 +68,9 @@ func TestClaudeContractFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if name == "serena-mcp-memory.json" || name == "write-claude-md.json" {
+				payload = bytes.ReplaceAll(payload, []byte("/tmp"), []byte(filepath.ToSlash(t.TempDir())))
+			}
 			roots := testenv.Roots{Home: t.TempDir(), Config: t.TempDir(), State: t.TempDir()}
 			cmd := exec.Command(bin, "hook", "claude")
 			cmd.Stdin = bytes.NewReader(payload)
@@ -230,14 +233,29 @@ func TestCodexContractFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			payload = bytes.ReplaceAll(payload, []byte("/repo"), []byte(t.TempDir()))
+			payload = bytes.ReplaceAll(payload, []byte("/repo"), []byte(filepath.ToSlash(t.TempDir())))
+			roots := testenv.Roots{Home: t.TempDir(), Config: t.TempDir(), State: t.TempDir()}
 			cmd := exec.Command(bin, "hook", "codex")
 			cmd.Stdin = bytes.NewReader(payload)
-			cmd.Env = append(os.Environ(), "XDG_STATE_HOME="+t.TempDir(), "GUARDRAIL_CONFIG=", "XDG_CONFIG_HOME="+t.TempDir(), "HOME="+t.TempDir())
+			cmd.Env = append(os.Environ(), testenv.ChildRootEnv(roots)...)
+			cmd.Env = append(cmd.Env, "GUARDRAIL_CONFIG=")
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
 			_ = cmd.Run()
+			wantExit := want.Exit
+			if runtime.GOOS == "windows" && name == "bash-ls.json" {
+				// Codex does not expose the runtime shell on Windows. An allowed
+				// command must therefore fail closed instead of receiving a POSIX
+				// updatedInput rewrite (#152, #157).
+				wantExit = 2
+			}
 			got := cmd.ProcessState.ExitCode()
-			if got != want.Exit {
-				t.Fatalf("%s: exit %d, want %d", name, got, want.Exit)
+			if got != wantExit {
+				t.Fatalf("%s: exit %d, want %d; stderr=%q", name, got, wantExit, stderr.String())
+			}
+			if runtime.GOOS == "windows" && name == "bash-ls.json" &&
+				!strings.Contains(stderr.String(), "cannot prove the Windows command shell") {
+				t.Fatalf("%s: missing fail-closed shell diagnostic; stderr=%q", name, stderr.String())
 			}
 		})
 	}

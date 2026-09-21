@@ -2,9 +2,11 @@ package test
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 )
 
@@ -60,7 +62,10 @@ func TestGenConfigAntigravityGolden(t *testing.T) {
 
 func TestGenConfigOpencodeGolden(t *testing.T) {
 	bin := buildBinary(t)
-	cmd := exec.Command(bin, "gen-config", "opencode", "--print", "--binary", "/usr/local/bin/guardrail", "--plugin-dir", "/usr/local/lib/guardrail")
+	hostRoot := filepath.VolumeName(t.TempDir()) + string(filepath.Separator)
+	binary := filepath.Join(hostRoot, "usr", "local", "bin", "guardrail")
+	pluginDir := filepath.Join(hostRoot, "usr", "local", "lib", "guardrail")
+	cmd := exec.Command(bin, "gen-config", "opencode", "--print", "--binary", binary, "--plugin-dir", pluginDir)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
@@ -76,6 +81,11 @@ func TestGenConfigOpencodeGolden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read golden (run with -update once): %v", err)
 	}
+	hostPluginPath, err := json.Marshal(filepath.Join(pluginDir, "guardrail.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = bytes.Replace(want, []byte(`"/usr/local/lib/guardrail/guardrail.js"`), hostPluginPath, 1)
 	if !bytes.Equal(want, out.Bytes()) {
 		t.Fatalf("gen-config opencode output drift.\n--- got ---\n%s\n--- want ---\n%s", out.String(), want)
 	}
