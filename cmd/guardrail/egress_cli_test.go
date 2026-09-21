@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func gitRepo(t *testing.T) string {
@@ -25,12 +25,7 @@ func gitRepo(t *testing.T) string {
 // LOCALAPPDATA on Windows.
 func setOperatorEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	if runtime.GOOS == "windows" {
-		t.Setenv("APPDATA", t.TempDir())
-		t.Setenv("LOCALAPPDATA", t.TempDir())
-	}
+	testenv.Sandbox(t)
 }
 
 func TestEgressIsAnOperatorActionOutsideATerminal(t *testing.T) {

@@ -16,7 +16,7 @@ func (daemonAuthStore) BeginApprovalAssertion(Request, string) (Assertion, error
 func (daemonAuthStore) FinishApprovalAssertion(string, []byte) error { return nil }
 
 func TestDaemonRejectsCompletionMessages(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := New()
 	request, err := broker.Create(Request{Plane: "opencode", SessionID: "completion-message", RepoRoot: "/repo", Scope: Allow, Reason: "test"})
 	if err != nil {
@@ -48,7 +48,7 @@ func TestDaemonRejectsCompletionMessages(t *testing.T) {
 }
 
 func TestDaemonSubmitRedactsSensitiveRequestDetails(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	socket := shortSocketPath(t)
 	daemon, err := StartDaemon(socket, New(), daemonAuthStore{}, func(string) error { return nil })
 	if err != nil {
@@ -72,7 +72,7 @@ func TestDaemonSubmitRedactsSensitiveRequestDetails(t *testing.T) {
 }
 
 func TestDaemonRejectsRequestWhenApprovalPageCannotBePresented(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := New()
 	socket := shortSocketPath(t)
 	daemon, err := StartDaemon(socket, broker, nil, func(string) error { return errors.New("presentation failed") })
@@ -90,7 +90,7 @@ func TestDaemonRejectsRequestWhenApprovalPageCannotBePresented(t *testing.T) {
 }
 
 func TestDaemonStatusRedactsSensitiveRequestDetails(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := New()
 	request, err := broker.Create(Request{Plane: "opencode", SessionID: "status-redaction", RepoRoot: "/secret/repo", Host: "secret.example", Scope: Allow, Reason: "secret reason", Action: "night-on", Parameters: map[string]string{"until": "08:00"}})
 	if err != nil {
@@ -119,7 +119,7 @@ func TestDaemonStatusRedactsSensitiveRequestDetails(t *testing.T) {
 }
 
 func TestDaemonRecoversInterruptedAction(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	action := "night-off"
 	RegisterAction(action, func(Request) error { return nil })
 	broker := New()
@@ -146,7 +146,7 @@ func TestDaemonRecoversInterruptedAction(t *testing.T) {
 }
 
 func TestFailedDaemonStartDoesNotRecoverLiveActions(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := New()
 	r, err := broker.Create(Request{Plane: "opencode", SessionID: "live-action", RepoRoot: "/repo", Scope: Allow, Reason: "test", Action: "night-off"})
 	if err != nil {

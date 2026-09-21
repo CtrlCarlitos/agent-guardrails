@@ -45,7 +45,7 @@ func (h *browserAssertionHarness) FinishApprovalAssertionAttribution(id string, 
 }
 
 func TestBrowserHandlerCompletesValidSignedAssertionOnce(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	harness := newBrowserAssertionHarness(t)
 	broker := approval.New()
 	calls := 0
@@ -104,7 +104,7 @@ func TestBrowserHandlerCompletesValidSignedAssertionOnce(t *testing.T) {
 }
 
 func TestBrowserClosesLoopbackAfterValidAssertion(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	harness := newBrowserAssertionHarness(t)
 	broker := approval.New()
 	approval.RegisterAction("night-on", func(approval.Request) error { return nil })

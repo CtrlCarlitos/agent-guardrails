@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 // operatorRepo is a repository path that is absolute on the running host.
@@ -32,12 +34,7 @@ func tomlRepoKey(path string) string {
 func writeOperatorConfig(t *testing.T, body string) {
 	t.Helper()
 	base := t.TempDir()
-	// Both roots, because operatorConfigDir reads APPDATA on Windows and
-	// XDG_CONFIG_HOME elsewhere. Setting only the POSIX one left these tests
-	// reading the real operator config on a Windows host — non-hermetic, and
-	// the reason ./internal/policy/ could not join the windows CI job.
-	t.Setenv("XDG_CONFIG_HOME", base)
-	t.Setenv("APPDATA", base)
+	testenv.SetConfig(t, base)
 	dir := filepath.Join(base, "guardrail")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -161,7 +158,7 @@ func TestOperatorConfigPathUsesAbsoluteWindowsConfigDirectory(t *testing.T) {
 }
 
 func TestOperatorConfigMissingIsEmptyNotError(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	o, err := LoadOperatorConfig()
 	if err != nil {
 		t.Fatalf("missing config must not error: %v", err)
@@ -347,7 +344,7 @@ func TestOperatorConfigMalformedReturnsEmptyConfigAndError(t *testing.T) {
 
 func TestOperatorConfigReadError(t *testing.T) {
 	base := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", base)
+	testenv.SetConfig(t, base)
 	path := filepath.Join(base, "guardrail", "waivers.toml")
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		t.Fatal(err)

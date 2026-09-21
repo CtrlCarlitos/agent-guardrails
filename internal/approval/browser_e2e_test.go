@@ -23,7 +23,7 @@ func (s *retryStore) FinishApprovalAssertion(string, []byte) error {
 }
 
 func TestBrowserRejectsMissingAssertionWithoutCompleting(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	request, err := broker.Create(request())
 	if err != nil {
@@ -53,7 +53,7 @@ func TestBrowserRejectsMissingAssertionWithoutCompleting(t *testing.T) {
 }
 
 func TestBrowserReissuesCeremonyAfterMalformedAssertion(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	request, err := broker.Create(request())
 	if err != nil {
@@ -87,7 +87,7 @@ func TestBrowserReissuesCeremonyAfterMalformedAssertion(t *testing.T) {
 }
 
 func TestBrowserDoesNotReissueCeremonyAfterFailedAssertion(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	request, err := broker.Create(request())
 	if err != nil {
@@ -129,7 +129,7 @@ func TestBrowserDoesNotReissueCeremonyAfterFailedAssertion(t *testing.T) {
 }
 
 func TestBrowserPagePresentsCanonicalRequest(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	request, err := broker.Create(request())
 	if err != nil {
@@ -162,7 +162,7 @@ func TestBrowserLoopbackFailurePath(t *testing.T) {
 	if err != nil {
 		t.Skip("agent-browser is not installed")
 	}
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	request, err := broker.Create(request())
 	if err != nil {

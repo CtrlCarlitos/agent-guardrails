@@ -31,7 +31,7 @@ func browserStore(t *testing.T) *operatorauth.Store {
 }
 
 func TestBrowserBindsOnlyLoopback(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	r, err := broker.Create(request())
 	if err != nil {
@@ -48,7 +48,7 @@ func TestBrowserBindsOnlyLoopback(t *testing.T) {
 }
 
 func TestBrowserNeverCompletesFromFormChoice(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	r, err := broker.Create(request())
 	if err != nil {
@@ -78,7 +78,7 @@ func TestBrowserNeverCompletesFromFormChoice(t *testing.T) {
 }
 
 func TestApproveConsumesExactUnexpiredRequestOnce(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	r, err := broker.Create(request())
 	if err != nil {
@@ -93,7 +93,7 @@ func TestApproveConsumesExactUnexpiredRequestOnce(t *testing.T) {
 }
 
 func TestApproveRejectsAChangedScope(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	r, err := broker.Create(request())
 	if err != nil {
@@ -105,7 +105,7 @@ func TestApproveRejectsAChangedScope(t *testing.T) {
 }
 
 func TestWebHostActionPreservesRequestedScopeAndHost(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	r := request()
 	r.Action = "web-host-grant"
@@ -122,7 +122,7 @@ func TestWebHostActionPreservesRequestedScopeAndHost(t *testing.T) {
 }
 
 func TestPlaneLifecycleActionAcceptsSupportedPlanes(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	r := request()
 	r.Action = "plane-disable"
@@ -143,7 +143,7 @@ func TestPlaneLifecycleActionAcceptsSupportedPlanes(t *testing.T) {
 }
 
 func TestPlaneLifecycleActionRejectsInvalidPlaneLists(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	for _, params := range []map[string]string{
 		{"planes": "claude,unsupported-plane"},
@@ -163,7 +163,7 @@ func TestPlaneLifecycleActionRejectsInvalidPlaneLists(t *testing.T) {
 }
 
 func TestApproveRejectsExpiredRequest(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	r := request()
 	r.ExpiresAt = time.Now().Add(-time.Second)
@@ -177,7 +177,7 @@ func TestApproveRejectsExpiredRequest(t *testing.T) {
 }
 
 func TestCreateRejectsAnOverlongExpiry(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	r := request()
 	r.ExpiresAt = time.Now().Add(time.Hour)
@@ -187,7 +187,7 @@ func TestCreateRejectsAnOverlongExpiry(t *testing.T) {
 }
 
 func TestCreateAssignsAndPersistsIssuedAt(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	r := request()
 	r.IssuedAt = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -209,7 +209,7 @@ func TestCreateAssignsAndPersistsIssuedAt(t *testing.T) {
 }
 
 func TestBrokerDoesNotPersistReasonOrRawNightParameters(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	r := request()
 	r.Reason = "super-secret-reason"
@@ -228,7 +228,7 @@ func TestBrokerDoesNotPersistReasonOrRawNightParameters(t *testing.T) {
 }
 
 func TestCreateCanonicalizesNightExpiryAndRejectsMalformedClock(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	request := request()
 	request.Action = "night-on"
@@ -258,7 +258,7 @@ func TestCreateCanonicalizesNightExpiryAndRejectsMalformedClock(t *testing.T) {
 }
 
 func TestWebHostActionAcceptsHostBatch(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	r := request()
 	r.Action = "web-host-grant"
@@ -278,7 +278,7 @@ func TestWebHostActionAcceptsHostBatch(t *testing.T) {
 }
 
 func TestWebHostActionRejectsInvalidBatches(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	for _, params := range []map[string]string{
 		{"scope": "repo", "hosts": ""},
@@ -298,7 +298,7 @@ func TestWebHostActionRejectsInvalidBatches(t *testing.T) {
 }
 
 func TestRecoverActionAcceptsKnownRepairs(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	for _, repair := range []string{"claude-settings", "opencode-config", "antigravity-hooks"} {
 		r := request()
@@ -317,7 +317,7 @@ func TestRecoverActionAcceptsKnownRepairs(t *testing.T) {
 }
 
 func TestRecoverActionRejectsUnknownRepairs(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setStateHome(t, t.TempDir())
 	broker := approval.New()
 	for _, params := range []map[string]string{
 		{"repair": "rm-rf"},
