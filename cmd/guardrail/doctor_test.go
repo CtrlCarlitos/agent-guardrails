@@ -81,12 +81,16 @@ func TestDoctorBasics(t *testing.T) {
 	}
 }
 
-func TestOperatorApprovalStatusIsWindowsFailClosed(t *testing.T) {
-	if got := operatorApprovalStatus(true, true); got != "operator approvals: disabled (Windows fail-closed)" {
-		t.Fatalf("windows status = %q", got)
-	}
-	if got := operatorApprovalStatus(false, true); got != "operator approvals: WebAuthn" {
+// TestOperatorApprovalStatusReportsEnrollmentOnEveryOS pins the ADR-0021
+// step (d) lift: enrollment is the truth on every platform — the Windows
+// fail-closed special case is gone, and the credential store's lock works
+// via LockFileEx (#175/#195).
+func TestOperatorApprovalStatusReportsEnrollmentOnEveryOS(t *testing.T) {
+	if got := operatorApprovalStatus(true); got != "operator approvals: WebAuthn" {
 		t.Fatalf("enrolled status = %q", got)
+	}
+	if got := operatorApprovalStatus(false); got != "operator approvals: disabled" {
+		t.Fatalf("unenrolled status = %q", got)
 	}
 }
 

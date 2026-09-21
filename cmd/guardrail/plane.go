@@ -225,10 +225,6 @@ func cmdPlaneLifecycle(args []string, action, outcome string, terminal bool, std
 	if !ok {
 		return 2
 	}
-	if runtime.GOOS == "windows" {
-		fmt.Fprintln(stderr, "guardrail: plane commands are unavailable on Windows")
-		return 2
-	}
 	if !terminal {
 		fmt.Fprintf(stderr, "guardrail: plane %s requires an interactive local terminal\n", verb)
 		return 2

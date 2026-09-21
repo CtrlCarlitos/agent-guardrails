@@ -23,16 +23,21 @@ type actionAuditJournal struct {
 }
 
 func actionAuditDir() (string, error) {
+	var base string
 	if runtime.GOOS == "windows" {
-		return "", errors.New("operator actions are unavailable on Windows")
-	}
-	base := os.Getenv("XDG_STATE_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
+		base = os.Getenv("LOCALAPPDATA")
+		if base == "" || !filepath.IsAbs(base) {
+			return "", errors.New("LOCALAPPDATA must be an absolute path")
 		}
-		base = filepath.Join(home, ".local", "state")
+	} else {
+		base = os.Getenv("XDG_STATE_HOME")
+		if base == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", err
+			}
+			base = filepath.Join(home, ".local", "state")
+		}
 	}
 	dir := filepath.Join(base, "guardrail", "action-audit")
 	if err := os.MkdirAll(dir, 0o700); err != nil {

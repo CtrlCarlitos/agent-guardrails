@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
@@ -84,10 +83,6 @@ func backupForRecovery(path string) error {
 func cmdRecover(args []string, terminal bool, stdout, stderr io.Writer) int {
 	if len(args) != 1 || recoverRepairs[args[0]] == "" {
 		fmt.Fprintln(stderr, "guardrail: recover needs one known repair (claude-settings, opencode-config, antigravity-hooks)")
-		return 2
-	}
-	if runtime.GOOS == "windows" {
-		fmt.Fprintln(stderr, "guardrail: recover is unavailable on Windows")
 		return 2
 	}
 	if !terminal {

@@ -9,7 +9,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"runtime"
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
@@ -25,10 +24,6 @@ func cmdOperator(args []string, terminal bool, stdin io.Reader, stdout, stderr i
 }
 
 func cmdOperatorInput(args []string, terminal bool, stdin io.Reader, stdout, stderr io.Writer) int {
-	if runtime.GOOS == "windows" {
-		fmt.Fprintln(stderr, "guardrail: operator approvals are unavailable on Windows")
-		return 2
-	}
 	if !terminal {
 		fmt.Fprintln(stderr, "guardrail: operator commands require an interactive local terminal")
 		return 2
