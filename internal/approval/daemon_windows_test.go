@@ -66,7 +66,7 @@ func TestWindowsPipeNameIndependentOfStateRootDepth(t *testing.T) {
 			t.Fatalf("pipe name %q lacks the \\\\.\\pipe\\ prefix", name)
 		}
 		if len(name) >= 256 {
-			t.Fatalf("pipe name %q exceeds the 256-byte named-pipe limit", len(name))
+			t.Fatalf("pipe name %q is %d bytes, at or over the 256-byte named-pipe limit", name, len(name))
 		}
 	}
 	if shallow == deep {
