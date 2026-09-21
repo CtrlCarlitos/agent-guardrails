@@ -110,12 +110,10 @@ func (s Store) writeGeneration(generation uint64) error {
 	if err := os.Rename(tmpPath, s.generationPath()); err != nil {
 		return fmt.Errorf("replace operator generation: %w", err)
 	}
-	parent, err := os.Open(dir)
-	if err != nil {
-		return fmt.Errorf("open operator directory: %w", err)
+	if err := syncDir(dir); err != nil {
+		return fmt.Errorf("sync operator directory: %w", err)
 	}
-	defer parent.Close()
-	return parent.Sync()
+	return nil
 }
 
 func (s Store) credentialDigest() ([32]byte, error) {
@@ -180,12 +178,7 @@ func (s Store) Replace(credentials []Credential) error {
 	if err := os.Rename(tmpPath, s.Path()); err != nil {
 		return fmt.Errorf("replace credential store: %w", err)
 	}
-	parent, err := os.Open(dir)
-	if err != nil {
-		return fmt.Errorf("open credential directory: %w", err)
-	}
-	defer parent.Close()
-	if err := parent.Sync(); err != nil {
+	if err := syncDir(dir); err != nil {
 		return fmt.Errorf("sync credential directory: %w", err)
 	}
 	return nil
@@ -264,12 +257,7 @@ func (s Store) ClearForRecovery() error {
 		if err := os.Remove(s.Path()); err != nil {
 			return fmt.Errorf("clear credential store: %w", err)
 		}
-		parent, err := os.Open(dir)
-		if err != nil {
-			return fmt.Errorf("open credential directory: %w", err)
-		}
-		defer parent.Close()
-		if err := parent.Sync(); err != nil {
+		if err := syncDir(dir); err != nil {
 			return fmt.Errorf("sync credential directory: %w", err)
 		}
 	}
