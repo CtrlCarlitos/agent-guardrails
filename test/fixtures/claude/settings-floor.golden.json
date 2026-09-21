@@ -62,6 +62,7 @@
       "Bash(git push * main)",
       "Bash(git push * master)",
       "Bash(git push --tags*)",
+      "Bash(git push * v[0-9]*)",
       "Bash(pip install *)",
       "Bash(pip3 install *)",
       "Bash(npm install *)",

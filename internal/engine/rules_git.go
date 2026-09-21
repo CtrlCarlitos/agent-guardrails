@@ -4,10 +4,40 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
+
+// versionShapedRefPattern matches a ref name that reads as a release pointer:
+// an optional v, then a dotted numeric version, then an optional pre-release
+// or build suffix. `v1`, `v1.0.0`, `1.2.3`, `v0.21.8-dev` and `v1.0.0+build.5`
+// match; `v-not-a-version`, `version-bump`, `vendor-update` and `release/next`
+// do not, because the character after the optional v has to be a digit.
+var versionShapedRefPattern = regexp.MustCompile(`^[vV]?[0-9]+(\.[0-9]+)*([-+.][0-9A-Za-z][0-9A-Za-z.-]*)?$`)
+
+// versionShapedRef reports whether a bare push destination looks like a
+// release pointer.
+//
+// This is a heuristic, and it is one on purpose. `git push origin v0.21.8-dev`
+// and `git push origin some-branch` are the same command shape — which one it
+// is depends on whether `refs/tags/v0.21.8-dev` exists in the repository, and
+// the Engine cannot find out: it is a pure function of the call it is handed,
+// it never execs and never reads the repository. Resolving the name would mean
+// running `git rev-parse` from a rule that runs on every tool call, which adds
+// a subprocess to the hot path, makes the verdict depend on state that can
+// change between the check and the push, and breaks the property that the same
+// call always produces the same verdict.
+//
+// So the name is classified on its own shape, and the error is taken on the
+// asking side: a branch named `v2.0.0` asks too. That trade is pinned by
+// TestGitPushVersionShapedBranchAsksAndThatIsTheTrade. The unambiguous case —
+// a destination spelled `refs/tags/…` — needs none of this and is handled
+// exactly (#218).
+func versionShapedRef(dst string) bool {
+	return dst != "" && versionShapedRefPattern.MatchString(dst)
+}
 
 func checkGitSafety(s Simple, tc ToolCall) *policy.Verdict {
 	if head(s.Argv) != "git" || len(s.Argv) < 2 {
@@ -90,7 +120,7 @@ func checkGitSafety(s Simple, tc ToolCall) *policy.Verdict {
 		if args.force || args.forceWithLease {
 			return nil // P1.git-push-force (checkGit) already denies this; don't duplicate
 		}
-		var forceRefspec, deleteRefspec string
+		var forceRefspec, deleteRefspec, tagRefspec string
 		protected := false
 		for _, a := range args.refspecs {
 			if strings.HasPrefix(a, "+") {
@@ -106,6 +136,21 @@ func checkGitSafety(s Simple, tc ToolCall) *policy.Verdict {
 			dst := a
 			if i := strings.LastIndex(a, ":"); i >= 0 {
 				dst = a[i+1:]
+			}
+			dst = strings.TrimPrefix(dst, "+")
+			switch {
+			case strings.HasPrefix(dst, "refs/tags/"):
+				// Unambiguous: the command text says it is a tag.
+				if tagRefspec == "" {
+					tagRefspec = a
+				}
+			case strings.HasPrefix(dst, "refs/"):
+				// Explicitly some other namespace — refs/heads/, refs/notes/ —
+				// so the version heuristic below must not claim it.
+			case versionShapedRef(dst):
+				if tagRefspec == "" {
+					tagRefspec = a
+				}
 			}
 			dst = strings.TrimPrefix(dst, "refs/heads/")
 			if dst == "main" || dst == "master" {
@@ -130,6 +175,10 @@ func checkGitSafety(s Simple, tc ToolCall) *policy.Verdict {
 		if args.tags {
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-push-protected",
 				Reason: "pushing tags can overwrite released versions"}
+		}
+		if tagRefspec != "" {
+			return &policy.Verdict{Decision: policy.Ask, RuleID: "P2.git-push-protected",
+				Reason: "publishes a release pointer: " + tagRefspec}
 		}
 	}
 	if unknown != "" {

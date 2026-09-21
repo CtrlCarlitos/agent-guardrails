@@ -13,6 +13,7 @@
       "git commit --amend*": "ask",
       "git push * main": "ask",
       "git push * master": "ask",
+      "git push * v[0-9]*": "ask",
       "git push --tags*": "ask",
       "git remote add *": "ask",
       "git remote set-url *": "ask",
