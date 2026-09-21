@@ -298,11 +298,15 @@ func TestSyncSanitizesEveryMergeWarningWithoutCapping(t *testing.T) {
 	for i := range 20 {
 		egress = append(egress, fmt.Sprintf("%q", fmt.Sprintf("host-%02d.example", i)))
 	}
+	// filepath.IsAbs follows host semantics, so a slash-rooted fixture would
+	// become repo-relative on Windows and would not exercise the dropped warning.
+	outsideSafeRoot := filepath.Join(filepath.VolumeName(dir)+string(filepath.Separator), "outside", "safe")
+	outsideSafeRoot = strings.ReplaceAll(outsideSafeRoot, `\`, `\\`)
 	overlay := `audit_log = "/outside/audit\nforged\tpath\u007f\u0080\u009b31m\u009f"
 waive = ["P1.rm-rf\nforged\twaiver\u007f\u0080\u009b31m\u009f"]
 
 [slots]
-safe_roots = ["/outside/safe\nforged\troot\u007f\u0080\u009b31m\u009f"]
+safe_roots = ["` + outsideSafeRoot + `\nforged\troot\u007f\u0080\u009b31m\u009f"]
 secret_allow = ["secret\nforged\tallow\u007f\u0080\u009b31m\u009f"]
 egress_allowlist = [` + strings.Join(egress, ", ") + "]\n"
 	if err := os.WriteFile(filepath.Join(dir, "guardrail.toml"), []byte(overlay), 0o644); err != nil {
