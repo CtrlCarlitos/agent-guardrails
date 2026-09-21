@@ -34,6 +34,32 @@ explicitly in **Breaking** notes.
   held name is refused anyway, so the defect was never silent acceptance but
   the misdiagnosis, which is what changed. The probe-to-create window remains
   open and is documented at the call site.
+- **Fix (#198): the adversarial corpus now actually runs on Windows.** The
+  harness built its probe binary as `guardrail` on every platform. Go does not
+  append the executable suffix when `-o` names a file, and Windows resolves
+  executables through PATHEXT, so the build produced a file that existed and
+  could not be started. Every case failed with `executable file not found in
+  %PATH%` quoting an absolute path that was right there on disk, which reads as
+  an environment fault rather than a missing suffix — and the 322-case hostile
+  corpus had therefore never executed on Windows at all, in CI or locally. A
+  second defect was hiding behind it: the harness passed `XDG_STATE_HOME` to
+  the spawned binary but not `LOCALAPPDATA`, so the child wrote its audit log
+  into the operator's real profile while the assertion read an empty temp
+  directory. Both suffix and root handling now come from `internal/testenv`
+  (`ExecutableName`, `ChildRootEnv`) rather than a local convention, which is
+  the shared helper #174 group D wants across the four packages with this
+  shape. `ExecutableName` is idempotent, because `guardrail.exe.exe` is a
+  different filename Windows will not run (measured in #178).
+  Result: **322 cases execute and 286 pass**, the first real Windows judgement
+  of the hostile spellings. The remaining 36 are *not* guardrail gaps — every
+  one traces to a corpus fixture whose paths are POSIX-absolute (`cwd: /repo`,
+  targets like `/etc` and `/`), which Windows reads as repo-relative, so a
+  delete that should land outside the repo lands inside it and is correctly
+  allowed. That is #174 group B fixture work and is deliberately not attempted
+  here: rewriting a 322-case security corpus alongside a harness fix is how a
+  verdict assertion gets quietly weakened. The package stays out of the Windows
+  CI job only because those POSIX-shaped fixtures still carry different path
+  semantics on Windows.
 - **Fix (#139): cmd.exe destructive builtins are now judged.** cmd spells its
   switches with a forward slash, so `del /s /q <dir>` reached the rules as an
   unrecognised command with three path operands and P1 never saw a recursive

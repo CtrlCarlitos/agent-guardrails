@@ -26,6 +26,7 @@ import (
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/recipe"
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/session"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -76,7 +77,10 @@ func buildAdversarialBinary(t *testing.T) string {
 		if adversarialBuildErr != nil {
 			return
 		}
-		adversarialBinary = filepath.Join(adversarialBuildDir, "guardrail")
+		// Windows resolves an executable through PATHEXT, and `go build -o`
+		// does not add the suffix when -o names a file, so an extensionless
+		// probe binary exists on disk and still cannot be run (#198).
+		adversarialBinary = filepath.Join(adversarialBuildDir, testenv.ExecutableName("guardrail"))
 		var attempts []string
 		for _, goBinary := range []string{"go", "/usr/local/go/bin/go"} {
 			out, err := exec.Command(goBinary, "build", "-o", adversarialBinary, "../../cmd/guardrail").CombinedOutput()
@@ -220,13 +224,13 @@ func TestAdversarialCorpus(t *testing.T) {
 					cmd.Env = append(cmd.Env, variable)
 				}
 			}
-			cmd.Env = append(cmd.Env,
-				"HOME="+processHome,
-				"XDG_STATE_HOME="+stateHome,
-				"XDG_CONFIG_HOME="+configHome,
-				"APPDATA="+configHome,
-				"GUARDRAIL_CONFIG="+config,
-			)
+			// The Windows names have to travel with the XDG ones: without
+			// LOCALAPPDATA the child writes its audit log into the operator's
+			// real profile and the assertion below reads an empty temp dir.
+			cmd.Env = append(cmd.Env, testenv.ChildRootEnv(testenv.Roots{
+				Home: processHome, Config: configHome, State: stateHome,
+			})...)
+			cmd.Env = append(cmd.Env, "GUARDRAIL_CONFIG="+config)
 			if actualHome != "" {
 				cmd.Env = append(cmd.Env, actualHomeEnvironment(runtime.GOOS, actualHome))
 			}
@@ -962,5 +966,36 @@ func TestRewriteLogicalRepoPathsIsExplicitAndTokenAware(t *testing.T) {
 	enabled.Command = `echo "unterminated`
 	if _, err := rewriteLogicalRepoPaths(enabled, physicalRoot); err == nil {
 		t.Fatal("malformed opted-in command returned nil error")
+	}
+}
+
+// The harness built its probe binary as `guardrail` on every platform, so on
+// Windows it produced a file that exists and cannot be executed: Go does not
+// append `.exe` when -o names a file, and Windows resolves executables through
+// PATHEXT. Every corpus case failed with `executable file not found in %PATH%`
+// naming an absolute path that was right there on disk, which reads as an
+// environment fault rather than a missing suffix — so the 322-case corpus had
+// never run on this platform at all (#198).
+//
+// This asserts the two halves directly, because a corpus failure reports the
+// verdict that did not happen rather than the reason the binary would not
+// start, and that indirection is what hid the defect.
+func TestAdversarialProbeBinaryIsExecutableOnThisHost(t *testing.T) {
+	bin := buildAdversarialBinary(t)
+
+	if _, err := os.Stat(bin); err != nil {
+		t.Fatalf("probe binary is not on disk: %v", err)
+	}
+	if runtime.GOOS == "windows" && !strings.EqualFold(filepath.Ext(bin), ".exe") {
+		t.Errorf("probe binary %q has no .exe suffix; Windows resolves executables through PATHEXT", bin)
+	}
+	// The property that actually matters: the OS will start it. exec reports a
+	// missing suffix and a missing file identically, so only running it tells
+	// the two apart.
+	if err := exec.Command(bin, "--help").Run(); err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("probe binary cannot be executed: %v", err)
+		}
 	}
 }
