@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -187,7 +188,11 @@ func TestOpencodePluginSourceRetainsDeploymentPlaceholder(t *testing.T) {
 
 func TestOpencodePluginForEscapesAndUsesExactBinaryPath(t *testing.T) {
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "guardrail\"\\\n\u2603\t")
+	name := "guardrail\"\\\n\u2603\t"
+	if runtime.GOOS == "windows" {
+		name = "guardrail path \u2603"
+	}
+	binary := writeOpencodeEngine(t, dir, name)
 	encoded, err := json.Marshal(binary)
 	if err != nil {
 		t.Fatal(err)
@@ -201,13 +206,6 @@ func TestOpencodePluginForEscapesAndUsesExactBinaryPath(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node is required to execute the generated OpenCode plugin")
-	}
-	fakeGuardrail := `#!/bin/sh
-IFS= read -r _ || :
-printf '%s' '{"decision":"allow","reason":"accepted"}'
-`
-	if err := os.WriteFile(binary, []byte(fakeGuardrail), 0o755); err != nil {
-		t.Fatal(err)
 	}
 	pluginPath := filepath.Join(dir, "guardrail.mjs")
 	if err := os.WriteFile(pluginPath, plugin, 0o644); err != nil {
@@ -224,6 +222,7 @@ await instance["tool.execute.before"](
 process.stdout.write("allowed");
 `
 	cmd := exec.Command(node, "--input-type=module", "--eval", runner, pluginPath)
+	cmd.Env = append(os.Environ(), opencodeHelperEnv+"=1")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("generated plugin did not use the exact adversarial path: %v\n%s", err, output)
@@ -240,16 +239,8 @@ func TestOpencodePluginCarriesCompleteArguments(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "guardrail")
+	binary := writeOpencodeEngine(t, dir, "guardrail")
 	capture := filepath.Join(dir, "stdin.jsonl")
-	fakeGuardrail := `#!/bin/sh
-IFS= read -r line || :
-printf '%s\n' "$line" >> "$GUARDRAIL_TEST_CAPTURE"
-printf '%s' '{"decision":"allow","reason":"accepted"}'
-`
-	if err := os.WriteFile(binary, []byte(fakeGuardrail), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	pluginPath := filepath.Join(dir, "guardrail.mjs")
 	if err := os.WriteFile(pluginPath, OpencodePluginFor(binary), 0o644); err != nil {
 		t.Fatal(err)
@@ -276,7 +267,7 @@ const before = plugin["tool.execute.before"];
 }
 `
 	cmd := exec.Command(node, "--input-type=module", "--eval", runner, pluginPath)
-	cmd.Env = append(os.Environ(), "GUARDRAIL_TEST_CAPTURE="+capture)
+	cmd.Env = append(os.Environ(), opencodeHelperEnv+"=1", "GUARDRAIL_TEST_CAPTURE="+capture)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generated plugin blocked an allowed tool call: %v\n%s", err, output)
 	}
@@ -348,23 +339,7 @@ func TestOpencodePluginRequiresExplicitAllow(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "guardrail")
-	fakeGuardrail := `#!/bin/sh
-IFS= read -r _ || :
-case "$GUARDRAIL_TEST_RESPONSE" in
-	allow) printf '%s' '{"decision":"allow","reason":"accepted"}' ;;
-	ask) printf '%s' '{"decision":"ask","reason":"Operator authorization required: external egress needs approval. Request authorization for this exact action: bash true. If the operator approves, retry this exact tool call within 10 minutes. If the authorization expires, stop and wait for the operator to return — say what you were doing and that approval expired; do not keep retrying. Do not alter or broaden the action."}' ;;
-	deny) printf '%s' '{"decision":"deny","reason":"Guardrail denied this action: protected target. It cannot be authorized. Choose a safe alternative."}' ;;
-	pending) printf '%s' '{"decision":"deny","operator_action":"night-on","request_id":"request-1","status":"pending","approval_url":"http://localhost:39169"}' ;;
-	pending-invalid) printf '%s' '{"decision":"deny","operator_action":"night-on","request_id":"request-1","status":"pending","approval_url":"https://example.test"}' ;;
-	unknown) printf '%s' '{"decision":"unexpected","reason":"bad verdict"}' ;;
-	empty) ;;
-	malformed) printf '%s' 'not-json' ;;
-esac
-`
-	if err := os.WriteFile(binary, []byte(fakeGuardrail), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	binary := writeOpencodeEngine(t, dir, "guardrail")
 	pluginPath := filepath.Join(dir, "guardrail.mjs")
 	if err := os.WriteFile(pluginPath, OpencodePluginFor(binary), 0o644); err != nil {
 		t.Fatal(err)
@@ -402,7 +377,7 @@ try {
 	for _, tt := range tests {
 		t.Run(tt.response, func(t *testing.T) {
 			cmd := exec.Command(node, "--input-type=module", "--eval", runner, pluginPath)
-			cmd.Env = append(os.Environ(), "GUARDRAIL_TEST_RESPONSE="+tt.response)
+			cmd.Env = append(os.Environ(), opencodeHelperEnv+"=1", "GUARDRAIL_TEST_RESPONSE="+tt.response)
 			output, err := cmd.CombinedOutput()
 			if tt.wantErr == "" {
 				if err != nil {
@@ -437,18 +412,7 @@ func TestOpencodePluginForwardsHookWarnings(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "guardrail")
-	fakeGuardrail := `#!/bin/sh
-IFS= read -r _ || :
-printf '%s\n' 'guardrail: session transaction committed but lock release failed (injected release forged claim)' >&2
-case "$GUARDRAIL_TEST_RESPONSE" in
-	allow) printf '%s' '{"decision":"allow","reason":"accepted"}' ;;
-	ask) printf '%s' '{"decision":"ask","reason":"Operator authorization required: external egress needs approval. Request authorization for this exact action: bash true. If the operator approves, retry this exact tool call within 10 minutes. If the authorization expires, stop and wait for the operator to return — say what you were doing and that approval expired; do not keep retrying. Do not alter or broaden the action."}' ;;
-esac
-`
-	if err := os.WriteFile(binary, []byte(fakeGuardrail), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	binary := writeOpencodeEngine(t, dir, "guardrail")
 	pluginPath := filepath.Join(dir, "guardrail.mjs")
 	if err := os.WriteFile(pluginPath, OpencodePluginFor(binary), 0o644); err != nil {
 		t.Fatal(err)
@@ -481,7 +445,7 @@ try {
 	} {
 		t.Run(tt.response, func(t *testing.T) {
 			cmd := exec.Command(node, "--input-type=module", "--eval", runner, pluginPath)
-			cmd.Env = append(os.Environ(), "GUARDRAIL_TEST_RESPONSE="+tt.response)
+			cmd.Env = append(os.Environ(), opencodeHelperEnv+"=1", "GUARDRAIL_TEST_RESPONSE="+tt.response, "GUARDRAIL_TEST_WARNING=1")
 			var stdout, stderr bytes.Buffer
 			cmd.Stdout = &stdout
 			cmd.Stderr = &stderr
@@ -511,14 +475,7 @@ func TestOpencodePluginSurfacesNightModeAllowReason(t *testing.T) {
 		t.Skip("node is required to exercise the embedded OpenCode plugin")
 	}
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "guardrail")
-	fakeGuardrail := `#!/bin/sh
-IFS= read -r _ || :
-printf '%s' '{"decision":"allow","reason":"NIGHT MODE until 2026-09-11T05:00:00Z; allowed by active night mode"}'
-`
-	if err := os.WriteFile(binary, []byte(fakeGuardrail), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	binary := writeOpencodeEngine(t, dir, "guardrail")
 	pluginPath := filepath.Join(dir, "guardrail.mjs")
 	if err := os.WriteFile(pluginPath, OpencodePluginFor(binary), 0o644); err != nil {
 		t.Fatal(err)
@@ -536,6 +493,7 @@ await plugin["tool.execute.before"](
 process.stdout.write(JSON.stringify(toast));
 `
 	cmd := exec.Command(node, "--input-type=module", "--eval", runner, pluginPath)
+	cmd.Env = append(os.Environ(), opencodeHelperEnv+"=1", "GUARDRAIL_TEST_RESPONSE=night")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("night-mode allow failed: %v\n%s", err, output)
@@ -552,15 +510,8 @@ func TestOpencodePluginRejectsOversizeEnvelopeBeforeSpawningEngine(t *testing.T)
 	}
 
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "guardrail")
+	binary := writeOpencodeEngine(t, dir, "guardrail")
 	invoked := filepath.Join(dir, "invoked")
-	fakeGuardrail := `#!/bin/sh
-printf '%s' invoked > "$GUARDRAIL_TEST_INVOKED"
-printf '%s' '{"decision":"allow","reason":"accepted"}'
-`
-	if err := os.WriteFile(binary, []byte(fakeGuardrail), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	pluginPath := filepath.Join(dir, "guardrail.mjs")
 	if err := os.WriteFile(pluginPath, OpencodePluginFor(binary), 0o644); err != nil {
 		t.Fatal(err)
@@ -582,7 +533,7 @@ try {
 }
 `
 	cmd := exec.Command(node, "--input-type=module", "--eval", runner, pluginPath)
-	cmd.Env = append(os.Environ(), "GUARDRAIL_TEST_INVOKED="+invoked)
+	cmd.Env = append(os.Environ(), opencodeHelperEnv+"=1", "GUARDRAIL_TEST_INVOKED="+invoked)
 	output, err := cmd.CombinedOutput()
 	exitErr, ok := err.(*exec.ExitError)
 	if !ok || exitErr.ExitCode() != 42 {
