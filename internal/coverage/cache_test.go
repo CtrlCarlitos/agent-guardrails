@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/privatefs"
 )
 
 type sampleEntry struct {
@@ -36,8 +38,8 @@ func TestCacheRoundTripIsKeyedOnPlaneAndVersion(t *testing.T) {
 	if _, err := os.Stat(want); err != nil {
 		t.Fatalf("cache file not at %s: %v", want, err)
 	}
-	if info, _ := os.Stat(want); info.Mode().Perm() != 0o600 {
-		t.Fatalf("cache mode = %v, want 0600", info.Mode().Perm())
+	if err := privatefs.ValidateFile(want); err != nil {
+		t.Fatalf("cache is not owner-only: %v", err)
 	}
 }
 

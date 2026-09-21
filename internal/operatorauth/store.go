@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/privatefs"
 )
 
 const (
@@ -367,18 +369,21 @@ func isBase64URL(value string) bool {
 }
 
 func ensurePrivateDir(path string, create bool) error {
-	info, err := os.Lstat(path)
+	_, err := os.Lstat(path)
 	if os.IsNotExist(err) && create {
 		if err := os.Mkdir(path, 0o700); err != nil {
 			return fmt.Errorf("create credential directory: %w", err)
 		}
-		info, err = os.Lstat(path)
+		if err := privatefs.SecureDir(path); err != nil {
+			return fmt.Errorf("secure credential directory: %w", err)
+		}
+		err = nil
 	}
 	if err != nil {
 		return fmt.Errorf("inspect credential directory: %w", err)
 	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("credential directory %q is not private", path)
+	if err := privatefs.ValidateDir(path); err != nil {
+		return fmt.Errorf("credential directory %q is not private: %w", path, err)
 	}
 	return nil
 }
@@ -395,15 +400,15 @@ func ensureDir(path string) error {
 }
 
 func validateRegularFile(path string) error {
-	info, err := os.Lstat(path)
+	_, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("inspect credential store: %w", err)
 	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
-		return errors.New("credential store is not a private regular file")
+	if err := privatefs.ValidateFile(path); err != nil {
+		return fmt.Errorf("credential store is not a private regular file: %w", err)
 	}
 	return nil
 }

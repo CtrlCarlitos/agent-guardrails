@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/privatefs"
 )
 
 // cacheKey admits plane and version keys that are safe as a file-name
@@ -64,6 +66,9 @@ func StoreCached(plane, version string, entry any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
+	if err := privatefs.SecureDir(filepath.Dir(path)); err != nil {
+		return err
+	}
 	raw, err := json.Marshal(entry)
 	if err != nil {
 		return err
@@ -84,5 +89,8 @@ func StoreCached(plane, version string, entry any) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), path)
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return err
+	}
+	return privatefs.ValidateFile(path)
 }
