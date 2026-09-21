@@ -5,6 +5,26 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Fix (#139): cmd.exe destructive builtins are now judged.** cmd spells its
+  switches with a forward slash, so `del /s /q <dir>` reached the rules as an
+  unrecognised command with three path operands and P1 never saw a recursive
+  delete; `rd /s /q C:\Windows\System32` allowed. Worse, `cmd /c "<command>"`
+  was not unwrapped the way `sh -c` already was, so the wrapper laundered every
+  verdict a plane could otherwise trip: `sh -c "rm -rf X"` denied while
+  `cmd /c "rm -rf X"` allowed. The cmd builtins are now projected onto the
+  POSIX command they stand for and handed to the rule that already owns it, so
+  `rm -rf`, `Remove-Item -Recurse` and `del /s` share one containment decision
+  and one waiver, and `cmd /c` / `cmd /k` unwrap alongside the POSIX shells.
+  `format` and `diskpart` join `P1.mkfs`. Semantics were measured on disposable
+  trees rather than assumed, and two measurements narrowed the rule: `rd <dir>`
+  without `/s` fails on a non-empty directory, so it keeps the existing
+  `P1.rmdir` ask instead of being read as a tree delete, and cmd rejects dash
+  switches outright, so `del -s -q` is not a shape to model. Switch names are
+  enumerated per command rather than accepting any `/token`, because a leading
+  slash is an absolute path on POSIX — reading `/etc` as an unknown switch
+  would have consumed the operand and left the delete with nothing to judge.
+  A `format` call counts only with a drive-letter operand or one of format's
+  own switches, so a POSIX code formatter of the same name is untouched.
 - **doctor's unquoted-space detection is structural, not a guess.** It asked
   whether the token after the first space carried a separator, which read
   `/home/u/my file hook claude` as safe — a gap #155 shipped with, named at
