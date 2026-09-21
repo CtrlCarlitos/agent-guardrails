@@ -170,6 +170,31 @@ The latter is what causes `cd /etc && rm -rf .` to Allow on Windows.
   in ToolCall must be Win32 absolute paths on a Windows host.
 - `hostCanProbe` is a new build-tag file pair; adds one small file per OS.
 
+### Accepted narrowing — Git Bash / MSYS2 POSIX-absolute drive paths
+
+`hostCanProbe` returns `false` for **all** POSIX-absolute paths on Windows,
+including Git Bash / MSYS2 drive-mapped forms such as `/c/repo/src`. A guardrail
+session running under Git Bash will therefore receive `cdDirectoryUnknown` for
+every `cd /c/…` target, causing the tail to be evaluated at an unknown cwd
+(non-allow / conservative ask) rather than allowing through.
+
+This is an **accepted narrowing, not a defect**:
+
+- The safe direction is preserved: the tail never silently Allows on a path
+  the host cannot verify.
+- The MSYS root mapping (`/c` → `C:\`) is environment-specific (Git Bash,
+  Cygwin, WSL with interop, etc.) and requires an active mount table lookup.
+  Encoding that in the engine couples the analyzer to a runtime dependency
+  it does not otherwise have.
+- A future ADR may extend `hostCanProbe` with an optional MSYS mount resolver
+  injected at construction time. Until then the fail-closed behavior is the
+  correct stance.
+
+If a Git Bash user reports that all absolute `cd` targets produce ask verdicts,
+the expected response is: "this is intentional — the guardrail cannot verify
+POSIX-drive paths on Windows without an MSYS mount table; use Win32 paths
+(`C:\repo`) in the `CWD` and `RepoRoot` fields of the tool call."
+
 ### Non-goal (explicit)
 NUL (Windows null device) is **not** in the redirect exemption list. The
 input being analyzed is Bash shell text; a Bash agent on Windows would still
