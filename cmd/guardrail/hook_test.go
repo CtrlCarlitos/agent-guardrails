@@ -85,6 +85,33 @@ func overlayWithWaivers(count int) string {
 	return "waive = [" + strings.Join(waivers, ", ") + "]\n"
 }
 
+func hostTestRepo(t *testing.T) string {
+	t.Helper()
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return repo
+}
+
+func claudeHookEnvelope(t *testing.T, sessionID, cwd, tool string, input map[string]any) string {
+	t.Helper()
+	envelope := map[string]any{
+		"cwd":             cwd,
+		"hook_event_name": "PreToolUse",
+		"tool_name":       tool,
+		"tool_input":      input,
+	}
+	if sessionID != "" {
+		envelope["session_id"] = sessionID
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
 func authorizeOperatorWaivers(t *testing.T, repo string, ids ...string) {
 	t.Helper()
 	configHome := t.TempDir()
@@ -103,7 +130,7 @@ func authorizeOperatorWaivers(t *testing.T, repo string, ids ...string) {
 	}
 }
 
-func configureTrackingPolicy(t *testing.T, waivers ...string) {
+func configureTrackingPolicy(t *testing.T, repo string, waivers ...string) {
 	t.Helper()
 	configHome := t.TempDir()
 	testenv.SetConfig(t, configHome)
@@ -115,7 +142,7 @@ func configureTrackingPolicy(t *testing.T, waivers ...string) {
 	for i, waiver := range waivers {
 		quoted[i] = fmt.Sprintf("%q", waiver)
 	}
-	operator := fmt.Sprintf("[\"/tmp\"]\nwaive = [%s]\negress_allowlist = [\"api.example.com\"]\n", strings.Join(quoted, ", "))
+	operator := fmt.Sprintf("[%q]\nwaive = [%s]\negress_allowlist = [\"api.example.com\"]\n", repo, strings.Join(quoted, ", "))
 	if err := os.WriteFile(filepath.Join(dir, "waivers.toml"), []byte(operator), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -904,19 +931,20 @@ func TestHookLateAuditWarningCannotExceedCumulativeCap(t *testing.T) {
 
 func TestTrifectaEscalatesAcrossTwoCalls(t *testing.T) {
 	testenv.SetState(t, t.TempDir())
-	authorizeOperatorWaivers(t, "/tmp", "P4.secret-path")
+	repo := hostTestRepo(t)
+	authorizeOperatorWaivers(t, repo, "P4.secret-path")
 	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
 	os.WriteFile(cfg, []byte("waive = [\"P4.secret-path\"]\n"), 0o644)
 	t.Setenv("GUARDRAIL_CONFIG", cfg)
 
 	sid := "trifecta-sess-1"
-	readPayload := `{"session_id":"` + sid + `","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/tmp/.env"}}`
+	readPayload := claudeHookEnvelope(t, sid, repo, "Read", map[string]any{"file_path": filepath.Join(repo, ".env")})
 	var out1, err1 bytes.Buffer
 	if code := run([]string{"hook", "claude"}, strings.NewReader(readPayload), &out1, &err1); code != 0 {
 		t.Fatalf("first call (waived secret read): exit %d, want 0; stderr=%s", code, err1.String())
 	}
 
-	curlPayload := `{"session_id":"` + sid + `","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl http://localhost:9999/x"}}`
+	curlPayload := claudeHookEnvelope(t, sid, repo, "Bash", map[string]any{"command": "curl http://localhost:9999/x"})
 	var out2, err2 bytes.Buffer
 	code2 := run([]string{"hook", "claude"}, strings.NewReader(curlPayload), &out2, &err2)
 	if code2 != 0 {
@@ -929,18 +957,19 @@ func TestTrifectaEscalatesAcrossTwoCalls(t *testing.T) {
 
 func TestTrifectaWaivedIsSilent(t *testing.T) {
 	testenv.SetState(t, t.TempDir())
-	authorizeOperatorWaivers(t, "/tmp", "P4.secret-path", "P7.trifecta")
+	repo := hostTestRepo(t)
+	authorizeOperatorWaivers(t, repo, "P4.secret-path", "P7.trifecta")
 	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
 	os.WriteFile(cfg, []byte("waive = [\"P4.secret-path\", \"P7.trifecta\"]\n"), 0o644)
 	t.Setenv("GUARDRAIL_CONFIG", cfg)
 
 	sid := "waived-trifecta-sess"
-	readPayload := `{"session_id":"` + sid + `","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/tmp/.env"}}`
+	readPayload := claudeHookEnvelope(t, sid, repo, "Read", map[string]any{"file_path": filepath.Join(repo, ".env")})
 	var out1, err1 bytes.Buffer
 	if code := run([]string{"hook", "claude"}, strings.NewReader(readPayload), &out1, &err1); code != 0 {
 		t.Fatalf("first call: exit %d, want 0; stderr=%s", code, err1.String())
 	}
-	curlPayload := `{"session_id":"` + sid + `","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl http://localhost:9999/x"}}`
+	curlPayload := claudeHookEnvelope(t, sid, repo, "Bash", map[string]any{"command": "curl http://localhost:9999/x"})
 	var out2, err2 bytes.Buffer
 	if code := run([]string{"hook", "claude"}, strings.NewReader(curlPayload), &out2, &err2); code != 0 || strings.Contains(out2.String(), "trifecta") {
 		t.Fatalf("waived trifecta must stay silent: code=%d out=%s", code, out2.String())
@@ -960,20 +989,23 @@ func TestTrifectaSilentWithoutPriorSignal(t *testing.T) {
 
 func TestTrackingUnavailableAsksForMissingSessionSignal(t *testing.T) {
 	tests := []struct {
-		name     string
-		waivers  []string
-		tool     string
-		toolJSON string
+		name    string
+		waivers []string
+		tool    string
+		input   func(string) map[string]any
 	}{
-		{"network", nil, "Bash", `{"command":"curl https://api.example.com/x"}`},
-		{"private data", []string{"P4.secret-path"}, "Read", `{"file_path":"/tmp/.env"}`},
+		{"network", nil, "Bash", func(string) map[string]any { return map[string]any{"command": "curl https://api.example.com/x"} }},
+		{"private data", []string{"P4.secret-path"}, "Read", func(repo string) map[string]any {
+			return map[string]any{"file_path": filepath.Join(repo, ".env")}
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			stateHome := t.TempDir()
 			testenv.SetState(t, stateHome)
-			configureTrackingPolicy(t, test.waivers...)
-			payload := fmt.Sprintf(`{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":%q,"tool_input":%s}`, test.tool, test.toolJSON)
+			repo := hostTestRepo(t)
+			configureTrackingPolicy(t, repo, test.waivers...)
+			payload := claudeHookEnvelope(t, "", repo, test.tool, test.input(repo))
 			var out, errb bytes.Buffer
 			if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
 				t.Fatalf("signal without session ID: exit %d, want Ask exit 0; stderr=%s", code, errb.String())
@@ -994,23 +1026,26 @@ func TestTrackingUnavailableAsksForMissingSessionSignal(t *testing.T) {
 
 func TestTrackingUnavailableAsksWhenTransactionFails(t *testing.T) {
 	tests := []struct {
-		name     string
-		waivers  []string
-		tool     string
-		toolJSON string
+		name    string
+		waivers []string
+		tool    string
+		input   func(string) map[string]any
 	}{
-		{"network", nil, "Bash", `{"command":"curl https://api.example.com/x"}`},
-		{"private data", []string{"P4.secret-path"}, "Read", `{"file_path":"/tmp/.env"}`},
+		{"network", nil, "Bash", func(string) map[string]any { return map[string]any{"command": "curl https://api.example.com/x"} }},
+		{"private data", []string{"P4.secret-path"}, "Read", func(repo string) map[string]any {
+			return map[string]any{"file_path": filepath.Join(repo, ".env")}
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			configureTrackingPolicy(t, test.waivers...)
+			repo := hostTestRepo(t)
+			configureTrackingPolicy(t, repo, test.waivers...)
 			blocker := filepath.Join(t.TempDir(), "state-is-a-file")
 			if err := os.WriteFile(blocker, nil, 0o600); err != nil {
 				t.Fatal(err)
 			}
 			testenv.SetState(t, blocker)
-			payload := fmt.Sprintf(`{"session_id":"s1","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":%q,"tool_input":%s}`, test.tool, test.toolJSON)
+			payload := claudeHookEnvelope(t, "s1", repo, test.tool, test.input(repo))
 			var out, errb bytes.Buffer
 			if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
 				t.Fatalf("signal with failed transaction: exit %d, want Ask exit 0; stderr=%s", code, errb.String())
@@ -1025,8 +1060,9 @@ func TestTrackingUnavailableAsksWhenTransactionFails(t *testing.T) {
 func TestTrackingUnavailablePreservesUnderlyingVerdicts(t *testing.T) {
 	t.Run("Ask", func(t *testing.T) {
 		testenv.SetState(t, t.TempDir())
-		configureTrackingPolicy(t)
-		payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/tmp/cert.pem"}}`
+		repo := hostTestRepo(t)
+		configureTrackingPolicy(t, repo)
+		payload := claudeHookEnvelope(t, "", repo, "Read", map[string]any{"file_path": filepath.Join(repo, "cert.pem")})
 		var out, errb bytes.Buffer
 		if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
 			t.Fatalf("underlying Ask exit %d; stderr=%s", code, errb.String())
@@ -1038,8 +1074,9 @@ func TestTrackingUnavailablePreservesUnderlyingVerdicts(t *testing.T) {
 
 	t.Run("Deny", func(t *testing.T) {
 		testenv.SetState(t, t.TempDir())
-		configureTrackingPolicy(t)
-		payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/tmp/.ssh/id_rsa"}}`
+		repo := hostTestRepo(t)
+		configureTrackingPolicy(t, repo)
+		payload := claudeHookEnvelope(t, "", repo, "Read", map[string]any{"file_path": filepath.Join(repo, ".ssh", "id_rsa")})
 		var out, errb bytes.Buffer
 		if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 2 {
 			t.Fatalf("underlying Deny exit %d, want 2; stdout=%s stderr=%s", code, out.String(), errb.String())
@@ -1052,8 +1089,9 @@ func TestTrackingUnavailablePreservesUnderlyingVerdicts(t *testing.T) {
 
 func TestTrackingUnavailableDoesNotInterruptRoutineCall(t *testing.T) {
 	testenv.SetState(t, t.TempDir())
-	configureTrackingPolicy(t)
-	payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`
+	repo := hostTestRepo(t)
+	configureTrackingPolicy(t, repo)
+	payload := claudeHookEnvelope(t, "", repo, "Bash", map[string]any{"command": "ls"})
 	var out, errb bytes.Buffer
 	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 || out.Len() != 0 {
 		t.Fatalf("routine call without session ID changed: code=%d stdout=%s stderr=%s", code, out.String(), errb.String())
@@ -1062,8 +1100,9 @@ func TestTrackingUnavailableDoesNotInterruptRoutineCall(t *testing.T) {
 
 func TestTrackingUnavailableWaiverPreservesAllow(t *testing.T) {
 	testenv.SetState(t, t.TempDir())
-	configureTrackingPolicy(t, "P7.trifecta")
-	payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl https://api.example.com/x"}}`
+	repo := hostTestRepo(t)
+	configureTrackingPolicy(t, repo, "P7.trifecta")
+	payload := claudeHookEnvelope(t, "", repo, "Bash", map[string]any{"command": "curl https://api.example.com/x"})
 	var out, errb bytes.Buffer
 	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 || out.Len() != 0 {
 		t.Fatalf("waived tracking changed underlying Allow: code=%d stdout=%s stderr=%s", code, out.String(), errb.String())
@@ -1073,7 +1112,8 @@ func TestTrackingUnavailableWaiverPreservesAllow(t *testing.T) {
 func TestTrifectaWaiverSkipsSessionTransaction(t *testing.T) {
 	stateHome := t.TempDir()
 	testenv.SetState(t, stateHome)
-	configureTrackingPolicy(t, "P7.trifecta")
+	repo := hostTestRepo(t)
+	configureTrackingPolicy(t, repo, "P7.trifecta")
 	store := filepath.Join(stateHome, "guardrail", "sessions")
 	if err := os.MkdirAll(filepath.Dir(store), 0o700); err != nil {
 		t.Fatal(err)
@@ -1082,7 +1122,7 @@ func TestTrifectaWaiverSkipsSessionTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	payload := `{"session_id":"waived-session","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl https://api.example.com/x"}}`
+	payload := claudeHookEnvelope(t, "waived-session", repo, "Bash", map[string]any{"command": "curl https://api.example.com/x"})
 	var out, errb bytes.Buffer
 	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 || out.Len() != 0 {
 		t.Fatalf("waived tracking changed underlying Allow: code=%d stdout=%s stderr=%s", code, out.String(), errb.String())
@@ -1098,7 +1138,8 @@ func TestTrifectaWaiverSkipsSessionTransaction(t *testing.T) {
 func TestHookHashesNativeSessionID(t *testing.T) {
 	state := t.TempDir()
 	testenv.SetState(t, state)
-	authorizeOperatorWaivers(t, "/tmp", "P4.secret-path")
+	repo := hostTestRepo(t)
+	authorizeOperatorWaivers(t, repo, "P4.secret-path")
 	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
 	if err := os.WriteFile(cfg, []byte("waive = [\"P4.secret-path\"]\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -1106,7 +1147,7 @@ func TestHookHashesNativeSessionID(t *testing.T) {
 	t.Setenv("GUARDRAIL_CONFIG", cfg)
 
 	sid := "../unsafe"
-	readPayload := `{"session_id":"` + sid + `","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/tmp/.env"}}`
+	readPayload := claudeHookEnvelope(t, sid, repo, "Read", map[string]any{"file_path": filepath.Join(repo, ".env")})
 	var out1, err1 bytes.Buffer
 	if code := run([]string{"hook", "claude"}, strings.NewReader(readPayload), &out1, &err1); code != 0 {
 		t.Fatalf("first call: exit %d, want 0; stderr=%s", code, err1.String())
@@ -1115,7 +1156,7 @@ func TestHookHashesNativeSessionID(t *testing.T) {
 		t.Errorf("native session ID was rejected: %q", err1.String())
 	}
 
-	curlPayload := `{"session_id":"` + sid + `","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl http://localhost:9999/x"}}`
+	curlPayload := claudeHookEnvelope(t, sid, repo, "Bash", map[string]any{"command": "curl http://localhost:9999/x"})
 	var out2, err2 bytes.Buffer
 	if code := run([]string{"hook", "claude"}, strings.NewReader(curlPayload), &out2, &err2); code != 0 {
 		t.Fatalf("second call: exit %d, want 0; stderr=%s", code, err2.String())
