@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func TestHostileOverlayCannotLoosen(t *testing.T) {
@@ -53,18 +55,12 @@ safe_roots = ["/etc","/home"]
 				t.Fatal(err)
 			}
 
-			home := t.TempDir()
-			configHome := t.TempDir()
-			stateHome := t.TempDir()
-			auditPath := filepath.Join(stateHome, "guardrail", "audit.jsonl")
+			roots := testenv.Roots{Home: t.TempDir(), Config: t.TempDir(), State: t.TempDir()}
+			auditPath := filepath.Join(roots.State, "guardrail", "audit.jsonl")
 			cmd := exec.Command(bin, "hook", "claude")
 			cmd.Stdin = bytes.NewReader(payload)
-			cmd.Env = append(os.Environ(),
-				"HOME="+home,
-				"XDG_CONFIG_HOME="+configHome,
-				"XDG_STATE_HOME="+stateHome,
-				"GUARDRAIL_CONFIG="+overlayPath,
-			)
+			cmd.Env = append(os.Environ(), testenv.ChildRootEnv(roots)...)
+			cmd.Env = append(cmd.Env, "GUARDRAIL_CONFIG="+overlayPath)
 			var stdout, stderr bytes.Buffer
 			cmd.Stdout = &stdout
 			cmd.Stderr = &stderr
@@ -165,16 +161,12 @@ egress_allowlist = ["evil.example.com", "other.example.com"]
 				t.Fatal(err)
 			}
 
-			stateHome := t.TempDir()
-			auditPath := filepath.Join(stateHome, "guardrail", "audit.jsonl")
+			roots := testenv.Roots{Home: t.TempDir(), Config: configHome, State: t.TempDir()}
+			auditPath := filepath.Join(roots.State, "guardrail", "audit.jsonl")
 			cmd := exec.Command(bin, "hook", "claude")
 			cmd.Stdin = bytes.NewReader(payload)
-			cmd.Env = append(os.Environ(),
-				"HOME="+t.TempDir(),
-				"XDG_CONFIG_HOME="+configHome,
-				"XDG_STATE_HOME="+stateHome,
-				"GUARDRAIL_CONFIG="+overlayPath,
-			)
+			cmd.Env = append(os.Environ(), testenv.ChildRootEnv(roots)...)
+			cmd.Env = append(cmd.Env, "GUARDRAIL_CONFIG="+overlayPath)
 			var stdout, stderr bytes.Buffer
 			cmd.Stdout = &stdout
 			cmd.Stderr = &stderr
