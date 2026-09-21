@@ -5,6 +5,28 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **CI's windows job can no longer hide a Windows test.** That job runs a fixed
+  package list filtered by `-run 'Windows|BOM|ReadJSONObject'`, not the full
+  suite, so a Windows test is invisible there unless its name matches *and* its
+  package is listed. Both halves had been missed: eight PowerShell tests for
+  #111 would have run only on ubuntu and macos until they were renamed, and
+  `internal/policy` has carried two Windows-named tests the job never ran.
+  Two guards now read `ci.yml` itself — so they cannot drift from what CI does
+  — and assert that every Windows-named test file contributes a selected test,
+  and that every selected test lives in a package the job runs.
+  The guards respect build constraints, and a package deliberately outside
+  the job is exempted with a written reason rather than silently skipped —
+  `test/adversarial` is POSIX-shaped and its harness builds the probe binary
+  without a `.exe` suffix.
+- **`internal/policy` joins the Windows job, and its tests stop reading the
+  operator's real config.** `writeOperatorConfig` and three merge tests
+  sandboxed only `XDG_CONFIG_HOME`, but `operatorConfigDir` reads `APPDATA`
+  on Windows — so on a Windows host these tests were loading
+  `%APPDATA%\guardrail\waivers.toml`, the machine's actual operator grants.
+  Non-hermetic, and the reason the package could not join the job. With both
+  roots sandboxed and four grant paths spelled host-absolutely (grant matching
+  requires `filepath.IsAbs`, and `/repo` is absolute only on POSIX), all seven
+  filter-selected policy tests pass on Windows.
 - **Fix: `guardrail selftest` passes on a Windows host.** Both codex probes
   carried a hardcoded `/tmp` cwd, which is a relative path on Windows, so
   codex's fail-closed adapter rejected them as unparseable — the plane's

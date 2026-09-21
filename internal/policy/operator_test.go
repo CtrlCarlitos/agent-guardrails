@@ -3,14 +3,41 @@ package policy
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
 
+// operatorRepo is a repository path that is absolute on the running host.
+// Grant matching requires filepath.IsAbs for both the config key and the
+// queried repository (operator.go), and "/home/u/x" is absolute only on POSIX
+// — so a test written with POSIX paths asserts nothing on Windows except that
+// nothing matches. Keeping the shape host-appropriate is what lets
+// ./internal/policy/ join the windows CI job.
+func operatorRepo(elem ...string) string {
+	root := "/home/u"
+	if runtime.GOOS == "windows" {
+		root = `C:\home\u`
+	}
+	return filepath.Join(append([]string{root}, elem...)...)
+}
+
+// tomlRepoKey renders a repository path as a TOML table header. A literal
+// string (single quotes) is used so Windows separators are not escape
+// sequences.
+func tomlRepoKey(path string) string {
+	return "['" + path + "']"
+}
+
 func writeOperatorConfig(t *testing.T, body string) {
 	t.Helper()
 	base := t.TempDir()
+	// Both roots, because operatorConfigDir reads APPDATA on Windows and
+	// XDG_CONFIG_HOME elsewhere. Setting only the POSIX one left these tests
+	// reading the real operator config on a Windows host — non-hermetic, and
+	// the reason ./internal/policy/ could not join the windows CI job.
 	t.Setenv("XDG_CONFIG_HOME", base)
+	t.Setenv("APPDATA", base)
 	dir := filepath.Join(base, "guardrail")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -197,8 +224,8 @@ audit_log = true
 }
 
 func TestOperatorConfigEgressGrantRequiresExactEntryAndRepo(t *testing.T) {
-	writeOperatorConfig(t, `
-["/home/u/trusted/./"]
+	trusted := operatorRepo("trusted")
+	writeOperatorConfig(t, tomlRepoKey(filepath.Join(trusted, "."))+`
 egress_allowlist = ["api.example.com", "*.trusted.example"]
 `)
 	o, err := LoadOperatorConfig()
@@ -206,17 +233,23 @@ egress_allowlist = ["api.example.com", "*.trusted.example"]
 		t.Fatal(err)
 	}
 
+	uncleaned := filepath.Join(trusted, "..", "trusted")
 	for _, entry := range []string{"api.example.com", "*.trusted.example"} {
-		if !o.AllowsEgress("/home/u/trusted/../trusted", entry) {
+		if !o.AllowsEgress(uncleaned, entry) {
 			t.Errorf("exact egress entry %q was not authorized for cleaned repository path", entry)
 		}
 	}
 	for _, entry := range []string{"API.example.com", "api.example.com.", "trusted.example", "sub.trusted.example"} {
-		if o.AllowsEgress("/home/u/trusted", entry) {
+		if o.AllowsEgress(trusted, entry) {
 			t.Errorf("non-exact egress entry %q was authorized", entry)
 		}
 	}
-	for _, repo := range []string{"/home/u/trusted/subrepo", "/home/u/trusted-other", "/home/u/Trusted", "home/u/trusted"} {
+	for _, repo := range []string{
+		operatorRepo("trusted", "subrepo"),
+		operatorRepo("trusted-other"),
+		operatorRepo("Trusted"),
+		filepath.Join("home", "u", "trusted"), // relative: never absolute, never granted
+	} {
 		if o.AllowsEgress(repo, "api.example.com") {
 			t.Errorf("egress grant crossed exact repository boundary to %q", repo)
 		}

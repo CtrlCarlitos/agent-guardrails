@@ -47,8 +47,14 @@ jobs:
         # engine suite stays out of this job. The egress tests exercise the
         # Windows allowance-journal ACLs (ADR-0021 step c); the brokered
         # web-host action tests stay out until the step (d) gates lift.
+        # The package list and the filter are asserted against this line by
+        # TestWindowsSelectedTestsLiveInPackagesTheWindowsJobRuns and
+        # TestWindowsNamedTestFilesAreSelectedByTheWindowsJob: a Windows test
+        # is invisible here unless its name matches AND its package is listed,
+        # and both halves have been missed before. Add the package when you add
+        # the test.
         if: matrix.os == 'windows-latest'
-        run: go test ./internal/adapter/ ./internal/engine/ ./internal/genconfig/ ./internal/coverage/ ./internal/approval/ ./internal/operatorauth/ ./cmd/guardrail/ ./test/ -run 'Windows|BOM|ReadJSONObject|TestDefaultDaemon|Egress|Allowance'
+        run: go test ./internal/adapter/ ./internal/engine/ ./internal/genconfig/ ./internal/coverage/ ./internal/policy/ ./internal/approval/ ./internal/operatorauth/ ./cmd/guardrail/ ./test/ -run 'Windows|BOM|ReadJSONObject|TestDefaultDaemon|Egress|Allowance'
       - name: gofmt
         if: matrix.os != 'windows-latest'
         run: |
