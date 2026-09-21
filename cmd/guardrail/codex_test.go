@@ -11,6 +11,7 @@ import (
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func TestCodexLifecycleRoundTrip(t *testing.T) {
@@ -18,9 +19,9 @@ func TestCodexLifecycleRoundTrip(t *testing.T) {
 		t.Skip("operator actions are unavailable on Windows")
 	}
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	t.Setenv("CODEX_HOME", filepath.Join(home, "custom-codex"))
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	path, err := planeConfigPath("codex")
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +62,7 @@ func TestCodexWindowsStatusReportsRegisteredUnenforced(t *testing.T) {
 		t.Skip("Windows runtime dispatch boundary")
 	}
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	t.Setenv("CODEX_HOME", filepath.Join(home, "codex"))
 	path, err := planeConfigPath("codex")
 	if err != nil {
@@ -88,9 +89,9 @@ func TestCodexWindowsStatusReportsRegisteredUnenforced(t *testing.T) {
 }
 
 func TestCodexHookBlocksAskAndMalformedAndDelegation(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	cwd := t.TempDir()
 	for _, tt := range []struct {
@@ -114,7 +115,7 @@ func TestCodexHookBlocksAskAndMalformedAndDelegation(t *testing.T) {
 }
 
 func TestCodexSyncAndGenConfig(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	dir := t.TempDir()
 	var out, errb bytes.Buffer

@@ -12,6 +12,7 @@ import (
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func doctorOutputLines(output string) []string {
@@ -60,8 +61,8 @@ func doctorPolicyWarningBullets(t *testing.T, output string) []string {
 
 func TestDoctorBasics(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+	testenv.SetHome(t, home)
+	testenv.SetState(t, filepath.Join(home, "state"))
 	t.Setenv("GUARDRAIL_CONFIG", "")
 
 	var out, errb bytes.Buffer
@@ -90,9 +91,9 @@ func TestOperatorApprovalStatusIsWindowsFailClosed(t *testing.T) {
 }
 
 func TestDoctorPrintsActiveNightBannerFirst(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	path, err := night.DefaultPath()
 	if err != nil {
@@ -112,9 +113,9 @@ func TestDoctorPrintsActiveNightBannerFirst(t *testing.T) {
 }
 
 func TestDoctorShowsEveryPolicyWarningOnceInMergeOrder(t *testing.T) {
-	t.Setenv("HOME", "/nonexistent/doctor-home")
-	t.Setenv("XDG_CONFIG_HOME", "/nonexistent/doctor-config")
-	t.Setenv("XDG_STATE_HOME", "/nonexistent/doctor-state")
+	testenv.SetHome(t, "/nonexistent/doctor-home")
+	testenv.SetConfig(t, "/nonexistent/doctor-config")
+	testenv.SetState(t, "/nonexistent/doctor-state")
 	parent := t.TempDir()
 	dir := filepath.Join(parent, "repo\npolicy warnings:\nwaivers:\t\x7fdir")
 	if err := os.Mkdir(dir, 0o755); err != nil {
@@ -188,7 +189,7 @@ egress_allowlist = ["*"]
 }
 
 func TestDoctorStaleConfig(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.SetHome(t, t.TempDir())
 	missing := filepath.Join(t.TempDir(), strings.Repeat("m", 180), "missing\npolicy warnings:\nwaivers:\t\x7f.toml")
 	t.Setenv("GUARDRAIL_CONFIG", missing)
 	var out, errb bytes.Buffer
@@ -209,10 +210,10 @@ func TestDoctorStaleConfig(t *testing.T) {
 
 func TestDoctorDoesNotTruncatePolicyWarningDispositions(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	configHome := filepath.Join(t.TempDir(), strings.Repeat("c", 180))
-	t.Setenv("XDG_CONFIG_HOME", configHome)
-	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+	testenv.SetConfig(t, configHome)
+	testenv.SetState(t, filepath.Join(home, "state"))
 	dir := t.TempDir()
 	gitInitSync(t, dir)
 	longSafeRoot := "/outside/" + strings.Repeat("s", 220)
@@ -262,7 +263,7 @@ secret_allow = [%q]
 }
 
 func TestDoctorSanitizesOverlayParseErrorPath(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.SetHome(t, t.TempDir())
 	configDir := filepath.Join(t.TempDir(), strings.Repeat("a", 100), strings.Repeat("b", 100))
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -294,7 +295,7 @@ func TestDoctorSanitizesOverlayParseErrorPath(t *testing.T) {
 
 func TestDoctorSanitizesOperatorConfigError(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	configHome := filepath.Join(t.TempDir(), "config\npolicy warnings:\nwaivers:\t\x7fdir")
 	configDir := filepath.Join(configHome, "guardrail")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
@@ -303,7 +304,7 @@ func TestDoctorSanitizesOperatorConfigError(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(configDir, "waivers.toml"), []byte(`malformed = [`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("XDG_CONFIG_HOME", configHome)
+	testenv.SetConfig(t, configHome)
 	t.Setenv("GUARDRAIL_CONFIG", "")
 
 	var out, errb bytes.Buffer
@@ -319,11 +320,11 @@ func TestDoctorSanitizesOperatorConfigError(t *testing.T) {
 
 func TestDoctorSanitizesAuthorizedAuditPath(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	dir := t.TempDir()
 	gitInitSync(t, dir)
 	configHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configHome)
+	testenv.SetConfig(t, configHome)
 	configDir := filepath.Join(configHome, "guardrail")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -364,7 +365,7 @@ func TestDoctorSanitizesAuthorizedAuditPath(t *testing.T) {
 func TestDoctorUsesTopLevelRepoGrantFromSubdirectory(t *testing.T) {
 	_, sub := repoWithAuthorizedWaiver(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	oldCWD, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -401,7 +402,7 @@ func writeClaudeSettings(t *testing.T, home, body string) {
 
 func TestDoctorHookRegisteredByID(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	writeClaudeSettings(t, home, `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[{"type":"command","command":"/opt/guardrail hook claude"}]}]}}`)
 	var out, errb bytes.Buffer
@@ -413,7 +414,7 @@ func TestDoctorHookRegisteredByID(t *testing.T) {
 
 func TestDoctorHookNotRegistered(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	writeClaudeSettings(t, home, `{"theme":"dark"}`)
 	var out, errb bytes.Buffer
@@ -433,7 +434,7 @@ func TestDoctorHookNotRegistered(t *testing.T) {
 
 func TestDoctorWarnsOnUnmarkedEntry(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	writeClaudeSettings(t, home, `{"hooks":{"PreToolUse":[
 		{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[{"type":"command","command":"/x/guardrail hook claude"}]},
@@ -448,7 +449,7 @@ func TestDoctorWarnsOnUnmarkedEntry(t *testing.T) {
 
 func TestDoctorNoWarnWhenOnlyOwned(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	writeClaudeSettings(t, home, `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[{"type":"command","command":"/x/guardrail hook claude"}]}]}}`)
 	var out, errb bytes.Buffer
@@ -460,7 +461,7 @@ func TestDoctorNoWarnWhenOnlyOwned(t *testing.T) {
 
 func TestDoctorNoSettingsFile(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	var out, errb bytes.Buffer
 	run([]string{"doctor"}, strings.NewReader(""), &out, &errb)
@@ -471,9 +472,9 @@ func TestDoctorNoSettingsFile(t *testing.T) {
 
 func TestDoctorReportsEachPlaneLifecycleState(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, filepath.Join(home, ".config"))
+	testenv.SetState(t, t.TempDir())
 	writeClaudeSettings(t, home, `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[{"type":"command","command":"guardrail hook claude"}]}]}}`)
 	ocDir := filepath.Join(home, ".config", "opencode")
 	if err := os.MkdirAll(ocDir, 0o755); err != nil {
@@ -512,7 +513,7 @@ func writeAntigravityHooks(t *testing.T, home, body string) {
 
 func TestDoctorWarnsOnUnmarkedAntigravityEntry(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	writeAntigravityHooks(t, home, `{"guardrail":{"enabled":true,"PreToolUse":[
 		{"id":"guardrail-antigravity-pre","matcher":"*","hooks":[{"type":"command","command":"/x/guardrail hook antigravity pre"}]},
@@ -527,7 +528,7 @@ func TestDoctorWarnsOnUnmarkedAntigravityEntry(t *testing.T) {
 
 func TestDoctorWarnsOnAntigravityDrift(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	t.Setenv("GUARDRAIL_CONFIG", "")
 
 	// 1. Corrupted
@@ -561,9 +562,9 @@ var aliases={KillBash:"TaskStop",BashOutput:"TaskOutput",Brief:"SendUserMessage"
 
 func TestDoctorCoverageClaudeReportsUncontractedTools(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	testenv.SetHome(t, home)
+	testenv.SetState(t, filepath.Join(home, "state"))
+	testenv.SetConfig(t, filepath.Join(home, "config"))
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	bundle := filepath.Join(home, "claude-bundle")
 	if err := os.WriteFile(bundle, []byte(doctorCoverageBundle), 0o755); err != nil {
@@ -593,9 +594,9 @@ func TestDoctorCoverageClaudeReportsUncontractedTools(t *testing.T) {
 
 func TestDoctorCoverageClaudeFullCoverageExitsZero(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	testenv.SetHome(t, home)
+	testenv.SetState(t, filepath.Join(home, "state"))
+	testenv.SetConfig(t, filepath.Join(home, "config"))
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	bundle := filepath.Join(home, "claude-bundle")
 	if err := os.WriteFile(bundle, []byte(`var tools=["Bash","Read","Write","Edit","Glob"];`), 0o755); err != nil {
@@ -609,9 +610,9 @@ func TestDoctorCoverageClaudeFullCoverageExitsZero(t *testing.T) {
 
 func TestDoctorCoverageAntigravityReportsUncontractedTools(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	testenv.SetHome(t, home)
+	testenv.SetState(t, filepath.Join(home, "state"))
+	testenv.SetConfig(t, filepath.Join(home, "config"))
 	t.Setenv("GUARDRAIL_CONFIG", "")
 
 	configPath := filepath.Join(home, "mcp_config.json")
@@ -669,9 +670,9 @@ func TestDoctorCoverageAntigravityReportsUncontractedTools(t *testing.T) {
 
 func TestDoctorCoverageAntigravityFullCoverageExitsZero(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	testenv.SetHome(t, home)
+	testenv.SetState(t, filepath.Join(home, "state"))
+	testenv.SetConfig(t, filepath.Join(home, "config"))
 	t.Setenv("GUARDRAIL_CONFIG", "")
 
 	configPath := filepath.Join(home, "mcp_config.json")
@@ -739,8 +740,7 @@ func TestDoctorCoverageRejectsBadArguments(t *testing.T) {
 // than report "NOT registered" and send the operator to plane enable.
 func TestDoctorReadsBOMPrefixedClaudeSettings(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
+	testenv.SetHome(t, home)
 	body := append([]byte{0xEF, 0xBB, 0xBF}, []byte(`{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"*","hooks":[{"type":"command","command":"guardrail hook claude"}]}]}}`)...)
 	writeClaudeSettings(t, home, string(body))
 	if got := claudeSettingsState(); got != "guardrail hook registered" {
@@ -788,8 +788,7 @@ func TestWindowsDoctorRejectsAnUnspawnableHookCommand(t *testing.T) {
 // through a helper nobody calls.
 func TestWindowsDoctorReportsTheHazardInClaudeSettingsState(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testenv.SetHome(t, home)
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
 		t.Fatal(err)
 	}

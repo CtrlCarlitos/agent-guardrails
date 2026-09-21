@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/operatorauth"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func TestOperatorCommandsRequireLocalTerminal(t *testing.T) {
@@ -22,7 +23,7 @@ func TestOperatorCommandsRequireLocalTerminal(t *testing.T) {
 
 func TestRecoverResetRequiresConfirmationAndDisablesApprovals(t *testing.T) {
 	state := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", state)
+	testenv.SetState(t, state)
 	store := operatorauth.NewStore(filepath.Join(state, "guardrail"))
 	if err := os.MkdirAll(filepath.Dir(store.Path()), 0o700); err != nil {
 		t.Fatal(err)
@@ -65,7 +66,7 @@ func TestRecoverResetRequiresConfirmationAndDisablesApprovals(t *testing.T) {
 
 func TestRecoveryDoesNotClearCredentialsWhenRequestAuditFails(t *testing.T) {
 	state := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", state)
+	testenv.SetState(t, state)
 	store := operatorauth.NewStore(filepath.Join(state, "guardrail"))
 	if err := os.MkdirAll(filepath.Dir(store.Path()), 0o700); err != nil {
 		t.Fatal(err)
@@ -87,7 +88,7 @@ func TestRecoveryDoesNotClearCredentialsWhenRequestAuditFails(t *testing.T) {
 
 func TestCredentialManagementCommandsGateBeforeBrowserCeremony(t *testing.T) {
 	state := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", state)
+	testenv.SetState(t, state)
 	previous := runOperatorCeremonyFunc
 	var calls []string
 	runOperatorCeremonyFunc = func(_ *operatorauth.Store, operation, fingerprint string) error {

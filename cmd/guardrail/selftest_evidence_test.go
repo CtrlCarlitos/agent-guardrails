@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func TestSelftestCodexEvidence(t *testing.T) {
@@ -137,8 +139,7 @@ func writeCodexRollout(t *testing.T, root, sessionID string, started time.Time) 
 
 func TestSelftestEvidenceDoesNotRunProbes(t *testing.T) {
 	state := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", state)
-	t.Setenv("LOCALAPPDATA", state)
+	testenv.SetState(t, state)
 	t.Setenv("CODEX_HOME", filepath.Join(state, "codex"))
 	var out, errb bytes.Buffer
 	if code := cmdSelftest([]string{"--evidence", "codex"}, &out, &errb); code != 1 {
