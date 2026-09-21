@@ -14,6 +14,12 @@ import (
 // real settings through lifecycle, recover, or approval paths (the
 // guardrail.test-pollution lesson).
 func TestMain(m *testing.M) {
+	// Approval helpers intentionally share the parent's test-owned state root so
+	// separate processes can exercise one-shot approval consumption and locking.
+	if os.Getenv("GUARDRAIL_TEST_OPENCODE_APPROVAL_HELPER") == "1" {
+		os.Exit(m.Run())
+	}
+
 	env := &processTestEnv{}
 	testenv.Sandbox(env)
 	if env.err != nil {
