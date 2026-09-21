@@ -1,0 +1,48 @@
+# Paths where a change is dangerous in a way the diff does not show.
+#
+# This repository is public, so anyone may open a pull request from a fork.
+# Nobody outside has write access and nothing outside has ever merged — the
+# gate is review, and review is one person. This file is that person's
+# tripwire: GitHub marks a pull request as touching an owned path, so a small
+# diff in a security-bearing table cannot read as a routine change.
+#
+# It is not enforcement. With a single owner, CODEOWNERS cannot supply a
+# second pair of eyes; it supplies a label that says "read this one properly".
+# Treat a flagged pull request as one where the resolution path has to be
+# walked by hand, not skimmed.
+
+# Default: everything, so no path is silently unowned.
+*                           @CtrlCarlitos
+
+# The capability table. Each entry says what a plane's native tool *is* —
+# Command, Mutation, SafeControl, Delegation, Deny. Change one entry and a tool
+# stops being evaluated by the family that guards it, with no rule edited and
+# nothing in the diff that looks like a policy change. The highest-leverage
+# file in the repository for its size.
+/internal/planecontract/    @CtrlCarlitos
+
+# The rules themselves, and the tokenizer they read. A parse that shifts by one
+# word changes every verdict keyed on it (#178).
+/internal/engine/           @CtrlCarlitos
+
+# The shipped floor: secret globs, safe roots, egress allowlist. A widened glob
+# is a permission grant written as a config line.
+/internal/policy/base.toml  @CtrlCarlitos
+
+# Approval machinery: the broker, the named-pipe transport, WebAuthn
+# enrolment, and the private-file ACL checks those depend on. This is what
+# stands between an agent's request and an operator's consent.
+/internal/approval/         @CtrlCarlitos
+/internal/operatorauth/     @CtrlCarlitos
+/internal/privatefs/        @CtrlCarlitos
+
+# What the planes are told to run. genconfig emits the hook commands; a change
+# here can leave a floor registered and unspawnable, which reads green
+# everywhere else (#149).
+/internal/genconfig/        @CtrlCarlitos
+
+# CI decides whether any of the above is checked at all. The windows job in
+# particular selects tests by name and package, so a Windows test can be made
+# invisible by editing this file rather than the test (#163).
+/.github/workflows/         @CtrlCarlitos
+/.github/CODEOWNERS         @CtrlCarlitos
