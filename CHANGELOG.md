@@ -5,6 +5,30 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **The declarative floor now mediates the GitHub CLI.** `gh` is a shell
+  command that mutates state nothing in the working tree reflects: it merges
+  pull requests, cuts and deletes releases, dispatches workflows and deletes
+  repositories. None of that was on the floor, so with the Engine unreachable
+  (ADR-0022) those ran unmediated. `gh pr merge`, `gh release create|delete`
+  and `gh workflow run` now ask; `gh repo delete` denies. Reads stay allow --
+  `gh` is how the fleet checks CI, and prompting on every `gh pr view` trains
+  people to click through the prompts that matter. Both planes inherit the
+  entries from one source, because OpenCode rewrites the same two glob
+  functions Claude reads.
+  **The glob shape is load-bearing.** `*` does not cross a path separator in
+  the permission matcher, so the obvious `gh repo delete*` silently fails to
+  match `gh repo delete owner/repo` -- the single most likely spelling of the
+  command it exists to stop. Measured before it shipped rather than after; the
+  brace alternation `{,**}` matches the bare subcommand and any slash-bearing
+  argument, and a test fails if a bare trailing star reappears.
+  **`gh api` is only partly covered, and the limit is stated rather than
+  papered over.** The method lives in a flag, the endpoint carries slashes, and
+  no glob that catches `gh api repos/o/r -X POST` fails to also catch every
+  read: measured, the method-aware shapes reach 2 of 6 mutating spellings at
+  zero false positives, while the only shape reaching 6 of 6 also matches every
+  `gh api` view. So the floor asks for a method flag written *before* the
+  endpoint and leaves the rest to the Engine (#228), instead of claiming a
+  coverage it does not have.
 - **Fix (#218): publishing a tag now asks.** The floor and the Engine asked for
   `git push --tags`, `git push * main` and a deletion refspec, but a *named*
   tag push matched none of them: `git push origin v0.21.8-dev` allowed, and a
