@@ -33,9 +33,10 @@ func isolateNightConfig(t *testing.T) string {
 func TestNightRequestCompletesOnlyThroughBroker(t *testing.T) {
 	isolateNightConfig(t)
 	testenv.SetState(t, t.TempDir())
+	repo := hostTestRepo(t)
 	broker := approval.New()
 	r, err := broker.Create(approval.Request{
-		Plane: "opencode", SessionID: "night-request", RepoRoot: "/repo", Scope: approval.Allow,
+		Plane: "opencode", SessionID: "night-request", RepoRoot: repo, Scope: approval.Allow,
 		Reason: "canonical operator action", Action: "night-on", Parameters: map[string]string{"until": time.Now().Add(time.Hour).Format("15:04")},
 	})
 	if err != nil {

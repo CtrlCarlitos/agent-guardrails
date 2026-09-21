@@ -112,6 +112,35 @@ func claudeHookEnvelope(t *testing.T, sessionID, cwd, tool string, input map[str
 	return string(raw)
 }
 
+func nightControlHookEnvelope(t *testing.T, plane, cwd string) string {
+	t.Helper()
+	var envelope map[string]any
+	switch plane {
+	case "claude":
+		return claudeHookEnvelope(t, "night-broker", cwd, "Bash", map[string]any{"command": "guardrail night off"})
+	case "opencode":
+		envelope = map[string]any{
+			"session_id": "night-broker", "event": "pre", "tool": "bash",
+			"command": "guardrail night off", "cwd": cwd,
+		}
+	case "antigravity":
+		envelope = map[string]any{
+			"conversationId": "night-broker",
+			"toolCall": map[string]any{
+				"name": "run_command",
+				"args": map[string]any{"CommandLine": "guardrail night off", "Cwd": cwd},
+			},
+		}
+	default:
+		t.Fatalf("unsupported hook plane %q", plane)
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
 func authorizeOperatorWaivers(t *testing.T, repo string, ids ...string) {
 	t.Helper()
 	configHome := t.TempDir()
@@ -331,6 +360,7 @@ func TestHookMalformedNightMarkerKeepsNormalPostureAndWarns(t *testing.T) {
 }
 
 func TestHookNightModeFallsBackToAskWhenAuditFails(t *testing.T) {
+	repo := hostTestRepo(t)
 	configHome := t.TempDir()
 	testenv.SetConfig(t, configHome)
 	testenv.SetState(t, t.TempDir())
@@ -343,7 +373,8 @@ func TestHookNightModeFallsBackToAskWhenAuditFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	auditPath := filepath.Join(blocker, "audit.jsonl")
-	if err := os.WriteFile(filepath.Join(configDir, "waivers.toml"), []byte("[\"/tmp\"]\naudit_log = true\n"), 0o600); err != nil {
+	operator := fmt.Sprintf("[%q]\naudit_log = true\n", repo)
+	if err := os.WriteFile(filepath.Join(configDir, "waivers.toml"), []byte(operator), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	overlayPath := filepath.Join(t.TempDir(), "guardrail.toml")
@@ -353,7 +384,7 @@ func TestHookNightModeFallsBackToAskWhenAuditFails(t *testing.T) {
 	t.Setenv("GUARDRAIL_CONFIG", overlayPath)
 	enableNightForHook(t)
 
-	payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push origin main"}}`
+	payload := claudeHookEnvelope(t, "", repo, "Bash", map[string]any{"command": "git push origin main"})
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &stdout, &stderr); code != 0 {
 		t.Fatalf("exit = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
@@ -364,6 +395,7 @@ func TestHookNightModeFallsBackToAskWhenAuditFails(t *testing.T) {
 }
 
 func TestHookNightModeFallsBackToAskForNonRegularAuditDestination(t *testing.T) {
+	repo := hostTestRepo(t)
 	configHome := t.TempDir()
 	testenv.SetConfig(t, configHome)
 	testenv.SetState(t, t.TempDir())
@@ -371,7 +403,8 @@ func TestHookNightModeFallsBackToAskForNonRegularAuditDestination(t *testing.T) 
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(configDir, "waivers.toml"), []byte("[\"/tmp\"]\naudit_log = true\n"), 0o600); err != nil {
+	operator := fmt.Sprintf("[%q]\naudit_log = true\n", repo)
+	if err := os.WriteFile(filepath.Join(configDir, "waivers.toml"), []byte(operator), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	overlayPath := filepath.Join(t.TempDir(), "guardrail.toml")
@@ -381,7 +414,7 @@ func TestHookNightModeFallsBackToAskForNonRegularAuditDestination(t *testing.T) 
 	t.Setenv("GUARDRAIL_CONFIG", overlayPath)
 	enableNightForHook(t)
 
-	payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push origin main"}}`
+	payload := claudeHookEnvelope(t, "", repo, "Bash", map[string]any{"command": "git push origin main"})
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &stdout, &stderr); code != 0 {
 		t.Fatalf("exit = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
@@ -519,23 +552,24 @@ func TestHookClaudeSessionStartPrintsNightBannerFirst(t *testing.T) {
 
 func TestHookCanonicalNightControlCreatesBrokerRequestAcrossPlanes(t *testing.T) {
 	tests := []struct {
-		name    string
-		args    []string
-		payload string
+		name string
+		args []string
 	}{
-		{name: "claude", args: []string{"hook", "claude"}, payload: `{"session_id":"night-broker","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"guardrail night off"}}`},
-		{name: "opencode", args: []string{"hook", "opencode"}, payload: `{"session_id":"night-broker","event":"pre","tool":"bash","command":"guardrail night off","cwd":"/tmp"}`},
-		{name: "antigravity", args: []string{"hook", "antigravity", "pre"}, payload: `{"conversationId":"night-broker","toolCall":{"name":"run_command","args":{"CommandLine":"guardrail night off","Cwd":"/tmp"}}}`},
+		{name: "claude", args: []string{"hook", "claude"}},
+		{name: "opencode", args: []string{"hook", "opencode"}},
+		{name: "antigravity", args: []string{"hook", "antigravity", "pre"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			repo := hostTestRepo(t)
 			stateHome := t.TempDir()
 			testenv.SetState(t, stateHome)
 			testenv.SetConfig(t, t.TempDir())
 			t.Setenv("GUARDRAIL_CONFIG", "")
 			enableNightForHook(t)
 			var stdout, stderr bytes.Buffer
-			code := run(tt.args, strings.NewReader(tt.payload), &stdout, &stderr)
+			payload := nightControlHookEnvelope(t, tt.name, repo)
+			code := run(tt.args, strings.NewReader(payload), &stdout, &stderr)
 			if code != 2 && tt.name == "opencode" {
 				t.Fatalf("exit = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
 			}
@@ -891,6 +925,7 @@ func TestHookLateSessionWarningCannotExceedCumulativeCap(t *testing.T) {
 }
 
 func TestHookLateAuditWarningCannotExceedCumulativeCap(t *testing.T) {
+	repo := hostTestRepo(t)
 	testenv.SetState(t, t.TempDir())
 	configHome := t.TempDir()
 	testenv.SetConfig(t, configHome)
@@ -898,7 +933,8 @@ func TestHookLateAuditWarningCannotExceedCumulativeCap(t *testing.T) {
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(configDir, "waivers.toml"), []byte("[\"/tmp\"]\naudit_log = true\n"), 0o600); err != nil {
+	operator := fmt.Sprintf("[%q]\naudit_log = true\n", repo)
+	if err := os.WriteFile(filepath.Join(configDir, "waivers.toml"), []byte(operator), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	blocker := filepath.Join(t.TempDir(), testenv.HostilePathSegment("not-a-directory\nforged\tpath\x7f"))
@@ -913,7 +949,7 @@ func TestHookLateAuditWarningCannotExceedCumulativeCap(t *testing.T) {
 	}
 	t.Setenv("GUARDRAIL_CONFIG", overlayPath)
 
-	payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`
+	payload := claudeHookEnvelope(t, "", repo, "Bash", map[string]any{"command": "ls"})
 	var out, errb bytes.Buffer
 	if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
 		t.Fatalf("exit=%d stderr=%q", code, errb.String())

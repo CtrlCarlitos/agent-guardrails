@@ -66,6 +66,11 @@ jobs:
         # on Windows as well as the POSIX hosts.
         if: matrix.os == 'windows-latest'
         run: go test ./cmd/guardrail/ -run 'Test(Trifecta|TrackingUnavailable|HookHashesNativeSessionID)'
+      - name: windows portable hook night fixtures
+        # Exercise the complete night-mode hook and broker assertion family
+        # with host-native repository coordinates.
+        if: matrix.os == 'windows-latest'
+        run: go test ./cmd/guardrail/ -run 'Test(Hook.*Night|Night)'
       - name: windows portable OpenCode binary path fixtures
         if: matrix.os == 'windows-latest'
         run: go test ./cmd/guardrail/ -run 'Test(GenConfig|Sync)OpencodeBakesAbsoluteBinary'
