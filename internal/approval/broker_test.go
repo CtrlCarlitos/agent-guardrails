@@ -16,9 +16,13 @@ import (
 
 func request() approval.Request {
 	return approval.Request{
-		Plane: "opencode", SessionID: "session-1", RepoRoot: filepath.FromSlash("/repo"),
+		Plane: "opencode", SessionID: "session-1", RepoRoot: testRepoRoot(),
 		Host: "api.example.test", Scope: approval.RepoScope, Reason: "request web host",
 	}
+}
+
+func testRepoRoot() string {
+	return filepath.Join(os.TempDir(), "guardrail-test-repo")
 }
 
 func browserStore(t *testing.T) *operatorauth.Store {

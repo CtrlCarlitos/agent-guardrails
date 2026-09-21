@@ -7,11 +7,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"syscall"
 	"testing"
 	"time"
 
@@ -55,7 +53,7 @@ func TestBrowserHandlerCompletesValidSignedAssertionOnce(t *testing.T) {
 		completed = request
 		return nil
 	})
-	request, err := broker.Create(approval.Request{Plane: "opencode", SessionID: "session-1", RepoRoot: "/repo", Scope: approval.RepoScope, Reason: "signed assertion", Action: "night-off"})
+	request, err := broker.Create(approval.Request{Plane: "opencode", SessionID: "session-1", RepoRoot: testRepoRoot(), Scope: approval.RepoScope, Reason: "signed assertion", Action: "night-off"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +106,7 @@ func TestBrowserClosesLoopbackAfterValidAssertion(t *testing.T) {
 	harness := newBrowserAssertionHarness(t)
 	broker := approval.New()
 	approval.RegisterAction("night-on", func(approval.Request) error { return nil })
-	request, err := broker.Create(approval.Request{Plane: "opencode", SessionID: "session-1", RepoRoot: "/repo", Scope: approval.RepoScope, Reason: "signed assertion", Action: "night-on", Parameters: map[string]string{"until": "08:00"}})
+	request, err := broker.Create(approval.Request{Plane: "opencode", SessionID: "session-1", RepoRoot: testRepoRoot(), Scope: approval.RepoScope, Reason: "signed assertion", Action: "night-on", Parameters: map[string]string{"until": "08:00"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +131,7 @@ func TestBrowserClosesLoopbackAfterValidAssertion(t *testing.T) {
 	var lastErr error
 	for {
 		response, err := http.Get(origin)
-		if errors.Is(err, syscall.ECONNREFUSED) {
+		if connectionRefused(err) {
 			return
 		}
 		if err != nil {

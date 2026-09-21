@@ -55,8 +55,9 @@ func assertEmptyOperatorConfig(t *testing.T, o *OperatorConfig) {
 	if len(o.Repos) != 0 {
 		t.Fatalf("error must return no grants, got %v", o.Repos)
 	}
-	if o.AllowsWaiver("/home/u/trusted", "P6.egress") || o.AllowsSecretAllow("/home/u/trusted") ||
-		o.AllowsAuditLog("/home/u/trusted") || o.AllowsEgress("/home/u/trusted", "api.example.com") {
+	trusted := operatorRepo("trusted")
+	if o.AllowsWaiver(trusted, "P6.egress") || o.AllowsSecretAllow(trusted) ||
+		o.AllowsAuditLog(trusted) || o.AllowsEgress(trusted, "api.example.com") {
 		t.Error("error config must authorize nothing")
 	}
 }
@@ -169,8 +170,8 @@ func TestOperatorConfigMissingIsEmptyNotError(t *testing.T) {
 }
 
 func TestOperatorConfigGrantsPerRepo(t *testing.T) {
-	writeOperatorConfig(t, `
-["/home/u/trusted"]
+	trusted := operatorRepo("trusted")
+	writeOperatorConfig(t, "\n"+tomlRepoKey(trusted)+`
 waive = ["P6.egress", "P1.chmod"]
 secret_allow = true
 `)
@@ -178,26 +179,26 @@ secret_allow = true
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !o.AllowsWaiver("/home/u/trusted", "P6.egress") {
+	if !o.AllowsWaiver(trusted, "P6.egress") {
 		t.Error("granted waiver not honoured")
 	}
-	if o.AllowsWaiver("/home/u/other", "P6.egress") {
+	if o.AllowsWaiver(operatorRepo("other"), "P6.egress") {
 		t.Error("a grant must not transfer to a different repo")
 	}
-	if o.AllowsWaiver("/home/u/trusted", "P1.rm-rf") {
+	if o.AllowsWaiver(trusted, "P1.rm-rf") {
 		t.Error("only listed rule ids may be waived")
 	}
-	if !o.AllowsSecretAllow("/home/u/trusted") {
+	if !o.AllowsSecretAllow(trusted) {
 		t.Error("secret_allow grant not honoured")
 	}
-	if o.AllowsAuditLog("/home/u/trusted") {
+	if o.AllowsAuditLog(trusted) {
 		t.Error("audit_log defaults to false when unset")
 	}
 }
 
 func TestOperatorConfigRepoMatchIsCleanAndExact(t *testing.T) {
-	writeOperatorConfig(t, `
-["/home/u/trusted/./"]
+	trusted := operatorRepo("trusted")
+	writeOperatorConfig(t, "\n"+tomlRepoKey(trusted+string(filepath.Separator)+".")+`
 waive = ["P6.egress"]
 secret_allow = true
 audit_log = true
@@ -207,22 +208,23 @@ audit_log = true
 		t.Fatal(err)
 	}
 
-	if !o.AllowsWaiver("/home/u/trusted/../trusted", "P6.egress") {
+	uncleaned := trusted + string(filepath.Separator) + ".." + string(filepath.Separator) + "trusted"
+	if !o.AllowsWaiver(uncleaned, "P6.egress") {
 		t.Error("equivalent cleaned repo path must match")
 	}
-	if !o.AllowsAuditLog("/home/u/trusted") {
+	if !o.AllowsAuditLog(trusted) {
 		t.Error("audit_log grant not honoured")
 	}
-	for _, repo := range []string{"/home/u/trusted/subrepo", "/home/u/trusted-other"} {
+	for _, repo := range []string{filepath.Join(trusted, "subrepo"), operatorRepo("trusted-other")} {
 		if o.AllowsWaiver(repo, "P6.egress") || o.AllowsSecretAllow(repo) || o.AllowsAuditLog(repo) {
-			t.Errorf("grant for /home/u/trusted must not cross repo boundary to %s", repo)
+			t.Errorf("grant for %s must not cross repo boundary to %s", trusted, repo)
 		}
 	}
 }
 
 func TestOperatorConfigEgressGrantRequiresExactEntryAndRepo(t *testing.T) {
 	trusted := operatorRepo("trusted")
-	writeOperatorConfig(t, tomlRepoKey(filepath.Join(trusted, "."))+`
+	writeOperatorConfig(t, tomlRepoKey(trusted+string(filepath.Separator)+".")+`
 egress_allowlist = ["api.example.com", "*.trusted.example"]
 `)
 	o, err := LoadOperatorConfig()
@@ -230,7 +232,7 @@ egress_allowlist = ["api.example.com", "*.trusted.example"]
 		t.Fatal(err)
 	}
 
-	uncleaned := filepath.Join(trusted, "..", "trusted")
+	uncleaned := trusted + string(filepath.Separator) + ".." + string(filepath.Separator) + "trusted"
 	for _, entry := range []string{"api.example.com", "*.trusted.example"} {
 		if !o.AllowsEgress(uncleaned, entry) {
 			t.Errorf("exact egress entry %q was not authorized for cleaned repository path", entry)
@@ -254,11 +256,11 @@ egress_allowlist = ["api.example.com", "*.trusted.example"]
 }
 
 func TestOperatorConfigWebHostsAreExactAndScoped(t *testing.T) {
+	trusted := operatorRepo("trusted")
 	writeOperatorConfig(t, `
 [web_hosts]
 global = ["pkg.go.dev"]
-
-["/home/u/trusted"]
+`+tomlRepoKey(trusted)+`
 web_hosts = ["repo.example.com"]
 `)
 	o, err := LoadOperatorConfig()
@@ -268,7 +270,8 @@ web_hosts = ["repo.example.com"]
 	if !o.AllowsGlobalWebHost("pkg.go.dev") || o.AllowsGlobalWebHost("sub.pkg.go.dev") {
 		t.Fatalf("global web hosts were not exact")
 	}
-	if !o.AllowsWebHost("/home/u/trusted/./", "repo.example.com") || o.AllowsWebHost("/home/u/trusted/subrepo", "repo.example.com") {
+	uncleaned := trusted + string(filepath.Separator) + "."
+	if !o.AllowsWebHost(uncleaned, "repo.example.com") || o.AllowsWebHost(filepath.Join(trusted, "subrepo"), "repo.example.com") {
 		t.Fatalf("repository web host grant crossed its exact scope")
 	}
 }
@@ -294,8 +297,7 @@ waive = ["P6.egress"]
 }
 
 func TestOperatorConfigMixedValidAndInvalidGrantsReturnsEmpty(t *testing.T) {
-	const body = `
-["/home/u/trusted"]
+	body := "\n" + tomlRepoKey(operatorRepo("trusted")) + `
 waive = ["P6.egress"]
 
 ["relative/repo"]
@@ -313,11 +315,10 @@ waive = ["P1.chmod"]
 }
 
 func TestOperatorConfigRejectsDuplicateCleanedRepoGrant(t *testing.T) {
-	writeOperatorConfig(t, `
-["/home/u/trusted"]
+	trusted := operatorRepo("trusted")
+	writeOperatorConfig(t, "\n"+tomlRepoKey(trusted)+`
 waive = ["P6.egress"]
-
-["/home/u/trusted/."]
+`+tomlRepoKey(trusted+string(filepath.Separator)+".")+`
 audit_log = true
 `)
 	o, err := LoadOperatorConfig()
@@ -361,8 +362,8 @@ func TestOperatorConfigReadError(t *testing.T) {
 }
 
 func TestBackstopsAreNeverWaivable(t *testing.T) {
-	writeOperatorConfig(t, `
-["/home/u/trusted"]
+	trusted := operatorRepo("trusted")
+	writeOperatorConfig(t, "\n"+tomlRepoKey(trusted)+`
 waive = ["tokenize-failed", "panic-recovered", "P3.unresolved"]
 `)
 	o, err := LoadOperatorConfig()
@@ -370,7 +371,7 @@ waive = ["tokenize-failed", "panic-recovered", "P3.unresolved"]
 		t.Fatal(err)
 	}
 	for _, id := range []string{"tokenize-failed", "panic-recovered", "P3.unresolved"} {
-		if o.AllowsWaiver("/home/u/trusted", id) {
+		if o.AllowsWaiver(trusted, id) {
 			t.Errorf("%s must never be waivable, even by the operator", id)
 		}
 	}

@@ -4,10 +4,19 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 type daemonAuthStore struct{}
+
+func testRepoRoot() string {
+	return filepath.Join(os.TempDir(), "guardrail-test-repo")
+}
+
+func secretRepoRoot() string {
+	return filepath.Join(os.TempDir(), "secret", "repo")
+}
 
 func (daemonAuthStore) BeginApprovalAssertion(Request, string) (Assertion, error) {
 	return Assertion{ID: "test-ceremony", Options: map[string]any{"challenge": "AQI"}}, nil
@@ -18,7 +27,7 @@ func (daemonAuthStore) FinishApprovalAssertion(string, []byte) error { return ni
 func TestDaemonRejectsCompletionMessages(t *testing.T) {
 	setStateHome(t, t.TempDir())
 	broker := New()
-	request, err := broker.Create(Request{Plane: "opencode", SessionID: "completion-message", RepoRoot: "/repo", Scope: Allow, Reason: "test"})
+	request, err := broker.Create(Request{Plane: "opencode", SessionID: "completion-message", RepoRoot: testRepoRoot(), Scope: Allow, Reason: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +66,7 @@ func TestDaemonSubmitRedactsSensitiveRequestDetails(t *testing.T) {
 	defer daemon.Close()
 
 	var reply daemonReply
-	if err := send(socket, daemonMessage{Operation: "submit", Request: Request{Plane: "opencode", SessionID: "submit-redaction", RepoRoot: "/secret/repo", Host: "secret.example", Scope: Allow, Reason: "secret reason", Action: "night-on", Parameters: map[string]string{"until": "08:00"}}}, &reply); err != nil {
+	if err := send(socket, daemonMessage{Operation: "submit", Request: Request{Plane: "opencode", SessionID: "submit-redaction", RepoRoot: secretRepoRoot(), Host: "secret.example", Scope: Allow, Reason: "secret reason", Action: "night-on", Parameters: map[string]string{"until": "08:00"}}}, &reply); err != nil {
 		t.Fatal(err)
 	}
 	if reply.Error != "" {
@@ -81,7 +90,7 @@ func TestDaemonRejectsRequestWhenApprovalPageCannotBePresented(t *testing.T) {
 	}
 	defer daemon.Close()
 
-	if _, err := Submit(socket, Request{Plane: "opencode", SessionID: "presentation-failure", RepoRoot: "/repo", Scope: Allow, Reason: "test", Action: "night-on", Parameters: map[string]string{"until": "08:00"}}); err == nil {
+	if _, err := Submit(socket, Request{Plane: "opencode", SessionID: "presentation-failure", RepoRoot: testRepoRoot(), Scope: Allow, Reason: "test", Action: "night-on", Parameters: map[string]string{"until": "08:00"}}); err == nil {
 		t.Fatal("submission succeeded without an approval page")
 	}
 	if broker.hasPending() {
@@ -92,7 +101,7 @@ func TestDaemonRejectsRequestWhenApprovalPageCannotBePresented(t *testing.T) {
 func TestDaemonStatusRedactsSensitiveRequestDetails(t *testing.T) {
 	setStateHome(t, t.TempDir())
 	broker := New()
-	request, err := broker.Create(Request{Plane: "opencode", SessionID: "status-redaction", RepoRoot: "/secret/repo", Host: "secret.example", Scope: Allow, Reason: "secret reason", Action: "night-on", Parameters: map[string]string{"until": "08:00"}})
+	request, err := broker.Create(Request{Plane: "opencode", SessionID: "status-redaction", RepoRoot: secretRepoRoot(), Host: "secret.example", Scope: Allow, Reason: "secret reason", Action: "night-on", Parameters: map[string]string{"until": "08:00"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +132,7 @@ func TestDaemonRecoversInterruptedAction(t *testing.T) {
 	action := "night-off"
 	RegisterAction(action, func(Request) error { return nil })
 	broker := New()
-	r, err := broker.Create(Request{Plane: "opencode", SessionID: "recover-action", RepoRoot: "/repo", Scope: Allow, Reason: "test", Action: action})
+	r, err := broker.Create(Request{Plane: "opencode", SessionID: "recover-action", RepoRoot: testRepoRoot(), Scope: Allow, Reason: "test", Action: action})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +157,7 @@ func TestDaemonRecoversInterruptedAction(t *testing.T) {
 func TestFailedDaemonStartDoesNotRecoverLiveActions(t *testing.T) {
 	setStateHome(t, t.TempDir())
 	broker := New()
-	r, err := broker.Create(Request{Plane: "opencode", SessionID: "live-action", RepoRoot: "/repo", Scope: Allow, Reason: "test", Action: "night-off"})
+	r, err := broker.Create(Request{Plane: "opencode", SessionID: "live-action", RepoRoot: testRepoRoot(), Scope: Allow, Reason: "test", Action: "night-off"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,10 +186,23 @@ func TestFailedDaemonStartDoesNotRecoverLiveActions(t *testing.T) {
 // unix socket paths near 104 chars and runner temp dirs exceed it.
 func shortSocketPath(t *testing.T) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		return shortPipeName(t)
+	}
 	dir, err := os.MkdirTemp("", "grdsock")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	return filepath.Join(dir, "broker", "approvals.sock")
+}
+
+func shortPipeName(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "grdpipe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return `\\.\pipe\guardrail-test-` + filepath.Base(dir)
 }

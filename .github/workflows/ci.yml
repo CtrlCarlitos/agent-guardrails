@@ -55,6 +55,12 @@ jobs:
         # the test.
         if: matrix.os == 'windows-latest'
         run: go test ./internal/adapter/ ./internal/engine/ ./internal/genconfig/ ./internal/coverage/ ./internal/policy/ ./internal/approval/ ./internal/operatorauth/ ./internal/privatefs/ ./internal/testenv/ ./cmd/guardrail/ ./test/ -run 'Windows|BOM|ReadJSONObject|TestDefaultDaemon|Egress|Allowance'
+      - name: windows portable approval and policy suites
+        # These packages use host-native repository paths, named pipes, ACLs,
+        # and connection errors. Run every assertion rather than relying on
+        # the selected-test name filter above.
+        if: matrix.os == 'windows-latest'
+        run: go test ./internal/approval/ ./internal/policy/
       - name: gofmt
         if: matrix.os != 'windows-latest'
         run: |
