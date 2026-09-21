@@ -11,6 +11,7 @@ import (
 )
 
 func TestCodexCoverageVerdicts(t *testing.T) {
+	cwd := t.TempDir()
 	for _, tt := range []struct {
 		names      []string
 		input      string
@@ -27,7 +28,7 @@ func TestCodexCoverageVerdicts(t *testing.T) {
 	} {
 		for _, name := range tt.names {
 			t.Run(name+tt.input, func(t *testing.T) {
-				tc, err := ParseCodex(strings.NewReader(codexEnvelope(name, json.RawMessage(tt.input))))
+				tc, err := ParseCodex(strings.NewReader(codexEnvelope(cwd, name, json.RawMessage(tt.input))))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -52,6 +53,7 @@ func TestCodexCoverageVerdicts(t *testing.T) {
 }
 
 func TestCodexWebProjectionEvaluatesWholeRequest(t *testing.T) {
+	cwd := t.TempDir()
 	for _, tt := range []struct {
 		input    string
 		cap      policy.Capability
@@ -79,7 +81,7 @@ func TestCodexWebProjectionEvaluatesWholeRequest(t *testing.T) {
 	} {
 		for _, name := range []string{"web.run", "web__run", "webrun"} {
 			t.Run(name+tt.input, func(t *testing.T) {
-				tc, err := ParseCodex(strings.NewReader(codexEnvelope(name, json.RawMessage(tt.input))))
+				tc, err := ParseCodex(strings.NewReader(codexEnvelope(cwd, name, json.RawMessage(tt.input))))
 				if err != nil {
 					t.Fatal(err)
 				}
