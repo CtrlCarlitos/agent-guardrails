@@ -19,7 +19,44 @@ func head(argv []string) string {
 		return ""
 	}
 	name := strings.ToLower(path.Base(strings.ReplaceAll(argv[0], `\`, "/")))
+	if win32ResolvedPath(argv[0]) {
+		// Win32 strips trailing dots and spaces while resolving a path, so a
+		// binary spelled with either still runs. Stripping one `.exe` and
+		// nothing else left the name as `rm.exe.`, no rule matched, and every
+		// family keyed on a command name allowed (#178).
+		name = strings.TrimRight(name, ". ")
+	}
 	return strings.TrimSuffix(name, ".exe")
+}
+
+// win32ResolvedPath reports whether argv[0] reaches Win32 path resolution
+// rather than a PATH or cmdlet lookup by name.
+//
+// The distinction is the whole scope of the fix, and it is measured, not
+// assumed. A *path* with a trailing dot or space executes on Windows:
+// `C:\WINDOWS\System32\hostname.exe.` runs. A *bare name* does not —
+// PATH lookup does not strip them, so `hostname.` is simply not found, and
+// neither is the cmdlet `Remove-Item.`. Denying those would invent a verdict
+// for a command that cannot run.
+//
+// Keyed on the shape of the path, not on runtime.GOOS, for the same reason
+// HookCommand is: a Windows-shaped path only ever executes on Windows, so
+// Win32 semantics are the right ones to apply to it wherever the Engine runs,
+// and a POSIX path keeps POSIX semantics — `rm.` and `rm ` are legal, distinct
+// filenames there. The final clause covers a POSIX-spelled path on a Windows
+// host, which MSYS hands to Win32 all the same.
+func win32ResolvedPath(p string) bool {
+	if len(p) >= 2 && p[1] == ':' && isASCIILetterByte(p[0]) {
+		return true
+	}
+	if strings.Contains(p, `\`) {
+		return true
+	}
+	return runtime.GOOS == "windows" && strings.Contains(p, "/")
+}
+
+func isASCIILetterByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
 }
 
 type bashAnalysis struct {
