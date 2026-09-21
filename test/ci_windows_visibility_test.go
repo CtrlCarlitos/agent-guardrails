@@ -160,8 +160,7 @@ func TestWindowsSelectedTestsLiveInPackagesTheWindowsJobRuns(t *testing.T) {
 	// than either breaking CI or deleting the check. Adding an entry is a
 	// decision someone has to write down; forgetting a package still fails.
 	exempt := map[string]string{
-		"test/adversarial": "the adversarial corpus is POSIX-shaped and does not run on Windows at all;" +
-			" its harness also builds the probe binary without a .exe suffix, so the package cannot pass there yet",
+		"test/adversarial": "the adversarial corpus uses POSIX-absolute paths that have different semantics on Windows, so the package cannot pass there yet",
 	}
 	for file, names := range goTestFiles(t) {
 		dir := filepath.ToSlash(filepath.Dir(file))
