@@ -322,7 +322,8 @@ func TestDoctorSanitizesOperatorConfigError(t *testing.T) {
 		t.Fatalf("doctor exit = %d, want 0", code)
 	}
 	lines := doctorOutputLines(errb.String())
-	if len(lines) != 1 || !strings.Contains(lines[0], "config policy warnings: waivers: dir/guardrail/waivers.toml") ||
+	wantPath := filepath.Join(testenv.HostilePathSegment("config policy warnings: waivers: dir"), "guardrail", "waivers.toml")
+	if len(lines) != 1 || !strings.Contains(lines[0], wantPath) ||
 		!strings.Contains(lines[0], "parsing operator config") || !strings.HasSuffix(lines[0], "); treating as empty") {
 		t.Fatalf("operator diagnostic must remain useful on one sanitized line: %q", errb.String())
 	}
