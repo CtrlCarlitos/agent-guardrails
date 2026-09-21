@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func updateTestServer(t *testing.T, binary, sums string, status int) *httptest.Server {
@@ -145,7 +146,7 @@ func TestUpdateRejectsBadArguments(t *testing.T) {
 }
 
 func TestUpdateHappyPathReplacesBinary(t *testing.T) {
-	target := filepath.Join(t.TempDir(), "guardrail")
+	target := filepath.Join(t.TempDir(), testenv.ExecutableName("guardrail"))
 	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -162,8 +163,19 @@ func TestUpdateHappyPathReplacesBinary(t *testing.T) {
 	if err != nil || string(raw) != binary {
 		t.Fatalf("target = %q err=%v, want downloaded bytes", raw, err)
 	}
-	if info, err := os.Stat(target); err != nil || info.Mode().Perm() != 0o755 {
-		t.Fatalf("target mode = %v err=%v, want 0755", info, err)
+	info, err := os.Stat(target)
+	if err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("target mode = %v err=%v, want a regular file", info, err)
+	}
+	// Windows executable permission comes from the .exe shape and ACLs; Go's
+	// Chmod only controls the read-only attribute there. The running-.exe
+	// replacement path is exercised by TestWindowsUpdateReplacesTheRunningBinary.
+	if runtime.GOOS == "windows" {
+		if !strings.EqualFold(filepath.Ext(target), ".exe") || info.Mode().Perm()&0o200 == 0 {
+			t.Fatalf("Windows target = %q mode %v, want writable .exe", target, info.Mode().Perm())
+		}
+	} else if info.Mode().Perm() != 0o755 {
+		t.Fatalf("target mode = %v, want 0755", info.Mode().Perm())
 	}
 	if !strings.Contains(out.String(), "v0.19.2-dev") {
 		t.Fatalf("stdout missing version: %q", out.String())
