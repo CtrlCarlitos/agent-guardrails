@@ -11,6 +11,7 @@ import (
 	"runtime"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/privatefs"
 	"github.com/gofrs/flock"
 )
 
@@ -228,6 +229,14 @@ func recoverAllowanceJournals(dir string) error {
 		}
 	}
 	return nil
+}
+
+func validatePrivateFile(path string, _ os.FileInfo) error {
+	return privatefs.ValidateFile(path)
+}
+
+func validatePrivateDir(path string, _ os.FileInfo) error {
+	return privatefs.ValidateDir(path)
 }
 
 func ensureAllowanceDir(dir string) error {

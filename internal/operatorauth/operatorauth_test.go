@@ -82,26 +82,31 @@ func TestStoreReplaceRejectsInvalidCredentialSets(t *testing.T) {
 }
 
 func TestStoreReplaceRejectsNonPrivateAndSymlinkedPaths(t *testing.T) {
-	root := t.TempDir()
-	authDir := filepath.Join(root, "operator-auth")
-	if err := os.Mkdir(authDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(authDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := operatorauth.NewStore(root).Replace([]operatorauth.Credential{{ID: "AQI", PublicKey: "public", Algorithm: -7}}); err == nil {
-		t.Fatal("Replace succeeded in non-private directory")
-	}
+	t.Run("non-private", func(t *testing.T) {
+		root := t.TempDir()
+		authDir := filepath.Join(root, "operator-auth")
+		if err := os.Mkdir(authDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		widenCredentialDirForTest(t, authDir)
+		if err := operatorauth.NewStore(root).Replace([]operatorauth.Credential{{ID: "AQI", PublicKey: "public", Algorithm: -7}}); err == nil {
+			t.Fatal("Replace succeeded in non-private directory")
+		}
+	})
 
-	privateRoot := t.TempDir()
-	target := filepath.Join(t.TempDir(), "target")
-	if err := os.Symlink(target, filepath.Join(privateRoot, "operator-auth")); err != nil {
-		t.Fatal(err)
-	}
-	if err := operatorauth.NewStore(privateRoot).Replace([]operatorauth.Credential{{ID: "AQI", PublicKey: "public", Algorithm: -7}}); err == nil {
-		t.Fatal("Replace succeeded through a symlink")
-	}
+	t.Run("symlink", func(t *testing.T) {
+		privateRoot := t.TempDir()
+		target := filepath.Join(t.TempDir(), "target")
+		if err := os.Symlink(target, filepath.Join(privateRoot, "operator-auth")); err != nil {
+			if os.PathSeparator == '\\' {
+				t.Skipf("creating symlinks requires a Windows privilege not guaranteed on this host: %v", err)
+			}
+			t.Fatal(err)
+		}
+		if err := operatorauth.NewStore(privateRoot).Replace([]operatorauth.Credential{{ID: "AQI", PublicKey: "public", Algorithm: -7}}); err == nil {
+			t.Fatal("Replace succeeded through a symlink")
+		}
+	})
 }
 
 func TestClearForRecoveryRemovesOnlyAValidCredentialStore(t *testing.T) {

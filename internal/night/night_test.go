@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/privatefs"
 )
 
 var testNow = time.Date(2026, time.September, 10, 21, 0, 0, 0, time.UTC)
@@ -43,17 +45,12 @@ func TestWriteAndLoadActiveMarker(t *testing.T) {
 	if got.Banner() != "NIGHT MODE until 2026-09-11T05:00:00Z" {
 		t.Fatalf("Banner() = %q", got.Banner())
 	}
-	if info, err := os.Stat(path); err != nil {
-		t.Fatal(err)
-	} else if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("marker permissions = %o, want 600", got)
+	if err := privatefs.ValidateFile(path); err != nil {
+		t.Fatalf("marker is not owner-only: %v", err)
 	}
 }
 
 func TestWriteSecuresExistingMarkerDirectory(t *testing.T) {
-	if os.PathSeparator == '\\' {
-		t.Skip("Unix permission semantics")
-	}
 	dir := filepath.Join(t.TempDir(), "guardrail")
 	if err := os.Mkdir(dir, 0o777); err != nil {
 		t.Fatal(err)
@@ -65,10 +62,8 @@ func TestWriteSecuresExistingMarkerDirectory(t *testing.T) {
 	if err := Write(path, Marker{Until: testNow.Add(time.Hour), SetBy: "host:1"}); err != nil {
 		t.Fatal(err)
 	}
-	if info, err := os.Stat(dir); err != nil {
-		t.Fatal(err)
-	} else if got := info.Mode().Perm(); got != 0o700 {
-		t.Fatalf("marker directory permissions = %o, want 700", got)
+	if err := privatefs.ValidateDir(dir); err != nil {
+		t.Fatalf("marker directory is not owner-only: %v", err)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/privatefs"
 )
 
 type Marker struct {
@@ -32,15 +33,15 @@ func DefaultPath() (string, error) {
 }
 
 func Load(path string, now time.Time) (State, error) {
-	info, err := os.Lstat(path)
+	_, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return State{}, nil
 	}
 	if err != nil {
 		return State{}, fmt.Errorf("reading night marker: %w", err)
 	}
-	if !info.Mode().IsRegular() {
-		return State{}, errors.New("reading night marker: marker is not a regular file")
+	if err := privatefs.ValidateFile(path); err != nil {
+		return State{}, fmt.Errorf("reading night marker: %w", err)
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -78,14 +79,7 @@ func Write(path string, marker Marker) error {
 		return fmt.Errorf("creating night marker directory: %w", err)
 	}
 	dir := filepath.Dir(path)
-	info, err := os.Lstat(dir)
-	if err != nil {
-		return fmt.Errorf("inspecting night marker directory: %w", err)
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("inspecting night marker directory: path is not a real directory")
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if err := privatefs.SecureDir(dir); err != nil {
 		return fmt.Errorf("securing night marker directory: %w", err)
 	}
 	tmp, err := os.CreateTemp(dir, ".night-*.tmp")
@@ -107,6 +101,9 @@ func Write(path string, marker Marker) error {
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("installing night marker: %w", err)
+	}
+	if err := privatefs.ValidateFile(path); err != nil {
+		return fmt.Errorf("validating night marker: %w", err)
 	}
 	return nil
 }

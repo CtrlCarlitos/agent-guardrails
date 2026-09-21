@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/privatefs"
 	"golang.org/x/sys/windows"
 )
 
@@ -48,10 +49,11 @@ func TestWindowsEgressArtifactsAreOwnerOnly(t *testing.T) {
 	if _, err := os.Stat(configPath); err != nil {
 		t.Fatalf("operator config: %v", err)
 	}
-	for _, artifact := range []string{dir, configPath} {
-		if err := validatePrivateACL(artifact); err != nil {
-			t.Fatalf("%s: %v", artifact, err)
-		}
+	if err := privatefs.ValidateDir(dir); err != nil {
+		t.Fatalf("%s: %v", dir, err)
+	}
+	if err := privatefs.ValidateFile(configPath); err != nil {
+		t.Fatalf("%s: %v", configPath, err)
 	}
 }
 
@@ -70,7 +72,7 @@ func TestWindowsBroadGroupACEFailsValidation(t *testing.T) {
 	if err := widenArtifactForTest(path); err != nil {
 		t.Fatal(err)
 	}
-	err := validatePrivateACL(path)
+	err := privatefs.ValidateFile(path)
 	if err == nil {
 		t.Fatal("Everyone-granting DACL passed private-artifact validation")
 	}
