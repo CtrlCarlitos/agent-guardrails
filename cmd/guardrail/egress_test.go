@@ -338,9 +338,17 @@ func TestUnsafeAllowanceJournalDirectoryIsRejected(t *testing.T) {
 	if err := widenArtifactForTest(filepath.Dir(journalPath)); err != nil {
 		t.Fatal(err)
 	}
-	if err := executeWebHostApproval(approval.Request{RepoRoot: repo, Parameters: map[string]string{"hosts": "unsafe.example.test"}, Scope: approval.RepoScope, Action: "web-host-grant"}); err == nil {
-		t.Fatal("grant accepted an unsafe journal directory")
+	// The invariant is repair-or-reject, never a violating grant: before the
+	// action-audit gate lifted, this flow died at that gate and the test
+	// passed for the wrong reason. With the gates lifted, ensureAllowanceDir
+	// must either stamp the widened directory owner-only before any journal
+	// is written, or reject the grant. Either way, no artifact inside may
+	// carry a broad-group ACE afterward.
+	grantErr := executeWebHostApproval(approval.Request{RepoRoot: repo, Parameters: map[string]string{"hosts": "unsafe.example.test"}, Scope: approval.RepoScope, Action: "web-host-grant"})
+	if grantErr != nil {
+		return // rejected: fail-closed honored
 	}
+	assertJournalDirPrivate(t, filepath.Dir(journalPath))
 }
 
 func TestConcurrentRepositoryGrantsAcrossReposRetainEveryHost(t *testing.T) {

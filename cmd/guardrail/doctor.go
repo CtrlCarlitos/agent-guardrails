@@ -313,7 +313,7 @@ func printDoctor(stdout, stderr io.Writer) int {
 
 	fmt.Fprintf(stdout, "audit log: %s\n", safetext.SingleLine(audit.DefaultPath(merged.Slots.AuditLog)))
 	enrolled, _ := defaultOperatorAuthStore().Enrolled()
-	fmt.Fprintln(stdout, operatorApprovalStatus(runtime.GOOS == "windows", enrolled))
+	fmt.Fprintln(stdout, operatorApprovalStatus(enrolled))
 
 	fmt.Fprintf(stdout, "claude settings: %s\n", safetext.SingleLine(claudeSettingsLine()))
 	fmt.Fprintf(stdout, "opencode settings: %s\n", safetext.SingleLine(planeStatusState("opencode")))
@@ -358,10 +358,10 @@ func printDoctor(stdout, stderr io.Writer) int {
 	return 0
 }
 
-func operatorApprovalStatus(windows, enrolled bool) string {
-	if windows {
-		return "operator approvals: disabled (Windows fail-closed)"
-	}
+// operatorApprovalStatus reports the credential-store state. ADR-0021 step
+// (d) lifted the Windows gate: the platform no longer forces the disabled
+// string; enrollment is the truth on every OS.
+func operatorApprovalStatus(enrolled bool) string {
 	if enrolled {
 		return "operator approvals: WebAuthn"
 	}

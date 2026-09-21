@@ -14,6 +14,16 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// assertJournalDirPrivate is the Windows half of the repair-or-reject
+// invariant: a directory the grant wrote into must carry the owner-only
+// ACL (securePrivateDir's stamp or a pre-existing private shape).
+func assertJournalDirPrivate(t *testing.T, path string) {
+	t.Helper()
+	if err := privatefs.ValidateDir(path); err != nil {
+		t.Fatalf("journal directory is not private: %v", err)
+	}
+}
+
 // widenArtifactForTest stamps a DACL with an Everyone allow ACE, mirroring
 // the adversarial shape from ADR-0021 §6 for files and directories alike.
 func widenArtifactForTest(path string) error {
