@@ -96,6 +96,10 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	dir := filepath.Dir(exe)
 	staged := filepath.Join(dir, ".guardrail-update")
 	_ = os.Remove(staged)
+	// A previous cycle's superseded image is never the running binary, so it
+	// can be removed now — before this cycle's rename-aside recreates it.
+	superseded := exe + ".old"
+	_ = os.Remove(superseded)
 	if err := os.WriteFile(staged, data, 0o755); err != nil {
 		fmt.Fprintf(stderr, "guardrail: cannot stage update: %v\n", err)
 		return 1
@@ -104,6 +108,18 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		_ = os.Remove(staged)
 		fmt.Fprintf(stderr, "guardrail: refusing update: %v\n", err)
 		return 1
+	}
+	// The running image cannot be overwritten on Windows, but its path can
+	// be renamed aside: rename the superseded binary out of the way, move
+	// the staged binary into the freed name, and leave the superseded copy
+	// for the next update's cleanup (it is unremovable while this process
+	// still runs from it).
+	if runtime.GOOS == "windows" {
+		if err := os.Rename(exe, superseded); err != nil {
+			_ = os.Remove(staged)
+			fmt.Fprintf(stderr, "guardrail: cannot set aside %s: %v\n", exe, err)
+			return 1
+		}
 	}
 	if err := os.Rename(staged, exe); err != nil {
 		_ = os.Remove(staged)
