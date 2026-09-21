@@ -141,3 +141,68 @@ func hookCommandsIn(node any) []string {
 	}
 	return out
 }
+
+// The space detector's old signal was "the token after the first space
+// contains a separator", which missed a path whose remainder happens not to:
+// `/home/u/my file hook claude` read as safe. #155 shipped with that gap named.
+//
+// UnquotedShellHazard is only ever called on guardrail's own floor commands,
+// and those have a known shape — `<binary> hook <plane> …`. So the question
+// stops being the unanswerable "is `a b` a path or a command and an argument"
+// and becomes structural: if `hook` is not the word right after the
+// executable, the executable was split by a space inside the path.
+func TestWindowsUnquotedSpaceIsDetectedByFloorShape(t *testing.T) {
+	for _, command := range []string{
+		`/home/u/my file hook claude`,
+		`/home/u/my dir/g hook claude`,
+		`C:/Program Files/g.exe hook claude`,
+		`/opt/my tools/guardrail hook antigravity pre`,
+		`/home/u/a b c hook codex`,
+		`/home/u/my file hook codex || { printf 'x' >&2; exit 2; }`,
+	} {
+		if got := UnquotedShellHazard(command); got == "" {
+			t.Errorf("UnquotedShellHazard(%q) = %q, want a space hazard: the executable is split before `hook`", command, got)
+		}
+	}
+}
+
+// The shapes gen-config actually emits, and the hand-written ones that are
+// fine, must stay silent.
+func TestWindowsWellFormedFloorCommandsAreNotFlagged(t *testing.T) {
+	for _, command := range []string{
+		`guardrail hook claude`,
+		`guardrail.exe hook claude`,
+		`/usr/local/bin/guardrail hook claude`,
+		`/usr/local/bin/guardrail hook antigravity pre`,
+		`"C:/Users/u/.local/bin/guardrail.exe" hook claude`,
+		`'/home/u/my dir/guardrail' hook claude`,
+		`'/home/u/g' hook codex || { printf '%s\n' 'x' >&2; exit 2; }`,
+		`/usr/local/bin/guardrail hook codex || { printf '%s\n' 'x' >&2; exit 2; }`,
+	} {
+		if got := UnquotedShellHazard(command); got != "" {
+			t.Errorf("UnquotedShellHazard(%q) = %q, want no hazard", command, got)
+		}
+	}
+}
+
+// The boundary, stated as a test rather than only in prose.
+//
+// A command with no `hook` word is not a shape this function can reason about,
+// so it falls back to the weaker separator signal and never invents a hazard.
+// And a path whose final component is literally `hook` defeats the structural
+// check — contrived, and recorded here so the next reader knows it is a known
+// residue rather than an oversight.
+func TestWindowsSpaceDetectionAmbiguityBoundary(t *testing.T) {
+	// No `hook` word: the separator signal still catches the obvious case.
+	if got := UnquotedShellHazard(`/home/u/my dir/g --version`); got == "" {
+		t.Error("a path with a space and a separator should still be caught without a `hook` word")
+	}
+	// No `hook` word and no separator: genuinely ambiguous, so no claim.
+	if got := UnquotedShellHazard(`somecmd arg`); got != "" {
+		t.Errorf("UnquotedShellHazard(`somecmd arg`) = %q, want no claim on an ambiguous shape", got)
+	}
+	// Known residue: a path ending in `hook`.
+	if got := UnquotedShellHazard(`/home/u/my hook hook claude`); got != "" {
+		t.Logf("residue now detected (%q) — the boundary comment can be tightened", got)
+	}
+}
