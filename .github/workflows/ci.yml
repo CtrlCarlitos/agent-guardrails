@@ -71,7 +71,7 @@ jobs:
         run: go test ./cmd/guardrail/ -run 'Test(GenConfig|Sync)OpencodeBakesAbsoluteBinary'
       - name: windows portable executable path fixtures
         if: matrix.os == 'windows-latest'
-        run: go test ./internal/testenv/ ./internal/coverage/ ./cmd/guardrail/ -run 'Test(PathListRoundTripsHostileExecutableDirectory|ClaudeBundlePathResolvesSymlinkOnPATH|ClaudeDriftScansOnceThenAnswersFromCache|GenConfigOpencodeResolvesBareBinaryFromPATH|SyncOpencodeResolvesBareBinaryFromPATH|SyncMixedPlanesResolveBinaryOnlyForOpencode)'
+        run: go test ./internal/testenv/ ./internal/coverage/ ./cmd/guardrail/ -run 'Test(PathListRoundTripsHostileExecutableDirectory|ClaudeBundlePathResolvesSymlinkOnPATH|ClaudeDriftScansOnceThenAnswersFromCache|GenConfigOpencodeResolvesBareBinaryFromPATH|SyncOpencodeResolvesBareBinaryFromPATH|SyncMixedPlanesResolveBinaryOnlyForOpencode|HookSessionStartReportsCoverageDriftOnce)'
       - name: gofmt
         if: matrix.os != 'windows-latest'
         run: |
