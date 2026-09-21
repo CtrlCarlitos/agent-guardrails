@@ -8,7 +8,7 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/fxamacker/cbor/v2 v2.9.4
 	github.com/go-webauthn/webauthn v0.18.1
-	github.com/gofrs/flock v0.12.1
+	github.com/gofrs/flock v0.13.1
 	golang.org/x/sys v0.48.0
 	golang.org/x/term v0.46.0
 	mvdan.cc/sh/v3 v3.10.0
