@@ -68,12 +68,13 @@ func TestClaudeContractFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			state := t.TempDir()
+			roots := testenv.Roots{Home: t.TempDir(), Config: t.TempDir(), State: t.TempDir()}
 			cmd := exec.Command(bin, "hook", "claude")
 			cmd.Stdin = bytes.NewReader(payload)
 			// Isolated config: a developer's night marker or operator grants must
 			// not flip a fixture's verdict.
-			cmd.Env = append(os.Environ(), "XDG_STATE_HOME="+state, "XDG_CONFIG_HOME="+t.TempDir(), "GUARDRAIL_CONFIG=")
+			cmd.Env = append(os.Environ(), testenv.ChildRootEnv(roots)...)
+			cmd.Env = append(cmd.Env, "GUARDRAIL_CONFIG=")
 			_ = cmd.Run()
 			got := cmd.ProcessState.ExitCode()
 			if got != want.Exit {
@@ -82,7 +83,7 @@ func TestClaudeContractFixtures(t *testing.T) {
 			if want.Decision == "" && want.Rule == "" && want.Paths == nil {
 				return
 			}
-			rec := lastAuditRecord(t, filepath.Join(state, "guardrail", "audit.jsonl"))
+			rec := lastAuditRecord(t, filepath.Join(roots.State, "guardrail", "audit.jsonl"))
 			if want.Decision != "" && rec.Decision != want.Decision {
 				t.Fatalf("%s: decision %q, want %q", name, rec.Decision, want.Decision)
 			}
