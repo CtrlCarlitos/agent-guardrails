@@ -5,6 +5,35 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Fix (#191): the approval client now authenticates the pipe server.**
+  ADR-0021 promises the OS authenticates the peer, and the owner-only DACL
+  delivered that in one direction only: no other user can connect to our pipe,
+  but the client never checked who owned the pipe it dialled. On Windows
+  `\\.\pipe\` is a flat, world-creatable namespace — the DACL protects the
+  object once created but does not reserve the name — so any local process
+  could hold the broker's name first and answer in our place. Measured before
+  the fix: the client connected to a squatter and a forged
+  `status: "approved"` reached the caller's reply struct. `dialPrivate` now
+  asks the OS which executable serves the other end
+  (`GetNamedPipeServerProcessId` → `QueryFullProcessImageName`) and refuses
+  anything that is not this binary, which is the right comparand because the
+  daemon is spawned as `os.Args[0] approvals daemon`. The liveness probe uses
+  the same answer, so a squatted name is now a named `ErrForeignServer` failure
+  instead of being misreported as "approval daemon is already running" — the
+  operator could not previously tell an impersonator from their own daemon.
+  Image paths are resolved before a mismatch is believed, since the same
+  executable has a case-insensitive and an 8.3 spelling and a false mismatch
+  would refuse our own daemon.
+  **Deliberately not closed, and unchanged by this fix:** a process running as
+  the same user can copy the binary and pass the check. That cell is open on
+  Unix too — a same-user process can bind the socket path first there, measured
+  and recorded on #191 — and it is the cell guardrail's own threat model lives
+  in, so it wants an operator decision rather than a check here.
+  FILE_FLAG_FIRST_PIPE_INSTANCE was the intended listen-side mechanism but
+  go-winio does not expose it; measurement showed a second `ListenPipe` over a
+  held name is refused anyway, so the defect was never silent acceptance but
+  the misdiagnosis, which is what changed. The probe-to-create window remains
+  open and is documented at the call site.
 - **Fix (#139): cmd.exe destructive builtins are now judged.** cmd spells its
   switches with a forward slash, so `del /s /q <dir>` reached the rules as an
   unrecognised command with three path operands and P1 never saw a recursive
