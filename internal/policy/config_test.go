@@ -376,7 +376,9 @@ func TestFindRepoRootStopsAtTempRootBoundary(t *testing.T) {
 		t.Fatalf("repo root %q discovered across the temp-root boundary; want none", root)
 	}
 	// Without the ceiling, discovery would find the stray root — proving the ceiling matters.
-	if root, ok := findRepoRootWithCeilings(work, nil); !ok || root != base && root != mustResolve(t, base) {
+	root, ok := findRepoRootWithCeilings(work, nil)
+	normalizedRoot := filepath.Clean(filepath.FromSlash(root))
+	if !ok || normalizedRoot != filepath.Clean(base) && normalizedRoot != filepath.Clean(mustResolve(t, base)) {
 		t.Fatalf("control case: discovery = %q ok=%v, want the stray root", root, ok)
 	}
 }

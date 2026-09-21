@@ -13,7 +13,7 @@ import (
 
 func mergeNoOp(t *testing.T, base *Policy, ov *Overlay) (*Policy, []string) {
 	t.Helper()
-	m, warns, err := Merge(base, ov, "1.0.0", &OperatorConfig{Repos: map[string]RepoGrant{}}, "/repo")
+	m, warns, err := Merge(base, ov, "1.0.0", &OperatorConfig{Repos: map[string]RepoGrant{}}, operatorRepo("repo"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,14 +21,18 @@ func mergeNoOp(t *testing.T, base *Policy, ov *Overlay) (*Policy, []string) {
 }
 
 func TestMergePreservesBaseAndAppendsTightenings(t *testing.T) {
+	repo := operatorRepo("repo")
+	baseSafe := operatorRepo("base", "safe")
+	basePublic := operatorRepo("base", "public")
+	baseAudit := operatorRepo("base", "audit.jsonl")
 	base := &Policy{
 		Slots: Slots{
-			SafeRoots:       []string{"/base/safe"},
+			SafeRoots:       []string{baseSafe},
 			SecretGlobs:     []string{"**/.env"},
 			SecretAskGlobs:  []string{"**/*.pem"},
-			SecretAllow:     []string{"/base/public"},
+			SecretAllow:     []string{basePublic},
 			EgressAllowlist: []string{"base.example.com"},
-			AuditLog:        "/base/audit.jsonl",
+			AuditLog:        baseAudit,
 		},
 		Rules:  []Rule{{ID: "base-rule", Decision: Deny}},
 		Waived: map[string]bool{"base-waiver": true},
@@ -42,9 +46,9 @@ func TestMergePreservesBaseAndAppendsTightenings(t *testing.T) {
 	}
 
 	op := &OperatorConfig{Repos: map[string]RepoGrant{
-		"/repo": {EgressAllowlist: []string{"api.example.com"}},
+		repo: {EgressAllowlist: []string{"api.example.com"}},
 	}}
-	m, warns, err := Merge(base, ov, "1.0.0", op, "/repo")
+	m, warns, err := Merge(base, ov, "1.0.0", op, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +56,7 @@ func TestMergePreservesBaseAndAppendsTightenings(t *testing.T) {
 	if len(warns) != 0 {
 		t.Fatalf("unexpected warnings: %v", warns)
 	}
-	if !slices.Equal(m.Slots.SafeRoots, []string{"/base/safe", "/repo/tmp"}) {
+	if !slices.Equal(m.Slots.SafeRoots, []string{baseSafe, filepath.Join(repo, "tmp")}) {
 		t.Errorf("SafeRoots = %v", m.Slots.SafeRoots)
 	}
 	if !slices.Equal(m.Slots.SecretGlobs, []string{"**/.env", "*.p12"}) {
@@ -61,13 +65,13 @@ func TestMergePreservesBaseAndAppendsTightenings(t *testing.T) {
 	if !slices.Equal(m.Slots.SecretAskGlobs, []string{"**/*.pem", "**/*.crt"}) {
 		t.Errorf("SecretAskGlobs = %v", m.Slots.SecretAskGlobs)
 	}
-	if !slices.Equal(m.Slots.SecretAllow, []string{"/base/public"}) {
+	if !slices.Equal(m.Slots.SecretAllow, []string{basePublic}) {
 		t.Errorf("SecretAllow = %v", m.Slots.SecretAllow)
 	}
 	if !slices.Equal(m.Slots.EgressAllowlist, []string{"base.example.com", "api.example.com"}) {
 		t.Errorf("EgressAllowlist = %v", m.Slots.EgressAllowlist)
 	}
-	if m.Slots.AuditLog != "/base/audit.jsonl" {
+	if m.Slots.AuditLog != baseAudit {
 		t.Errorf("AuditLog = %q", m.Slots.AuditLog)
 	}
 	if !slices.Equal(m.Rules, []Rule{{ID: "base-rule", Decision: Deny}, {ID: "overlay-ask", Decision: Ask}, {ID: "overlay-deny", Decision: Deny}}) {
@@ -84,8 +88,8 @@ func TestMergePreservesBaseAndAppendsTightenings(t *testing.T) {
 	m.Slots.EgressAllowlist[0] = "changed"
 	m.Rules[0].ID = "changed"
 	m.Waived["base-waiver"] = false
-	if base.Slots.SafeRoots[0] != "/base/safe" || base.Slots.SecretGlobs[0] != "**/.env" || base.Slots.SecretAskGlobs[0] != "**/*.pem" ||
-		base.Slots.SecretAllow[0] != "/base/public" || base.Slots.EgressAllowlist[0] != "base.example.com" ||
+	if base.Slots.SafeRoots[0] != baseSafe || base.Slots.SecretGlobs[0] != "**/.env" || base.Slots.SecretAskGlobs[0] != "**/*.pem" ||
+		base.Slots.SecretAllow[0] != basePublic || base.Slots.EgressAllowlist[0] != "base.example.com" ||
 		base.Rules[0].ID != "base-rule" || !base.Waived["base-waiver"] {
 		t.Fatal("Merge mutated Base policy storage")
 	}
@@ -103,13 +107,14 @@ func TestSecretDirsMergeIsAdditiveOnly(t *testing.T) {
 }
 
 func TestMergePartiallyAuthorizedWaivers(t *testing.T) {
+	repo := operatorRepo("repo")
 	op := &OperatorConfig{Repos: map[string]RepoGrant{
-		"/repo": {Waive: []string{"P6.egress"}},
+		repo: {Waive: []string{"P6.egress"}},
 	}}
 	base := &Policy{Waived: map[string]bool{}}
 	ov := &Overlay{Waive: []string{"P6.egress", "P1.rm-rf"}}
 
-	m, warns, err := Merge(base, ov, "1.0.0", op, "/repo")
+	m, warns, err := Merge(base, ov, "1.0.0", op, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,9 +132,10 @@ func TestMergePartiallyAuthorizedWaivers(t *testing.T) {
 
 func TestMergeBackstopsAreDroppedEvenWhenGranted(t *testing.T) {
 	ids := []string{"tokenize-failed", "panic-recovered", "P3.unresolved"}
-	op := &OperatorConfig{Repos: map[string]RepoGrant{"/repo": {Waive: ids}}}
+	repo := operatorRepo("repo")
+	op := &OperatorConfig{Repos: map[string]RepoGrant{repo: {Waive: ids}}}
 
-	m, warns, err := Merge(&Policy{Waived: map[string]bool{}}, &Overlay{Waive: ids}, "1.0.0", op, "/repo")
+	m, warns, err := Merge(&Policy{Waived: map[string]bool{}}, &Overlay{Waive: ids}, "1.0.0", op, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +173,7 @@ func TestMergeNilOrMissingOperatorConfigAuthorizesNothing(t *testing.T) {
 				AuditLog: "/tmp/repo-audit.jsonl",
 			}
 
-			m, warns, err := Merge(base, ov, "1.0.0", tt.op, "/repo")
+			m, warns, err := Merge(base, ov, "1.0.0", tt.op, operatorRepo("repo"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -182,13 +188,15 @@ func TestMergeNilOrMissingOperatorConfigAuthorizesNothing(t *testing.T) {
 }
 
 func TestMergeSecretAllowAndAuditLogRequireExactRepoGrant(t *testing.T) {
+	repo := operatorRepo("repo")
+	auditLog := filepath.Join(repo, "audit.jsonl")
 	op := &OperatorConfig{Repos: map[string]RepoGrant{
-		"/repo": {SecretAllow: true, AuditLog: true},
+		repo: {SecretAllow: true, AuditLog: true},
 	}}
 	base := &Policy{Slots: Slots{AuditLog: "/base/audit.jsonl"}, Waived: map[string]bool{}}
-	ov := &Overlay{SecretAllow: []string{"public/**"}, AuditLog: "/repo/audit.jsonl"}
+	ov := &Overlay{SecretAllow: []string{"public/**"}, AuditLog: auditLog}
 
-	for _, repoRoot := range []string{"/repo/subrepo", "/repo-other", "repo"} {
+	for _, repoRoot := range []string{filepath.Join(repo, "subrepo"), repo + "-other", "repo"} {
 		m, warns, err := Merge(base, ov, "1.0.0", op, repoRoot)
 		if err != nil {
 			t.Fatal(err)
@@ -198,11 +206,12 @@ func TestMergeSecretAllowAndAuditLogRequireExactRepoGrant(t *testing.T) {
 		}
 	}
 
-	m, warns, err := Merge(base, ov, "1.0.0", op, "/repo/./")
+	uncleanedRepo := repo + string(filepath.Separator) + "."
+	m, warns, err := Merge(base, ov, "1.0.0", op, uncleanedRepo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(m.Slots.SecretAllow, []string{"public/**"}) || m.Slots.AuditLog != "/repo/audit.jsonl" {
+	if !slices.Equal(m.Slots.SecretAllow, []string{"public/**"}) || m.Slots.AuditLog != auditLog {
 		t.Fatalf("exact cleaned grant was not applied: %+v", m)
 	}
 	if len(warns) != 0 {
@@ -211,30 +220,35 @@ func TestMergeSecretAllowAndAuditLogRequireExactRepoGrant(t *testing.T) {
 }
 
 func TestMergeSafeRootsMustResolveUnderAbsoluteRepoRoot(t *testing.T) {
+	repo := operatorRepo("work", "project")
+	assets := filepath.Join(repo, "assets")
+	uncleanFuture := repo + string(filepath.Separator) + "cache" + string(filepath.Separator) + ".." + string(filepath.Separator) + "future"
+	prefix := repo + "-prefix"
+	external := operatorRepo("etc")
 	ov := &Overlay{SafeRoots: []string{
 		"tmp",
 		".",
 		"../project-sibling",
 		"../other",
-		"/work/project/assets",
-		"/work/project/cache/../future",
-		"/work/project-prefix",
-		"/etc",
+		assets,
+		uncleanFuture,
+		prefix,
+		external,
 	}}
 
-	m, warns, err := Merge(&Policy{Waived: map[string]bool{}}, ov, "1.0.0", nil, "/work/project")
+	m, warns, err := Merge(&Policy{Waived: map[string]bool{}}, ov, "1.0.0", nil, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(m.Slots.SafeRoots, []string{
-		"/work/project/tmp",
-		"/work/project",
-		"/work/project/assets",
-		"/work/project/future",
+		filepath.Join(repo, "tmp"),
+		repo,
+		assets,
+		filepath.Join(repo, "future"),
 	}) {
 		t.Errorf("SafeRoots = %v", m.Slots.SafeRoots)
 	}
-	wantDropped := []string{"../project-sibling", "../other", "/work/project-prefix", "/etc"}
+	wantDropped := []string{"../project-sibling", "../other", prefix, external}
 	if len(warns) != len(wantDropped) {
 		t.Fatalf("warnings = %v, want one per external root", warns)
 	}
@@ -246,11 +260,13 @@ func TestMergeSafeRootsMustResolveUnderAbsoluteRepoRoot(t *testing.T) {
 }
 
 func TestMergeSafeRootsHaveNoOperatorEscapeGrant(t *testing.T) {
+	repo := operatorRepo("repo")
+	external := operatorRepo("etc")
 	op := &OperatorConfig{Repos: map[string]RepoGrant{
-		"/repo": {Waive: []string{"P1.rm-rf"}, SecretAllow: true, AuditLog: true},
+		repo: {Waive: []string{"P1.rm-rf"}, SecretAllow: true, AuditLog: true},
 	}}
 
-	m, warns, err := Merge(&Policy{Waived: map[string]bool{}}, &Overlay{SafeRoots: []string{"/etc"}}, "1.0.0", op, "/repo")
+	m, warns, err := Merge(&Policy{Waived: map[string]bool{}}, &Overlay{SafeRoots: []string{external}}, "1.0.0", op, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,13 +442,14 @@ func TestMergeEgressGrantDoesNotTransferAcrossEntryOrRepo(t *testing.T) {
 }
 
 func TestMergeWebHostsRequiresExactRepositoryGrant(t *testing.T) {
+	repo := operatorRepo("repo")
 	base := &Policy{Slots: Slots{WebHosts: []string{"base.example.com"}}, Waived: map[string]bool{}}
 	ov := &Overlay{WebHosts: []string{"repo.example.com", "*.example.com"}}
 	op := &OperatorConfig{Repos: map[string]RepoGrant{
-		"/repo": {WebHosts: []string{"repo.example.com"}},
+		repo: {WebHosts: []string{"repo.example.com"}},
 	}}
 
-	m, warns, err := Merge(base, ov, "1.0.0", op, "/repo")
+	m, warns, err := Merge(base, ov, "1.0.0", op, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,7 +465,7 @@ func TestMergeIncludesOperatorGlobalWebHosts(t *testing.T) {
 	base := &Policy{Slots: Slots{WebHosts: []string{"base.example.com"}}, Waived: map[string]bool{}}
 	op := &OperatorConfig{GlobalWebHosts: []string{"pkg.go.dev"}}
 
-	m, warns, err := Merge(base, nil, "1.0.0", op, "/repo")
+	m, warns, err := Merge(base, nil, "1.0.0", op, operatorRepo("repo"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,13 +477,14 @@ func TestMergeIncludesOperatorGlobalWebHosts(t *testing.T) {
 func TestMergeEgressCannotBeAuthorizedByOtherGrants(t *testing.T) {
 	configHome := t.TempDir()
 	testenv.SetConfig(t, configHome)
+	repo := operatorRepo("repo")
 	op := &OperatorConfig{Repos: map[string]RepoGrant{
-		"/repo": {Waive: []string{"P6.egress"}, SecretAllow: true, AuditLog: true},
+		repo: {Waive: []string{"P6.egress"}, SecretAllow: true, AuditLog: true},
 	}}
 	base := &Policy{Slots: Slots{EgressAllowlist: []string{"base.example.com"}}, Waived: map[string]bool{}}
 	ov := &Overlay{EgressAllowlist: []string{"api.example.com"}}
 
-	m, warns, err := Merge(base, ov, "1.0.0", op, "/repo")
+	m, warns, err := Merge(base, ov, "1.0.0", op, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -484,23 +502,27 @@ func TestMergeDroppedRequestWarningsAreStable(t *testing.T) {
 	configHome := t.TempDir()
 	testenv.SetConfig(t, configHome)
 	configPath := filepath.Join(configHome, "guardrail", "waivers.toml")
-	base := &Policy{Slots: Slots{AuditLog: "/base/audit.jsonl"}, Waived: map[string]bool{}}
+	baseAudit := operatorRepo("base", "audit.jsonl")
+	auditLog := operatorRepo("tmp", "audit.jsonl")
+	externalOne := operatorRepo("outside", "one")
+	externalTwo := operatorRepo("outside", "two")
+	base := &Policy{Slots: Slots{AuditLog: baseAudit}, Waived: map[string]bool{}}
 	ov := &Overlay{
-		SafeRoots:        []string{"/outside/one", "/outside/two"},
+		SafeRoots:        []string{externalOne, externalTwo},
 		SecretAllow:      []string{"one", "two"},
 		EgressAllowlist:  []string{"*", "**", "api.example.com"},
-		AuditLog:         "/tmp/audit.jsonl",
+		AuditLog:         auditLog,
 		Waive:            []string{"P6.egress", "tokenize-failed"},
 		EngineMinVersion: "2.0.0",
 	}
 	want := []string{
-		"guardrail: repo requested safe_root /outside/one outside the repository — DROPPED",
-		"guardrail: repo requested safe_root /outside/two outside the repository — DROPPED",
+		"guardrail: repo requested safe_root " + externalOne + " outside the repository — DROPPED",
+		"guardrail: repo requested safe_root " + externalTwo + " outside the repository — DROPPED",
 		"guardrail: repo requested a wildcard egress_allowlist entry * — DROPPED",
 		"guardrail: repo requested a wildcard egress_allowlist entry ** — DROPPED",
 		"guardrail: repo requested egress_allowlist entry api.example.com, which is NOT authorized in " + configPath + " — DROPPED",
 		"guardrail: repo requested secret_allow entries, which are NOT authorized in " + configPath + " — secret protection remains ENFORCED",
-		"guardrail: repo requested audit_log /tmp/audit.jsonl, which is NOT authorized in " + configPath + " — the default audit path is retained",
+		"guardrail: repo requested audit_log " + auditLog + ", which is NOT authorized in " + configPath + " — the default audit path is retained",
 		"guardrail: repo requested waiver of P6.egress, which is NOT authorized in " + configPath + " — the rule remains ENFORCED",
 		"guardrail: rule tokenize-failed can never be waived (fail-closed backstop) — request DROPPED",
 		"guardrail: binary 1.0.0 is older than this repo's engine_min_version 2.0.0",
@@ -516,7 +538,7 @@ func TestMergeDroppedRequestWarningsAreStable(t *testing.T) {
 
 func TestMergeNilOverlayCopiesBaseWithoutWarnings(t *testing.T) {
 	base := &Policy{Slots: Slots{SafeRoots: []string{"/base"}}, Waived: map[string]bool{"P6.egress": true}}
-	m, warns, err := Merge(base, nil, "1.0.0", nil, "/repo")
+	m, warns, err := Merge(base, nil, "1.0.0", nil, operatorRepo("repo"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -528,7 +550,7 @@ func TestMergeNilOverlayCopiesBaseWithoutWarnings(t *testing.T) {
 func TestMergeRejectsAllowRule(t *testing.T) {
 	base := &Policy{Waived: map[string]bool{}}
 	ov := &Overlay{Rules: []Rule{{ID: "x", Decision: Allow, Pattern: "curl *"}}}
-	if _, _, err := Merge(base, ov, "1.0.0", nil, "/repo"); err == nil {
+	if _, _, err := Merge(base, ov, "1.0.0", nil, operatorRepo("repo")); err == nil {
 		t.Fatal("want error for an overlay allow rule")
 	}
 }
@@ -537,7 +559,7 @@ func TestMergeRejectsInvalidOverlayDecision(t *testing.T) {
 	for _, d := range []Decision{"Deny", "block", "deny ", ""} {
 		base := &Policy{Waived: map[string]bool{}}
 		ov := &Overlay{Rules: []Rule{{ID: "x", Decision: d, Pattern: "curl *"}}}
-		if _, _, err := Merge(base, ov, "1.0.0", nil, "/repo"); err == nil {
+		if _, _, err := Merge(base, ov, "1.0.0", nil, operatorRepo("repo")); err == nil {
 			t.Errorf("decision %q: want error, got nil", d)
 		}
 	}

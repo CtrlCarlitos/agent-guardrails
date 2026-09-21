@@ -150,7 +150,7 @@ func TestBrowserPagePresentsCanonicalRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"opencode", "/repo", "api.example.test", "repo", request.ID[:12], "navigator.credentials.get"} {
+	for _, want := range []string{"opencode", request.RepoRoot, "api.example.test", "repo", request.ID[:12], "navigator.credentials.get"} {
 		if !bytes.Contains(body, []byte(want)) {
 			t.Fatalf("approval page does not present %q", want)
 		}
@@ -189,7 +189,7 @@ func TestBrowserLoopbackFailurePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read approval page: %v\n%s", err, output)
 	}
-	for _, want := range []string{"opencode", "/repo", "api.example.test", "WebAuthn authentication was not completed (NotAllowedError)"} {
+	for _, want := range []string{"opencode", request.RepoRoot, "api.example.test", "WebAuthn authentication was not completed (NotAllowedError)"} {
 		if !bytes.Contains(output, []byte(want)) {
 			t.Fatalf("browser page does not present %q", want)
 		}
