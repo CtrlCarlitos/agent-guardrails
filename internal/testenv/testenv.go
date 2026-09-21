@@ -106,3 +106,70 @@ func ChildRootEnv(roots Roots) []string {
 		"LOCALAPPDATA=" + roots.State,
 	}
 }
+
+// hostileWindowsNameBytes maps characters that are hostile to a line-oriented
+// report but illegal in a Windows filename onto ones that are both hostile and
+// legal. Measured on Windows 11 / NTFS: \n, \r, \t and ESC are rejected by the
+// filesystem, while U+2028, U+2029, U+00A0 and the C1 controls (U+0080-U+009F,
+// including U+007F) are accepted.
+//
+// Each substitution preserves what the sanitizer has to do with it, so the
+// expected display string is unchanged:
+//
+//	\n   -> U+2028 LINE SEPARATOR       breaks a line; unicode.IsSpace
+//	\r   -> U+2029 PARAGRAPH SEPARATOR  breaks a line; unicode.IsSpace
+//	\t   -> U+00A0 NO-BREAK SPACE       column-shifting; unicode.IsSpace
+//	\x1b -> U+009B CSI                  the C1 single-character form of ESC [
+//
+// The ESC substitution is the faithful one rather than a convenience: U+009B
+// *is* the control-sequence introducer, so a Windows filename carrying it is
+// the same terminal-injection attack the POSIX fixture spells with ESC [.
+// The punctuation below is a second, different category. None of it is
+// hostile to a report \u2014 it is inert, and the sanitizer passes it through
+// unchanged on every platform \u2014 but Windows reserves all of it in a filename,
+// so a fixture spelling a forged `policy warnings:` line or a `synced x -> y`
+// status line cannot create the file at all. Each maps to a printable
+// look-alike that NTFS accepts (measured: every ASCII form below is rejected
+// and every substitute accepted).
+//
+// Because these are inert, the same substitution applies to the *expected*
+// display string as to the fixture, and that does not weaken the assertion:
+// the sanitizer is still the only thing neutralizing the newline, tab, escape,
+// DEL and C1 bytes, which is the property under test. What changes is only
+// which harmless glyph sits between them.
+var hostileWindowsNameBytes = strings.NewReplacer(
+	// Hostile, and illegal on Windows: substitute keeps the hostility.
+	"\n", "\u2028",
+	"\r", "\u2029",
+	"\t", "\u00a0",
+	"\x1b", "\u009b",
+	// Inert, but reserved by Windows: substitute is cosmetic.
+	":", "\ua789",
+	">", "\uff1e",
+	"<", "\uff1c",
+	`"`, "\uff02",
+	"|", "\uff5c",
+	"?", "\uff1f",
+	"*", "\uff0a",
+)
+
+// HostilePathSegment adapts a deliberately hostile path segment to what this
+// host will accept in a filename, without softening what it tests.
+//
+// Fixtures that assert output sanitization build real files whose names carry
+// newlines, tabs and escapes, so a path can try to forge an extra status line
+// in a report. Windows cannot create those names at all, so the fixture failed
+// at os.Mkdir long before reaching the assertion and the sanitizer went
+// unexercised on the platform whose console rendering differs most (#174,
+// family K).
+//
+// POSIX keeps the canonical bytes. Gating these tests off on Windows would
+// have been the cheaper fix and the wrong one: the property under test is that
+// the *product* neutralizes hostile bytes in its own output, which does not
+// require those exact bytes to survive a round trip through the filesystem.
+func HostilePathSegment(segment string) string {
+	if runtime.GOOS != "windows" {
+		return segment
+	}
+	return hostileWindowsNameBytes.Replace(segment)
+}

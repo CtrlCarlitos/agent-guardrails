@@ -5,6 +5,32 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Fix (#174 family K): the output-sanitization fixtures now run on Windows.**
+  Tests that assert guardrail neutralizes hostile bytes in its own reports
+  build real files whose names carry newlines, tabs and escapes, so a path can
+  try to forge an extra status line. Windows cannot create those names, so the
+  fixtures failed at `os.Mkdir` long before reaching the assertion and the
+  sanitizer went unexercised on the platform whose console rendering differs
+  most. Measured on NTFS: `\n`, `\r`, `\t` and ESC are rejected outright, and
+  so are the reserved `: < > " | ? *`; `\x7f`, the C1 controls, U+2028, U+2029,
+  U+0085 and U+00A0 are all accepted. `testenv.HostilePathSegment` adapts a
+  segment to what the host will accept without softening it: the hostile
+  characters map to hostile substitutes the sanitizer must still neutralize
+  (`\n` to U+2028, ESC to U+009B, which *is* the C1 control sequence
+  introducer), and the reserved punctuation maps to inert look-alikes that were
+  never the subject. POSIX keeps the canonical bytes, and a path that is never
+  created keeps them on every host — there is no filesystem constraint to work
+  around, and substituting there would weaken the test. Gating these off on
+  Windows would have been the cheaper fix and the wrong one: the property is
+  that the *product* neutralizes hostile output, which does not require those
+  bytes to survive a round trip through the filesystem.
+- **A Windows-reachable sanitizer path is now pinned.** `safetext.SingleLine`
+  neutralizes U+2028/U+2029 through its `strings.Fields` join rather than its
+  `unicode.IsControl` branch, because those are category Zl/Zp and not Cc. That
+  distinction is load-bearing on Windows and nowhere else: `\n` cannot appear
+  in an NTFS filename but U+2028 can, so the line-forging attack is reachable
+  there *only* through the separators the control branch misses. A refactor
+  dropping the join would have reopened it with every C0/C1 test still green.
 - **Fix (#191): the approval client now authenticates the pipe server.**
   ADR-0021 promises the OS authenticates the peer, and the owner-only DACL
   delivered that in one direction only: no other user can connect to our pipe,
