@@ -3013,6 +3013,14 @@ loop:
 		}
 		result = append(result, inner...)
 	}
+	if source, ok := cmdSlashC(argv); ok {
+		innerState := invalidateExpansionFacts(s.shellState)
+		inner, err := normalizeShellDashC(source, innerState, s.pipelines, ctx)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, inner...)
+	}
 	remoteSources, err := sshCommandSources(argv)
 	if err != nil {
 		return nil, err
@@ -3546,6 +3554,34 @@ func shellOptions(shell string) (shellOptionSpec, bool) {
 	default:
 		return shellOptionSpec{}, false
 	}
+}
+
+// cmdSlashC extracts the command string from `cmd /c "<command>"`, cmd.exe's
+// counterpart to `sh -c`. The POSIX shells were already unwrapped here, so a
+// verdict could be laundered by writing the same call through cmd — `sh -c
+// "rm -rf X"` denied while `cmd /c "rm -rf X"` allowed (#139).
+//
+// The payload is parsed as a POSIX command, which is a deliberate
+// approximation: cmd's own grammar (%VAR% expansion, ^ escaping, its own
+// precedence) is not modelled. It is enough for the shapes that matter,
+// because a cmd switch is an ordinary word to the POSIX tokenizer and the cmd
+// rules read it as a switch; anything the parser cannot read fails closed to
+// an ask rather than passing through unseen.
+func cmdSlashC(argv []string) (string, bool) {
+	if head(argv) != "cmd" {
+		return "", false
+	}
+	for i := 1; i < len(argv); i++ {
+		switch strings.ToLower(argv[i]) {
+		case "/c", "/k":
+			if i+1 >= len(argv) {
+				return "", false
+			}
+			// cmd takes the rest of the line as the command.
+			return strings.Join(argv[i+1:], " "), true
+		}
+	}
+	return "", false
 }
 
 func shellDashC(argv []string) (string, bool, error) {

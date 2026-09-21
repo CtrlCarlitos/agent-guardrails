@@ -142,6 +142,8 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 		}
 		takeSimple(checkRmRf(s, tc, pol))
 		takeSimple(checkPowerShell(s, tc, pol))
+		takeSimple(checkCmdDelete(s, tc, pol))
+		takeSimple(checkCmdDiskDestroyer(s))
 		takeSimple(checkDiskDestroyers(s))
 		takeSimple(checkDestinationWrites(s, tc, pol))
 		takeSimple(checkNightControlInvocation(s, tc.Command))
@@ -1542,7 +1544,10 @@ func checkAskTierWithFindFSExemption(s Simple, tc ToolCall, pol *policy.Policy, 
 		return checkFindActions(parseFindActions(s.Argv), s, tc, pol, findFSExemption)
 	case "truncate":
 		return ask("P1.truncate", "truncate destroys file contents with no diff")
-	case "rmdir":
+	case "rmdir", "rd":
+		// `rd` is cmd's spelling of rmdir. Measured: without /s it fails on a
+		// non-empty directory, so it is the same non-recursive act and gets
+		// the same ask. The recursive form is handled by checkCmdDelete.
 		return ask("P1.rmdir", "rmdir deletes directories without exact safe path semantics")
 	case "kill":
 		if hasAnyFlag(s.Argv, "9") {
