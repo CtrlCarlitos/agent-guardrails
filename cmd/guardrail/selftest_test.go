@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func runSelftest(t *testing.T, stdout, stderr *strings.Builder) int {
@@ -16,9 +18,9 @@ func runSelftest(t *testing.T, stdout, stderr *strings.Builder) int {
 }
 
 func TestSelftestPassesOnHealthyEnvironment(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	var out, errb strings.Builder
 	if code := runSelftest(t, &out, &errb); code != 0 {
 		t.Fatalf("exit = %d stderr %q stdout %q", code, errb.String(), out.String())
@@ -38,9 +40,9 @@ func TestSelftestPassesOnHealthyEnvironment(t *testing.T) {
 }
 
 func TestSelftestFailsWhenAProbeVerdictDrifts(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	orig := selftestProbes
 	tampered := append([]selftestProbe(nil), orig...)
 	tampered[0].WantDecision = "never"
@@ -57,9 +59,9 @@ func TestSelftestFailsWhenAProbeVerdictDrifts(t *testing.T) {
 }
 
 func TestSelftestIsIdempotentAcrossRuns(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	for run := 0; run < 2; run++ {
 		var out, errb strings.Builder
 		if code := runSelftest(t, &out, &errb); code != 0 {
@@ -68,9 +70,9 @@ func TestSelftestIsIdempotentAcrossRuns(t *testing.T) {
 	}
 }
 func TestSelftestAntigravityProbesPass(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	var out, errb strings.Builder
 	if code := runSelftest(t, &out, &errb); code != 0 {
 		t.Fatalf("exit = %d stderr %q stdout %q", code, errb.String(), out.String())
@@ -81,10 +83,10 @@ func TestSelftestAntigravityProbesPass(t *testing.T) {
 }
 
 func TestSelftestRecordsThePassedVersionInTheStateDir(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetHome(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	state := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", state)
+	testenv.SetState(t, state)
 	var out, errb strings.Builder
 	if code := runSelftest(t, &out, &errb); code != 0 {
 		t.Fatalf("exit = %d stderr %q", code, errb.String())
@@ -102,10 +104,10 @@ func TestSelftestRecordsThePassedVersionInTheStateDir(t *testing.T) {
 }
 
 func TestSelftestDoesNotRecordAFailedRun(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetHome(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	state := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", state)
+	testenv.SetState(t, state)
 	orig := selftestProbes
 	tampered := append([]selftestProbe(nil), orig...)
 	tampered[0].WantDecision = "never"
@@ -140,9 +142,9 @@ func TestSelftestClaudeProbesPinRuleIDs(t *testing.T) {
 	if len(want) != 0 {
 		t.Fatalf("missing claude probes: %v", want)
 	}
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	// Counted from the matrix, not hardcoded: a Windows host adds the
 	// drive-lettered probes to the same plane, and the count is evidence that
 	// every claude probe passed rather than a number to keep in step by hand.
@@ -167,9 +169,9 @@ func TestSelftestClaudeProbesPinRuleIDs(t *testing.T) {
 // Ask probes are chosen from rules night mode never relaxes (ADR-0018), so
 // selftest is deterministic at any hour: an active marker changes nothing.
 func TestSelftestIsDeterministicUnderActiveNightMarker(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	enableNightForHook(t)
 	var out, errb strings.Builder
 	if code := runSelftest(t, &out, &errb); code != 0 || !strings.Contains(out.String(), "selftest: all probes passed") {
@@ -231,10 +233,8 @@ func TestWindowsSelftestProbesPassOnWindowsHost(t *testing.T) {
 		t.Skip("windows probes are evaluated on a windows host")
 	}
 	state := t.TempDir()
-	t.Setenv("LOCALAPPDATA", state)
-	t.Setenv("APPDATA", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", state)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, state)
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	suffix := "selftest-windows-" + t.Name()
 	for _, probe := range windowsSelftestProbes() {
@@ -311,11 +311,9 @@ func TestWindowsSelftestMatrixPasses(t *testing.T) {
 		t.Skip("the POSIX matrix is covered by the full suite on ubuntu and macos")
 	}
 	state := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("LOCALAPPDATA", state)
-	t.Setenv("APPDATA", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", state)
+	testenv.SetHome(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
+	testenv.SetState(t, state)
 	var out, errb strings.Builder
 	if code := runSelftest(t, &out, &errb); code != 0 {
 		t.Fatalf("selftest exit = %d on windows; stderr %q\n%s", code, errb.String(), out.String())

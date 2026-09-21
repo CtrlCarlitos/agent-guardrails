@@ -19,6 +19,7 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/session"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 type failingReader struct {
@@ -31,8 +32,8 @@ func (r failingReader) Read([]byte) (int, error) {
 
 func hookFailureInput(t *testing.T, plane, failure string) io.Reader {
 	t.Helper()
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 
 	var payload string
@@ -87,7 +88,7 @@ func overlayWithWaivers(count int) string {
 func authorizeOperatorWaivers(t *testing.T, repo string, ids ...string) {
 	t.Helper()
 	configHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configHome)
+	testenv.SetConfig(t, configHome)
 	dir := filepath.Join(configHome, "guardrail")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -105,7 +106,7 @@ func authorizeOperatorWaivers(t *testing.T, repo string, ids ...string) {
 func configureTrackingPolicy(t *testing.T, waivers ...string) {
 	t.Helper()
 	configHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configHome)
+	testenv.SetConfig(t, configHome)
 	dir := filepath.Join(configHome, "guardrail")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -150,7 +151,7 @@ func runHook(t *testing.T, fixture string) (int, string, string) {
 	}
 	defer f.Close()
 	// isolate the audit log
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "") // base-only
 	var out, errb bytes.Buffer
 	code := run([]string{"hook", "claude"}, f, &out, &errb)
@@ -198,8 +199,8 @@ func TestHookNightModeAllowsAsksAcrossPlanesWithAuditProvenance(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stateHome := t.TempDir()
-			t.Setenv("XDG_STATE_HOME", stateHome)
-			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			testenv.SetState(t, stateHome)
+			testenv.SetConfig(t, t.TempDir())
 			t.Setenv("GUARDRAIL_CONFIG", "")
 			enableNightForHook(t)
 
@@ -232,8 +233,8 @@ func TestHookNightModeNeverWeakensDeny(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("XDG_STATE_HOME", t.TempDir())
-			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			testenv.SetState(t, t.TempDir())
+			testenv.SetConfig(t, t.TempDir())
 			t.Setenv("GUARDRAIL_CONFIG", "")
 			enableNightForHook(t)
 			var stdout, stderr bytes.Buffer
@@ -252,8 +253,8 @@ func TestHookNightModeNeverWeakensDeny(t *testing.T) {
 }
 
 func TestHookNightModeIsReadForEveryCall(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	payload := `{"session_id":"night-live","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push origin main"}}`
 	call := func() string {
@@ -279,8 +280,8 @@ func TestHookNightModeIsReadForEveryCall(t *testing.T) {
 }
 
 func TestHookMalformedNightMarkerKeepsNormalPostureAndWarns(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	path, err := night.DefaultPath()
 	if err != nil {
@@ -304,8 +305,8 @@ func TestHookMalformedNightMarkerKeepsNormalPostureAndWarns(t *testing.T) {
 
 func TestHookNightModeFallsBackToAskWhenAuditFails(t *testing.T) {
 	configHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configHome)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetConfig(t, configHome)
+	testenv.SetState(t, t.TempDir())
 	configDir := filepath.Join(configHome, "guardrail")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -337,8 +338,8 @@ func TestHookNightModeFallsBackToAskWhenAuditFails(t *testing.T) {
 
 func TestHookNightModeFallsBackToAskForNonRegularAuditDestination(t *testing.T) {
 	configHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configHome)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetConfig(t, configHome)
+	testenv.SetState(t, t.TempDir())
 	configDir := filepath.Join(configHome, "guardrail")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -364,8 +365,8 @@ func TestHookNightModeFallsBackToAskForNonRegularAuditDestination(t *testing.T) 
 }
 
 func TestHookNightModeDoesNotCreateOpenCodeApprovalMemory(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	enableNightForHook(t)
 	const sessionID = "night-no-approval"
@@ -391,8 +392,8 @@ func TestHookNightBannerAppearsOncePerNonClaudeSession(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("XDG_STATE_HOME", t.TempDir())
-			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			testenv.SetState(t, t.TempDir())
+			testenv.SetConfig(t, t.TempDir())
 			t.Setenv("GUARDRAIL_CONFIG", "")
 			enableNightForHook(t)
 			for call := 1; call <= 2; call++ {
@@ -410,8 +411,8 @@ func TestHookNightBannerAppearsOncePerNonClaudeSession(t *testing.T) {
 }
 
 func TestHookNightBannerAppearsWhenSessionTransactionFails(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	enableNightForHook(t)
 	realTransaction := sessionTransaction
@@ -431,8 +432,8 @@ func TestHookNightBannerAppearsWhenSessionTransactionFails(t *testing.T) {
 }
 
 func TestHookNightBannerTracksExactExpiryPerPlane(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	path, err := night.DefaultPath()
 	if err != nil {
@@ -467,8 +468,8 @@ func TestHookNightBannerTracksExactExpiryPerPlane(t *testing.T) {
 }
 
 func TestHookClaudeSessionStartPrintsNightBannerFirst(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	enableNightForHook(t)
 	payload := `{"session_id":"night-session-start","cwd":"/tmp","hook_event_name":"SessionStart"}`
@@ -502,8 +503,8 @@ func TestHookCanonicalNightControlCreatesBrokerRequestAcrossPlanes(t *testing.T)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stateHome := t.TempDir()
-			t.Setenv("XDG_STATE_HOME", stateHome)
-			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			testenv.SetState(t, stateHome)
+			testenv.SetConfig(t, t.TempDir())
 			t.Setenv("GUARDRAIL_CONFIG", "")
 			enableNightForHook(t)
 			var stdout, stderr bytes.Buffer
@@ -521,8 +522,8 @@ func TestHookCanonicalNightControlCreatesBrokerRequestAcrossPlanes(t *testing.T)
 
 func TestHookNightControlInInterpreterHeredocIsP5Deny(t *testing.T) {
 	stateHome := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", stateHome)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, stateHome)
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	enableNightForHook(t)
 	command := "python3 <<'PY'\nimport os\nos.system(\"guardrail night off\")\nPY"
@@ -560,7 +561,7 @@ func TestHookClaudeAllow(t *testing.T) {
 }
 
 func TestHookClaudeAskIncludesAuthorizationGuidance(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	payload := `{"session_id":"s1","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push origin main"}}`
 	var out, errb bytes.Buffer
@@ -606,7 +607,7 @@ func TestHookClaudeGitCommitAllowedForNow(t *testing.T) {
 }
 
 func TestHookUnparseablePayloadFailsClosed(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	var out, errb bytes.Buffer
 	code := run([]string{"hook", "claude"}, bytes.NewReader([]byte("not json")), &out, &errb)
 	if code != 2 {
@@ -616,7 +617,7 @@ func TestHookUnparseablePayloadFailsClosed(t *testing.T) {
 
 func TestHookAuditLogWritten(t *testing.T) {
 	state := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", state)
+	testenv.SetState(t, state)
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	f, _ := os.Open(filepath.Join("..", "..", "test", "fixtures", "claude", "bash-rm-rf.json"))
 	defer f.Close()
@@ -667,8 +668,8 @@ func TestUnknownToolDenyPostureBlocksOpenCodeAndAntigravity(t *testing.T) {
 		{"antigravity", []string{"hook", "antigravity", "pre"}, `{"toolCall":{"name":"future_tool","args":{}}}`, `"decision":"deny"`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("XDG_STATE_HOME", t.TempDir())
-			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			testenv.SetState(t, t.TempDir())
+			testenv.SetConfig(t, t.TempDir())
 			t.Setenv("GUARDRAIL_CONFIG", overlay)
 			var out, errb bytes.Buffer
 			code := run(tt.args, strings.NewReader(tt.payload), &out, &errb)
@@ -680,7 +681,7 @@ func TestUnknownToolDenyPostureBlocksOpenCodeAndAntigravity(t *testing.T) {
 }
 
 func TestHookStaleGuardrailConfigDegrades(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "/no/such/guardrail.toml")
 
 	// a destructive command still gets blocked by the base policy
@@ -705,8 +706,8 @@ func TestHookStaleGuardrailConfigDegrades(t *testing.T) {
 }
 
 func TestHookSanitizesOverlayDiscoveryWarning(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	missing := filepath.Join(t.TempDir(), "missing\nforged\tconfig\x7f.toml")
 	t.Setenv("GUARDRAIL_CONFIG", missing)
 
@@ -725,8 +726,8 @@ func TestHookSanitizesOverlayDiscoveryWarning(t *testing.T) {
 }
 
 func TestHookSanitizesOverlayControlledWarnings(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	overlayPath := filepath.Join(t.TempDir(), "guardrail.toml")
 	overlay := `waive = ["P9.forged\nwarning\tclaim\u007f"]
 [slots]
@@ -758,8 +759,8 @@ safe_roots = ["/definitely-outside\nforged\troot\u007f"]
 }
 
 func TestHookEmitsOnlyFirstTwentyMergeWarnings(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	overlayPath := filepath.Join(t.TempDir(), "guardrail.toml")
 	if err := os.WriteFile(overlayPath, []byte(overlayWithWaivers(21)), 0o644); err != nil {
 		t.Fatal(err)
@@ -780,9 +781,9 @@ func TestHookEmitsOnlyFirstTwentyMergeWarnings(t *testing.T) {
 }
 
 func TestHookCumulativeWarningCapPreservesSessionStartOperatorWarning(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	configHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configHome)
+	testenv.SetConfig(t, configHome)
 	configDir := filepath.Join(configHome, "guardrail")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -828,7 +829,7 @@ func TestHookCumulativeWarningCapPreservesSessionStartOperatorWarning(t *testing
 
 func TestHookLateSessionWarningCannotExceedCumulativeCap(t *testing.T) {
 	stateHome := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", stateHome)
+	testenv.SetState(t, stateHome)
 	guardrailDir := filepath.Join(stateHome, "guardrail")
 	if err := os.Mkdir(guardrailDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -836,7 +837,7 @@ func TestHookLateSessionWarningCannotExceedCumulativeCap(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(guardrailDir, "sessions"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	overlayPath := filepath.Join(t.TempDir(), "guardrail.toml")
 	if err := os.WriteFile(overlayPath, []byte(overlayWithWaivers(20)), 0o644); err != nil {
 		t.Fatal(err)
@@ -861,9 +862,9 @@ func TestHookLateSessionWarningCannotExceedCumulativeCap(t *testing.T) {
 }
 
 func TestHookLateAuditWarningCannotExceedCumulativeCap(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	configHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configHome)
+	testenv.SetConfig(t, configHome)
 	configDir := filepath.Join(configHome, "guardrail")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -902,7 +903,7 @@ func TestHookLateAuditWarningCannotExceedCumulativeCap(t *testing.T) {
 }
 
 func TestTrifectaEscalatesAcrossTwoCalls(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	authorizeOperatorWaivers(t, "/tmp", "P4.secret-path")
 	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
 	os.WriteFile(cfg, []byte("waive = [\"P4.secret-path\"]\n"), 0o644)
@@ -927,7 +928,7 @@ func TestTrifectaEscalatesAcrossTwoCalls(t *testing.T) {
 }
 
 func TestTrifectaWaivedIsSilent(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	authorizeOperatorWaivers(t, "/tmp", "P4.secret-path", "P7.trifecta")
 	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
 	os.WriteFile(cfg, []byte("waive = [\"P4.secret-path\", \"P7.trifecta\"]\n"), 0o644)
@@ -947,7 +948,7 @@ func TestTrifectaWaivedIsSilent(t *testing.T) {
 }
 
 func TestTrifectaSilentWithoutPriorSignal(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	payload := `{"session_id":"lone-sess","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl http://localhost:9999/x"}}`
 	var out, errb bytes.Buffer
@@ -970,7 +971,7 @@ func TestTrackingUnavailableAsksForMissingSessionSignal(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			stateHome := t.TempDir()
-			t.Setenv("XDG_STATE_HOME", stateHome)
+			testenv.SetState(t, stateHome)
 			configureTrackingPolicy(t, test.waivers...)
 			payload := fmt.Sprintf(`{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":%q,"tool_input":%s}`, test.tool, test.toolJSON)
 			var out, errb bytes.Buffer
@@ -1008,7 +1009,7 @@ func TestTrackingUnavailableAsksWhenTransactionFails(t *testing.T) {
 			if err := os.WriteFile(blocker, nil, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			t.Setenv("XDG_STATE_HOME", blocker)
+			testenv.SetState(t, blocker)
 			payload := fmt.Sprintf(`{"session_id":"s1","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":%q,"tool_input":%s}`, test.tool, test.toolJSON)
 			var out, errb bytes.Buffer
 			if code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb); code != 0 {
@@ -1023,7 +1024,7 @@ func TestTrackingUnavailableAsksWhenTransactionFails(t *testing.T) {
 
 func TestTrackingUnavailablePreservesUnderlyingVerdicts(t *testing.T) {
 	t.Run("Ask", func(t *testing.T) {
-		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		testenv.SetState(t, t.TempDir())
 		configureTrackingPolicy(t)
 		payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/tmp/cert.pem"}}`
 		var out, errb bytes.Buffer
@@ -1036,7 +1037,7 @@ func TestTrackingUnavailablePreservesUnderlyingVerdicts(t *testing.T) {
 	})
 
 	t.Run("Deny", func(t *testing.T) {
-		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		testenv.SetState(t, t.TempDir())
 		configureTrackingPolicy(t)
 		payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/tmp/.ssh/id_rsa"}}`
 		var out, errb bytes.Buffer
@@ -1050,7 +1051,7 @@ func TestTrackingUnavailablePreservesUnderlyingVerdicts(t *testing.T) {
 }
 
 func TestTrackingUnavailableDoesNotInterruptRoutineCall(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	configureTrackingPolicy(t)
 	payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`
 	var out, errb bytes.Buffer
@@ -1060,7 +1061,7 @@ func TestTrackingUnavailableDoesNotInterruptRoutineCall(t *testing.T) {
 }
 
 func TestTrackingUnavailableWaiverPreservesAllow(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	configureTrackingPolicy(t, "P7.trifecta")
 	payload := `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl https://api.example.com/x"}}`
 	var out, errb bytes.Buffer
@@ -1071,7 +1072,7 @@ func TestTrackingUnavailableWaiverPreservesAllow(t *testing.T) {
 
 func TestTrifectaWaiverSkipsSessionTransaction(t *testing.T) {
 	stateHome := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", stateHome)
+	testenv.SetState(t, stateHome)
 	configureTrackingPolicy(t, "P7.trifecta")
 	store := filepath.Join(stateHome, "guardrail", "sessions")
 	if err := os.MkdirAll(filepath.Dir(store), 0o700); err != nil {
@@ -1096,7 +1097,7 @@ func TestTrifectaWaiverSkipsSessionTransaction(t *testing.T) {
 
 func TestHookHashesNativeSessionID(t *testing.T) {
 	state := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", state)
+	testenv.SetState(t, state)
 	authorizeOperatorWaivers(t, "/tmp", "P4.secret-path")
 	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
 	if err := os.WriteFile(cfg, []byte("waive = [\"P4.secret-path\"]\n"), 0o644); err != nil {
@@ -1131,7 +1132,7 @@ func TestHookHashesNativeSessionID(t *testing.T) {
 }
 
 func TestHookRecipeDeniesOnPostEditLintFailure(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	payload := `{"session_id":"s1","cwd":"/tmp","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"/tmp/does-not-exist.go"}}`
 	var out, errb bytes.Buffer
@@ -1142,7 +1143,7 @@ func TestHookRecipeDeniesOnPostEditLintFailure(t *testing.T) {
 }
 
 func TestHookRecipeSilentOnBenignEdit(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	payload := `{"session_id":"s1","cwd":"/tmp","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"/tmp/README.md"}}`
 	var out, errb bytes.Buffer
@@ -1153,7 +1154,7 @@ func TestHookRecipeSilentOnBenignEdit(t *testing.T) {
 }
 
 func TestHookOpencodeDeny(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	payload := `{"session_id":"s1","event":"pre","tool":"bash","command":"rm -rf /","cwd":"/tmp"}`
 	var out, errb bytes.Buffer
@@ -1167,7 +1168,7 @@ func TestHookOpencodeDeny(t *testing.T) {
 }
 
 func TestHookOpencodeAllow(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	payload := `{"session_id":"s1","event":"pre","tool":"bash","command":"ls -la","cwd":"/tmp"}`
 	var out, errb bytes.Buffer
@@ -1276,8 +1277,8 @@ func openCodeApprovalPayload(sessionID, event, tool, command, cwd, arguments str
 func configureApprovalTest(t *testing.T, overlay string) (string, string) {
 	t.Helper()
 	stateHome := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", stateHome)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, stateHome)
+	testenv.SetConfig(t, t.TempDir())
 	overlayPath := filepath.Join(t.TempDir(), "guardrail.toml")
 	if err := os.WriteFile(overlayPath, []byte(overlay), 0o600); err != nil {
 		t.Fatal(err)
@@ -1466,8 +1467,8 @@ func TestOpenCodeApprovalMemoryTransactionFailurePreservesAsk(t *testing.T) {
 	if err := os.WriteFile(stateRoot, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("XDG_STATE_HOME", stateRoot)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, stateRoot)
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	payload := openCodeApprovalPayload("approval-failed-transaction", "pre", "bash", "git checkout .", "/tmp", `{"command":"git checkout ."}`)
 	result := runOpenCodeApprovalHook(t, payload)
@@ -1779,7 +1780,7 @@ func TestOpenCodeApprovalMemoryConcurrentRetriesHaveOneConsumer(t *testing.T) {
 
 func TestHookOpencodeAuditRecordsCorrectPlane(t *testing.T) {
 	state := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", state)
+	testenv.SetState(t, state)
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	payload := `{"session_id":"s1","event":"pre","tool":"bash","command":"rm -rf /","cwd":"/tmp"}`
 	var out, errb bytes.Buffer
@@ -1795,8 +1796,8 @@ func TestHookOpencodeAuditRecordsCorrectPlane(t *testing.T) {
 
 func TestHookAuditRetainsRawVerdictReason(t *testing.T) {
 	state := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", state)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, state)
+	testenv.SetConfig(t, t.TempDir())
 	overlayPath := filepath.Join(t.TempDir(), "guardrail.toml")
 	overlay := `[[rules]]
 id = "project.raw-reason"
@@ -1834,7 +1835,7 @@ reason = "raw\nreason\tclaim\u007f"
 }
 
 func TestHookAntigravityDeny(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	payload := `{"conversationId":"c1","toolCall":{"name":"run_command","args":{"CommandLine":"rm -rf /","Cwd":"/tmp"}}}`
 	var out, errb bytes.Buffer
@@ -1848,7 +1849,7 @@ func TestHookAntigravityDeny(t *testing.T) {
 }
 
 func TestHookAntigravityAllow(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	payload := `{"conversationId":"c1","toolCall":{"name":"run_command","args":{"CommandLine":"ls -la","Cwd":"/tmp"}}}`
 	var out, errb bytes.Buffer
@@ -1859,7 +1860,7 @@ func TestHookAntigravityAllow(t *testing.T) {
 }
 
 func TestHookAntigravityAskIncludesAuthorizationGuidance(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	payload := `{"conversationId":"c1","toolCall":{"name":"run_command","args":{"CommandLine":"git push origin main","Cwd":"/tmp"}}}`
 	var out, errb bytes.Buffer
@@ -1877,7 +1878,7 @@ func TestHookAntigravityAskIncludesAuthorizationGuidance(t *testing.T) {
 }
 
 func TestHookAntigravityPostAlwaysEmptyObject(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	payload := `{"conversationId":"c1","toolCall":{"name":"replace_file_content","args":{"TargetFile":"/tmp/.env"}}}`
 	var out, errb bytes.Buffer
@@ -1889,7 +1890,7 @@ func TestHookAntigravityPostAlwaysEmptyObject(t *testing.T) {
 
 func TestHookAntigravityPostPhaseAuditRecordAndP7Parity(t *testing.T) {
 	stateDir := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", stateDir)
+	testenv.SetState(t, stateDir)
 	t.Setenv("GUARDRAIL_CONFIG", "")
 
 	sessionID := "antigravity-p7-audit-test"
@@ -1967,7 +1968,7 @@ func TestHookAntigravityMissingPhase(t *testing.T) {
 }
 
 func TestHookAntigravityUnparseableIsDenyJSON(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	var out, errb bytes.Buffer
 	code := run([]string{"hook", "antigravity", "pre"}, strings.NewReader("not json"), &out, &errb)
@@ -2053,7 +2054,7 @@ func TestHookAntigravityFailureReasonIsSanitized(t *testing.T) {
 }
 
 func TestHookSessionStart(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
 	os.WriteFile(cfg, []byte("waive = [\"P6\"]\n"), 0o644)
 	t.Setenv("GUARDRAIL_CONFIG", cfg)
@@ -2073,8 +2074,8 @@ func TestHookSessionStart(t *testing.T) {
 }
 
 func TestHookSessionStartSurfacesSanitizedUnauthorizedWaiverWarning(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	cfg := filepath.Join(t.TempDir(), "guardrail.toml")
 	if err := os.WriteFile(cfg, []byte(`waive = ["P6.egress\nforged\twarning\u007fclaim"]`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -2118,7 +2119,7 @@ func TestHookUsesTopLevelRepoGrantFromSubdirectory(t *testing.T) {
 
 func TestHookSessionStartSanitizesOperatorConfigLoadError(t *testing.T) {
 	configHome := filepath.Join(t.TempDir(), "config\nforged\tpath\x7f")
-	t.Setenv("XDG_CONFIG_HOME", configHome)
+	testenv.SetConfig(t, configHome)
 	configDir := filepath.Join(configHome, "guardrail")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -2164,7 +2165,7 @@ func TestHookSessionStartSanitizesOperatorConfigLoadError(t *testing.T) {
 func setClaudeHome(t *testing.T, doc string) {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	if doc != "" {
 		writeClaudeSettings(t, home, doc)
 	}
@@ -2178,8 +2179,8 @@ func sessionStartContext(t *testing.T, stateDir ...string) string {
 	if len(stateDir) > 0 {
 		state = stateDir[0]
 	}
-	t.Setenv("XDG_STATE_HOME", state)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, state)
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	payload := `{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart"}`
 	var out, errb bytes.Buffer
@@ -2235,8 +2236,8 @@ func webHostProbeRepo(t *testing.T) string {
 // hosts are already authorized instead of filing a duplicate request.
 func TestHookWebHostGrantAlreadySatisfiedDoesNotFileRequest(t *testing.T) {
 	stateHome := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", stateHome)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, stateHome)
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	repo := webHostProbeRepo(t)
 	if err := executeWebHostApproval(approval.Request{ID: "r1", RepoRoot: repo, Parameters: map[string]string{"hosts": "a.example.test,b.example.test"}, Scope: approval.RepoScope, Action: "web-host-grant"}); err != nil {
@@ -2273,8 +2274,8 @@ func TestHookWebHostGrantAlreadySatisfiedDoesNotFileRequest(t *testing.T) {
 
 func TestHookGlobalWebHostGrantIsNotSatisfiedByRepoGrant(t *testing.T) {
 	stateHome := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", stateHome)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, stateHome)
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	repo := webHostProbeRepo(t)
 	if err := executeWebHostApproval(approval.Request{ID: "r1", RepoRoot: repo, Parameters: map[string]string{"hosts": "a.example.test"}, Scope: approval.RepoScope, Action: "web-host-grant"}); err != nil {
@@ -2308,7 +2309,7 @@ func TestHookSessionStartReportsCoverageDriftOnce(t *testing.T) {
 	setClaudeHome(t, marked)
 	setClaudeBundle(t, sessionCoverageBundle)
 	var state string
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 
 	want := "claude coverage: Claude Code 2.1.280 — 1 uncontracted tool (FutureTool); run guardrail doctor --coverage claude"
@@ -2331,8 +2332,8 @@ func TestHookSessionStartReportsCoverageDriftOnce(t *testing.T) {
 func TestHookSessionStartIsSilentWhenCoverageIsComplete(t *testing.T) {
 	setClaudeHome(t, "")
 	setClaudeBundle(t, "// Version: 2.1.280\nvar tools=[\"Bash\",\"Read\",\"Write\",\"Edit\",\"Glob\"];\n")
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	if ctx := sessionStartContext(t); strings.Contains(ctx, "claude coverage") {
 		t.Fatalf("steady state must stay silent: %q", ctx)
@@ -2343,8 +2344,8 @@ func TestHookSessionStartFailsOpenWithoutABundle(t *testing.T) {
 	setClaudeHome(t, "")
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	ctx := sessionStartContext(t) // exit 0 is asserted inside
 	if strings.Contains(ctx, "claude coverage") || !strings.Contains(ctx, "guardrail is active") {
@@ -2356,7 +2357,7 @@ func TestHookSessionStartAsksForSelftestUntilItPassesOnThisVersion(t *testing.T)
 	setClaudeHome(t, "")
 	t.Setenv("PATH", t.TempDir()) // no claude bundle: coverage stays silent, unrelated here
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	state := t.TempDir()
 
@@ -2391,7 +2392,7 @@ func TestHookSessionStartSelftestMarkerFailsOpen(t *testing.T) {
 	setClaudeHome(t, "")
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	state := t.TempDir()
 	// A directory where the marker file should be: unreadable, treated as "not passed".

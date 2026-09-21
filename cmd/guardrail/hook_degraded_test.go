@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 // TestHookDegradedAllowReportsWrittenToAudit pins the B+ evidence path: a
@@ -16,12 +16,8 @@ import (
 // each as an audit record tagged plugin-degraded, so ADR-0020's record
 // counting still sees mediation across an outage window.
 func TestHookDegradedAllowReportsWrittenToAudit(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	if runtime.GOOS == "windows" {
-		t.Setenv("APPDATA", t.TempDir())
-		t.Setenv("LOCALAPPDATA", t.TempDir())
-	}
+	testenv.SetState(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	payload := `{"event":"pre","tool":"question","cwd":"/repo","arguments":{},"degraded_allows":[{"tool":"question","call_id":"c1","ts":"2026-09-20T05:00:00Z"},{"tool":"read","call_id":"c2","ts":"2026-09-20T05:00:01Z"},{"tool":"bash","ts":"2026-09-20T05:00:02Z"}]}`
 	var out, errb bytes.Buffer

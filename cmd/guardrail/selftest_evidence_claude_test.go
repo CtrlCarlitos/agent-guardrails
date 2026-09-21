@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func writeEvidenceSegment(t *testing.T, lines ...string) string {
@@ -62,8 +64,8 @@ func TestSelftestClaudeEvidenceGate(t *testing.T) {
 
 // The subcommand has to accept the plane, and still reject anything else.
 func TestSelftestEvidenceAcceptsClaudeAndRejectsUnknownPlanes(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	var out, errb strings.Builder
 	if code := cmdSelftest([]string{"--evidence", "claude"}, &out, &errb); code != 1 {
 		t.Fatalf("--evidence claude exit = %d, want 1 on a machine with no real records\n%s%s", code, out.String(), errb.String())

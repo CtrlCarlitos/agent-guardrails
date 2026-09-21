@@ -13,6 +13,7 @@ import (
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func gitInitSync(t *testing.T, dir string) {
@@ -294,7 +295,7 @@ func TestSyncMergedRelativeSafeRootIsConsumedAsAbsolute(t *testing.T) {
 func TestSyncSanitizesEveryMergeWarningWithoutCapping(t *testing.T) {
 	dir := t.TempDir()
 	gitInitSync(t, dir)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 
 	egress := []string{`"evil\nforged\tentry\u007f\u0080\u009b31m\u009f"`, `"` + strings.Repeat("x", 250) + `"`}
 	for i := range 20 {
@@ -492,7 +493,7 @@ decision = "allow\tforged\u007f"
 		if err := os.WriteFile(filepath.Join(configDir, "waivers.toml"), []byte("invalid = ["), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		t.Setenv("XDG_CONFIG_HOME", configHome)
+		testenv.SetConfig(t, configHome)
 
 		var out, errb bytes.Buffer
 		code := run([]string{"sync", "--dir", dir, "--planes", "claude"}, strings.NewReader(""), &out, &errb)

@@ -10,13 +10,14 @@ import (
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func TestExecuteRecoverApprovalRepairsUnparseableClaudeSettings(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, home+"/.config")
+	testenv.SetState(t, t.TempDir())
 	settings := filepath.Join(home, ".claude", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
 		t.Fatal(err)
@@ -50,9 +51,9 @@ func TestExecuteRecoverApprovalRepairsUnparseableClaudeSettings(t *testing.T) {
 
 func TestExecuteRecoverApprovalAbsorbsParseableDriftWithUserConfigIntact(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, home+"/.config")
+	testenv.SetState(t, t.TempDir())
 	settings := filepath.Join(home, ".claude", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
 		t.Fatal(err)
@@ -84,7 +85,7 @@ func TestExecuteRecoverApprovalAbsorbsParseableDriftWithUserConfigIntact(t *test
 }
 
 func TestExecuteRecoverApprovalRejectsUnknownRepair(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	r := approval.Request{Action: "recover", Parameters: map[string]string{"repair": "rm-rf"}}
 	if err := executeRecoverApproval(r); err == nil {
 		t.Fatal("unknown repair accepted")
@@ -92,8 +93,8 @@ func TestExecuteRecoverApprovalRejectsUnknownRepair(t *testing.T) {
 }
 
 func TestRecoverCommandRequiresTerminalAndKnownRepair(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetHome(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	var out, errb strings.Builder
 	if code := run([]string{"recover", "rm-rf"}, strings.NewReader(""), &out, &errb); code != 2 || !strings.Contains(errb.String(), "known repair") {
 		t.Fatalf("unknown repair exit = %d stderr %q", code, errb.String())
@@ -105,9 +106,9 @@ func TestRecoverCommandRequiresTerminalAndKnownRepair(t *testing.T) {
 
 func TestRecoverClaudeSettingsHappyPath(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, home+"/.config")
+	testenv.SetState(t, t.TempDir())
 	settings := filepath.Join(home, ".claude", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
 		t.Fatal(err)

@@ -3,41 +3,67 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
-// TestMain sandboxes the whole package: XDG config/state and HOME point
-// into fresh temp directories unless a test overrides them with t.Setenv,
-// so no test can ever mutate the operator's real settings through
-// lifecycle, recover, or approval paths (the guardrail.test-pollution
-// lesson).
+// TestMain sandboxes the whole package: portable and Windows home, config,
+// and state variables point into fresh temp directories unless a test
+// overrides them through testenv, so no test can ever mutate the operator's
+// real settings through lifecycle, recover, or approval paths (the
+// guardrail.test-pollution lesson).
 func TestMain(m *testing.M) {
-	configHome, err := os.MkdirTemp("", "guardrail-command-tests-")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	// Approval helpers intentionally share the parent's test-owned state root so
+	// separate processes can exercise one-shot approval consumption and locking.
+	if os.Getenv("GUARDRAIL_TEST_OPENCODE_APPROVAL_HELPER") == "1" {
+		os.Exit(m.Run())
+	}
+
+	env := &processTestEnv{}
+	testenv.Sandbox(env)
+	if env.err != nil {
+		fmt.Fprintln(os.Stderr, "cannot sandbox command test environment:", env.err)
+		env.cleanup()
 		os.Exit(1)
 	}
-	for name, value := range map[string]string{
-		"XDG_CONFIG_HOME": configHome,
-		"APPDATA":         configHome,
-	} {
-		if err := os.Setenv(name, value); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-	}
-	if home := os.Getenv("HOME"); home != "" && !strings.HasPrefix(filepath.Clean(home), filepath.Clean(os.TempDir())+string(filepath.Separator)) {
-		sandbox, err := os.MkdirTemp("", "guardrail-cmd-test-home-*")
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "cannot sandbox HOME:", err)
-			os.Exit(1)
-		}
-		_ = os.Setenv("HOME", sandbox)
-		_ = os.Setenv("XDG_STATE_HOME", filepath.Join(sandbox, ".local", "state"))
-	}
 	code := m.Run()
-	_ = os.RemoveAll(configHome)
+	env.cleanup()
 	os.Exit(code)
+}
+
+// processTestEnv adapts the package-wide TestMain lifecycle to testenv's
+// testing.TB-shaped helpers. TestMain exits the process, so environment
+// restoration is unnecessary; the temporary roots still need explicit
+// cleanup because there is no testing.T.Cleanup at this level.
+type processTestEnv struct {
+	dirs []string
+	err  error
+}
+
+func (*processTestEnv) Helper() {}
+
+func (e *processTestEnv) Setenv(name, value string) {
+	if e.err == nil {
+		e.err = os.Setenv(name, value)
+	}
+}
+
+func (e *processTestEnv) TempDir() string {
+	if e.err != nil {
+		return ""
+	}
+	dir, err := os.MkdirTemp("", "guardrail-command-tests-*")
+	if err != nil {
+		e.err = err
+		return ""
+	}
+	e.dirs = append(e.dirs, dir)
+	return dir
+}
+
+func (e *processTestEnv) cleanup() {
+	for _, dir := range e.dirs {
+		_ = os.RemoveAll(dir)
+	}
 }

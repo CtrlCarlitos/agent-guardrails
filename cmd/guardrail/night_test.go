@@ -16,16 +16,13 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func isolateNightConfig(t *testing.T) string {
 	t.Helper()
 	base := t.TempDir()
-	if os.PathSeparator == '\\' {
-		t.Setenv("APPDATA", base)
-	} else {
-		t.Setenv("XDG_CONFIG_HOME", base)
-	}
+	testenv.SetConfig(t, base)
 	path, err := night.DefaultPath()
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +32,7 @@ func isolateNightConfig(t *testing.T) string {
 
 func TestNightRequestCompletesOnlyThroughBroker(t *testing.T) {
 	isolateNightConfig(t)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	broker := approval.New()
 	r, err := broker.Create(approval.Request{
 		Plane: "opencode", SessionID: "night-request", RepoRoot: "/repo", Scope: approval.Allow,
@@ -70,7 +67,7 @@ func TestNightRequestCompletesOnlyThroughBroker(t *testing.T) {
 
 func TestNightDoesNotMutateWhenAuditIntentFails(t *testing.T) {
 	path := isolateNightConfig(t)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	previous := writeActionAudit
 	writeActionAudit = func(audit.Record, string) error { return errors.New("audit unavailable") }
 	t.Cleanup(func() { writeActionAudit = previous })
@@ -85,7 +82,7 @@ func TestNightDoesNotMutateWhenAuditIntentFails(t *testing.T) {
 
 func TestNightCompletionAuditFailureKeepsCompletedActionRecoverable(t *testing.T) {
 	path := isolateNightConfig(t)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	previous := writeActionAudit
 	calls := 0
 	writeActionAudit = func(rec audit.Record, path string) error {
@@ -114,7 +111,7 @@ func TestNightCompletionAuditFailureKeepsCompletedActionRecoverable(t *testing.T
 
 func TestNightRecoveryReplayPreservesCanonicalExpiryAndCompletesOnce(t *testing.T) {
 	path := isolateNightConfig(t)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	until := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339Nano)
 	r := approval.Request{ID: "night-crash-window", Plane: "opencode", RepoRoot: "/repo", Scope: approval.Allow, Action: "night-on", Parameters: map[string]string{"expires_at": until}}
 	if alreadyCompleted, err := startActionAudit(r); err != nil || alreadyCompleted {
@@ -317,8 +314,7 @@ func TestNightOffRefusesNullStdinWithoutRemovingMarker(t *testing.T) {
 
 func TestRenamedNightBinaryCannotMutateWithoutTerminal(t *testing.T) {
 	configHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configHome)
-	t.Setenv("APPDATA", configHome)
+	testenv.SetConfig(t, configHome)
 	binaryName := "renamed-guard"
 	if runtime.GOOS == "windows" {
 		binaryName += ".exe"

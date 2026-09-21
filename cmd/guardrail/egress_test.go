@@ -13,10 +13,11 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func TestApprovedWebHostGrantAndRevokeMutateOnlyRequestedScope(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := executeWebHostApproval(approval.Request{RepoRoot: repo, Parameters: map[string]string{"hosts": "api.example.test"}, Scope: approval.RepoScope, Action: "web-host-grant"}); err != nil {
 		t.Fatal(err)
@@ -55,7 +56,7 @@ func TestApprovedWebHostGrantAndRevokeMutateOnlyRequestedScope(t *testing.T) {
 }
 
 func TestApprovedGlobalWebHostGrantDoesNotModifyOverlay(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := executeWebHostApproval(approval.Request{RepoRoot: repo, Parameters: map[string]string{"hosts": "global.example.test"}, Scope: approval.GlobalScope, Action: "web-host-grant"}); err != nil {
 		t.Fatal(err)
@@ -73,7 +74,7 @@ func TestApprovedGlobalWebHostGrantDoesNotModifyOverlay(t *testing.T) {
 }
 
 func TestRejectedOverlayLeavesOperatorGrantUnchanged(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := executeWebHostApproval(approval.Request{RepoRoot: repo, Parameters: map[string]string{"hosts": "existing.example.test"}, Scope: approval.RepoScope, Action: "web-host-grant"}); err != nil {
 		t.Fatal(err)

@@ -11,6 +11,7 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 // guardTestHome fails the test unless HOME is sandboxed under the system temp
@@ -22,7 +23,7 @@ func guardTestHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(home, os.TempDir()) {
-		t.Fatalf("test would mutate real HOME %q; sandbox it with t.Setenv", home)
+		t.Fatalf("test would mutate real HOME %q; sandbox it with testenv.SetHome", home)
 	}
 }
 
@@ -55,8 +56,8 @@ func readPlaneJSON(t *testing.T, path string) string {
 func TestPlaneConfigPathUsesGlobalPlaneLocations(t *testing.T) {
 	home := t.TempDir()
 	cfg := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", cfg)
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, cfg)
 
 	cases := map[string]string{
 		"claude":      filepath.Join(home, ".claude", "settings.json"),
@@ -76,8 +77,8 @@ func TestPlaneConfigPathUsesGlobalPlaneLocations(t *testing.T) {
 
 func TestPlaneConfigHomeFallbackWithoutXDGConfig(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", "")
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, "")
 
 	got, err := planeConfigPath("opencode")
 	if err != nil {
@@ -91,9 +92,9 @@ func TestPlaneConfigHomeFallbackWithoutXDGConfig(t *testing.T) {
 
 func TestExecutePlaneApprovalDisablesClaude(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, home+"/.config")
+	testenv.SetState(t, t.TempDir())
 	settings := filepath.Join(home, ".claude", "settings.json")
 	writePlaneSettings(t, settings, `{"hooks":{"PreToolUse":[{"matcher":"Task","hooks":[{"type":"command","command":"my-own-hook"}]},{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[{"type":"command","command":"guardrail hook claude"}]}]}}`)
 
@@ -119,9 +120,9 @@ func TestExecutePlaneApprovalDisablesClaude(t *testing.T) {
 func TestExecutePlaneApprovalDisablesOpenCodeAndAntigravity(t *testing.T) {
 	home := t.TempDir()
 	cfg := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", cfg)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, cfg)
+	testenv.SetState(t, t.TempDir())
 	opencode := filepath.Join(cfg, "opencode", "opencode.json")
 	antigravity := filepath.Join(home, ".gemini", "config", "hooks.json")
 	writePlaneSettings(t, opencode, `{"permission":{"bash":{"*":"allow"}},"plugin":["/x/guardrail.js"],"model":"keep"}`)
@@ -147,7 +148,7 @@ func TestExecutePlaneApprovalDisablesOpenCodeAndAntigravity(t *testing.T) {
 }
 
 func TestExecutePlaneApprovalRejectsInvalidRequests(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	cases := []approval.Request{
 		{Action: "plane-enable", Parameters: map[string]string{"planes": "unsupported-plane"}},
 		{Action: "plane-disable", Parameters: map[string]string{"planes": "unsupported-plane"}},
@@ -163,8 +164,8 @@ func TestExecutePlaneApprovalRejectsInvalidRequests(t *testing.T) {
 }
 
 func TestPlaneCommandArgumentValidation(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetHome(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	restore := stubPlaneTransport(t, []string{"approved"})
 	defer restore()
 
@@ -196,8 +197,8 @@ func TestPlaneCommandArgumentValidation(t *testing.T) {
 }
 
 func TestPlaneDisableRequiresInteractiveTerminal(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetHome(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	restore := stubPlaneTransport(t, []string{"approved"})
 	defer restore()
 
@@ -210,8 +211,8 @@ func TestPlaneDisableRequiresInteractiveTerminal(t *testing.T) {
 
 func TestPlaneDisableClaudeHappyPath(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, home+"/.config")
 	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]}}`)
 	restore := stubPlaneTransport(t, []string{"pending", "approved"})
 	defer restore()
@@ -230,8 +231,8 @@ func TestPlaneDisableClaudeHappyPath(t *testing.T) {
 
 func TestPlaneDisableAllSkipsMissingAndReportsUndetectedPlanes(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, home+"/.config")
 	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]}}`)
 	writePlaneSettings(t, filepath.Join(home, ".gemini", "config", "hooks.json"), `{"guardrail":{"enabled":true}}`)
 	restore := stubPlaneTransport(t, []string{"approved"})
@@ -259,8 +260,8 @@ func TestPlaneDisableAllSkipsMissingAndReportsUndetectedPlanes(t *testing.T) {
 
 func TestPlaneDisableDeniedApprovalFails(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, home+"/.config")
 	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]}}`)
 	restore := stubPlaneTransport(t, []string{"denied"})
 	defer restore()
@@ -308,9 +309,9 @@ func stubPlaneTransport(t *testing.T, statuses []string) func() {
 
 func TestExecutePlaneApprovalEnablesClaude(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, home+"/.config")
+	testenv.SetState(t, t.TempDir())
 	settings := filepath.Join(home, ".claude", "settings.json")
 	writePlaneSettings(t, settings, `{"hooks":{"PreToolUse":[{"matcher":"Task","hooks":[{"type":"command","command":"my-own-hook"}]}]}}`)
 
@@ -334,9 +335,9 @@ func TestExecutePlaneApprovalEnablesClaude(t *testing.T) {
 func TestExecutePlaneApprovalEnablesOpenCode(t *testing.T) {
 	home := t.TempDir()
 	cfg := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", cfg)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, cfg)
+	testenv.SetState(t, t.TempDir())
 	settings := filepath.Join(cfg, "opencode", "opencode.json")
 	writePlaneSettings(t, settings, `{"model":"keep"}`)
 
@@ -360,9 +361,9 @@ func TestExecutePlaneApprovalEnablesOpenCode(t *testing.T) {
 
 func TestExecutePlaneApprovalEnablesAntigravity(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, home+"/.config")
+	testenv.SetState(t, t.TempDir())
 	hooks := filepath.Join(home, ".gemini", "config", "hooks.json")
 	writePlaneSettings(t, hooks, `{"user":{"hook":"keep"}}`)
 
@@ -378,7 +379,7 @@ func TestExecutePlaneApprovalEnablesAntigravity(t *testing.T) {
 }
 
 func TestExecutePlaneApprovalRejectsEnableForUnknownPlane(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	r := approval.Request{Action: "plane-enable", Parameters: map[string]string{"planes": "unsupported-plane"}}
 	if err := executePlaneApproval(r); err == nil {
 		t.Fatal("codex enable accepted")
@@ -387,8 +388,8 @@ func TestExecutePlaneApprovalRejectsEnableForUnknownPlane(t *testing.T) {
 
 func TestPlaneEnableClaudeHappyPath(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, home+"/.config")
 	restore := stubPlaneTransport(t, []string{"approved"})
 	defer restore()
 	origInstalled := planeInstalled
@@ -409,8 +410,8 @@ func TestPlaneEnableClaudeHappyPath(t *testing.T) {
 
 func TestPlaneEnableAllSkipsMissingAndReportsUndetectedPlanes(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, home+"/.config")
 	restore := stubPlaneTransport(t, []string{"approved", "approved", "approved"})
 	defer restore()
 	origInstalled := planeInstalled
@@ -437,8 +438,8 @@ func TestPlaneEnableAllSkipsMissingAndReportsUndetectedPlanes(t *testing.T) {
 func TestPlaneStatusReportsLifecycleStateWithoutTerminal(t *testing.T) {
 	home := t.TempDir()
 	cfg := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", cfg)
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, cfg)
 	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]}}`)
 	writePlaneSettings(t, filepath.Join(cfg, "opencode", "opencode.json"), `{"model":"keep"}`)
 
@@ -463,9 +464,9 @@ func TestPlaneStatusReportsLifecycleStateWithoutTerminal(t *testing.T) {
 
 func TestExecutePlaneApprovalAppliesBatch(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, home+"/.config")
+	testenv.SetState(t, t.TempDir())
 	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]}}`)
 	writePlaneSettings(t, filepath.Join(home, ".gemini", "config", "hooks.json"), `{"guardrail":{"enabled":true}}`)
 
@@ -484,9 +485,9 @@ func TestExecutePlaneApprovalAppliesBatch(t *testing.T) {
 func TestPlaneEnableAllBatchesOneApprovalAndSkipsSatisfied(t *testing.T) {
 	home := t.TempDir()
 	cfg := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", cfg)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, cfg)
+	testenv.SetState(t, t.TempDir())
 	// claude already enabled (hooks + current floor); antigravity needs enabling; opencode not detected.
 	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), claudeEnabledSettings(t))
 	origInstalled := planeInstalled
@@ -523,9 +524,9 @@ func TestPlaneEnableAllBatchesOneApprovalAndSkipsSatisfied(t *testing.T) {
 func TestPlaneEnableAllSteadyStatePromptsNobody(t *testing.T) {
 	home := t.TempDir()
 	cfg := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", cfg)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, cfg)
+	testenv.SetState(t, t.TempDir())
 	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), claudeEnabledSettings(t))
 	writePlaneSettings(t, filepath.Join(cfg, "opencode", "opencode.json"), `{"plugin":["/x/guardrail.js"]}`)
 	writePlaneSettings(t, filepath.Join(home, ".gemini", "config", "hooks.json"), `{"guardrail":{"enabled":true}}`)
@@ -559,9 +560,9 @@ func TestPlaneEnableAllSteadyStatePromptsNobody(t *testing.T) {
 
 func TestPlaneEnableObservesCompletedStatus(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, home+"/.config")
+	testenv.SetState(t, t.TempDir())
 	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"stale","matcher":"Task","hooks":[]}]}}`)
 	restore := stubPlaneTransport(t, []string{"executing", "completed"})
 	defer restore()
@@ -580,9 +581,9 @@ func TestPlaneEnableObservesCompletedStatus(t *testing.T) {
 
 func TestPlaneEnableAllHealsUnmarkedLegacyClaudeEntries(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, home+"/.config")
+	testenv.SetState(t, t.TempDir())
 	settings := filepath.Join(home, ".claude", "settings.json")
 	writePlaneSettings(t, settings, `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[{"type":"command","command":"guardrail hook claude"}]},{"matcher":"Bash","hooks":[{"type":"command","command":"guardrail hook claude"}]}]}}`)
 
@@ -627,9 +628,9 @@ func TestPlaneEnableAllHealsUnmarkedLegacyClaudeEntries(t *testing.T) {
 
 func TestPlaneStatusAntigravityDriftStates(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, home+"/.config")
+	testenv.SetState(t, t.TempDir())
 	hooksPath := filepath.Join(home, ".gemini", "config", "hooks.json")
 
 	// 1. Missing
@@ -664,9 +665,9 @@ func TestPlaneStatusAntigravityDriftStates(t *testing.T) {
 
 func TestPlaneEnableHealsAntigravityUnmarkedAndDisabled(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, home+"/.config")
+	testenv.SetState(t, t.TempDir())
 	hooksPath := filepath.Join(home, ".gemini", "config", "hooks.json")
 
 	// Start with unmarked legacy entry + disabled
@@ -739,9 +740,9 @@ func claudeEnabledSettings(t *testing.T) string {
 // land on the next plane enable, and the merge is idempotent.
 func TestPlaneEnableClaudeReMergesWhenFloorDrifted(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"id":"guardrail-claude-pre","matcher":"Bash","hooks":[]}]},"permissions":{"deny":["Bash(rm -rf /)"]}}`)
 	origInstalled := planeInstalled
 	planeInstalled = func(string) bool { return true }
@@ -772,9 +773,9 @@ func TestPlaneEnableClaudeReMergesWhenFloorDrifted(t *testing.T) {
 
 func TestPlaneEnableClaudeSkipsWhenHooksAndFloorAreCurrent(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, t.TempDir())
+	testenv.SetState(t, t.TempDir())
 	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), claudeEnabledSettings(t))
 	origInstalled := planeInstalled
 	planeInstalled = func(string) bool { return true }
@@ -794,9 +795,9 @@ func TestPlaneEnableClaudeSkipsWhenHooksAndFloorAreCurrent(t *testing.T) {
 
 func TestClaudeSteadyStateSurvivesIdStripping(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetConfig(t, home+"/.config")
+	testenv.SetState(t, t.TempDir())
 	settings := filepath.Join(home, ".claude", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
 		t.Fatal(err)

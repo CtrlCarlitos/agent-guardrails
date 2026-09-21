@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 // claudeEvidenceEnv points HOME and the audit log at temp dirs and registers a
@@ -14,12 +16,9 @@ func claudeEvidenceEnv(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	state := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-	t.Setenv("LOCALAPPDATA", state)
-	t.Setenv("APPDATA", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", state)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetState(t, state)
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
 		t.Fatal(err)
@@ -121,12 +120,9 @@ func claudeLine(t *testing.T, output string) string {
 func TestWindowsDoctorNamesTheSpawnFaultRatherThanItsConsequence(t *testing.T) {
 	home := t.TempDir()
 	state := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-	t.Setenv("LOCALAPPDATA", state)
-	t.Setenv("APPDATA", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", state)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetHome(t, home)
+	testenv.SetState(t, state)
+	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
 		t.Fatal(err)

@@ -93,7 +93,7 @@ func TestEgressGlobalGrantFromTerminalDoesNotTouchOverlay(t *testing.T) {
 }
 
 func TestEgressRejectsBadInput(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
 	cases := [][]string{
 		{"grant"},
 		{"grant", "--scope", "repo"},

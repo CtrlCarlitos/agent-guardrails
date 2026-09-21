@@ -1,10 +1,12 @@
 package main
 
 import (
-	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func TestApprovalsRejectsTTYClientMode(t *testing.T) {
@@ -14,9 +16,9 @@ func TestApprovalsRejectsTTYClientMode(t *testing.T) {
 }
 
 func TestApprovalsListShowsPendingRequests(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.SetHome(t, t.TempDir())
 	state := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", state)
+	testenv.SetState(t, state)
 	daemon, err := approval.StartDaemon(approval.DefaultSocketPath(), approval.New(), nil, func(string) error { return nil })
 	if err != nil {
 		t.Fatal(err)
