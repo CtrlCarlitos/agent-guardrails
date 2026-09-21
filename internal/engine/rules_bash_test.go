@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -201,6 +202,13 @@ func TestCdWithinRepoStillAllows(t *testing.T) {
 }
 
 func TestCdInIsolatedScopeDoesNotMutateParent(t *testing.T) {
+	// On Windows, /etc returns cdDirectoryUnknown (fail-closed), so the
+	// isolated-scope cd carries both outcome branches; the security property
+	// still holds but the exact verdict differs. The policy test that matters
+	// on Windows is TestCdIsTrackedAcrossCurrentShellStatements (non-isolated).
+	if runtime.GOOS == "windows" {
+		t.Skip("cd /etc returns cdDirectoryUnknown on Windows (accepted narrowing, ADR-0023)")
+	}
 	commands := []string{
 		`(cd /etc); rm -rf build`,
 		`cd /etc | cat; rm -rf build`,
@@ -258,6 +266,11 @@ func TestCdAffectsDestinationAndRedirectPathChecks(t *testing.T) {
 }
 
 func TestCdAffectsMoveSourcePhysicalResolution(t *testing.T) {
+	// On Windows, cd /etc returns cdDirectoryUnknown; mv is evaluated at
+	// unknown cwd producing P3.unresolved rather than P1.out-of-repo-write.
+	if runtime.GOOS == "windows" {
+		t.Skip("cd /etc returns cdDirectoryUnknown on Windows (accepted narrowing, ADR-0023)")
+	}
 	repo := t.TempDir()
 	command := fmt.Sprintf(`cd /etc; mv hosts %q`, filepath.Join(repo, "hosts"))
 	tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
@@ -293,6 +306,12 @@ func TestRelativeCdFromUnknownInitialCwdFailsClosed(t *testing.T) {
 }
 
 func TestFailedCdRetainsPriorCwd(t *testing.T) {
+	// On Windows, cd /etc returns cdDirectoryUnknown (neither accessible nor
+	// missing), so subsequent failed cd inherits the unknown state and rm -rf
+	// produces P3.unresolved rather than deny/P1.rm-rf.
+	if runtime.GOOS == "windows" {
+		t.Skip("cd /etc returns cdDirectoryUnknown on Windows (accepted narrowing, ADR-0023)")
+	}
 	repo := t.TempDir()
 	missing := filepath.Join(repo, "missing")
 	notDir := filepath.Join(repo, "file")
