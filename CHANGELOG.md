@@ -60,6 +60,27 @@ explicitly in **Breaking** notes.
   verdict assertion gets quietly weakened. The package stays out of the Windows
   CI job only because those POSIX-shaped fixtures still carry different path
   semantics on Windows.
+- **Fix (#199): the browser loopback test no longer hangs the approval
+  package.** `TestBrowserLoopbackFailurePath` drives a real browser through the
+  `agent-browser` CLI, and none of its four steps was bounded. `CombinedOutput`
+  waits for the output pipes to close rather than for the process to exit, and
+  `agent-browser open` launches a browser that inherits those handles and keeps
+  running — so the wait never ended. The package died on the default
+  ten-minute test timeout with a goroutine dump instead of a named failure,
+  which is the single largest contributor to Windows full-suite runtime and the
+  reason a full run reads as hung. It also masked 30 entries in the #174
+  inventory: those were a timed-out package, not 30 portability defects.
+  Output now goes to a file rather than a pipe — a file handle is inherited
+  just as happily and has nothing to wait on — with a per-step deadline and a
+  `WaitDelay` behind it so no route outlives the timeout. The test **passes in
+  about three seconds on Windows**, where it had never passed at all, and the
+  whole `internal/approval` package now completes in seven.
+  The test was also *green where watched and destructive where not*: no CI
+  runner has `agent-browser`, so it skipped everywhere it was observed and hung
+  only on developer machines. Both skips now say what they leave uncovered, and
+  "the CLI is installed but no browser is" — the Linux case, which previously
+  failed — is reported as the missing precondition it is rather than as a
+  defect.
 - **Fix (#139): cmd.exe destructive builtins are now judged.** cmd spells its
   switches with a forward slash, so `del /s /q <dir>` reached the rules as an
   unrecognised command with three path operands and P1 never saw a recursive
