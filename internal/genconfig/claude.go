@@ -18,7 +18,7 @@ type Fragment = map[string]any
 // the Engine is the real check; this only has to catch the worst cases when the
 // Engine binary is missing.
 func bashDenyGlobs() []string {
-	return []string{
+	base := []string{
 		"Bash(rm -rf /)", "Bash(rm -rf ~)", "Bash(rm -rf .)", "Bash(rm -rf ..)",
 		"Bash(rm -fr /)", "Bash(rm -fr ~)", "Bash(rm -fr .)", "Bash(rm -fr ..)",
 		"Bash(rm -r -f /)", "Bash(rm -r -f ~)", "Bash(rm -r -f .)", "Bash(rm -r -f ..)",
@@ -47,11 +47,54 @@ func bashDenyGlobs() []string {
 		"Bash(docker system prune*)", "Bash(docker volume prune*)", "Bash(docker network prune*)",
 		"Bash(rm *guardrail/sessions/*)", `Bash(rm *guardrail\sessions\*)`,
 	}
+	// Appended here, not at a plane's assembly point, so both planes inherit
+	// them from one source: OpencodeConfig rewrites exactly this function and
+	// bashAskGlobs, so a glob added downstream would be a silent one-plane floor.
+	return append(base, ghDenyGlobs()...)
+}
+
+// ghAskGlobs and ghDenyGlobs mediate the GitHub CLI.
+//
+// `gh` is a shell command that mutates state nobody can see in the working
+// tree: it merges pull requests, cuts and deletes releases, dispatches
+// workflows and deletes repositories. None of that was on the floor, so with
+// the Engine unreachable (ADR-0022) those ran unmediated. Reads stay allow —
+// `gh` is how the fleet checks CI, and prompting on every view trains people
+// to click through the prompts that matter.
+//
+// The `{,**}` shape is load-bearing rather than decorative. `*` does not cross
+// a path separator in the permission matcher, so the obvious `gh repo delete*`
+// silently fails to match `gh repo delete owner/repo` — the single most likely
+// spelling of the command it exists to stop. Measured, not assumed; the brace
+// alternation matches both the bare subcommand and any slash-bearing argument.
+func ghAskGlobs() []string {
+	return []string{
+		"Bash(gh pr merge{,**})",
+		"Bash(gh release create{,**})",
+		"Bash(gh release delete{,**})",
+		"Bash(gh workflow run{,**})",
+		// `gh api` is only partly expressible here, and the limit is stated
+		// rather than papered over: the method lives in a flag, the endpoint
+		// carries slashes, and a glob cannot see past the first slash. These
+		// two catch a method flag written *before* the endpoint. The forms
+		// that put the endpoint first — `gh api repos/o/r -X POST`, and every
+		// implicit-POST `-f`/`--input` spelling — are not matched by any glob
+		// that does not also match every read, so they are left to the Engine
+		// (#228) instead of being faked.
+		"Bash(gh api -X {,**})",
+		"Bash(gh api --method {,**})",
+	}
+}
+
+func ghDenyGlobs() []string {
+	return []string{
+		"Bash(gh repo delete{,**})",
+	}
 }
 
 // bashAskGlobs is the curated coarse floor for P1 ask-tier shell commands.
 func bashAskGlobs() []string {
-	return []string{
+	base := []string{
 		"Bash(chmod -R *)", "Bash(chmod 777 *)", "Bash(chmod -R 777 *)",
 		"Bash(chown -R *)",
 		"Bash(truncate *)",
@@ -72,6 +115,10 @@ func bashAskGlobs() []string {
 		"Bash(gem install *)", "Bash(cargo install *)",
 		"Bash(go install *)", "Bash(go get *)",
 	}
+	// Appended here rather than at each plane's assembly point so both planes
+	// inherit them from one source: OpencodeConfig rewrites exactly these two
+	// functions, so a glob added downstream would be a silent one-plane floor.
+	return append(base, ghAskGlobs()...)
 }
 
 func secretDenyGlobs(pol *policy.Policy) []string {
