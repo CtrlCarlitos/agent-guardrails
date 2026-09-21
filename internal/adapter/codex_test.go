@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -12,12 +13,13 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
-func codexEnvelope(tool string, input any) string {
-	raw, _ := json.Marshal(map[string]any{"session_id": "fixture", "cwd": "/repo", "hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": input})
+func codexEnvelope(cwd, tool string, input any) string {
+	raw, _ := json.Marshal(map[string]any{"session_id": "fixture", "cwd": cwd, "hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": input})
 	return string(raw)
 }
 
 func TestCodexNativeProjection(t *testing.T) {
+	cwd := t.TempDir()
 	cases := []struct {
 		tool       string
 		input      any
@@ -26,7 +28,7 @@ func TestCodexNativeProjection(t *testing.T) {
 		paths      string
 	}{
 		{"Bash", map[string]any{"command": "ls"}, policy.CapabilityCommand, "ls", ""},
-		{"apply_patch", map[string]any{"command": "*** Begin Patch\n*** Update File: src/a.txt\n*** Move to: .env\n@@\n-old\n+new\n*** End Patch"}, policy.CapabilityMutation, "", "/repo/src/a.txt,/repo/.env"},
+		{"apply_patch", map[string]any{"command": "*** Begin Patch\n*** Update File: src/a.txt\n*** Move to: .env\n@@\n-old\n+new\n*** End Patch"}, policy.CapabilityMutation, "", strings.Join([]string{filepath.Join(cwd, "src", "a.txt"), filepath.Join(cwd, ".env")}, ",")},
 		{"view_image", map[string]any{"path": "image.png"}, policy.CapabilityReadDiscovery, "", "image.png"},
 		{"spawn_agent", map[string]any{"message": "work"}, policy.CapabilityDelegation, "", ""},
 		{"mcp__server__read", map[string]any{}, policy.CapabilityDeny, "", ""},
@@ -34,7 +36,7 @@ func TestCodexNativeProjection(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.tool, func(t *testing.T) {
-			tc, err := ParseCodex(strings.NewReader(codexEnvelope(tt.tool, tt.input)))
+			tc, err := ParseCodex(strings.NewReader(codexEnvelope(cwd, tt.tool, tt.input)))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -46,7 +48,8 @@ func TestCodexNativeProjection(t *testing.T) {
 }
 
 func TestCodexMalformedFailsClosed(t *testing.T) {
-	for _, raw := range []string{"null", "{}", `[]`, codexEnvelope("Bash", nil), codexEnvelope("Bash", map[string]any{"command": 12}), codexEnvelope("apply_patch", map[string]any{"command": "garbage"}), strings.Replace(codexEnvelope("Bash", map[string]any{"command": "ls"}), "PreToolUse", "UnknownEvent", 1)} {
+	cwd := t.TempDir()
+	for _, raw := range []string{"null", "{}", `[]`, codexEnvelope(cwd, "Bash", nil), codexEnvelope(cwd, "Bash", map[string]any{"command": 12}), codexEnvelope(cwd, "apply_patch", map[string]any{"command": "garbage"}), strings.Replace(codexEnvelope(cwd, "Bash", map[string]any{"command": "ls"}), "PreToolUse", "UnknownEvent", 1)} {
 		if _, err := ParseCodex(strings.NewReader(raw)); err == nil {
 			t.Fatalf("accepted %s", raw)
 		}
@@ -54,7 +57,7 @@ func TestCodexMalformedFailsClosed(t *testing.T) {
 }
 
 func TestCodexUnknownCannotBeWaivedByAuditPosture(t *testing.T) {
-	tc, err := ParseCodex(strings.NewReader(codexEnvelope("future_tool", map[string]any{})))
+	tc, err := ParseCodex(strings.NewReader(codexEnvelope(t.TempDir(), "future_tool", map[string]any{})))
 	if err != nil {
 		t.Fatal(err)
 	}
