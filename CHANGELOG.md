@@ -5,18 +5,28 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **doctor's unquoted-space detection is structural, not a guess.** It asked
+  whether the token after the first space carried a separator, which read
+  `/home/u/my file hook claude` as safe — a gap #155 shipped with, named at
+  review. `UnquotedShellHazard` only ever sees guardrail's own floor commands,
+  and those have a known shape (`<binary> hook <plane> …`), so the question is
+  no longer the unanswerable "is `a b` one path or a command and an argument"
+  but "is `hook` the word right after the executable". Two boundaries stay
+  deliberate and are pinned by tests: a command with no `hook` word falls back
+  to the older signal rather than inventing a hazard, and a path whose final
+  component is literally `hook` is known residue.
 - **Fix (#178): a trailing dot or space no longer hides a command from its
-  rule.** Win32 strips both while resolving a path, so `C:inm.exe.` and
-  `C:inm.exe ` run `rm` — while `head()` stripped one `.exe` and nothing
-  else, compared `rm.exe.`, matched nothing, and allowed. Every family keyed on
-  a command name was affected: `P1.rm-rf`, `P1.privesc`, `P1.mkfs`,
+  rule.** Win32 strips both while resolving a path, so a binary spelled with
+  either still runs, while `head()` stripped one `.exe` and nothing else,
+  compared the remaining name, matched nothing, and allowed. Every family keyed
+  on a command name was affected: `P1.rm-rf`, `P1.privesc`, `P1.mkfs`,
   `P6.egress`, and `P5.self-config`, the last of which let a plane turn off its
   own night mode. The trim is applied only where Win32 resolution applies — a
-  drive-lettered or backslash path anywhere, or any path on a Windows host —
-  so a POSIX file legitimately named `rm.` is still judged as itself.
-  Deliberately *not* denied, because they do not execute: a bare `rm.` or
-  `Remove-Item.` (PATH and cmdlet lookup do not strip), and `rm.exe.exe`
-  (a different filename). Operand-keyed families were never affected.
+  drive-lettered or backslash path anywhere, or any path on a Windows host — so
+  a POSIX file legitimately named `rm.` is still judged as itself. Deliberately
+  *not* denied, because they do not execute: a bare `rm.` or `Remove-Item.`
+  (PATH and cmdlet lookup do not strip), and `rm.exe.exe` (a different
+  filename). Operand-keyed families were never affected.
 - **PowerShell `$env:NAME` no longer forces an ask on an ordinary read.** The
   bash tokenizer splits the reference at the wrong place — `$env` is an unset
   variable to it and everything after is literal — so every read through one

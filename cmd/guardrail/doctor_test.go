@@ -763,6 +763,10 @@ func TestWindowsDoctorRejectsAnUnspawnableHookCommand(t *testing.T) {
 	}{
 		{"pre-fix windows string", `C:\Users\carlitos\.local\bin\guardrail.exe hook claude`, true},
 		{"unquoted path with a space", `C:/Program Files/guardrail.exe hook claude`, true},
+		// The gap #155 shipped with: a path whose remainder after the space
+		// carries no separator. The old signal read this as safe.
+		{"unquoted space, no separator after it", `/home/u/my file hook claude`, true},
+		{"unquoted space, antigravity two-arg form", `/opt/my tools/guardrail hook antigravity pre`, true},
 		{"quoted forward-slash windows", `"C:/Users/carlitos/.local/bin/guardrail.exe" hook claude`, false},
 		{"quoted posix", `'/home/u/.local/bin/guardrail' hook claude`, false},
 		{"bare posix name", `guardrail hook claude`, false},

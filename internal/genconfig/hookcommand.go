@@ -112,7 +112,7 @@ func UnquotedShellHazard(command string) string {
 		return ""
 	case strings.Contains(executable, `\`):
 		return "the binary path is unquoted and contains a backslash, which a POSIX shell reads as an escape character; the hook silently fails to spawn"
-	case strings.Contains(command, " ") && looksLikePathWithSpace(command):
+	case strings.Contains(command, " ") && unquotedPathWithSpace(command):
 		return "the binary path is unquoted and contains a space, so the shell splits it into a command and an argument"
 	}
 	return ""
@@ -138,10 +138,41 @@ func leadingWord(command string) string {
 	return command
 }
 
-// looksLikePathWithSpace reports whether an unquoted command's executable is
-// cut short by a space that belongs to the path — "C:/Program Files/x.exe
-// hook claude" — rather than by the boundary before a real argument. The
-// signal is a separator after the space and before the next one.
+// unquotedPathWithSpace reports whether an unquoted executable was cut short
+// by a space belonging to the path rather than by the boundary before a real
+// argument.
+//
+// "is `a b` one path or a command and an argument" has no answer in general
+// without touching the filesystem. It has an answer here, because this
+// function only ever sees guardrail's own floor commands, and those have a
+// known shape: `<binary> hook <plane> …`. If `hook` is present but is not the
+// word immediately after the executable, the executable was split.
+//
+// Two boundaries, both deliberate:
+//
+//   - A command with no `hook` word is not a shape this can reason about. It
+//     falls back to the older separator signal, which catches the obvious
+//     `…/my dir/g …` and stays quiet otherwise rather than inventing a hazard.
+//   - A path whose final component is literally `hook` defeats the structural
+//     check, since the word after the executable is then `hook` by accident.
+//     Contrived, and left as known residue rather than chased with a weaker
+//     heuristic that would cost false positives.
+func unquotedPathWithSpace(command string) bool {
+	fields := strings.Fields(command)
+	for i, f := range fields {
+		if f != "hook" {
+			continue
+		}
+		// `hook` at index 1 means the executable is exactly one word, as
+		// emitted. Anything later means the words before it are fragments of a
+		// path the shell split.
+		return i > 1
+	}
+	return looksLikePathWithSpace(command)
+}
+
+// looksLikePathWithSpace is the fallback signal for a command with no `hook`
+// word: a separator after the first space and before the next one.
 func looksLikePathWithSpace(command string) bool {
 	space := strings.IndexByte(command, ' ')
 	if space < 0 {
