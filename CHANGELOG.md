@@ -5,6 +5,17 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **PowerShell `$env:NAME` no longer forces an ask on an ordinary read.** The
+  bash tokenizer splits the reference at the wrong place — `$env` is an unset
+  variable to it and everything after is literal — so every read through one
+  asked, however ordinary. The Engine still does not learn what the variable
+  holds (ADR-0012 rules out simulating an environment); it stops raising
+  `P3.unresolved` for the prefix alone and lets the path families judge the
+  literal tail. `$env:USERPROFILE\.ssh\id_ed25519` still denies
+  `P4.secret-path`, a write or delete through `$env:` keeps its ask because
+  containment needs the root the variable withholds, and a redirect is never
+  forgiven. A read now reaches the same verdict as the literal path it stands
+  for, which it did not before.
 - **CI's windows job can no longer hide a Windows test.** That job runs a fixed
   package list filtered by `-run 'Windows|BOM|ReadJSONObject'`, not the full
   suite, so a Windows test is invisible there unless its name matches *and* its

@@ -676,6 +676,16 @@ func unresolvedPolicyPosition(s Simple) bool {
 			return true
 		}
 	}
+	// Only after argv[0] and every redirect have been judged: a redirect is a
+	// write to a target the Engine cannot see, and forgiving an `$env:` prefix
+	// among the operands must never forgive that. Placed earlier, this skipped
+	// the two loops above and allowed `Get-Content $env:X\a > $unknown`.
+	if psEnvReadIsResolved(s) {
+		// A PowerShell read whose only unknown is an `$env:NAME` prefix. The
+		// literal tail still reaches the path families, which is what keeps a
+		// secret tail denied; writes are excluded and keep the ask.
+		return false
+	}
 
 	parsed := parseOperandRolesWithSources(s.Argv)
 	knownGrammar := knownInertOperandGrammar(head(s.Argv))
