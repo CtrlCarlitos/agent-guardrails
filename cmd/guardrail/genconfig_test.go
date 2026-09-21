@@ -18,6 +18,16 @@ func writePathExecutable(t *testing.T, dir, name string) string {
 	return path
 }
 
+func opencodeBinaryFixture(t *testing.T) (string, string) {
+	t.Helper()
+	binary := filepath.Join(t.TempDir(), "guardrail sentinel")
+	encoded, err := json.Marshal(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return binary, "const GUARDRAIL_BIN = " + string(encoded) + ";"
+}
+
 func TestGenConfigNoPlane(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := run([]string{"gen-config"}, strings.NewReader(""), &out, &errb)
@@ -201,12 +211,13 @@ func TestGenConfigOpencodeMergeDeploysPlugin(t *testing.T) {
 
 func TestGenConfigOpencodeBakesAbsoluteBinary(t *testing.T) {
 	dir := t.TempDir()
+	binary, wantDeclaration := opencodeBinaryFixture(t)
 	settings := filepath.Join(dir, "opencode.json")
 	if err := os.WriteFile(settings, []byte(`{}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var out, errb bytes.Buffer
-	code := run([]string{"gen-config", "opencode", "--merge", settings, "--binary", "/ABS/SENTINEL/guardrail"}, strings.NewReader(""), &out, &errb)
+	code := run([]string{"gen-config", "opencode", "--merge", settings, "--binary", binary}, strings.NewReader(""), &out, &errb)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errb.String())
 	}
@@ -214,8 +225,8 @@ func TestGenConfigOpencodeBakesAbsoluteBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(js), "/ABS/SENTINEL/guardrail") {
-		t.Fatalf("deployed plugin does not pin the absolute binary path:\n%s", js)
+	if !strings.Contains(string(js), wantDeclaration) {
+		t.Fatalf("deployed plugin does not pin the exact binary path %q:\n%s", binary, js)
 	}
 	if strings.Contains(string(js), "process.env.GUARDRAIL_BIN") {
 		t.Error("plugin still resolves its enforcer from the environment")
