@@ -2231,7 +2231,8 @@ func TestHookSessionStartSanitizesOperatorConfigLoadError(t *testing.T) {
 			t.Fatalf("operator load warning retained controls: %q", line)
 		}
 	}
-	if !strings.Contains(lines[0], "parsing operator config") || !strings.Contains(lines[0], "config forged path /guardrail/waivers.toml") {
+	wantPath := filepath.Join(testenv.HostilePathSegment("config forged path "), "guardrail", "waivers.toml")
+	if !strings.Contains(lines[0], "parsing operator config") || !strings.Contains(lines[0], wantPath) {
 		t.Fatalf("stderr omitted sanitized operator diagnostics: %q", errb.String())
 	}
 	if strings.Contains(errb.String(), generic) {
