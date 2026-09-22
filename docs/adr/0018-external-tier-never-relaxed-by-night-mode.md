@@ -19,7 +19,10 @@ coverage-cycle review flagged this as the highest-risk remaining gap.
 1. Night mode relaxes only in-session asks. Verdicts whose subject is
    outward reach or classification are preserved: `capability-external`,
    `capability-web-search`, and `unknown-native-tool` stay Ask overnight.
-   Deny invariance is unchanged.
+   `P1.power` (#140) joins the set on the same property — a machine-level
+   act is a per-call operator decision, and an overnight window must not
+   answer "may I reboot?" on the operator's behalf. Deny invariance is
+   unchanged.
 2. Claude's unknown-tool posture joins opencode's: unclassified tools Ask
    rather than allow (audit posture remains only for unattributed calls).
    ADR-0017's registry and ADR-0015's host dialogs make asking cheap.
@@ -36,4 +39,5 @@ coverage-cycle review flagged this as the highest-risk remaining gap.
 - Overnight autonomy no longer implies overnight egress or publication.
 - New unclassified tools surface as asks on both dialog-capable planes.
 - Preserved-ask set is explicit in the Engine and test-pinned; adding an
-  outward-reach rule means adding it there.
+  outward-reach rule — or, since #140, a machine-level-effect rule — means
+  adding it there.
