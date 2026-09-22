@@ -652,8 +652,9 @@ func materializeRepo(t *testing.T, e entry) (string, string) {
 
 func TestMaterializeRepoSupportsFilesystemRoot(t *testing.T) {
 	cwd, root := materializeRepo(t, entry{CWD: "/", RepoRoot: "/"})
-	if cwd != "/" || root != "/" {
-		t.Fatalf("materializeRepo(root) = (%q, %q), want (/, /)", cwd, root)
+	want := filepath.Clean(filepath.FromSlash("/"))
+	if cwd != want || root != want {
+		t.Fatalf("materializeRepo(root) = (%q, %q), want (%q, %q)", cwd, root, want, want)
 	}
 }
 
