@@ -110,6 +110,26 @@ var floorExamples = map[string]string{
 	"gh api --method {,**}":  "gh api --method DELETE repos/o/r/x",
 	"gh repo delete{,**}":    "gh repo delete owner/repo --yes",
 
+	// Porcelain families (#228). Each example carries a slash-bearing or
+	// flag-bearing argument where the real command would, so the guard is
+	// checking the case that broke `gh repo delete*`.
+	"gh secret set{,**}":      "gh secret set MY_TOKEN --repo owner/repo",
+	"gh secret delete{,**}":   "gh secret delete MY_TOKEN --repo owner/repo",
+	"gh variable set{,**}":    "gh variable set MY_VAR --body xyz",
+	"gh variable delete{,**}": "gh variable delete MY_VAR",
+	"gh repo edit{,**}":       "gh repo edit owner/repo --visibility public",
+	"gh repo archive{,**}":    "gh repo archive owner/repo",
+	"gh repo rename{,**}":     "gh repo rename new-name",
+	"gh repo transfer{,**}":   "gh repo transfer owner/repo neworg",
+	"gh auth switch{,**}":     "gh auth switch --user other-account",
+	"gh auth login{,**}":      "gh auth login --scopes admin:org",
+	"gh auth refresh{,**}":    "gh auth refresh -s admin:org",
+	"gh auth logout{,**}":     "gh auth logout",
+	"gh ssh-key add{,**}":     "gh ssh-key add /home/u/.ssh/id_ed25519.pub",
+	"gh gpg-key add{,**}":     "gh gpg-key add key.asc",
+	"gh release edit{,**}":    "gh release edit v1.0.0 --draft=false",
+	"gh release upload{,**}":  "gh release upload v1.0.0 asset.zip --clobber",
+
 	// Permission and process changes.
 	"chmod -R *":     "chmod -R 777 /var/www",
 	"chmod 777 *":    "chmod 777 /etc/passwd",

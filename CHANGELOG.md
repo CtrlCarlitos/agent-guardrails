@@ -5,6 +5,33 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **The floor now mediates the `gh` porcelain that reaches the same endpoints
+  the parser watches.** #252 taught the Engine to read `gh api`'s HTTP method,
+  but the porcelain subcommands reach those endpoints with no method flag to
+  parse: `gh secret set` is a PUT to `actions/secrets`, `gh repo edit
+  --visibility` a PATCH on the repo. Those are shape-level, which is what a
+  floor glob can match, so they belong on the floor rather than in the parser.
+  Asking now: secrets and variables (`set` and `delete` both -- an ask on one
+  verb is evadable by reaching for the other, and breaking CI by removing a
+  token is the same authority as handing CI a token); repository acts under the
+  operator's admin authority (`repo edit|archive|rename|transfer`, alongside
+  the existing `repo delete` deny); the credential family (`auth
+  switch|login|refresh|logout`, `ssh-key add`, `gpg-key add`), which mutates no
+  repository at all but changes *who the agent is* -- a second logged-in
+  account is one command away; and `release edit|upload`, the companion to the
+  existing `release create|delete`.
+  Reads and lists stay allow throughout. Each read in the test set shares a
+  prefix with a mutation above -- `gh secret list` against `gh secret set`,
+  `gh auth status` against `gh auth switch` -- so a glob one character too
+  greedy shows up as a failure rather than as noise in someone's session.
+  Deliberately left out, and named so the omission is a decision rather than an
+  oversight: `gh pr close`, `gh issue close|delete`, `gh run rerun|cancel`,
+  `gh codespace create`, `gh gist create --public`. All outward-facing, none
+  authority-changing or irreversible, and #228 itself marks them as candidates
+  rather than settled.
+  The #249 guard did its job on the way in: all 16 new globs failed the build
+  until each was paired with the command it exists to stop, and the
+  known-broken list stayed at 23 -- no new breakage introduced.
 - **Fix (#228): rewriting a GitHub protection through `gh api` now asks.** An
   agent running under the operator's `gh` login holds the operator's full
   repo-admin authority, and every GitHub-side protection is editable by that
