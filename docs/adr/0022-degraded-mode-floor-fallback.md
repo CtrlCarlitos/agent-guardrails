@@ -6,6 +6,21 @@ Accepted (operator, 2026-09-20). The communication valve is landed as
 PR #161; the read/mutation generalization lands per the capability table
 below.
 
+**Superseded in part by [ADR-0028](./0028-settings-files-are-user-owned-hooks-only.md)
+(operator, 2026-09-22).** The Declarative floor is retired on claude, opencode
+and antigravity, so it is no longer what enforces during an Engine outage on
+those planes; the outage posture there is loud and ungated, with the exposure
+named per plane in ADR-0028. **Codex is a named exception and keeps its floor
+as primary enforcement** until `doctor` observes hook dispatch
+(openai/codex#24453).
+
+What survives: the capability table below remains the opencode plugin's
+contract for the Engine-unreachable mode — communication allowed, commands and
+egress fail closed, reads and mutations proceed. ADR-0028 changes only what is
+behind that mode, not the mode itself; with the floor retired, "proceed under
+the floor" becomes "proceed ungated", which is the posture acceptance recorded
+in ADR-0028.
+
 ## Context
 
 The opencode adapter mediates every tool call by spawning the Engine. When

@@ -5,6 +5,43 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Docs (#282): ADR-0028 — settings files are user-owned; enforcement lives in
+  the Engine.** Four seat audits mapped every generated floor entry to an
+  Engine verdict: OpenCode's missing-rules list came back *empty* (a 100%
+  mirror), Claude's was four families out of 243 entries, and three of those
+  four are places the Engine is deliberately narrower than a prefix-matching
+  glob rather than safety gaps. The floor was not carrying policy the Engine
+  lacked; it was carrying a second, drifting copy of policy the Engine already
+  had -- 24 entries behind on Claude, 8 on OpenCode and those 8 syntactically
+  dead on the audited host.
+  Antigravity is the existence proof the decision rests on: hook-only on
+  Windows since ADR-0008, zero floor entries, `matcher: "*"` so every call
+  reaches the Engine, 27,000+ evaluations in one audited session, zero drift.
+  The reset generalizes a model already in production rather than proposing an
+  untested one.
+  Settings files return to user-owned content plus marked, manifest-tracked
+  hook registration. Planes retire independently: Antigravity is already at
+  target, OpenCode retires 218 entries, Claude 243 after the Engine gains the
+  working-tree-deletion rule (M1) and the `gh` account-key rule (M2).
+  **Codex is a named exception and keeps its floor as primary enforcement.**
+  Its pre-hooks do not dispatch on Windows (openai/codex#24453), and that is a
+  different thing from Claude's accepted outage exposure: Claude's #151 window
+  is bounded and an outage is an event, while Codex's non-dispatch is the
+  steady state. Removing its floor would leave a plane unmediated while the
+  reset claimed enforcement had moved into the Engine. Retirement is gated on a
+  measurable condition -- `doctor` observing hook dispatch -- not a date.
+  Two posture acceptances are recorded in the ADR rather than left to be
+  inferred from an absence: OpenCode's reads and edits proceed *ungated* during
+  an Engine-unreachable window (bash is unaffected -- it fails closed there
+  whatever the floor says), and Claude is ungated for the whole of an outage
+  because it silently no-ops a failed hook spawn. Silent floor coverage is
+  replaced by a loud one: a SessionStart warning and a doctor probe reporting
+  reachability and per-plane observed dispatch. The trade is only an
+  improvement if the signal is real, so the posture ships with the retirements
+  rather than after them.
+  ADR-0022 is superseded for three planes; its capability table survives as the
+  opencode plugin's contract for the outage mode, since that mode still exists
+  -- what changes is that "proceed under the floor" becomes "proceed ungated".
 - **Feature (#236): doctor reports credential posture, and the docs say how to
   narrow it.** guardrail and the agent share a trust domain, so every rule is
   something the agent runs *inside*. The strongest control is the one it cannot
