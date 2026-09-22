@@ -98,11 +98,13 @@ jobs:
         # the shared fixture still verifies the exact replacement bytes.
         if: matrix.os == 'windows-latest'
         run: go test ./cmd/guardrail/ -run '^TestUpdateHappyPathReplacesBinary$'
-      - name: windows portable adversarial root fixture
-        # The filesystem-root helper must preserve exact host root semantics;
-        # verdict-bearing adversarial corpus cases remain separately classified.
+      - name: windows portable adversarial fixtures
+        # The filesystem-root helper preserves exact host root semantics. The
+        # broker case also pins cross-platform Operator enrollment now that the
+        # Windows approval gates are lifted; the remaining verdict-bearing
+        # corpus cases stay separately classified.
         if: matrix.os == 'windows-latest'
-        run: go test ./test/adversarial/ -run '^TestMaterializeRepoSupportsFilesystemRoot$'
+        run: go test ./test/adversarial/ -run '^(TestMaterializeRepoSupportsFilesystemRoot|TestAdversarialCorpus/canonical_night_change_requires_broker_approval)$'
       - name: gofmt
         if: matrix.os != 'windows-latest'
         run: |
