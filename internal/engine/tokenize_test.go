@@ -2162,29 +2162,29 @@ func TestNormalizeWatchTreatsCommandAsShellSource(t *testing.T) {
 	}{
 		{
 			`watch 'rm -rf /'`,
-			[]Simple{{Argv: []string{"rm", "-rf", "/"}, gitEnvironmentUnknown: true}},
+			[]Simple{{Argv: []string{"rm", "-rf", "/"}, gitEnvironmentUnknown: true, goEnvironmentUnknown: true}},
 		},
 		{
 			`watch 'printf ok; rm -rf /'`,
-			[]Simple{{Argv: []string{"printf", "ok"}, gitEnvironmentUnknown: true}, {Argv: []string{"rm", "-rf", "/"}, gitEnvironmentUnknown: true}},
+			[]Simple{{Argv: []string{"printf", "ok"}, gitEnvironmentUnknown: true, goEnvironmentUnknown: true}, {Argv: []string{"rm", "-rf", "/"}, gitEnvironmentUnknown: true, goEnvironmentUnknown: true}},
 		},
 		{
 			`watch 'printf ok > /etc/passwd'`,
-			[]Simple{{Argv: []string{"printf", "ok"}, Redirects: []string{"/etc/passwd"}, gitEnvironmentUnknown: true}},
+			[]Simple{{Argv: []string{"printf", "ok"}, Redirects: []string{"/etc/passwd"}, gitEnvironmentUnknown: true, goEnvironmentUnknown: true}},
 		},
 		{
 			`watch 'printf ok; cat < inner-input' < outer-input > outer-output`,
 			[]Simple{
 				{Redirects: []string{"outer-output"}, ReadRedirects: []string{"outer-input"}},
-				{Argv: []string{"printf", "ok"}, gitEnvironmentUnknown: true},
-				{Argv: []string{"cat"}, ReadRedirects: []string{"inner-input"}, gitEnvironmentUnknown: true},
+				{Argv: []string{"printf", "ok"}, gitEnvironmentUnknown: true, goEnvironmentUnknown: true},
+				{Argv: []string{"cat"}, ReadRedirects: []string{"inner-input"}, gitEnvironmentUnknown: true, goEnvironmentUnknown: true},
 			},
 		},
 		{
 			`watch 'printf ok' > "$TARGET"`,
 			[]Simple{
 				{Redirects: []string{`"$TARGET"`}, Unresolved: true},
-				{Argv: []string{"printf", "ok"}, Unresolved: true, gitEnvironmentUnknown: true},
+				{Argv: []string{"printf", "ok"}, Unresolved: true, gitEnvironmentUnknown: true, goEnvironmentUnknown: true},
 			},
 		},
 	}

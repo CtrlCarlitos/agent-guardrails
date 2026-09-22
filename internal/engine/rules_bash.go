@@ -155,6 +155,7 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 			takeSimple(checkAskTierWithFindFSExemption(s, tc, pol, findFSExemption))
 		}
 		takeSimple(checkEgress(s, pol))
+		takeSimple(checkGoToolchain(s))
 		takeSimple(checkPackageInstall(s))
 		take(simpleWorst)
 		return simpleWorst

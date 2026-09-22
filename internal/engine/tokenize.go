@@ -27,6 +27,8 @@ type Simple struct {
 	resolvedIn            map[int]bool
 	gitEnvironment        map[string]string
 	gitEnvironmentUnknown bool
+	goEnvironment         map[string]string
+	goEnvironmentUnknown  bool
 	gitInitExpected       bool
 	fsUncertain           bool
 	pipelines             []pipelinePosition
@@ -954,6 +956,7 @@ type cwdState struct {
 	assignmentAttributes  map[string]bool
 	attributesUnknown     bool
 	gitEnvironmentUnknown bool
+	goEnvironmentUnknown  bool
 }
 
 type cwdOutcome struct {
@@ -1349,6 +1352,7 @@ func sameTrackedShellFacts(left, right cwdState) bool {
 		left.cdpathUnknown == right.cdpathUnknown &&
 		left.attributesUnknown == right.attributesUnknown &&
 		left.gitEnvironmentUnknown == right.gitEnvironmentUnknown &&
+		left.goEnvironmentUnknown == right.goEnvironmentUnknown &&
 		maps.Equal(left.variables, right.variables) &&
 		maps.Equal(left.namerefs, right.namerefs) &&
 		maps.Equal(left.assignmentAttributes, right.assignmentAttributes)
@@ -2237,6 +2241,9 @@ func withoutResolvedVariables(state cwdState, names ...string) cwdState {
 		if gitRepositoryEnvironmentVariable(name) {
 			state.gitEnvironmentUnknown = true
 		}
+		if goToolEnvironmentVariable(name) {
+			state.goEnvironmentUnknown = true
+		}
 	}
 	if len(state.variables) == 0 {
 		return state
@@ -2259,6 +2266,7 @@ func withoutAllVariables(state cwdState) cwdState {
 	state.cdpathSet = false
 	state.cdpathUnknown = true
 	state.gitEnvironmentUnknown = true
+	state.goEnvironmentUnknown = true
 	return state
 }
 
@@ -2308,6 +2316,9 @@ func restoreVariable(state, persistent cwdState, name string) cwdState {
 	default:
 		if gitRepositoryEnvironmentVariable(name) {
 			state.gitEnvironmentUnknown = state.gitEnvironmentUnknown || persistent.gitEnvironmentUnknown || !exists
+		}
+		if goToolEnvironmentVariable(name) {
+			state.goEnvironmentUnknown = state.goEnvironmentUnknown || persistent.goEnvironmentUnknown || !exists
 		}
 	}
 	return state
@@ -2551,7 +2562,7 @@ func mergeCwd(states ...cwdState) cwdState {
 		return cwdState{unknown: true}
 	}
 	merged := states[0]
-	merged.variables, merged.ifsUnknown, merged.gitEnvironmentUnknown = mergeVariableFacts(states)
+	merged.variables, merged.ifsUnknown, merged.gitEnvironmentUnknown, merged.goEnvironmentUnknown = mergeVariableFacts(states)
 	merged.namerefs = commonNamerefs(states)
 	merged.assignmentAttributes = combinedAssignmentAttributes(states)
 	for _, state := range states[1:] {
@@ -2569,14 +2580,16 @@ func mergeCwd(states ...cwdState) cwdState {
 	return merged
 }
 
-func mergeVariableFacts(states []cwdState) (map[string]string, bool, bool) {
+func mergeVariableFacts(states []cwdState) (map[string]string, bool, bool, bool) {
 	ifsUnknown := !sameVariableValue(states, "IFS")
 	gitEnvironmentUnknown := !sameGitRepositoryEnvironment(states)
+	goEnvironmentUnknown := !sameGoToolEnvironment(states)
 	for _, state := range states {
 		ifsUnknown = ifsUnknown || state.ifsUnknown
 		gitEnvironmentUnknown = gitEnvironmentUnknown || state.gitEnvironmentUnknown
+		goEnvironmentUnknown = goEnvironmentUnknown || state.goEnvironmentUnknown
 	}
-	return commonVariables(states), ifsUnknown, gitEnvironmentUnknown
+	return commonVariables(states), ifsUnknown, gitEnvironmentUnknown, goEnvironmentUnknown
 }
 
 func sameVariableValue(states []cwdState, name string) bool {
@@ -2594,6 +2607,16 @@ func sameGitRepositoryEnvironment(states []cwdState) bool {
 	want := gitRepositoryEnvironment(states[0].variables)
 	for _, state := range states[1:] {
 		if !maps.Equal(want, gitRepositoryEnvironment(state.variables)) {
+			return false
+		}
+	}
+	return true
+}
+
+func sameGoToolEnvironment(states []cwdState) bool {
+	want := goToolEnvironment(states[0].variables)
+	for _, state := range states[1:] {
+		if !maps.Equal(want, goToolEnvironment(state.variables)) {
 			return false
 		}
 	}
@@ -2735,12 +2758,21 @@ func normalizeWithState(command string, state cwdState, ctx *normalizeContext, f
 			s.shellState = recursiveState
 			s.gitEnvironment = gitRepositoryEnvironment(recursiveState.variables)
 			s.gitEnvironmentUnknown = recursiveState.gitEnvironmentUnknown
+			s.goEnvironment = goToolEnvironment(recursiveState.variables)
+			s.goEnvironmentUnknown = recursiveState.goEnvironmentUnknown
 			if s.gitEnvironmentUnknown && head(s.Argv) == "git" {
+				s.Unresolved = true
+			}
+			if s.goEnvironmentUnknown && head(s.Argv) == "go" {
 				s.Unresolved = true
 			}
 		}
 		if gitEnvironmentAssignmentUnknown(s.origin) {
 			s.gitEnvironmentUnknown = true
+			s.Unresolved = true
+		}
+		if goEnvironmentAssignmentUnknown(s.origin) {
+			s.goEnvironmentUnknown = true
 			s.Unresolved = true
 		}
 		if replacement, ok := walker.replacements[s.origin]; ok {
@@ -2802,13 +2834,15 @@ func commandDerivedFromAt(outer Simple, argv []string, sourceArg int) Simple {
 	derived := Simple{
 		Argv:                  argv,
 		Cwd:                   outer.Cwd,
-		Unresolved:            outer.Unresolved || outer.gitEnvironmentUnknown && head(argv) == "git",
+		Unresolved:            outer.Unresolved || outer.gitEnvironmentUnknown && head(argv) == "git" || outer.goEnvironmentUnknown && head(argv) == "go",
 		literalOut:            outer.literalOut,
 		literalIn:             outer.literalIn,
 		resolvedOut:           outer.resolvedOut,
 		resolvedIn:            outer.resolvedIn,
 		gitEnvironment:        outer.gitEnvironment,
 		gitEnvironmentUnknown: outer.gitEnvironmentUnknown,
+		goEnvironment:         outer.goEnvironment,
+		goEnvironmentUnknown:  outer.goEnvironmentUnknown,
 		gitInitExpected:       outer.gitInitExpected,
 		pipelines:             outer.pipelines,
 		cwdUnknown:            outer.cwdUnknown,
@@ -2831,6 +2865,20 @@ func gitRepositoryEnvironment(variables map[string]string) map[string]string {
 			}
 			environment[name] = value
 		}
+	}
+	return environment
+}
+
+func goToolEnvironment(variables map[string]string) map[string]string {
+	var environment map[string]string
+	for name, value := range variables {
+		if !goToolEnvironmentVariable(name) {
+			continue
+		}
+		if environment == nil {
+			environment = make(map[string]string)
+		}
+		environment[name] = value
 	}
 	return environment
 }
@@ -2859,6 +2907,30 @@ func gitEnvironmentAssignmentUnknown(stmt *syntax.Stmt) bool {
 	return false
 }
 
+func goEnvironmentAssignmentUnknown(stmt *syntax.Stmt) bool {
+	if stmt == nil {
+		return false
+	}
+	call, ok := stmt.Cmd.(*syntax.CallExpr)
+	if !ok {
+		return false
+	}
+	for _, assignment := range call.Assigns {
+		if assignment.Name == nil || !goToolEnvironmentVariable(assignment.Name.Value) {
+			continue
+		}
+		if assignment.Append || assignment.Index != nil || assignment.Array != nil {
+			return true
+		}
+		if assignment.Value != nil {
+			if _, ok := staticWord(assignment.Value, false); !ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func gitRepositoryEnvironmentVariable(name string) bool {
 	switch name {
 	case "GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM":
@@ -2868,32 +2940,61 @@ func gitRepositoryEnvironmentVariable(name string) bool {
 	}
 }
 
-func applyEnvGitEnvironment(simple Simple, argv []string) Simple {
+func goToolEnvironmentVariable(name string) bool {
+	switch name {
+	case "GOPROXY", "GOINSECURE", "GONOSUMDB", "GONOSUMCHECK", "GOFLAGS":
+		return true
+	default:
+		return false
+	}
+}
+
+func applyEnvEnvironment(simple Simple, argv []string) Simple {
 	offset := argvSubsliceOffset(simple.Argv, argv)
 	if offset < 0 {
 		return simple
 	}
+	variables := maps.Clone(simple.shellState.variables)
+	options := true
 	for index := 1; index < len(argv); index++ {
 		arg := argv[index]
 		switch {
 		case arg == "--":
-			return simple
-		case arg == "-u":
-			index++
+			options = false
 			continue
-		case strings.HasPrefix(arg, "-"):
+		case options && (arg == "-i" || arg == "--ignore-environment"):
+			variables = nil
+			continue
+		case options && (arg == "-u" || arg == "--unset"):
+			if index+1 < len(argv) {
+				index++
+				delete(variables, argv[index])
+			}
+			continue
+		case options && strings.HasPrefix(arg, "--unset="):
+			delete(variables, strings.TrimPrefix(arg, "--unset="))
+			continue
+		case options && strings.HasPrefix(arg, "-"):
 			continue
 		}
 		name, value, assignment := strings.Cut(arg, "=")
 		if !assignment {
-			return simple
+			break
+		}
+		if simple.wordUnresolved(offset + index) {
+			delete(variables, name)
+			simple.Unresolved = true
+		} else {
+			if variables == nil {
+				variables = make(map[string]string)
+			}
+			variables[name] = value
 		}
 		if !gitRepositoryEnvironmentVariable(name) {
 			continue
 		}
 		if simple.wordUnresolved(offset + index) {
 			simple.gitEnvironmentUnknown = true
-			simple.Unresolved = true
 			continue
 		}
 		if simple.gitEnvironment == nil {
@@ -2901,6 +3002,9 @@ func applyEnvGitEnvironment(simple Simple, argv []string) Simple {
 		}
 		simple.gitEnvironment[name] = value
 	}
+	simple.shellState.variables = variables
+	simple.gitEnvironment = gitRepositoryEnvironment(variables)
+	simple.goEnvironment = goToolEnvironment(variables)
 	return simple
 }
 
@@ -2949,7 +3053,7 @@ loop:
 		var err error
 		switch head(argv) {
 		case "env":
-			s = applyEnvGitEnvironment(s, argv)
+			s = applyEnvEnvironment(s, argv)
 			rest, err = consumeEnv(argv[1:])
 		case "timeout":
 			rest, err = consumeTimeout(argv[1:])
@@ -3295,19 +3399,23 @@ func consumeChroot(argv []string) ([]string, error) {
 
 func consumeEnv(argv []string) ([]string, error) {
 	i := 0
+	options := true
 	for i < len(argv) {
 		a := argv[i]
 		switch {
 		case a == "--":
-			return argv[i+1:], nil
-		case a == "-i" || a == "--ignore-environment" || a == "-v" || a == "--debug" || a == "-0" || a == "--null":
+			options = false
 			i++
-		case a == "-u" || a == "--unset":
+		case options && (a == "-i" || a == "--ignore-environment" || a == "-v" || a == "--debug" || a == "-0" || a == "--null"):
+			i++
+		case options && (a == "-u" || a == "--unset"):
 			if i+1 >= len(argv) {
 				return nil, needsValue("env", a)
 			}
 			i += 2
-		case strings.HasPrefix(a, "-"):
+		case options && strings.HasPrefix(a, "--unset="):
+			i++
+		case options && strings.HasPrefix(a, "-"):
 			return nil, unknownOpt("env", a)
 		case strings.Contains(a, "="):
 			i++
