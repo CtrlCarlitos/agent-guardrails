@@ -92,6 +92,12 @@ type pathCandidate struct {
 	cwd        string
 	cwdUnknown bool
 	repoRoot   string
+	// posix marks a path written in POSIX shell grammar -- a token lifted out
+	// of a Bash command.  Paths arriving through ToolCall.Paths from a native
+	// tool are host-dialect and leave this false.  The dialect is recorded at
+	// the point the path is extracted; it is never inferred from the string's
+	// shape, because "/etc" is a legal Win32 relative path as well.
+	posix bool
 }
 
 func privatePathCandidates(tc ToolCall) []pathCandidate {
@@ -129,7 +135,7 @@ func parsePrivatePathsAnalysis(tc ToolCall, bash *bashAnalysis) privatePathParse
 				if operand.role == operandNonPath || parsed.uncertaintyReason != "" && operand.role == operandUncertain {
 					continue
 				}
-				candidates = append(candidates, pathCandidate{path: operand.value, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
+				candidates = append(candidates, pathCandidate{posix: true, path: operand.value, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
 			}
 			if isOpaqueExecutor(head(s.Argv)) {
 				for _, operand := range parsed.operands {
@@ -138,7 +144,7 @@ func parsePrivatePathsAnalysis(tc ToolCall, bash *bashAnalysis) privatePathParse
 					}
 					for _, path := range visiblePathCandidates(operand.value) {
 						if looksLikePathOperand(path) {
-							candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
+							candidates = append(candidates, pathCandidate{posix: true, path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
 						}
 					}
 				}
@@ -146,7 +152,7 @@ func parsePrivatePathsAnalysis(tc ToolCall, bash *bashAnalysis) privatePathParse
 			paths := append(append([]string{}, s.Redirects...), s.ReadRedirects...)
 			paths = append(paths, writeTargets(s)...)
 			for _, path := range paths {
-				candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
+				candidates = append(candidates, pathCandidate{posix: true, path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
 			}
 		}
 		for index, s := range bash.simples {
@@ -159,7 +165,7 @@ func parsePrivatePathsAnalysis(tc ToolCall, bash *bashAnalysis) privatePathParse
 			candidates = append(candidates, findOutputCandidates(find.parsed, s, tc)...)
 			candidates = append(candidates, findReadPathCandidates(find.parsed, s, tc)...)
 			for _, path := range append(append([]string{}, s.Redirects...), s.ReadRedirects...) {
-				candidates = append(candidates, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
+				candidates = append(candidates, pathCandidate{posix: true, path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
 			}
 			for _, callback := range find.callbacks {
 				appendSimple(callback)
@@ -265,7 +271,7 @@ func pathCandidateForms(candidate pathCandidate) []string {
 	if expanded != raw {
 		forms = append(forms, expanded)
 	}
-	if resolved, ok := resolvePathCandidate(pathCandidate{path: expanded, cwd: candidate.cwd, cwdUnknown: candidate.cwdUnknown}); ok && resolved != raw && resolved != expanded {
+	if resolved, ok := resolvePathCandidate(pathCandidate{posix: candidate.posix, path: expanded, cwd: candidate.cwd, cwdUnknown: candidate.cwdUnknown}); ok && resolved != raw && resolved != expanded {
 		forms = append(forms, resolved)
 	}
 	return forms
@@ -623,7 +629,7 @@ func writeCandidatesAnalysis(tc ToolCall, bash *bashAnalysis) []pathCandidate {
 	if bash != nil && bash.err == nil {
 		appendSimple := func(s Simple) {
 			for _, path := range append(append([]string{}, s.Redirects...), writeTargets(s)...) {
-				out = append(out, pathCandidate{path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
+				out = append(out, pathCandidate{posix: true, path: path, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
 			}
 		}
 		for index, s := range bash.simples {

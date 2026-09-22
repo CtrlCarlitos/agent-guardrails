@@ -785,7 +785,7 @@ func checkDestinationWrites(s Simple, tc ToolCall, pol *policy.Policy) *policy.V
 	}
 	if command == "mv" {
 		for _, source := range moveSourceTargets(s.Argv) {
-			candidate := pathCandidate{path: source, cwd: cwd, cwdUnknown: s.cwdUnknown}
+			candidate := pathCandidate{posix: true, path: source, cwd: cwd, cwdUnknown: s.cwdUnknown}
 			authorized, lexical := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, nil, true)
 			if authorized {
 				continue
@@ -803,7 +803,7 @@ func checkDestinationWrites(s Simple, tc ToolCall, pol *policy.Policy) *policy.V
 		if command == "rsync" && rsyncRemoteTarget(target) {
 			return ask("P1.out-of-repo-write", "writes to a remote destination outside configured safe roots: "+target)
 		}
-		candidate := pathCandidate{path: target, cwd: cwd, cwdUnknown: s.cwdUnknown}
+		candidate := pathCandidate{posix: true, path: target, cwd: cwd, cwdUnknown: s.cwdUnknown}
 		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, nil, true); !authorized {
 			return ask("P1.out-of-repo-write", "writes to a path outside the repo and configured safe roots: "+target)
 		}
@@ -821,7 +821,27 @@ func authorizedPath(candidate pathCandidate, repoRoot string, safeRoots, strictR
 	if candidate.path == "~" || strings.HasPrefix(candidate.path, "~/") || candidate.cwdUnknown && !filepath.IsAbs(candidate.path) {
 		return false, false
 	}
-	target, err := filepath.Abs(resolvePath(candidate.path, candidate.cwd))
+	// candidate.path is POSIX when it came from a Bash command; the roots it is
+	// about to be compared against are host paths.  Translate once, here,
+	// before any filepath call -- an absolute POSIX path this host cannot
+	// address is inside none of those roots, and must not be joined against cwd
+	// into one (#255).
+	//
+	// The translation reconciles two dialects, so it only has work to do when
+	// there are two.  A repoRoot that is itself POSIX-absolute and unaddressable
+	// on this host means the whole comparison is being made in POSIX
+	// coordinates; folding only one side of it would be the same mistranslation
+	// in the other direction.  On Linux and macOS the host dialect is POSIX and
+	// this is the identity by construction.
+	candidatePath := candidate.path
+	if candidate.posix && !unmappablePosixAbsolute(repoRoot) {
+		host, mapped := hostPathForPosix(candidatePath)
+		if !mapped {
+			return false, false
+		}
+		candidatePath = host
+	}
+	target, err := filepath.Abs(resolvePath(candidatePath, candidate.cwd))
 	if err != nil {
 		return false, false
 	}
@@ -1041,7 +1061,7 @@ func checkRmRf(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		return nil
 	}
 	for _, raw := range nonFlagArgs(s.Argv) {
-		candidate := pathCandidate{path: raw, cwd: simpleCwd(s, tc), cwdUnknown: s.cwdUnknown}
+		candidate := pathCandidate{posix: true, path: raw, cwd: simpleCwd(s, tc), cwdUnknown: s.cwdUnknown}
 		if candidate.cwdUnknown && !filepath.IsAbs(raw) {
 			continue // P3 owns runtime-relative targets whose cwd is unknowable.
 		}
@@ -1560,7 +1580,7 @@ func checkAskTierWithFindFSExemption(s Simple, tc ToolCall, pol *policy.Policy, 
 		return ask("P1.kill", "killall/pkill can terminate unrelated work")
 	}
 	for _, r := range s.Redirects {
-		candidate := pathCandidate{path: r, cwd: simpleCwd(s, tc), cwdUnknown: s.cwdUnknown}
+		candidate := pathCandidate{posix: true, path: r, cwd: simpleCwd(s, tc), cwdUnknown: s.cwdUnknown}
 		if candidate.cwdUnknown && !posixIsAbs(r) {
 			continue // Preserve P3 without resolving against the guardrail process cwd.
 		}
@@ -1587,7 +1607,7 @@ func checkFindActions(parsed findActionParseResult, s Simple, tc ToolCall, pol *
 		}
 		root := parsed.scopedDeletionRoot
 		cwd := simpleCwd(s, tc)
-		candidate := pathCandidate{path: root, cwd: cwd, cwdUnknown: s.cwdUnknown}
+		candidate := pathCandidate{posix: true, path: root, cwd: cwd, cwdUnknown: s.cwdUnknown}
 		if findRootOverlapsRepository(candidate, tc.RepoRoot) {
 			return ask("P1.find-delete", "find deletion starts inside the repository: "+root)
 		}
@@ -1599,7 +1619,7 @@ func checkFindActions(parsed findActionParseResult, s Simple, tc ToolCall, pol *
 		return ask("P1.find-delete", parsed.uncertaintyReason)
 	}
 	for _, output := range parsed.outputs {
-		candidate := pathCandidate{path: output.value, cwd: simpleCwd(s, tc), cwdUnknown: s.cwdUnknown}
+		candidate := pathCandidate{posix: true, path: output.value, cwd: simpleCwd(s, tc), cwdUnknown: s.cwdUnknown}
 		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, nil, true); !authorized {
 			return ask("P1.out-of-repo-write", "writes to a path outside the repo and configured safe roots: "+output.value)
 		}
