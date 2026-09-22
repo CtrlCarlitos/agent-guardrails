@@ -180,6 +180,52 @@ func TestWindowsSelectedTestsLiveInPackagesTheWindowsJobRuns(t *testing.T) {
 	}
 }
 
+func TestWindowsFullSuiteObservabilityJobIsUnfilteredAndNonblocking(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := workflowJobBlock(string(raw), "windows-portability")
+	if block == "" {
+		t.Fatal("ci.yml has no windows-portability job")
+	}
+	for _, want := range []string{
+		"\n    runs-on: windows-latest\n",
+		"\n    continue-on-error: true\n",
+		"\n        run: go test ./...\n",
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("windows-portability job does not contain %q:\n%s", want, block)
+		}
+	}
+	if strings.Contains(block, "-run ") {
+		t.Errorf("windows-portability job filters test names instead of exposing the full suite:\n%s", block)
+	}
+}
+
+func workflowJobBlock(workflow, name string) string {
+	lines := strings.Split(workflow, "\n")
+	start := -1
+	for i, line := range lines {
+		if line == "  "+name+":" {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return ""
+	}
+	end := len(lines)
+	for i := start + 1; i < len(lines); i++ {
+		line := lines[i]
+		if strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "    ") && strings.HasSuffix(line, ":") {
+			end = i
+			break
+		}
+	}
+	return strings.Join(lines[start:end], "\n")
+}
+
 // buildsOnWindows reports whether a test file is compiled into the Windows
 // build: both the filename suffix convention and a //go:build line can exclude
 // it, and an excluded file is absent by construction rather than overlooked.
