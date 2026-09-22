@@ -656,6 +656,43 @@ func TestConcurrentTransactionsPreserveMonotonicSignals(t *testing.T) {
 	}
 }
 
+func TestQueuedLocalTransactionGetsFreshOSLockBudget(t *testing.T) {
+	testenv.SetState(t, t.TempDir())
+	holderEntered := make(chan struct{})
+	releaseHolder := make(chan struct{})
+	holderDone := make(chan error, 1)
+	go func() {
+		holderDone <- Transaction("holder", func(*State) error {
+			close(holderEntered)
+			<-releaseHolder
+			return nil
+		})
+	}()
+	<-holderEntered
+
+	waiterDone := make(chan error, 1)
+	go func() {
+		waiterDone <- Transaction("waiter", func(s *State) error {
+			s.SawNetworkCall = true
+			return nil
+		})
+	}()
+
+	// The local queue is an in-process serialization mechanism, not OS-lock
+	// contention. A caller that reaches the front after an otherwise healthy
+	// local transaction must still receive the complete OS-lock acquisition
+	// budget. This deterministic hold models the queue depth that only became
+	// slow enough to expose the bug under full Windows package load.
+	time.Sleep(lockWait + 100*time.Millisecond)
+	close(releaseHolder)
+	if err := <-holderDone; err != nil {
+		t.Fatalf("holder Transaction: %v", err)
+	}
+	if err := <-waiterDone; err != nil {
+		t.Fatalf("queued Transaction: %v", err)
+	}
+}
+
 func TestStoreWideTransactionSerializesDifferentSessionsAcrossProcesses(t *testing.T) {
 	const holderSessionID = "cross-process-holder"
 	const migratingSessionID = "cross-process-migration"

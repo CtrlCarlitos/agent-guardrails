@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 type transactionGate struct {
@@ -18,8 +19,14 @@ var localTransactionGates = struct {
 // acquireLocalTransactionGate queues callers in this process before they
 // contend for the store-wide OS lock. In particular, this avoids a Windows
 // LockFileEx retry stampede while the file lock continues to serialize other
-// processes. The caller's lock deadline bounds time spent in both layers.
-func acquireLocalTransactionGate(ctx context.Context, lockPath string) (func(), error) {
+// processes.
+//
+// Each caller ahead may legitimately consume one lock-acquisition budget, so
+// the local wait scales with the observed queue depth. Once admitted, the
+// caller receives a fresh OS-lock budget in Transaction. Sharing one deadline
+// between these layers made tail callers time out under full-suite load before
+// they ever attempted LockFileEx (#250).
+func acquireLocalTransactionGate(lockPath string, waitPerCaller time.Duration) (func(), error) {
 	localTransactionGates.Lock()
 	gate := localTransactionGates.byPath[lockPath]
 	if gate == nil {
@@ -28,7 +35,11 @@ func acquireLocalTransactionGate(ctx context.Context, lockPath string) (func(), 
 		localTransactionGates.byPath[lockPath] = gate
 	}
 	gate.users++
+	queueDepth := gate.users
 	localTransactionGates.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(queueDepth)*waitPerCaller)
+	defer cancel()
 
 	select {
 	case <-gate.token:
