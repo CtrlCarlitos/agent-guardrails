@@ -69,6 +69,29 @@ var ghPorcelainRules = map[string]ghPorcelainVerdict{
 	// is used for.
 	"auth switch": {ruleID: "P2.gh-auth-scope", reason: "changes which account later gh calls run as"},
 
+	// Logging out destroys the credential the session is running on. That is
+	// not a scope question, so it does not share the scope rule's id: an
+	// operator who waives scope widening to run an auth loop should not
+	// thereby waive credential destruction (#282 M3).
+	"auth logout": {ruleID: "P2.gh-auth-logout", reason: "removes the stored credential later gh calls depend on"},
+
+	// A key added to the account grants durable access that outlives this
+	// session and the token that added it.
+	//
+	// The Engine appeared to cover part of this already, but only by accident:
+	// `gh ssh-key add ~/.ssh/id_ed25519.pub` denied because P4 saw a
+	// secret-tier *argument*, not because anything understood the command, so
+	// a key sitting anywhere else was allowed. A rule that depends on the
+	// spelling of an argument is not a rule about the action (#282 M2).
+	//
+	// Both verbs of each pair are listed for the reason the floor lists both:
+	// an ask on `add` alone is evadable by reaching for `delete`, and removing
+	// the operator's own key is its own kind of damage.
+	"ssh-key add":    {ruleID: "P2.gh-account-key", reason: "adds an SSH key granting durable access to the account"},
+	"ssh-key delete": {ruleID: "P2.gh-account-key", reason: "removes an SSH key the operator's own access may depend on"},
+	"gpg-key add":    {ruleID: "P2.gh-account-key", reason: "adds a GPG key that signs commits as the operator"},
+	"gpg-key delete": {ruleID: "P2.gh-account-key", reason: "removes a GPG key the operator's signature verification depends on"},
+
 	// A release is a published artifact set, so these reuse the publish family
 	// (#235) rather than inventing a gh-shaped twin: an operator waiving
 	// publishing waives it once.

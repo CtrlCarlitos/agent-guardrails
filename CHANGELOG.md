@@ -5,6 +5,33 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Fix (#282 M2/M3): adding a key to the GitHub account, and logging out, now
+  ask.** Both came out of the four-seat gap analysis the same way: three of the
+  four declarative floors gate these commands and the Engine allowed them. With
+  the floors retiring (ADR-0028) the Engine has to carry the policy itself.
+  `gh ssh-key add` and `gh gpg-key add` grant durable access that outlives the
+  session and the token that added it. The Engine looked like it covered part
+  of this already, but only by accident: pointing it at a key file under a
+  secret-tier directory denied because `P4.secret-path` saw a secret-tier
+  *argument*, not because anything understood the command -- point it at
+  `/tmp/key.pub` instead and it allowed. A rule that depends on the spelling of
+  an argument is not a rule about the action. `P2.gh-account-key` now covers
+  add and delete for both key families, because an ask on `add` alone is
+  evadable by reaching for `delete` and removing the operator's own key is its
+  own kind of damage. A secret-tier argument still denies: deny outranks ask,
+  so the path that already worked is not softened.
+  `gh auth logout` destroys the credential the session is running on, which is
+  not a scope question, so it gets `P2.gh-auth-logout` rather than sharing the
+  scope rule's id -- an operator who waives scope widening to run an auth loop
+  should not thereby waive credential destruction.
+  `gh auth login` and `gh auth refresh` without a scope flag stay allowed. That
+  is the deliberate divergence from #228 -- re-authorizing scopes a token
+  already holds is not widening them, and asking for it is how an operator
+  learns to click through the prompts that matter -- and it now has a test that
+  fails if someone later tidies the auth family into asking for all of it.
+  Reads stay allow (`gh ssh-key list`, `gh gpg-key list`, `gh auth status`,
+  `gh auth token`), and the credential-prefix taxonomy is pinned for both new
+  rules so a prefix cannot spell past them.
 - **Docs (#282): ADR-0028 — settings files are user-owned; enforcement lives in
   the Engine.** Four seat audits mapped every generated floor entry to an
   Engine verdict: OpenCode's missing-rules list came back *empty* (a 100%
