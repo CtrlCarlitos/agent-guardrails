@@ -12,17 +12,25 @@ import (
 // mining it with ad-hoc scripts; this makes the instrument first-class.
 func cmdAudit(args []string, stdout, stderr io.Writer) int {
 	path := ""
+	verdicts := false
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--path" && i+1 < len(args) {
 			i++
 			path = args[i]
 			continue
 		}
-		fmt.Fprintln(stderr, "guardrail: audit accepts only [--path <file>]")
+		if args[i] == "--verdicts" {
+			verdicts = true
+			continue
+		}
+		fmt.Fprintln(stderr, "guardrail: audit accepts only [--verdicts] [--path <file>]")
 		return 2
 	}
 	if path == "" {
 		path = audit.DefaultPath("")
+	}
+	if verdicts {
+		return cmdVerdicts(path, stdout, stderr)
 	}
 	segments, err := audit.Segments(path)
 	if err != nil {
