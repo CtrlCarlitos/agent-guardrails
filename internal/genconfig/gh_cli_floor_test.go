@@ -97,11 +97,11 @@ func TestGhGlobsReachTheOpencodePlane(t *testing.T) {
 	bash := permission["bash"].(orderedPermissionRules)
 
 	want := map[string]string{
-		"gh pr merge{,**}":       "ask",
-		"gh release create{,**}": "ask",
-		"gh release delete{,**}": "ask",
-		"gh workflow run{,**}":   "ask",
-		"gh repo delete{,**}":    "deny",
+		"gh pr merge*":       "ask",
+		"gh release create*": "ask",
+		"gh release delete*": "ask",
+		"gh workflow run*":   "ask",
+		"gh repo delete*":    "deny",
 	}
 	for glob, decision := range want {
 		got, ok := bash[glob]

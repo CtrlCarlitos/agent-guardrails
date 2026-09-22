@@ -100,6 +100,8 @@ func parseOpencodeRuleObject(t *testing.T, raw []byte) []opencodePermissionRule 
 	return rules
 }
 
+// opencodeGlobMatches mirrors OpenCode 1.18.31's pinned wildcard.ts:
+// https://github.com/anomalyco/opencode/blob/014614d35b397775e5d397a490fc72368c894ec2/packages/core/src/util/wildcard.ts.
 func opencodeGlobMatches(pattern, value string) bool {
 	pattern = strings.ReplaceAll(pattern, "\\", "/")
 	value = strings.ReplaceAll(value, "\\", "/")
