@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,17 +22,38 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/recipe"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/session"
 )
 
 var sessionTransaction = session.Transaction
 
-func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int) {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "guardrail: hook needs a plane (claude, opencode, antigravity, codex)")
 		return 2
 	}
 	plane := args[0]
+	var tc engine.ToolCall
+	var codexMeta codexHookMetadata
+	if plane == "codex" {
+		originalStderr := stderr
+		captured := cappedBuffer{limit: 8 << 10}
+		stderr = &captured
+		defer func() {
+			rawStderr := captured.String()
+			_, _ = io.WriteString(originalStderr, rawStderr)
+			if code != 0 {
+				emitCodexHookDiagnostic(originalStderr, codexMeta, tc, code, rawStderr)
+			}
+		}()
+		var err error
+		codexMeta, err = parseCodexHookMetadata(args[1:])
+		if err != nil {
+			fmt.Fprintf(stderr, "guardrail: handler failure: %s; failing closed\n", safetext.SingleLine(err.Error()))
+			return 2
+		}
+	}
 
 	var antigravityPhase string
 	if plane == "antigravity" {
@@ -41,7 +65,6 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	var highPriorityWarnings []string
-	var tc engine.ToolCall
 	failClosed := func(reason string) int {
 		if plane == "codex" {
 			reason = "guardrail: handler failure: " + strings.TrimPrefix(reason, "guardrail: ")
@@ -270,6 +293,70 @@ func emitVerdict(plane, antigravityPhase string, tc engine.ToolCall, v policy.Ve
 	default:
 		return 2
 	}
+}
+
+type codexHookMetadata struct {
+	HandlerID   string
+	HandlerHash string
+}
+
+func parseCodexHookMetadata(args []string) (codexHookMetadata, error) {
+	meta := codexHookMetadata{HandlerID: "unavailable", HandlerHash: "unavailable"}
+	if len(args) == 0 {
+		return meta, nil
+	}
+	if len(args) != 4 || args[0] != "--handler-id" || args[2] != "--handler-hash" {
+		return meta, errors.New("Codex hook metadata must be --handler-id <id> --handler-hash <sha256>")
+	}
+	validID := args[1] == "guardrail-codex-PreToolUse" || args[1] == "guardrail-codex-PostToolUse" || args[1] == "guardrail-codex-SessionStart"
+	encoded := strings.TrimPrefix(args[3], "sha256:")
+	decoded, hashErr := hex.DecodeString(encoded)
+	if !validID || !strings.HasPrefix(args[3], "sha256:") || hashErr != nil || len(decoded) != sha256.Size {
+		return meta, errors.New("Codex hook metadata has an invalid handler identity or hash")
+	}
+	return codexHookMetadata{HandlerID: args[1], HandlerHash: args[3]}, nil
+}
+
+func emitCodexHookDiagnostic(stderr io.Writer, meta codexHookMetadata, tc engine.ToolCall, exitCode int, rawStderr string) {
+	class := "handler"
+	if strings.Contains(rawStderr, "guardrail: policy denial:") {
+		class = "policy"
+	}
+	record := struct {
+		Kind                    string `json:"kind"`
+		Class                   string `json:"class"`
+		DeclaredTool            string `json:"declared_tool"`
+		NormalizedIdentity      string `json:"normalized_identity"`
+		MatchedContractIdentity string `json:"matched_contract_identity"`
+		HandlerID               string `json:"handler_id"`
+		HandlerHash             string `json:"handler_hash"`
+		TrustHash               string `json:"trust_hash"`
+		Session                 string `json:"session"`
+		ExitCode                int    `json:"exit_code"`
+		Stderr                  string `json:"stderr"`
+	}{
+		Kind:                    "codex-hook-diagnostic",
+		Class:                   class,
+		DeclaredTool:            boundedCodexDiagnosticValue(tc.NativeTool, 256),
+		NormalizedIdentity:      boundedCodexDiagnosticValue(tc.Tool, 256),
+		MatchedContractIdentity: boundedCodexDiagnosticValue(tc.ContractTool, 256),
+		HandlerID:               meta.HandlerID,
+		HandlerHash:             meta.HandlerHash,
+		TrustHash:               "doctor-reconciliation-required",
+		Session:                 boundedCodexDiagnosticValue(tc.SessionID, 256),
+		ExitCode:                exitCode,
+		Stderr:                  boundedCodexDiagnosticValue(rawStderr, 2048),
+	}
+	raw, _ := json.Marshal(record)
+	fmt.Fprintf(stderr, "guardrail: hook diagnostic: %s\n", raw)
+}
+
+func boundedCodexDiagnosticValue(value string, limit int) string {
+	clean := []rune(safetext.SingleLine(value))
+	if len(clean) <= limit {
+		return string(clean)
+	}
+	return string(clean[:limit]) + "…"
 }
 
 // claudeCoveragePosture is the advisory line for bundle coverage drift:

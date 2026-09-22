@@ -11,10 +11,10 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
 )
 
-func TestDoctorCodexHooksReportsIndependentStagesAndDecodedCommand(t *testing.T) {
+func TestWindowsDoctorCodexHooksReportsIndependentStagesAndDecodedCommand(t *testing.T) {
 	dir := t.TempDir()
 	hooksPath := filepath.Join(dir, "hooks.json")
-	command := writeCodexDiagnosticConfig(t, hooksPath, `C:\Users\Agent User\.local\bin\guardrail.exe`)
+	commands := writeCodexDiagnosticConfig(t, hooksPath, `C:\Users\Agent User\.local\bin\guardrail.exe`)
 
 	oldTrust, oldProbe, oldObservation := codexTrustInspector, codexHandlerProbe, codexRuntimeObserver
 	t.Cleanup(func() {
@@ -22,9 +22,9 @@ func TestDoctorCodexHooksReportsIndependentStagesAndDecodedCommand(t *testing.T)
 	})
 	codexTrustInspector = func(context.Context, string) ([]codexTrustMetadata, error) {
 		return []codexTrustMetadata{
-			{EventName: "preToolUse", Command: command, CurrentHash: "sha256:pre", TrustStatus: "trusted", SourcePath: hooksPath},
-			{EventName: "postToolUse", Command: command, CurrentHash: "sha256:post", TrustStatus: "trusted", SourcePath: hooksPath},
-			{EventName: "sessionStart", Command: command, CurrentHash: "sha256:start", TrustStatus: "trusted", SourcePath: hooksPath},
+			{EventName: "preToolUse", Command: commands["PreToolUse"], CurrentHash: "sha256:pre", TrustStatus: "trusted", SourcePath: hooksPath},
+			{EventName: "postToolUse", Command: commands["PostToolUse"], CurrentHash: "sha256:post", TrustStatus: "trusted", SourcePath: hooksPath},
+			{EventName: "sessionStart", Command: commands["SessionStart"], CurrentHash: "sha256:start", TrustStatus: "trusted", SourcePath: hooksPath},
 		}, nil
 	}
 	codexHandlerProbe = func(context.Context, string, string) codexHandlerProbeResult {
@@ -46,6 +46,7 @@ func TestDoctorCodexHooksReportsIndependentStagesAndDecodedCommand(t *testing.T)
 		"handler id: guardrail-codex-PreToolUse",
 		"decoded effective command: $guardrailPath = 'C:\\Users\\Agent User\\.local\\bin\\guardrail.exe'",
 		"handler failure: evaluator exited with code",
+		"generated command hash: sha256:",
 		"trust hash: sha256:pre",
 		"direct exit code: 2",
 		"direct stderr: guardrail: handler failure: malformed Codex hook payload; failing closed",
@@ -64,7 +65,8 @@ func TestDoctorCodexHooksReportsIndependentStagesAndDecodedCommand(t *testing.T)
 func TestDoctorCodexHooksKeepsSilentAndFailOpenStatesRed(t *testing.T) {
 	dir := t.TempDir()
 	hooksPath := filepath.Join(dir, "hooks.json")
-	command := writeCodexDiagnosticConfig(t, hooksPath, `C:\guardrail.exe`)
+	commands := writeCodexDiagnosticConfig(t, hooksPath, `C:\guardrail.exe`)
+	command := commands["PreToolUse"]
 
 	oldTrust, oldProbe, oldObservation := codexTrustInspector, codexHandlerProbe, codexRuntimeObserver
 	t.Cleanup(func() {
@@ -99,7 +101,7 @@ func TestDoctorCodexHooksKeepsSilentAndFailOpenStatesRed(t *testing.T) {
 	}
 }
 
-func writeCodexDiagnosticConfig(t *testing.T, hooksPath, binary string) string {
+func writeCodexDiagnosticConfig(t *testing.T, hooksPath, binary string) map[string]string {
 	t.Helper()
 	fragment := genconfig.CodexConfig(binary)
 	raw, err := json.Marshal(fragment)
@@ -108,7 +110,11 @@ func writeCodexDiagnosticConfig(t *testing.T, hooksPath, binary string) string {
 	}
 	writePlaneSettings(t, hooksPath, string(raw))
 	hooks := fragment["hooks"].(map[string]any)
-	group := hooks["PreToolUse"].([]any)[0].(map[string]any)
-	handler := group["hooks"].([]any)[0].(map[string]any)
-	return handler["commandWindows"].(string)
+	commands := map[string]string{}
+	for _, event := range []string{"PreToolUse", "PostToolUse", "SessionStart"} {
+		group := hooks[event].([]any)[0].(map[string]any)
+		handler := group["hooks"].([]any)[0].(map[string]any)
+		commands[event] = handler["commandWindows"].(string)
+	}
+	return commands
 }

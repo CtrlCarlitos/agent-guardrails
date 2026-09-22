@@ -14,6 +14,7 @@ type ToolCall struct {
 	Event          string // "pre" or "post"
 	Tool           string // normalized tool name, e.g. "Bash", "Read", "Edit", "Write"
 	NativeTool     string // original plane tool name for model-facing action guidance
+	ContractTool   string // canonical native identity matched by the plane contract; empty when unclassified
 	Capability     policy.Capability
 	URL            string
 	InputShape     string

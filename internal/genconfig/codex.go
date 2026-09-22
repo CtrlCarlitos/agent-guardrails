@@ -2,6 +2,7 @@ package genconfig
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -23,29 +24,35 @@ func CodexConfig(binary string) Fragment {
 func CodexConfigFor(hooksPath, binary string) Fragment {
 	// Quote the executable as a shell word, including paths with spaces/apostrophes.
 	quotedBinary := "'" + strings.ReplaceAll(binary, "'", "'\"'\"'") + "'"
-	command := quotedBinary + " hook codex" + codexHookFailureSuffix
-
-	var commandWindows string
-	if hooksPath != "" {
-		wrapperPath := filepath.Join(filepath.Dir(hooksPath), "guardrail-hook.cmd")
-		commandWindows = "\"" + wrapperPath + "\"" + codexWindowsHookFailureSuffix
-	} else {
-		// Codex executes commandWindows through cmd.exe. Encode the PowerShell
-		// payload so binary paths containing shell metacharacters remain data, then
-		// distinguish transport and handler failures while preserving a deliberate
-		// policy-denial exit 2.
-		windowsBinary := strings.ReplaceAll(binary, "'", "''")
-		windowsScript := "$guardrailPath = '" + windowsBinary + "'; if (-not (Test-Path -LiteralPath $guardrailPath -PathType Leaf) -and $null -eq (Get-Command -Name $guardrailPath -ErrorAction SilentlyContinue)) { [Console]::Error.WriteLine('guardrail: transport failure: configured handler executable is unavailable; continue independent work.'); exit 2 }; & $guardrailPath hook codex; $guardrailExit = $LASTEXITCODE; if ($guardrailExit -eq 0 -or $guardrailExit -eq 2) { exit $guardrailExit }; [Console]::Error.WriteLine(\"guardrail: handler failure: evaluator exited with code $guardrailExit; continue independent work.\"); exit 2"
-		commandWindows = codexWindowsHookPrefix + encodePowerShellCommand(windowsScript) + codexWindowsHookFailureSuffix
-	}
+	windowsBinary := strings.ReplaceAll(binary, "'", "''")
 	hooks := map[string]any{}
 	for _, event := range []string{"PreToolUse", "PostToolUse", "SessionStart"} {
+		handlerID := "guardrail-codex-" + event
+		posixBase := quotedBinary + " hook codex --handler-id '" + handlerID + "'"
+		command := posixBase + " --handler-hash '" + codexGeneratedCommandHash(posixBase) + "'" + codexHookFailureSuffix
+		// Hash the generated invocation before adding its own hash argument. The
+		// live diagnostic can therefore identify the exact generated variant,
+		// while doctor separately reports Codex's trust hash for the full hook.
+		var commandWindows string
+		if hooksPath != "" {
+			wrapperPath := filepath.Join(filepath.Dir(hooksPath), "guardrail-hook.cmd")
+			windowsBase := "\"" + wrapperPath + "\" --handler-id " + handlerID
+			commandWindows = windowsBase + " --handler-hash " + codexGeneratedCommandHash(windowsBase) + codexWindowsHookFailureSuffix
+		} else {
+			// Codex executes commandWindows through cmd.exe. Keep the encoded
+			// fallback for print-only fragments; installed configs use the owned,
+			// inspectable wrapper generated alongside hooks.json (ADR-0024).
+			windowsBase := "& $guardrailPath hook codex --handler-id '" + handlerID + "'"
+			windowsInvocation := windowsBase + " --handler-hash '" + codexGeneratedCommandHash(windowsBase) + "'"
+			windowsScript := "$guardrailPath = '" + windowsBinary + "'; if (-not (Test-Path -LiteralPath $guardrailPath -PathType Leaf) -and $null -eq (Get-Command -Name $guardrailPath -ErrorAction SilentlyContinue)) { [Console]::Error.WriteLine('guardrail: transport failure: configured handler executable is unavailable; continue independent work.'); exit 2 }; " + windowsInvocation + "; $guardrailExit = $LASTEXITCODE; if ($guardrailExit -eq 0 -or $guardrailExit -eq 2) { exit $guardrailExit }; [Console]::Error.WriteLine(\"guardrail: handler failure: evaluator exited with code $guardrailExit; continue independent work.\"); exit 2"
+			commandWindows = codexWindowsHookPrefix + encodePowerShellCommand(windowsScript) + codexWindowsHookFailureSuffix
+		}
 		matcher := "*"
 		if event == "PostToolUse" {
 			matcher = "^apply_patch$"
 		}
 		hooks[event] = []any{map[string]any{
-			"id": "guardrail-codex-" + event, "matcher": matcher,
+			"id": handlerID, "matcher": matcher,
 			"hooks": []any{map[string]any{"type": "command", "command": command, "commandWindows": commandWindows, "timeout": 10}},
 		}}
 	}
@@ -83,6 +90,11 @@ func WriteCodexWrapper(hooksPath, binary string) error {
 	return os.WriteFile(path, content, 0o700)
 }
 
+func codexGeneratedCommandHash(command string) string {
+	sum := sha256.Sum256([]byte(command))
+	return fmt.Sprintf("sha256:%x", sum)
+}
+
 func encodePowerShellCommand(script string) string {
 	units := utf16.Encode([]rune(script))
 	raw := make([]byte, len(units)*2)
@@ -90,6 +102,26 @@ func encodePowerShellCommand(script string) string {
 		binary.LittleEndian.PutUint16(raw[i*2:], unit)
 	}
 	return base64.StdEncoding.EncodeToString(raw)
+}
+
+func codexWindowsCommandHasHandler(command, handlerID string) bool {
+	if strings.HasPrefix(command, codexWindowsHookPrefix) {
+		encoded := strings.TrimPrefix(command, codexWindowsHookPrefix)
+		if fields := strings.Fields(encoded); len(fields) > 0 {
+			raw, err := base64.StdEncoding.DecodeString(fields[0])
+			if err != nil || len(raw)%2 != 0 {
+				return false
+			}
+			units := make([]uint16, len(raw)/2)
+			for index := range units {
+				units[index] = binary.LittleEndian.Uint16(raw[index*2:])
+			}
+			script := string(utf16.Decode(units))
+			return strings.Contains(script, "--handler-id '"+handlerID+"' --handler-hash 'sha256:")
+		}
+		return false
+	}
+	return strings.Contains(command, "--handler-id "+handlerID+" --handler-hash sha256:")
 }
 
 // CodexRules is a coarse native floor for command escalation, not a filesystem
@@ -155,7 +187,8 @@ func CodexHooksRegistered(doc map[string]any) bool {
 		found := false
 		for _, raw := range groups {
 			group, _ := raw.(map[string]any)
-			if group["id"] != "guardrail-codex-"+event {
+			ownedID := "guardrail-codex-" + event
+			if group["id"] != ownedID {
 				continue
 			}
 			matcher, _ := group["matcher"].(string)
@@ -173,7 +206,9 @@ func CodexHooksRegistered(doc map[string]any) bool {
 				isEncoded := strings.HasPrefix(commandWindows, codexWindowsHookPrefix) && strings.HasSuffix(commandWindows, codexWindowsHookFailureSuffix)
 				isWrapper := strings.Contains(commandWindows, "guardrail-hook.cmd") && strings.HasSuffix(commandWindows, codexWindowsHookFailureSuffix)
 				if h["type"] == "command" && h["async"] != true &&
-					strings.HasSuffix(command, " hook codex"+codexHookFailureSuffix) &&
+					strings.Contains(command, " hook codex --handler-id '"+ownedID+"' --handler-hash 'sha256:") &&
+					strings.HasSuffix(command, codexHookFailureSuffix) &&
+					codexWindowsCommandHasHandler(commandWindows, ownedID) &&
 					(isEncoded || isWrapper) {
 					found = true
 				}

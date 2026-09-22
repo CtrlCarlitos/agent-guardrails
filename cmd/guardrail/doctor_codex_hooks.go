@@ -59,6 +59,7 @@ var (
 	codexHandlerProbe    = probeCodexHandler
 	codexRuntimeObserver = observeCodexRuntime
 	encodedCommandRE     = regexp.MustCompile(`(?i)(?:-EncodedCommand|-enc)\s+([A-Za-z0-9+/=]+)`)
+	handlerHashRE        = regexp.MustCompile(`--handler-hash\s+['"]?(sha256:[0-9a-fA-F]{64})`)
 )
 
 func printCodexHookDiagnostics(hooksPath, cwd, goos string, stdout, stderr io.Writer) int {
@@ -84,7 +85,9 @@ func printCodexHookDiagnostics(hooksPath, cwd, goos string, stdout, stderr io.Wr
 	allStarted, allFailClosed := len(handlers) > 0, len(handlers) > 0
 	for _, handler := range handlers {
 		fmt.Fprintf(stdout, "handler id: %s\n", safetext.SingleLine(handler.ID))
-		fmt.Fprintf(stdout, "decoded effective command: %s\n", safetext.SingleLine(decodedEffectiveCommand(handler.EffectiveCommand)))
+		decodedCommand := decodedEffectiveCommand(handler.EffectiveCommand)
+		fmt.Fprintf(stdout, "decoded effective command: %s\n", safetext.SingleLine(decodedCommand))
+		fmt.Fprintf(stdout, "generated command hash: %s\n", safetext.SingleLine(generatedCommandHash(decodedCommand)))
 		metadata, ok := matchingCodexTrust(trust, hooksPath, handler)
 		if !ok {
 			trusted = false
@@ -151,6 +154,14 @@ func printCodexHookDiagnostics(hooksPath, cwd, goos string, stdout, stderr io.Wr
 		return 0
 	}
 	return 1
+}
+
+func generatedCommandHash(command string) string {
+	match := handlerHashRE.FindStringSubmatch(command)
+	if len(match) != 2 {
+		return "unavailable"
+	}
+	return match[1]
 }
 
 func readCodexDiagnosticHandlers(path, goos string) (map[string]any, []codexConfiguredHandler, error) {

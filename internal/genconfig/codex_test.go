@@ -1,6 +1,8 @@
 package genconfig
 
 import (
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -8,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"unicode/utf16"
 )
 
 func TestCodexMergeRemoveAndDrift(t *testing.T) {
@@ -21,7 +24,7 @@ func TestCodexMergeRemoveAndDrift(t *testing.T) {
 		}
 	}
 	raw, _ := os.ReadFile(path)
-	if strings.Count(string(raw), "guardrail-codex-PreToolUse") != 1 || !strings.Contains(string(raw), "user-hook") {
+	if strings.Count(string(raw), `"id": "guardrail-codex-PreToolUse"`) != 1 || !strings.Contains(string(raw), "user-hook") {
 		t.Fatal(string(raw))
 	}
 	var doc map[string]any
@@ -61,6 +64,49 @@ func TestCodexMergeRemoveAndDrift(t *testing.T) {
 	if strings.Contains(string(raw), "guardrail-codex") || !strings.Contains(string(raw), "user-hook") || !strings.Contains(string(raw), "keep") {
 		t.Fatal(string(raw))
 	}
+}
+
+func TestWindowsCodexHandlersCarryInspectableIdentityAndHash(t *testing.T) {
+	hooks := CodexConfig("/opt/guardrail")["hooks"].(map[string]any)
+	seenHashes := map[string]bool{}
+	for _, event := range []string{"PreToolUse", "PostToolUse", "SessionStart"} {
+		group := hooks[event].([]any)[0].(map[string]any)
+		handler := group["hooks"].([]any)[0].(map[string]any)
+		wantID := "guardrail-codex-" + event
+		for _, command := range []string{handler["command"].(string), decodePowerShellForTest(t, handler["commandWindows"].(string))} {
+			if !strings.Contains(command, "--handler-id") || !strings.Contains(command, wantID) {
+				t.Fatalf("%s command lacks handler identity: %s", event, command)
+			}
+			i := strings.Index(command, "sha256:")
+			if i < 0 || len(command) < i+len("sha256:")+64 {
+				t.Fatalf("%s command lacks sha256 handler hash: %s", event, command)
+			}
+			hash := command[i : i+len("sha256:")+64]
+			if seenHashes[hash] {
+				t.Fatalf("handler hash %s reused across event-specific commands", hash)
+			}
+			seenHashes[hash] = true
+		}
+	}
+}
+
+func decodePowerShellForTest(t *testing.T, command string) string {
+	t.Helper()
+	const marker = "-EncodedCommand "
+	start := strings.Index(command, marker)
+	if start < 0 {
+		t.Fatalf("missing %s: %s", marker, command)
+	}
+	encoded := strings.Fields(command[start+len(marker):])[0]
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(raw)%2 != 0 {
+		t.Fatalf("decode PowerShell command: %v", err)
+	}
+	units := make([]uint16, len(raw)/2)
+	for i := range units {
+		units[i] = binary.LittleEndian.Uint16(raw[i*2:])
+	}
+	return string(utf16.Decode(units))
 }
 
 func TestCodexRulesOwnership(t *testing.T) {
@@ -118,6 +164,9 @@ func TestCodexWrapperOwnershipAndExecution(t *testing.T) {
 	}
 	if !strings.Contains(cmdWin, "guardrail-hook.cmd") {
 		t.Fatalf("commandWindows does not reference wrapper: %s", cmdWin)
+	}
+	if !strings.Contains(cmdWin, "--handler-id guardrail-codex-PreToolUse") || !strings.Contains(cmdWin, "--handler-hash sha256:") {
+		t.Fatalf("commandWindows does not carry inspectable diagnostic identity: %s", cmdWin)
 	}
 	// Verify CodexHooksRegistered accepts it
 	doc := map[string]any{"hooks": hooksMap}
