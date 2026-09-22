@@ -245,6 +245,26 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 		v = engine.ApplyNightMode(v, nightState.Active)
 	}
 	nightAllowed := normalVerdict.Decision == policy.Ask && v.Decision == policy.Allow && v.RuleID == "ask-allowed-by-night-mode"
+	// A command grant is tried only on what is still an Ask, so an overnight
+	// relaxation that already covers this call does not silently spend one.
+	// Consumption re-checks the match under the operator lock and spends the
+	// use before the verdict changes: an allow that was not paid for would let
+	// a single-use grant authorize an unbounded number of executions, which is
+	// the difference the operator was shown at issuance.
+	grantAllowed := false
+	if !hasOperatorAction && v.Decision == policy.Ask && tc.Event == "pre" {
+		if granted := engine.ApplyCommandGrant(v, tc, op, time.Now()); granted.Decision == policy.Allow {
+			spent, err := consumeCommandGrant(tc.RepoRoot, v.RuleID, tc.Command, time.Now())
+			switch {
+			case err != nil:
+				highPriorityWarnings = append(highPriorityWarnings,
+					fmt.Sprintf("guardrail: grant consumption failed (%v); the rule remains ENFORCED", err))
+			case spent:
+				v = granted
+				grantAllowed = true
+			}
+		}
+	}
 	if announceNight {
 		v = prependVerdictReason(v, nightState.Banner())
 	}
@@ -257,6 +277,17 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 			if announceNight {
 				v = prependVerdictReason(v, nightState.Banner())
 			}
+		}
+		if grantAllowed {
+			// The whole point of a grant is that the action stops being the
+			// one thing in the session with no record, so an allow that could
+			// not be recorded is not one this grant bought. The use is already
+			// spent and stays spent: restoring it would need a second write on
+			// the path that just failed, and an operator re-issuing is the
+			// safe direction.
+			v = normalVerdict
+			highPriorityWarnings = append(highPriorityWarnings,
+				"guardrail: the grant's use was consumed but its allow could not be recorded; the rule remains ENFORCED")
 		}
 	}
 	for _, report := range tc.DegradedAllows {

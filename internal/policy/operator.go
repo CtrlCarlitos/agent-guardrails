@@ -24,6 +24,11 @@ type RepoGrant struct {
 	AuditLog        bool     `toml:"audit_log"`
 	EgressAllowlist []string `toml:"egress_allowlist"`
 	WebHosts        []string `toml:"web_hosts"`
+	// Commands are operator-issued grants for one exact command each. A grant
+	// is a third kind of entry in a structure that already has the right
+	// ownership and the right scoping rule: this file is owner-only, and
+	// grants keyed by absolute repo path never transfer between repos.
+	Commands []CommandGrant `toml:"grant"`
 }
 
 // OperatorConfig is machine-scoped authorization living outside any repo.

@@ -5,6 +5,58 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Feature (#173): the operator can authorize one exact command instead of
+  losing the action to an out-of-band run.** An Ask that chat cannot clear had
+  one endgame: the operator ran the action outside guardrail, which made the
+  single most consequential command in the session the only one with no audit
+  record. `guardrail approvals grant` converts that into an in-policy,
+  attributed allow.
+  A grant is a relaxation of the same kind the overnight one is, with a smaller
+  blast radius, so it inherits the same limits. ADR-0018's exclusions
+  (`capability-external`, `capability-web-search`, `unknown-native-tool`) and
+  the three fail-closed backstops can never be granted, and the exclusion list
+  is now literally one list that both mechanisms read rather than two copies
+  that drift. Enforcement runs at issuance, which refuses with the reason, and
+  again at match time, so an entry written by hand or left behind by an older
+  binary still cannot relax outward reach.
+  There is no pattern language, and that is a decision rather than an omission.
+  Matching semantics have been this codebase's most reliable source of silent
+  failure -- `gh repo delete*` matched nothing, 23 floor globs were judged
+  against the wrong matcher, and the production and test matchers disagree --
+  and every one of those failed closed. A grant pattern fails the other way,
+  and the agent is the party that asks the operator to issue one. So a grant
+  keys on the exact `(repo, rule ID, command)` triple, compared literally with
+  no trimming or normalization: `git push origin HEAD:main` is not covered by a
+  grant for `git push origin main`, though both push the same branch and raise
+  the same rule.
+  One use by default, not just a window. Every case in the filing needed
+  exactly one successful pass, while a 30-minute window authorizes an unbounded
+  number of them. `--uses N` raises it explicitly, `--for` defaults to 30
+  minutes and is clamped to 24 hours, and the use is spent under the operator
+  lock before the verdict changes so two concurrent calls cannot both spend
+  one. An absent or zero count is spent rather than unlimited, because
+  consumption writes the count back and reading absent as available would renew
+  a spent grant on every load.
+  The ceremony's job is that the operator can verify what they are authorizing
+  by reading it, so the command is shown whole and then again quoted, which
+  makes tabs, trailing spaces and other invisible characters visible. Nothing
+  is truncated and no summary stands in for the string that will be matched.
+  Issuance is refused to anything but an interactive operator terminal.
+  Both ends are audited. Issuance and revocation write an operator record, and
+  a consuming allow is recorded under `ask-allowed-by-operator-grant` carrying
+  the original rule as its origin, so a grant makes an action louder in the
+  record rather than quieter. If that record cannot be written the allow is
+  withdrawn and the rule stays enforced.
+  `guardrail approvals revoke` is included rather than deferred: without it an
+  operator who realises a grant was too broad has no move except waiting out
+  the window, and "wait 29 minutes" is the kind of gap that gets solved by
+  editing the config by hand. `guardrail approvals list --grants` prints what
+  is authorized, in full.
+  A policy Ask now also names this path (#129's sentence, extended). It still
+  rules out the wrong turns agents actually took, but no longer claims no
+  machinery exists for rules where a grant does -- while telling the agent to
+  ask for the command it ran and never a broader form, since composing the
+  request is exactly where an agent could widen it.
 - **Fix (#255): a POSIX path is no longer read as a Win32 one, so `rm -rf /`
   denies on Windows.** A Bash command's path tokens are POSIX; `ToolCall.CWD`
   and `RepoRoot` are host paths. `authorizedPath` judged the first against the

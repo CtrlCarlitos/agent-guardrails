@@ -83,6 +83,70 @@ Three fail-closed backstops are immutable even if both files name them:
 
 No operator and no Overlay can waive these rules.
 
+## Command Grants
+
+A command grant authorizes one exact command, under one rule, in one
+repository. It is the narrow alternative to approving the same Ask in chat on
+every attempt, and it exists because the alternative operators actually reach
+for is running the action outside Guardrail — which makes the most
+consequential command in a session the only one with no audit record.
+
+```toml
+["/home/alex/src/acme-api"]
+  secret_allow = false
+  audit_log = false
+
+  [["/home/alex/src/acme-api".grant]]
+    rule_id = "P2.git-push-protected"
+    command = "git push origin main"
+    uses = 1
+    expires_at = 2026-09-22T15:04:05-06:00
+```
+
+Issue and revoke them through the CLI rather than by hand; the ceremony is the
+point, and it is refused to anything but an interactive operator terminal:
+
+```sh
+guardrail approvals grant --repo <path> --rule <id> --command '<exact text>'
+guardrail approvals list --grants
+guardrail approvals revoke --repo <path> --rule <id> --command '<exact text>'
+```
+
+**This grant does not use the two-file handshake.** Every other grant above is
+inert until the repository's Overlay requests the matching change. A command
+grant is not, and the difference is deliberate: the Overlay is a committed file
+inside the repository, so the handshake would publish the exact authorized
+command into version control and put half of an authorization somewhere the
+repository can stage it in advance. What replaces the second signal is that a
+command grant cannot be issued except by an interactive operator terminal, and
+that it authorizes a single exact string rather than a class of behaviour.
+
+The properties that keep it narrow:
+
+- **Exact match on the whole triple.** No wildcards and no prefix matching. A
+  longer command containing the granted one is not authorized, and neither is
+  the same command in another repository. `git push origin HEAD:main` is not
+  covered by a grant for `git push origin main` even though both push the same
+  branch and raise the same rule.
+- **Uses, not just a window.** A grant defaults to a single use and is spent
+  when it is consumed. `--uses N` raises it explicitly. An absent or zero
+  `uses` is spent, not unlimited: consumption writes the count back, so
+  reading an absent count as a fresh use would renew a spent grant on every
+  load.
+- **A bounded window.** `--for` defaults to 30 minutes and is clamped to 24
+  hours however long is requested.
+- **Ask only.** A grant rewrites an Ask into an Allow. It never converts a
+  Deny, so deny invariance holds by construction.
+- **Never-grantable rules.** The ADR-0018 exclusions (`capability-external`,
+  `capability-web-search`, `unknown-native-tool`) and the three fail-closed
+  backstops above can never be granted. The exclusion is enforced both at
+  issuance, which refuses with the reason, and at match time, so an entry
+  written by hand or left by an older binary still cannot relax them.
+- **Audited at both ends.** Issuance and revocation write an operator record,
+  and a consuming allow is recorded under `ask-allowed-by-operator-grant` with
+  the original rule as its origin — so `guardrail audit --verdicts` shows what
+  a grant actually authorized rather than an allow that looks ordinary.
+
 ## Worked Example
 
 Suppose the reviewed repository root is `/home/alex/src/acme-api`. Its Operator
