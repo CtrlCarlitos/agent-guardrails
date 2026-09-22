@@ -5,6 +5,38 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Feature (#236): doctor reports credential posture, and the docs say how to
+  narrow it.** guardrail and the agent share a trust domain, so every rule is
+  something the agent runs *inside*. The strongest control is the one it cannot
+  reach: the credential simply lacks the authority. guardrail cannot grant that
+  -- only the operator can, at the provider -- so what it does is notice when
+  the ambient credential is wider than the work needs, and say where to read
+  about narrowing it.
+  `docs/operator-hardening.md` is the setup: a fine-grained token scoped to
+  selected repositories with Contents/PRs/Issues read-write and no
+  Administration, Secrets or Workflows; one identity per machine context; hard
+  caps at the biller, which is the only control on the page that bounds a
+  runaway loop rather than a single decision; and the server-side invariants a
+  reduced token cannot undo. It states the limit plainly, because it is easy to
+  assume otherwise: guardrail protects secrets from being *read*, and does not
+  by itself stop ambient authority from being *used*.
+  `guardrail doctor` adds a `credential posture:` section -- advisory, never a
+  failure. It warns on administration-shaped gh scopes (`admin:*`,
+  `delete_repo`, `workflow`, `write:org`, `site_admin`), on more than one gh
+  account being logged in, and on a kubectl context that is not known-local,
+  reusing the Engine's own list so the two cannot disagree about what local
+  means. Credential variables are reported **by name**, because a token in the
+  environment overrides the stored login and the posture just printed may not
+  be the one that applies.
+  It learns all of this without reading or printing credential material: scope
+  names, account counts and variable names only, and the input type has no
+  field that can hold a secret. `repo` is deliberately not warned about --
+  nearly every working login carries it, and a warning everyone sees every time
+  is how an operator learns to click through the ones that matter. Cloud
+  credentials are reported as present but explicitly **not** judged for
+  privilege: establishing that needs a provider call doctor does not make, and
+  a check that guessed would hand out false assurance. Silence in this section
+  means *not known*, never *fine*.
 - **Feature (#173): the operator can authorize one exact command instead of
   losing the action to an out-of-band run.** An Ask that chat cannot clear had
   one endgame: the operator ran the action outside guardrail, which made the

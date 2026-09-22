@@ -355,6 +355,11 @@ func printDoctor(stdout, stderr io.Writer) int {
 		}
 	}
 	printSpawnProbe(stdout)
+	// Posture, not policy: guardrail cannot narrow the operator's credential,
+	// only notice that it is wider than the work needs (#236). Warns, never
+	// fails, and reports nothing at all when it learned nothing -- silence
+	// here means "not known", never "fine".
+	printCredentialPosture(stdout)
 	return 0
 }
 

@@ -146,6 +146,8 @@ The rules are grouped by what they defend:
 
 It is a static guard on tool calls, not a sandbox: it inspects what the agent *asks* to run. What a process does after it's allowed to start is out of scope, on purpose ([ADR-0012](./docs/adr/0012-static-analysis-boundary-and-shape-threshold.md)). Use the agent's own sandbox and ordinary credential isolation alongside it.
 
+It also protects secrets from being *read* without, by itself, stopping ambient authority from being *used* — a token already in the environment is authority the agent holds without reading anything. The strongest control is the one the agent cannot edit: give it a credential that simply lacks the authority. [docs/operator-hardening.md](./docs/operator-hardening.md) is the setup, and `guardrail doctor` warns when the ambient credential is wider than the work needs.
+
 ## The four planes
 
 "Plane" is our word for an agent host. The same engine, the same policy, four native integrations:
