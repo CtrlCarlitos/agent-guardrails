@@ -8,3 +8,9 @@ structural role. The MCP server is the local fixture, not a user's server.
 
 `codex-code-mode.json` is a minimal fixture for the exec/wait outer surface.
 It intentionally cannot prove anything about inner tool coverage.
+
+`codex-collaboration-2026-09-21.json` preserves the six collaboration tools
+observed in the current Codex runtime schema during issue #184 / PR #186
+validation. Their hook-visible identities retain the dotted `collaboration.*`
+namespace. `collaboration.resume_agent` is deliberately absent because neither
+the operator session nor the contributor had runtime evidence for that name.

@@ -181,6 +181,9 @@ func codexSchemaHook(namespace, name string) string {
 	if namespace == "multi_agent_v1" && name == "spawn_agent" {
 		return "spawn_agent"
 	}
+	if namespace == "collaboration" {
+		return namespace + "." + name
+	}
 	return namespace + name
 }
 

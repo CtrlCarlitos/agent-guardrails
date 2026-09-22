@@ -1,0 +1,38 @@
+[
+  {
+    "type": "namespace",
+    "name": "collaboration",
+    "tools": [
+      {
+        "type": "function",
+        "name": "spawn_agent",
+        "parameters": {}
+      },
+      {
+        "type": "function",
+        "name": "send_message",
+        "parameters": {}
+      },
+      {
+        "type": "function",
+        "name": "followup_task",
+        "parameters": {}
+      },
+      {
+        "type": "function",
+        "name": "interrupt_agent",
+        "parameters": {}
+      },
+      {
+        "type": "function",
+        "name": "list_agents",
+        "parameters": {}
+      },
+      {
+        "type": "function",
+        "name": "wait_agent",
+        "parameters": {}
+      }
+    ]
+  }
+]
