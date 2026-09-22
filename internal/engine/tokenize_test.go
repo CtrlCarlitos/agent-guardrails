@@ -2849,17 +2849,22 @@ func TestNormalizeTracksLiteralCdCwd(t *testing.T) {
 		t.Fatalf("Normalize cd chain = %+v, want %+v", got, want)
 	}
 
-	got, err = Normalize(`cd -- /etc; rm -rf .`, "/repo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want = []Simple{
-		{Argv: []string{"cd", "--", "/etc"}, Cwd: "/repo"},
-		{Argv: []string{"rm", "-rf", "."}, Cwd: "/etc"},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("Normalize cd -- = %+v, want %+v", got, want)
-	}
+	t.Run("POSIX absolute path", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("concrete /etc resolution requires a POSIX host filesystem; Windows keeps the cwd unresolved without simulating a shell mount table")
+		}
+		got, err := Normalize(`cd -- /etc; rm -rf .`, "/repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []Simple{
+			{Argv: []string{"cd", "--", "/etc"}, Cwd: "/repo"},
+			{Argv: []string{"rm", "-rf", "."}, Cwd: "/etc"},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("Normalize cd -- = %+v, want %+v", got, want)
+		}
+	})
 }
 
 func TestNormalizeTracksChainedConditionalCdSuccessPath(t *testing.T) {
@@ -2937,6 +2942,9 @@ func TestNormalizeCdScopeBoundaries(t *testing.T) {
 }
 
 func TestNormalizeIsolatedScopesTrackTheirOwnCd(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("concrete /etc resolution inside POSIX shell scopes requires a POSIX host filesystem")
+	}
 	commands := []string{
 		`(cd /etc; rm -rf .)`,
 		`printf x | { cd /etc; rm -rf .; }`,
@@ -2996,6 +3004,9 @@ func TestNormalizeUncertainControlFlowInvalidatesJoin(t *testing.T) {
 }
 
 func TestNormalizeInnerShellAndWatchUseStatementCwd(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("propagating a concrete /etc cwd into nested POSIX shell commands requires a POSIX host filesystem")
+	}
 	commands := []string{
 		`cd /etc; bash -c 'rm -rf .'`,
 		`cd /etc; watch 'rm -rf .'`,
@@ -3085,48 +3096,59 @@ func TestNormalizeCdPathAssignmentsAndModes(t *testing.T) {
 	}
 
 	cases := []struct {
-		command string
-		wantCwd string
+		command     string
+		wantCwd     string
+		windowsSkip string
 	}{
-		{`CDPATH=/etc cd ssl; pwd`, "/etc/ssl"},
-		{`CDPATH=/etc; cd ssl; pwd`, "/etc/ssl"},
-		{`OTHER=value cd ./ssl; pwd`, localSSL},
-		{`cd -L link; pwd`, link},
-		{`cd -P link; pwd`, physicalTarget},
-		{`cd -L link/..; pwd`, repo},
-		{`cd -P link/..; pwd`, out},
+		{`CDPATH=/etc cd ssl; pwd`, "/etc/ssl", "resolving a POSIX CDPATH entry requires a POSIX host filesystem"},
+		{`CDPATH=/etc; cd ssl; pwd`, "/etc/ssl", "resolving a POSIX CDPATH entry requires a POSIX host filesystem"},
+		{`OTHER=value cd ./ssl; pwd`, localSSL, ""},
+		{`cd -L link; pwd`, link, ""},
+		{`cd -P link; pwd`, physicalTarget, ""},
+		{`cd -L link/..; pwd`, repo, ""},
+		{`cd -P link/..; pwd`, out, "Win32 symlink-parent resolution does not reproduce POSIX cd -P link/.. semantics"},
 	}
 	for _, test := range cases {
-		got, err := Normalize(test.command, repo)
-		if err != nil {
-			t.Errorf("Normalize(%q): %v", test.command, err)
-			continue
-		}
-		last := got[len(got)-1]
-		wantCwd := test.wantCwd
-		// Only physical (-P) mode may resolve the path. Logical (-L) mode
-		// must preserve its spelling, including the symlink component.
-		if strings.HasPrefix(test.command, "cd -P ") {
-			resolved, err := filepath.EvalSymlinks(wantCwd)
-			if err != nil {
-				t.Fatal(err)
+		t.Run(test.command, func(t *testing.T) {
+			if test.windowsSkip != "" && runtime.GOOS == "windows" {
+				t.Skip(test.windowsSkip)
 			}
-			wantCwd = resolved
-		}
-		if last.Cwd != wantCwd || last.Unresolved {
-			t.Errorf("Normalize(%q) last = %+v, want cwd %q (or resolved)", test.command, last, wantCwd)
-		}
+			got, err := Normalize(test.command, repo)
+			if err != nil {
+				t.Fatalf("Normalize(%q): %v", test.command, err)
+			}
+			last := got[len(got)-1]
+			wantCwd := test.wantCwd
+			// Only physical (-P) mode may resolve the path. Logical (-L) mode
+			// must preserve its spelling, including the symlink component.
+			if strings.HasPrefix(test.command, "cd -P ") {
+				resolved, err := filepath.EvalSymlinks(wantCwd)
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantCwd = resolved
+			}
+			if last.Cwd != wantCwd || last.Unresolved {
+				t.Errorf("Normalize(%q) last = %+v, want cwd %q (or resolved)", test.command, last, wantCwd)
+			}
+		})
 	}
 
+	t.Run("ambient POSIX CDPATH", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("resolving an ambient POSIX CDPATH entry requires a POSIX host filesystem")
+		}
+		t.Setenv("CDPATH", "/etc")
+		got, err := Normalize(`cd ssl; pwd`, repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if last := got[len(got)-1]; last.Cwd != "/etc/ssl" || last.Unresolved {
+			t.Fatalf("ambient CDPATH last = %+v, want /etc/ssl", last)
+		}
+	})
 	t.Setenv("CDPATH", "/etc")
-	got, err := Normalize(`cd ssl; pwd`, repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if last := got[len(got)-1]; last.Cwd != "/etc/ssl" || last.Unresolved {
-		t.Fatalf("ambient CDPATH last = %+v, want /etc/ssl", last)
-	}
-	got, err = Normalize(`cd ./ssl; pwd`, repo)
+	got, err := Normalize(`cd ./ssl; pwd`, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3314,24 +3336,29 @@ func TestNormalizeNegatedAndRedirectedCdKeepsFailureReachable(t *testing.T) {
 		}
 	}
 
-	inaccessible := filepath.Join(repo, "inaccessible")
-	if err := os.Mkdir(inaccessible, 0o000); err != nil {
-		t.Fatal(err)
-	}
-	got, err := Normalize(fmt.Sprintf(`cd %q; pwd`, inaccessible), repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if last := got[len(got)-1]; !last.Unresolved || last.Cwd != "" {
-		t.Fatalf("inaccessible cd last = %+v, want unknown cwd", last)
-	}
-	got, err = Normalize(fmt.Sprintf(`cd %q || rm -rf /`, inaccessible), repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !hasArgv(got, []string{"rm", "-rf", "/"}) {
-		t.Fatalf("inaccessible cd omitted failure branch: %+v", got)
-	}
+	t.Run("POSIX permission bits", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("mode 000 does not make a directory unreachable under Win32 ACL semantics")
+		}
+		inaccessible := filepath.Join(repo, "inaccessible")
+		if err := os.Mkdir(inaccessible, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Normalize(fmt.Sprintf(`cd %q; pwd`, inaccessible), repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if last := got[len(got)-1]; !last.Unresolved || last.Cwd != "" {
+			t.Fatalf("inaccessible cd last = %+v, want unknown cwd", last)
+		}
+		got, err = Normalize(fmt.Sprintf(`cd %q || rm -rf /`, inaccessible), repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasArgv(got, []string{"rm", "-rf", "/"}) {
+			t.Fatalf("inaccessible cd omitted failure branch: %+v", got)
+		}
+	})
 }
 
 // Mutation caught: publishing exact cwd from finite-loop enumeration makes later relative state look authoritative.
