@@ -19,12 +19,37 @@ func Guidance(v policy.Verdict, action string) string {
 		if runtime.GOOS == "windows" {
 			windowsApprovalNote = " On Windows, in-session approval is not yet available: the operator can run this exact action from a terminal instead."
 		}
-		return fmt.Sprintf("Operator authorization required: %s. Request authorization for this exact action: %s. If the operator approves, retry this exact tool call within 10 minutes. If the authorization expires, stop and wait for the operator to return — say what you were doing and that approval expired; do not keep retrying. Do not alter or broaden the action.%s", v.Reason, action, windowsApprovalNote)
+		return fmt.Sprintf("Operator authorization required: %s. Request authorization for this exact action: %s. If the operator approves, retry this exact tool call within 10 minutes. If the authorization expires, stop and wait for the operator to return — say what you were doing and that approval expired; do not keep retrying. Do not alter or broaden the action. %s%s", v.Reason, action, askApprovalPath(v), windowsApprovalNote)
 	case policy.Deny:
 		return fmt.Sprintf("Guardrail denied this action: %s. %s If this verdict seems wrong or blocks legitimate work, report it to the operator with: the exact tool call, the rule ID (%s), your guardrail version, what you were trying to do, and what you did instead. Do not work around it silently.", v.Reason, denyNextStep(v), v.RuleID)
 	default:
 		return v.Reason
 	}
+}
+
+// askApprovalPath names which of the approval paths applies, because the
+// observed failure was not agents missing an instruction but agents looking
+// for machinery that does not exist (#129).
+//
+// "Request authorization" reads to a model as "find the technical approval
+// mechanism", so a P5.ci-infra-lockfile ask sent one agent hunting for a URL
+// and reporting "no approval path", and a P2.git-push-delete ask sent another
+// to `guardrail approvals list`. Both should have said a sentence to the
+// operator and retried. Naming the wrong turns is what closes that, which is
+// why this rules them out explicitly instead of only describing the right one.
+//
+// The path is decided by whether the verdict actually carries broker state,
+// not by a list of rule names: a rule list would silently misroute every rule
+// added after it was written, and the broker fields are already the ground
+// truth for whether a ceremony exists.
+func askApprovalPath(v policy.Verdict) string {
+	if v.ApprovalURL != "" {
+		return fmt.Sprintf("Approval path: this is a broker approval — open %s and complete the passkey ceremony. Telling the operator in chat will not clear it.", v.ApprovalURL)
+	}
+	if v.OperatorAction != "" {
+		return "Approval path: this is an operator action and goes through the broker with a passkey, not through chat. Surface the approval URL from the verdict to the operator; if none is present, the operator runs this action from a terminal."
+	}
+	return "Approval path: this is a conversational approval. There is no approval URL, no daemon and no `guardrail approvals` command for it — say what you need to the operator, and retry the exact call once they approve."
 }
 
 // denyNextStep returns the concrete continuation for a denied call. Every

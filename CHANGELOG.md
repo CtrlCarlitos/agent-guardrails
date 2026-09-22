@@ -5,6 +5,23 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Fix (#129): an Ask now says which approval path applies.** Deny verdicts
+  already carried a per-rule continuation; Ask verdicts had one generic
+  sentence for every rule, and "request authorization" reads to a model as
+  "find the technical approval mechanism". Recorded consequences: a
+  `P5.ci-infra-lockfile` ask sent an agent hunting for a URL and reporting
+  "no approval path", and a `P2.git-push-delete` ask sent another to
+  `guardrail approvals list`. Both should have said one sentence to the
+  operator and retried.
+  A policy ask now states that there is no approval URL, no daemon and no
+  `guardrail approvals` command for it -- naming the wrong turns, because the
+  failure was agents looking for machinery that does not exist rather than
+  agents missing an instruction. A broker ask surfaces its approval URL and
+  says chat will not clear it.
+  The path is chosen from the broker state the verdict already carries, not
+  from a list of rule names: a rule list would silently misroute every rule
+  added after it was written. The existing Ask sentences are unchanged --
+  four plane tests pin them -- and the path sentence is added to them.
 - **Fix (#251): the go toolchain is classified per subcommand.** It reached the
   analyzer as unknown words, so every subcommand was judged alike: not at all.
   The cut is *whose code*, not whether code executes. `go test` runs module
