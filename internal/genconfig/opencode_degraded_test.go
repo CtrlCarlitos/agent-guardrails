@@ -23,6 +23,13 @@ func TestOpencodePluginBakesDegradedAllowTools(t *testing.T) {
 	}
 }
 
+func TestOpencodePluginWindowsProbeTimeoutParity(t *testing.T) {
+	source := string(OpencodePluginFor("/usr/local/bin/guardrail"))
+	if !strings.Contains(source, `process.platform === "win32" ? 15000 : 5000`) {
+		t.Fatalf("DEGRADED_PROBE_TIMEOUT_MS missing Windows parity")
+	}
+}
+
 // TestOpencodePluginDegradedAllowOnTransportFailure pins the B+ valve and
 // the ADR-0022 floor fallback: with the engine unspawnable, a communication
 // tool (question) allows locally with a stderr notice, a floor-covered tool

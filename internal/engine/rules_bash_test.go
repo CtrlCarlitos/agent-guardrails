@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -198,6 +199,26 @@ func TestCdWithinRepoStillAllows(t *testing.T) {
 		if v := checkBash(tc, bashPol()); v != nil {
 			t.Errorf("%q -> %+v, want allow", command, v)
 		}
+	}
+}
+
+func TestCdGitBashDrivePathAllowsWithinRepo(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Git Bash drive mapping is Windows-specific (ADR-0024)")
+	}
+	repo := t.TempDir()
+	src := filepath.Join(repo, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Derive MSYS POSIX path: C:\Users\... -> /c/Users/...
+	driveLetter := strings.ToLower(string(repo[0]))
+	posixRepo := "/" + driveLetter + "/" + filepath.ToSlash(repo[3:])
+	posixSrc := "/" + driveLetter + "/" + filepath.ToSlash(src[3:])
+	command := fmt.Sprintf(`cd %s && rm -rf build`, posixSrc)
+	tc := ToolCall{Tool: "Bash", Command: command, CWD: posixRepo, RepoRoot: posixRepo}
+	if v := checkBash(tc, bashPol()); v != nil {
+		t.Errorf("%q -> %+v, want allow", command, v)
 	}
 }
 

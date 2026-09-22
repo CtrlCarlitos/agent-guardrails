@@ -79,7 +79,7 @@ func goTestFiles(t *testing.T) map[string][]string {
 		}
 		if info.IsDir() {
 			switch info.Name() {
-			case ".git", ".worktrees", "graft", ".serena", "node_modules":
+			case ".git", ".worktrees", "graft", ".serena", "node_modules", ".winpipe-stage":
 				return filepath.SkipDir
 			}
 			return nil
