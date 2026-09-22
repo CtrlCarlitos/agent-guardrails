@@ -4,7 +4,9 @@
 // written out by `guardrail gen-config opencode --merge` — it is not meant
 // to be hand-edited in place; edit this source and rebuild instead.
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
+import { connect } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -12,6 +14,54 @@ import { dirname, join } from "node:path";
 // Deliberately NOT read from the environment: an agent that can set
 // GUARDRAIL_BIN could otherwise point the enforcer at /bin/true.
 const GUARDRAIL_BIN = "__GUARDRAIL_BIN__";
+
+function getDaemonEndpoint() {
+	if (process.platform === "win32") {
+		const stateRoot = join(process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local"), "guardrail");
+		const digest = createHash("sha256").update(stateRoot).digest("hex").slice(0, 16);
+		return `\\\\.\\pipe\\guardrail-engine-${digest}`;
+	}
+	const runtimeDir = process.env.XDG_RUNTIME_DIR || join(process.env.TMPDIR || "/tmp", `guardrail-${process.getuid?.() ?? 0}`);
+	return join(runtimeDir, "engine.sock");
+}
+
+const DAEMON_ENDPOINT = getDaemonEndpoint();
+
+function callDaemon(envelope) {
+	return new Promise((resolve, reject) => {
+		const socket = connect(DAEMON_ENDPOINT);
+		const timer = setTimeout(() => {
+			socket.destroy();
+			reject(new Error("daemon timeout"));
+		}, 1000);
+		let buffer = "";
+		socket.on("connect", () => {
+			socket.write(JSON.stringify({ action: "evaluate", tool_call: envelope }) + "\n");
+		});
+		socket.on("data", (chunk) => {
+			buffer += chunk.toString("utf8");
+			const idx = buffer.indexOf("\n");
+			if (idx !== -1) {
+				clearTimeout(timer);
+				socket.destroy();
+				try {
+					const resp = JSON.parse(buffer.slice(0, idx));
+					if (resp.status === "ok" && resp.verdict) {
+						resolve(resp.verdict);
+					} else {
+						reject(new Error(resp.error || "daemon error"));
+					}
+				} catch (e) {
+					reject(e);
+				}
+			}
+		});
+		socket.on("error", (err) => {
+			clearTimeout(timer);
+			reject(err);
+		});
+	});
+}
 
 // Engine-down events write no engine audit records (the engine never ran).
 // The plugin leaves its own greppable trail so an outage is diagnosable
@@ -72,7 +122,14 @@ const degradedAllowReports = [];
 // keep failing closed.
 const FLOOR_FALLBACK_TOOLS = new Set("__FLOOR_FALLBACK_TOOLS__");
 
-function callGuardrail(envelope) {
+async function callGuardrail(envelope) {
+	try {
+		const verdict = await callDaemon(envelope);
+		if (verdict) {
+			return verdict;
+		}
+	} catch {}
+
 	const serializedEnvelope = JSON.stringify(envelope);
 	if (Buffer.byteLength(serializedEnvelope, "utf8") > MAX_OPENCODE_HOOK_ENVELOPE_BYTES) {
 		throw new Error("guardrail: OpenCode hook envelope exceeds 8 MiB; failing closed");
@@ -221,7 +278,7 @@ export const GuardrailPlugin = async ({ directory, client }) => {
 			} else if (tool === "webfetch") {
 				envelope.url = args.url;
 			}
-			const decision = callGuardrail(envelope);
+			const decision = await callGuardrail(envelope);
 			if (isPendingOperatorAction(decision)) {
 				const message = `WebAuthn approval required for ${decision.operator_action}. Open ${decision.approval_url}`;
 				if (client?.tui?.showToast) {

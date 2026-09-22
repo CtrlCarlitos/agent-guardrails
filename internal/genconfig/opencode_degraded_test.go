@@ -2,12 +2,19 @@ package genconfig
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/daemon"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
 // TestOpencodePluginBakesDegradedAllowTools pins the codegen surface: the
@@ -131,5 +138,71 @@ try {
 	}
 	if strings.Contains(output.String(), "degraded allow") {
 		t.Fatalf("degraded allow fired for a reachable engine:\n%s", output.String())
+	}
+}
+
+func TestOpencodePluginDialsDaemonWhenAvailable(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is required to exercise the embedded OpenCode plugin")
+	}
+	dir := t.TempDir()
+	endpoint := daemon.TestEndpoint(t, dir)
+
+	evaluated := false
+	server, err := daemon.NewServer(daemon.ServerConfig{
+		Endpoint: endpoint,
+		Evaluator: func(tc engine.ToolCall) (policy.Verdict, error) {
+			evaluated = true
+			return policy.Verdict{Decision: policy.Allow}, nil
+		},
+		IdleTimeout: 10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = server.Serve(ctx) }()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Bake plugin with custom test endpoint
+	pluginSrc := string(OpencodePluginFor("dead-guardrail-binary"))
+	pluginSrc = strings.Replace(pluginSrc, `const DAEMON_ENDPOINT = getDaemonEndpoint();`, fmt.Sprintf(`const DAEMON_ENDPOINT = %q;`, endpoint), 1)
+
+	pluginPath := filepath.Join(dir, "guardrail.mjs")
+	if err := os.WriteFile(pluginPath, []byte(pluginSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := `
+import { pathToFileURL } from "node:url";
+const loaded = await import(pathToFileURL(process.argv[1]).href);
+const plugin = await loaded.default({ directory: "/repo" });
+const before = plugin["tool.execute.before"];
+let threw = false;
+try {
+	await before({ tool: "read", sessionID: "s" }, { args: { filePath: "/repo/a.txt" } });
+} catch (e) {
+	console.error("THREW: " + e.message);
+	threw = true;
+}
+console.log("THREW=" + threw);
+`
+	var output bytes.Buffer
+	cmd := exec.Command(node, "--input-type=module", "--eval", runner, pluginPath)
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("plugin runner failed: %v\n%s", err, output.String())
+	}
+	if !strings.Contains(output.String(), "THREW=false") {
+		t.Fatalf("expected call to succeed via daemon, got:\n%s", output.String())
+	}
+	if !evaluated {
+		t.Fatal("daemon evaluator was not called")
 	}
 }

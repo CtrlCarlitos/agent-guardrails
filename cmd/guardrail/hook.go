@@ -13,6 +13,7 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/coverage"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/daemon"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
@@ -70,6 +71,14 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if err != nil {
 		return failClosed(fmt.Sprintf("guardrail: unparseable hook payload (%v); failing closed", err))
+	}
+	if tc.Event != "session-start" {
+		if client, dialErr := daemon.Dial(""); dialErr == nil {
+			defer client.Close()
+			if v, evalErr := client.Evaluate(tc); evalErr == nil {
+				return emitVerdict(plane, antigravityPhase, tc, v, stdout, stderr)
+			}
+		}
 	}
 	nightState, nightErr := loadNightState(time.Now())
 	if nightErr != nil {
@@ -245,7 +254,10 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	stderrWarnings := append(append([]string{}, highPriorityWarnings...), mergeWarnings...)
 	adapter.EmitModelWarnings(stderrWarnings, stderr)
+	return emitVerdict(plane, antigravityPhase, tc, v, stdout, stderr)
+}
 
+func emitVerdict(plane, antigravityPhase string, tc engine.ToolCall, v policy.Verdict, stdout, stderr io.Writer) int {
 	switch plane {
 	case "codex":
 		return adapter.EmitCodex(v, tc.Event, tc, stdout, stderr)
