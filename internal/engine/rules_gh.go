@@ -17,13 +17,18 @@ import (
 // the only shape that caught all six also matched every read. A parser can see
 // the method, which is the whole reason this lives in the Engine.
 //
-// Scope, stated because the issue is larger than this rule: what asks is a
-// *mutation of a protection endpoint*. It is an ask, not a deny, per #228's
-// non-goals — the operator is allowed to change their own settings, they just
-// have to be the one deciding. The porcelain families (`gh secret set`,
-// `gh repo edit`, `gh auth switch`, env-prefixed tokens) and the other
-// transports (`curl` to api.github.com) are separate work in the same issue
-// and are deliberately not handled here.
+// Scope, stated because the issue is larger than this rule: what asks here is
+// a *mutation of a protection endpoint reached through `gh api`*. It is an
+// ask, not a deny, per #228's non-goals — the operator is allowed to change
+// their own settings, they just have to be the one deciding.
+//
+// The porcelain families (`gh secret set`, `gh repo edit`, `gh repo delete`,
+// `gh auth switch`) now live in rules_gh_porcelain.go, which shares this
+// rule's `P2.gh-protection` id wherever it reaches the same endpoints. The
+// env-prefixed token case turned out to need no rule of its own: the
+// shell-state machinery already strips assignment prefixes before any rule
+// sees the command. The other transports (`curl` to api.github.com) remain
+// separate work in the same issue.
 
 // ghAPIBodyFlags make `gh api` send a body, which turns its default GET into a
 // POST without any method flag appearing in the command. This is the inference
