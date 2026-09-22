@@ -40,6 +40,20 @@ func credentialedDryRun(argv []string) bool {
 // "it is fine".
 var localKubeContexts = []string{"kind-", "minikube", "docker-desktop", "k3d-", "rancher-desktop"}
 
+// KubeContextNameIsLocal reports whether a context name refers to a cluster on
+// this machine. Exported so `guardrail doctor` judges the operator's current
+// context against the same list this rule judges a command against: two copies
+// would drift, and an operator told their context is local by one of them
+// while the other disagrees is worse than no report at all.
+func KubeContextNameIsLocal(value string) bool {
+	for _, prefix := range localKubeContexts {
+		if value == strings.TrimSuffix(prefix, "-") || strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func kubeContextIsLocal(argv []string) bool {
 	for i, arg := range argv {
 		name, inline, found := strings.Cut(arg, "=")
@@ -50,12 +64,7 @@ func kubeContextIsLocal(argv []string) bool {
 		if !found && i+1 < len(argv) {
 			value = argv[i+1]
 		}
-		for _, prefix := range localKubeContexts {
-			if value == strings.TrimSuffix(prefix, "-") || strings.HasPrefix(value, prefix) {
-				return true
-			}
-		}
-		return false
+		return KubeContextNameIsLocal(value)
 	}
 	return false
 }
