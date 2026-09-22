@@ -3,11 +3,11 @@ package main
 import (
 	"bytes"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/daemon"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -15,7 +15,8 @@ import (
 
 func TestCmdDaemonStatusNotRunning(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := cmdDaemon([]string{"status", "--endpoint", `\\.\pipe\test-guardrail-not-running`}, &stdout, &stderr)
+	endpoint := daemon.TestEndpoint(t, t.TempDir()) + "-missing"
+	code := cmdDaemon([]string{"status", "--endpoint", endpoint}, &stdout, &stderr)
 	if code == 0 {
 		t.Fatalf("status on non-running pipe returned 0, want non-zero")
 	}
@@ -25,7 +26,7 @@ func TestCmdDaemonStatusNotRunning(t *testing.T) {
 }
 
 func TestCmdDaemonLifecycleRoundTrip(t *testing.T) {
-	endpoint := `\\.\pipe\test-guardrail-lifecycle-` + t.Name()
+	endpoint := daemon.TestEndpoint(t, t.TempDir())
 	var out, errb bytes.Buffer
 
 	// Start daemon in background goroutine
@@ -67,9 +68,10 @@ func TestCmdDaemonLifecycleRoundTrip(t *testing.T) {
 }
 
 func TestCmdDaemonEvaluationWritesNamedPipeTransportAuditRecord(t *testing.T) {
-	endpoint := `\\.\pipe\test-guardrail-audit-` + t.Name()
 	tempDir := t.TempDir()
+	endpoint := daemon.TestEndpoint(t, tempDir)
 	t.Setenv("LOCALAPPDATA", tempDir)
+	t.Setenv("XDG_STATE_HOME", tempDir)
 
 	done := make(chan int, 1)
 	go func() {
@@ -105,7 +107,7 @@ func TestCmdDaemonEvaluationWritesNamedPipeTransportAuditRecord(t *testing.T) {
 	_ = client.Close()
 	<-done
 
-	auditFile := filepath.Join(tempDir, "guardrail", "audit.jsonl")
+	auditFile := audit.DefaultPath("")
 	raw, err := os.ReadFile(auditFile)
 	if err != nil {
 		t.Fatalf("read audit file: %v", err)

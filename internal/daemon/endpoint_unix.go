@@ -20,8 +20,11 @@ func DefaultEndpoint() string {
 }
 
 // TestEndpoint generates a unique socket path for tests.
+// Kept within darwin's 104-byte sockaddr_un.sun_path limit.
 func TestEndpoint(t *testing.T, dir string) string {
 	t.Helper()
 	digest := sha256.Sum256([]byte(dir))
-	return filepath.Join(dir, fmt.Sprintf("test-engine-%x.sock", digest[:8]))
+	sock := filepath.Join("/tmp", fmt.Sprintf("grd-%x.sock", digest[:4]))
+	t.Cleanup(func() { _ = os.Remove(sock) })
+	return sock
 }
