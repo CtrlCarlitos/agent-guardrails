@@ -5,6 +5,27 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **The floor generator now proves each glob matches the command it exists to
+  stop.** A glob that matches nothing is worse than a missing one: it reads
+  correct in review, appears in the golden file, and stops nothing. #232 found
+  the first instance -- `gh repo delete*` does not match
+  `gh repo delete owner/repo`, because `*` does not cross a path separator and
+  a pattern containing no slash cannot match a subject that does. Every deny
+  and ask glob is now paired with its canonical dangerous command, and a glob
+  that does not match its own example fails the build. Adding a glob without an
+  example fails too, so the pairing cannot rot, and a known-broken entry that
+  starts matching fails until it is removed from the exemption list.
+  Scope is the deny and ask lists on purpose: an allow glob matching nothing
+  merely fails to grant an exemption, which is fail-closed, while a deny or ask
+  glob matching nothing is fail-open.
+  **The guard immediately found 23 more (#244)**, including `sudo *`, `dd *`,
+  `mkfs*`, `shred *`, `wipefs *`, `chmod 777 *` and guardrail's own
+  `rm *guardrail/sessions/*`. They are recorded as known-broken with the issue
+  attached rather than rewritten here, because the right replacement depends on
+  the production matchers' real semantics, which cannot be established from
+  inside this repo -- and a rewrite tuned to the wrong model would be worse
+  than the list, because it would look fixed. Shrinking that list is the fix;
+  the guard stops a 24th.
 - **The declarative floor now mediates the GitHub CLI.** `gh` is a shell
   command that mutates state nothing in the working tree reflects: it merges
   pull requests, cuts and deletes releases, dispatches workflows and deletes
