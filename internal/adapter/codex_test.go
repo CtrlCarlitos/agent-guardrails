@@ -66,6 +66,26 @@ func TestCodexUnknownCannotBeWaivedByAuditPosture(t *testing.T) {
 	}
 }
 
+func TestCodexRetainsDeclaredNormalizedAndContractIdentities(t *testing.T) {
+	for _, tt := range []struct {
+		name, declared, normalized, matched string
+	}{
+		{"alias", "functions__exec", "functions.exec", "functions.exec"},
+		{"canonical", "Bash", "Bash", "Bash"},
+		{"unknown", "future_tool", "future_tool", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tc, err := ParseCodex(strings.NewReader(codexEnvelope(t.TempDir(), tt.declared, map[string]any{"command": "ls"})))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.NativeTool != tt.declared || tc.Tool != tt.normalized || tc.ContractTool != tt.matched {
+				t.Fatalf("identities = declared %q normalized %q matched %q, want %q %q %q", tc.NativeTool, tc.Tool, tc.ContractTool, tt.declared, tt.normalized, tt.matched)
+			}
+		})
+	}
+}
+
 func TestCodexEmitNeverReturnsUnsupportedAsk(t *testing.T) {
 	for _, decision := range []policy.Decision{policy.Allow, policy.Ask, policy.Deny, policy.Complete} {
 		var out, errb bytes.Buffer

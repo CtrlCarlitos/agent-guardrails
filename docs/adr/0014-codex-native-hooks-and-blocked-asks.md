@@ -85,3 +85,13 @@ exit 2 without appending transport noise; missing executables and launcher
 failures still map to blocking exit 2. This classification is diagnostic only:
 absence remains heuristic evidence and never upgrades the Windows enforcement
 claim.
+
+Every nonzero Codex handler result also emits one bounded JSON diagnostic line
+after the model-facing stderr. This is hook output, not an Engine audit record.
+It retains the declared tool, normalized identity, matched contract identity,
+handler ID, generated handler hash, session, exit code, and sanitized stderr.
+The live payload does not contain Codex's trust hash, so the record states that
+doctor reconciliation is required; `doctor --codex-hooks` prints the generated
+handler hash beside the current trust hash returned by `hooks/list`. Empty
+identity fields are retained rather than guessed, so an unknown native tool is
+distinguishable from a known alias after the fact.

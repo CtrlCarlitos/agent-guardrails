@@ -54,6 +54,7 @@ func ParseCodex(r io.Reader) (engine.ToolCall, error) {
 		// or view_image inputs; project them with the shared registry helper.
 		if mcp, ok := planecontract.MatchMCPTool(p.Tool); ok {
 			tc.Tool, tc.Capability = mcp.Tool, mcp.Capability
+			tc.ContractTool = "mcp:" + mcp.Family + "/" + mcp.Tool
 			tc.Paths = projectMCPPaths(mcp, p.Input)
 			if tc.Capability == policy.CapabilityReadDiscovery || tc.Capability == policy.CapabilityMutation {
 				tc.InputShape = "path"
@@ -63,6 +64,8 @@ func ParseCodex(r io.Reader) (engine.ToolCall, error) {
 	}
 	if !known {
 		spec = planecontract.ToolSpec{NativeTool: p.Tool, Tool: p.Tool, Capability: policy.CapabilityUnknown}
+	} else {
+		tc.ContractTool = spec.NativeTool
 	}
 	tc.Tool, tc.Capability = spec.Tool, spec.Capability
 	if tc.Tool == "web.run" {
@@ -99,7 +102,7 @@ func ParseCodex(r io.Reader) (engine.ToolCall, error) {
 		tc.InputShape = "path"
 	}
 	if err != nil {
-		return engine.ToolCall{}, err
+		return tc, err
 	}
 	return tc, nil
 }
