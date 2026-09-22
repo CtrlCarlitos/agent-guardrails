@@ -92,6 +92,11 @@ jobs:
         # the shared fixture still verifies the exact replacement bytes.
         if: matrix.os == 'windows-latest'
         run: go test ./cmd/guardrail/ -run '^TestUpdateHappyPathReplacesBinary$'
+      - name: windows portable adversarial root fixture
+        # The filesystem-root helper must preserve exact host root semantics;
+        # verdict-bearing adversarial corpus cases remain separately classified.
+        if: matrix.os == 'windows-latest'
+        run: go test ./test/adversarial/ -run '^TestMaterializeRepoSupportsFilesystemRoot$'
       - name: gofmt
         if: matrix.os != 'windows-latest'
         run: |
