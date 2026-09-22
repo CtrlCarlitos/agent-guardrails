@@ -107,6 +107,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdRecover(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdout, stderr)
 	case "fetch":
 		return cmdFetch(args[1:], stdout, stderr)
+	case "daemon":
+		return cmdDaemon(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "guardrail: unknown subcommand %q\n", args[0])
 		return 2
