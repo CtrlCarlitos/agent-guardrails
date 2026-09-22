@@ -28,6 +28,15 @@ func dialectRepoRoot() string {
 	return "/repo"
 }
 
+// otherDialectRepoRoot is a second host-shaped repository root, for the cases
+// that must show a grant or an authorization does not travel between repos.
+func otherDialectRepoRoot() string {
+	if runtime.GOOS == "windows" {
+		return `C:\other`
+	}
+	return "/other"
+}
+
 func evalDialect(t *testing.T, command string) policy.Verdict {
 	t.Helper()
 	root := dialectRepoRoot()

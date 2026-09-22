@@ -2,16 +2,14 @@ package engine
 
 import "github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 
-// nightPreservedAsks are never relaxed: outward reach (ADR-0018) and
-// unclassified tools stay operator decisions even overnight.
-var nightPreservedAsks = map[string]bool{
-	"capability-external":   true,
-	"capability-web-search": true,
-	"unknown-native-tool":   true,
-}
-
+// The asks preserved here -- outward reach (ADR-0018) and unclassified tools
+// -- are read from policy.NeverRelaxable rather than listed again, because an
+// operator-issued command grant is the same kind of relaxation through a
+// narrower door and must honour the same set. Two copies of this list is
+// exactly the shape of thing that rots when one is edited and the other is
+// not, so there is one copy and both mechanisms read it.
 func ApplyNightMode(v policy.Verdict, active bool) policy.Verdict {
-	if !active || v.Decision != policy.Ask || nightPreservedAsks[v.RuleID] {
+	if !active || v.Decision != policy.Ask || policy.NeverRelaxable(v.RuleID) {
 		return v
 	}
 	return policy.Verdict{

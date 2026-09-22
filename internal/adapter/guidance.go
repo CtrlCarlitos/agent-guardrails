@@ -49,7 +49,17 @@ func askApprovalPath(v policy.Verdict) string {
 	if v.OperatorAction != "" {
 		return "Approval path: this is an operator action and goes through the broker with a passkey, not through chat. Surface the approval URL from the verdict to the operator; if none is present, the operator runs this action from a terminal."
 	}
-	return "Approval path: this is a conversational approval. There is no approval URL, no daemon and no `guardrail approvals` command for it — say what you need to the operator, and retry the exact call once they approve."
+	conversational := "Approval path: this is a conversational approval. There is no approval URL, no daemon and no `guardrail approvals` command you can run for it — say what you need to the operator, and retry the exact call once they approve."
+	if policy.NeverGrantable(v.RuleID) {
+		return conversational
+	}
+	// A grant exists for this rule, so claiming no machinery exists would be
+	// the #129 failure in reverse: an agent told there is no path, when the
+	// operator has one. What the agent must not do is compose it. The command
+	// is refused to anything but an interactive operator terminal, and it
+	// authorizes one exact command -- so the thing to ask for is the command
+	// that was just refused, never a broader shape of it.
+	return conversational + " If the operator would rather authorize it in policy than approve it in chat, they can issue a single-use grant for this exact command from their own terminal. Ask for the command you just ran, never a broader form of it."
 }
 
 // denyNextStep returns the concrete continuation for a denied call. Every

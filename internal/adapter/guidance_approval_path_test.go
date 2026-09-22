@@ -38,6 +38,33 @@ func TestPolicyAskNamesTheConversationalPath(t *testing.T) {
 				t.Errorf("%s ask does not rule out %q, which is where agents went:\n%s", rule, wrongTurn, got)
 			}
 		}
+		// Operator-issued grants gave these rules a real operator path, so
+		// the guidance must not claim none exists -- that would be #129's
+		// failure in reverse. What stays ruled out is the agent running it:
+		// the command is refused to anything but an interactive operator
+		// terminal, and the agent's job is to ask for the command it ran
+		// rather than to compose a broader one.
+		if !strings.Contains(got, "you can run") {
+			t.Errorf("%s ask rules out the approvals command outright; only the agent running it is ruled out:\n%s", rule, got)
+		}
+		if !strings.Contains(got, "never a broader form") {
+			t.Errorf("%s ask does not tell the agent to ask for the exact command it ran:\n%s", rule, got)
+		}
+	}
+}
+
+// The rules a grant can never cover must not be offered one, or the guidance
+// sends the operator to a command that will refuse them.
+func TestNeverGrantableAsksAreNotOfferedAGrant(t *testing.T) {
+	for _, rule := range []string{"capability-external", "capability-web-search", "unknown-native-tool", "P3.unresolved"} {
+		v := policy.Verdict{Decision: policy.Ask, RuleID: rule, Reason: "needs approval"}
+		got := Guidance(v, `bash {"command":"x"}`)
+		if strings.Contains(got, "single-use grant") {
+			t.Errorf("%s ask offers a grant it can never receive:\n%s", rule, got)
+		}
+		if !strings.Contains(got, "conversational") {
+			t.Errorf("%s ask lost its conversational path:\n%s", rule, got)
+		}
 	}
 }
 
