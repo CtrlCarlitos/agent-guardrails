@@ -2373,7 +2373,11 @@ func cdOutcome(state cwdState, simple Simple, argv []string) cwdOutcome {
 		status = cdDirectoryUnknown
 	}
 	if physical && status == cdDirectoryAccessible {
-		physicalPath, err := filepath.EvalSymlinks(resolved)
+		targetPath := resolved
+		if hp, ok := hostProbePath(resolved); ok {
+			targetPath = hp
+		}
+		physicalPath, err := filepath.EvalSymlinks(targetPath)
 		if err != nil {
 			status = cdDirectoryUnknown
 			success = unknownCwd(state)
@@ -2515,12 +2519,14 @@ func cdCandidate(base, target string, physical bool) string {
 
 func cdDirectoryState(candidate string) cdDirectoryStatus {
 	// On Windows the host OS cannot probe POSIX-absolute paths (starting
-	// with '/') through Win32 os.Stat.  Treat them as unknown (fail-closed)
-	// rather than missing (which would collapse the outcome to the prior cwd).
-	if !hostCanProbe(candidate) {
+	// with '/') through Win32 os.Stat, unless they are MSYS/Git-Bash drive paths
+	// (e.g. /c/...) translated via hostProbePath (ADR-0024).
+	// Treat unprobeable paths as unknown (fail-closed) rather than missing.
+	hostPath, canProbe := hostProbePath(candidate)
+	if !canProbe {
 		return cdDirectoryUnknown
 	}
-	info, err := os.Stat(candidate)
+	info, err := os.Stat(hostPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return cdDirectoryMissing
@@ -2533,7 +2539,7 @@ func cdDirectoryState(candidate string) cdDirectoryStatus {
 	if info.Mode().Perm()&0o111 == 0 {
 		return cdDirectoryUnknown
 	}
-	searchProbe := strings.TrimSuffix(candidate, string(filepath.Separator)) + string(filepath.Separator) + "."
+	searchProbe := strings.TrimSuffix(hostPath, string(filepath.Separator)) + string(filepath.Separator) + "."
 	if _, err := os.Stat(searchProbe); err != nil {
 		return cdDirectoryUnknown
 	}

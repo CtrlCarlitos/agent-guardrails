@@ -2954,6 +2954,28 @@ func TestNormalizeIsolatedScopesTrackTheirOwnCd(t *testing.T) {
 	}
 }
 
+func TestNormalizeCdGitBashDrivePath(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Git Bash drive mapping is Windows-specific (ADR-0024)")
+	}
+	repo := t.TempDir()
+	src := filepath.Join(repo, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	driveLetter := strings.ToLower(string(repo[0]))
+	posixSrc := "/" + driveLetter + "/" + filepath.ToSlash(src[3:])
+	command := fmt.Sprintf(`cd %s; pwd`, posixSrc)
+	got, err := Normalize(command, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got[len(got)-1]
+	if last.Cwd != posixSrc || last.cwdUnknown {
+		t.Fatalf("last = %+v, want Cwd = %q and cwdUnknown = false", last, posixSrc)
+	}
+}
+
 func TestNormalizeUncertainControlFlowInvalidatesJoin(t *testing.T) {
 	commands := []string{
 		`if condition; then cd /etc; fi; rm -rf .`,

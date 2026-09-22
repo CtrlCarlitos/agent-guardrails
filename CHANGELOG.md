@@ -5,6 +5,30 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **`guardrail audit --verdicts`: what the guard decided, not just that it
+  ran.** The evidence gate answers "is the guard present" -- it counts records
+  and looks for two pre-hook records in one real session. A guard that runs and
+  allows everything passes it identically to one that is working. The new view
+  reads the same log by rule: deny/ask/allow counts, how many distinct sessions
+  each rule fired in, and the worst single session, over the deployed binary's
+  mtime window. No schema change; `decision`, `rule_id` and `session_id` were
+  already there.
+- **Ask pressure, and an honest statement of what it is not.** The metric
+  asked for was the ratio of asks answered yes without reading. That is not
+  computable from this log and no amount of querying makes it so: guardrail
+  never learns how a prompt was answered, because the hook returns `ask`, the
+  human answers inside the plane, and no record comes back -- there is no
+  second event to time or to read an outcome from, and no call-correlation id
+  to join on. Measured on real data: 434 `post` records against 23,677 `pre`.
+  So the output reports concentration instead -- how often one rule interrupts
+  one session -- and says in the output, not just in a commit message, that it
+  cannot see how the asks were answered. On this machine's log it immediately
+  found a session asked **119 times by `P3.unresolved`** and another **304
+  times by `capability-external`**, which is the shape that turns a gate into
+  a formality.
+- **"No audit log" no longer reads as "nothing was decided."** Those are
+  different answers and the second one is reassuring, so an absent log now
+  fails loudly instead of rendering as an empty profile.
 - **The floor generator now proves each glob matches the command it exists to
   stop.** A glob that matches nothing is worse than a missing one: it reads
   correct in review, appears in the golden file, and stops nothing. #232 found

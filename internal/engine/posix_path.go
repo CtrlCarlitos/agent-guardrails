@@ -57,3 +57,30 @@ func posixStandardDevice(p string) bool {
 	}
 	return false
 }
+
+// posixDriveToWin32 translates an MSYS2/Git-Bash-style POSIX drive path
+// (e.g. "/c", "/c/", "/c/Users/...") into a Win32 path ("C:\", "C:\Users\...").
+// It returns ("", false) if p does not match the single-letter drive pattern.
+func posixDriveToWin32(p string) (string, bool) {
+	if len(p) < 2 || p[0] != '/' {
+		return "", false
+	}
+	drive := p[1]
+	if (drive < 'a' || drive > 'z') && (drive < 'A' || drive > 'Z') {
+		return "", false
+	}
+	if drive >= 'a' && drive <= 'z' {
+		drive = drive - 'a' + 'A'
+	}
+	if len(p) == 2 {
+		return string(drive) + `:\`, true
+	}
+	if p[2] != '/' {
+		return "", false
+	}
+	rest := strings.TrimPrefix(p[2:], "/")
+	if rest == "" {
+		return string(drive) + `:\`, true
+	}
+	return string(drive) + `:\` + strings.ReplaceAll(rest, "/", `\`), true
+}
