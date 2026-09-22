@@ -3,6 +3,7 @@ package policy
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -537,13 +538,40 @@ func TestMergeDroppedRequestWarningsAreStable(t *testing.T) {
 }
 
 func TestMergeNilOverlayCopiesBaseWithoutWarnings(t *testing.T) {
-	base := &Policy{Slots: Slots{SafeRoots: []string{"/base"}}, Waived: map[string]bool{"P6.egress": true}}
+	base := &Policy{
+		Slots: Slots{SafeRoots: []string{"/base"}},
+		Recipes: RecipeConfig{Odoo: &OdooRecipeConfig{
+			Module: "base", TestDatabase: "base_test", RelaxNG: "schema/base.rng",
+		}},
+		Waived: map[string]bool{"P6.egress": true},
+	}
 	m, warns, err := Merge(base, nil, "1.0.0", nil, operatorRepo("repo"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(m.Slots.SafeRoots, base.Slots.SafeRoots) || !m.Waived["P6.egress"] || len(warns) != 0 {
+	if !slices.Equal(m.Slots.SafeRoots, base.Slots.SafeRoots) || !m.Waived["P6.egress"] ||
+		m.Recipes.Odoo == nil || m.Recipes.Odoo.Module != "base" || len(warns) != 0 {
 		t.Fatalf("nil overlay merge = %+v, warnings=%v", m, warns)
+	}
+	m.Recipes.Odoo.Module = "changed"
+	if base.Recipes.Odoo.Module != "base" {
+		t.Fatal("Merge aliased Base recipe configuration")
+	}
+}
+
+func TestMergeOverlayOdooRecipeConfiguration(t *testing.T) {
+	base := &Policy{Waived: map[string]bool{}}
+	configured := &OdooRecipeConfig{Module: "sale", TestDatabase: "test_sale", RelaxNG: "schema/import_xml.rng"}
+	merged, warns, err := Merge(base, &Overlay{Recipes: RecipeConfig{Odoo: configured}}, "1.0.0", nil, operatorRepo("repo"))
+	if err != nil || len(warns) != 0 {
+		t.Fatalf("Merge error=%v warnings=%v", err, warns)
+	}
+	if merged.Recipes.Odoo == nil || !reflect.DeepEqual(merged.Recipes.Odoo, configured) {
+		t.Fatalf("merged Odoo recipe = %+v, want %+v", merged.Recipes.Odoo, configured)
+	}
+	merged.Recipes.Odoo.Module = "changed"
+	if configured.Module != "sale" {
+		t.Fatal("Merge aliased Overlay recipe configuration")
 	}
 }
 

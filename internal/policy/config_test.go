@@ -124,6 +124,56 @@ waive = ["P6.curl-egress"]
 	}
 }
 
+func TestLoadOverlayRecipeContract(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "guardrail.toml")
+	raw := []byte(`
+[recipes.odoo]
+module = "sale_guardrail"
+test_database = "guardrail_test"
+relax_ng = "schema/import_xml.rng"
+`)
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ov, err := LoadOverlay(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := &OdooRecipeConfig{Module: "sale_guardrail", TestDatabase: "guardrail_test", RelaxNG: "schema/import_xml.rng"}
+	if ov.Recipes.Odoo == nil || !reflect.DeepEqual(ov.Recipes.Odoo, want) {
+		t.Fatalf("Odoo recipe = %+v, want %+v", ov.Recipes.Odoo, want)
+	}
+}
+
+func TestLoadOverlayRejectsUnresolvedOrUnknownRecipeConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{"missing module", "[recipes.odoo]\ntest_database='test'\nrelax_ng='schema/import_xml.rng'\n", "recipes.odoo.module is required"},
+		{"dynamic database", "[recipes.odoo]\nmodule='sale'\ntest_database='$DB'\nrelax_ng='schema/import_xml.rng'\n", "test_database must be a literal command argument"},
+		{"absolute schema", "[recipes.odoo]\nmodule='sale'\ntest_database='test'\nrelax_ng='/etc/import_xml.rng'\n", "relax_ng must be a repository-relative file path"},
+		{"drive schema", "[recipes.odoo]\nmodule='sale'\ntest_database='test'\nrelax_ng='C:\\\\schema\\\\import_xml.rng'\n", "relax_ng must be a repository-relative file path"},
+		{"escaping schema", "[recipes.odoo]\nmodule='sale'\ntest_database='test'\nrelax_ng='../import_xml.rng'\n", "relax_ng must be a repository-relative file path"},
+		{"portable escaping schema", "[recipes.odoo]\nmodule='sale'\ntest_database='test'\nrelax_ng='..\\\\import_xml.rng'\n", "relax_ng must be a repository-relative file path"},
+		{"dynamic schema", "[recipes.odoo]\nmodule='sale'\ntest_database='test'\nrelax_ng='$SCHEMA'\n", "relax_ng must be a literal repository-relative path"},
+		{"unknown odoo key", "[recipes.odoo]\nmodule='sale'\ntest_database='test'\nrelax_ng='schema/import_xml.rng'\ncommand='odoo'\n", "unsupported recipe setting recipes.odoo.command"},
+		{"unknown recipe", "[recipes.future]\nenabled=true\n", "unsupported recipe setting recipes.future"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "guardrail.toml")
+			if err := os.WriteFile(path, []byte(test.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadOverlay(path); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("LoadOverlay error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestOverlayLoadsExactWebHosts(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "guardrail.toml")
@@ -243,6 +293,13 @@ func decodeOverlayContract(raw string) (*Overlay, toml.MetaData, error) {
 			SecretAllow     []string `toml:"secret_allow"`
 			EgressAllowlist []string `toml:"egress_allowlist"`
 		} `toml:"slots"`
+		Recipes struct {
+			Odoo *struct {
+				Module       string `toml:"module"`
+				TestDatabase string `toml:"test_database"`
+				RelaxNG      string `toml:"relax_ng"`
+			} `toml:"odoo"`
+		} `toml:"recipes"`
 		Rules []struct {
 			ID       string `toml:"id"`
 			Tool     string `toml:"tool"`
@@ -265,6 +322,11 @@ func decodeOverlayContract(raw string) (*Overlay, toml.MetaData, error) {
 		SecretAllow:      f.Slots.SecretAllow,
 		EgressAllowlist:  f.Slots.EgressAllowlist,
 		Waive:            f.Waive,
+	}
+	if f.Recipes.Odoo != nil {
+		ov.Recipes.Odoo = &OdooRecipeConfig{
+			Module: f.Recipes.Odoo.Module, TestDatabase: f.Recipes.Odoo.TestDatabase, RelaxNG: f.Recipes.Odoo.RelaxNG,
+		}
 	}
 	for _, rule := range f.Rules {
 		ov.Rules = append(ov.Rules, Rule{

@@ -108,6 +108,30 @@ type Slots struct {
 	AuditLog        string
 }
 
+// RecipeConfig is the project-supplied configuration consumed by optional
+// Recipes. Built-in extension-matched Recipes need no configuration.
+type RecipeConfig struct {
+	Odoo *OdooRecipeConfig
+}
+
+// OdooRecipeConfig is present only when a project explicitly opts in to the
+// additive Odoo Recipe. Values are literal command arguments; they are never
+// expanded through a shell or inferred from ambient environment variables.
+type OdooRecipeConfig struct {
+	Module       string
+	TestDatabase string
+	RelaxNG      string
+}
+
+func (c RecipeConfig) clone() RecipeConfig {
+	cloned := RecipeConfig{}
+	if c.Odoo != nil {
+		odoo := *c.Odoo
+		cloned.Odoo = &odoo
+	}
+	return cloned
+}
+
 // ValidateWebHost accepts only canonical, exact hostname allowance values.
 func ValidateWebHost(host string) error {
 	if host == "" || host != strings.ToLower(host) || len(host) > 253 || strings.HasSuffix(host, ".") {
@@ -129,6 +153,7 @@ func ValidateWebHost(host string) error {
 // Policy is a fully merged, ready-to-evaluate policy.
 type Policy struct {
 	Slots              Slots
+	Recipes            RecipeConfig
 	Rules              []Rule
 	Waived             map[string]bool
 	UnknownToolPosture UnknownToolPosture

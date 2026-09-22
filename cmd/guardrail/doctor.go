@@ -310,6 +310,7 @@ func printDoctor(stdout, stderr io.Writer) int {
 	} else {
 		fmt.Fprintf(stdout, "waivers: %s\n", safetext.SingleLine(strings.Join(waived, ", ")))
 	}
+	printRecipeStatus(merged, stdout)
 
 	fmt.Fprintf(stdout, "audit log: %s\n", safetext.SingleLine(audit.DefaultPath(merged.Slots.AuditLog)))
 	enrolled, _ := defaultOperatorAuthStore().Enrolled()

@@ -77,9 +77,9 @@ Antigravity has no Declarative floor.
 _Avoid_: static rules, fallback policy
 
 **Recipe**:
-A per-language definition of the P8 per-edit format-and-lint commands. The Base
-policy ships Go, Python, JavaScript/TypeScript, and Rust Recipes; session-completion,
-Elixir, and Odoo Recipes remain follow-ups.
+A P8 definition of per-edit and optional session-completion commands. Built-in
+Recipes match file extensions automatically. An Overlay enables the additive Odoo
+Recipe by supplying its required project values explicitly.
 _Avoid_: linter config, toolchain, profile
 
 **Waiver**:
