@@ -15,8 +15,8 @@ import (
 // CodexEvidence is an audit heuristic, not authentication of runtime dispatch.
 // Counts describe the retained log segments, not the lifetime of the install.
 type CodexEvidence struct {
-	Records, Codex, Synthetic, Stale, Rejected, Duplicates, Eligible, Sessions, QualifiedSessions, Malformed, OtherSessions int
-	ObservedTools, MissingExpectedTools, Capabilities                                                                       []string
+	Records, Codex, Selected, Synthetic, Stale, Rejected, Duplicates, Eligible, Sessions, QualifiedSessions, Malformed, OtherSessions int
+	ObservedTools, MissingExpectedTools, Capabilities                                                                                 []string
 }
 
 // Observed requires two distinct eligible pre-hook records in one session.
@@ -151,6 +151,9 @@ func readPlaneEvidence(segments []string, plane string, synthetic func(string) b
 					continue
 				}
 				result.Codex++
+				if sessionID != "" && rec.SessionID == sessionID {
+					result.Selected++
+				}
 				if synthetic(rec.SessionID) {
 					result.Synthetic++
 					continue

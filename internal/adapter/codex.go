@@ -178,6 +178,6 @@ func EmitCodex(v policy.Verdict, event string, tc engine.ToolCall, stdout, stder
 	if v.Decision == policy.Complete {
 		reason = fmt.Sprintf("Operator action pending: %s; request %s; open %s. Wait for completion before continuing this action.", v.OperatorAction, v.RequestID, v.ApprovalURL)
 	}
-	fmt.Fprintln(stderr, "guardrail: "+reason)
+	fmt.Fprintln(stderr, "guardrail: policy denial: "+reason)
 	return 2 // Native blocking status; never emit unsupported permissionDecision: ask.
 }

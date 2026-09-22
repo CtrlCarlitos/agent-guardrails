@@ -98,6 +98,15 @@ func TestCodexWrapperOwnershipAndExecution(t *testing.T) {
 	if !strings.Contains(string(content), `"/usr/local/bin/guardrail" hook codex %*`) {
 		t.Fatalf("missing binary invocation: %s", string(content))
 	}
+	if !strings.Contains(string(content), `if "%guardrail_exit%"=="2" exit /b 2`) {
+		t.Fatalf("wrapper does not preserve policy-denial exit 2: %s", string(content))
+	}
+	if !strings.Contains(string(content), "guardrail: handler failure: evaluator exited with code %guardrail_exit%") {
+		t.Fatalf("wrapper does not classify evaluator failure: %s", string(content))
+	}
+	if strings.Contains(string(content), "transport failure") {
+		t.Fatalf("wrapper misclassifies an invoked handler as transport failure: %s", string(content))
+	}
 	// Verify CodexConfigFor uses the wrapper
 	frag := CodexConfigFor(hooks, binary)
 	hooksMap := frag["hooks"].(map[string]any)
@@ -128,8 +137,13 @@ func TestCodexMissingBinaryBlocksAndQuotedPathCannotExecute(t *testing.T) {
 	group := hooks["PreToolUse"].([]any)[0].(map[string]any)
 	command := group["hooks"].([]any)[0].(map[string]any)["command"].(string)
 	cmd := exec.Command(sh, "-c", command)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err == nil || cmd.ProcessState.ExitCode() != 2 {
 		t.Fatalf("missing binary did not block: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "guardrail: transport failure:") || strings.Contains(stderr.String(), "policy denial") {
+		t.Fatalf("missing binary diagnostic = %q, want transport failure only", stderr.String())
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatal("binary path was interpreted as shell code")
@@ -162,17 +176,79 @@ func TestCodexWindowsCommandRunsAndFailsClosed(t *testing.T) {
 		name     string
 		exit     string
 		wantExit int
+		wantErr  string
 	}{
 		{name: "evaluator allows", exit: "0", wantExit: 0},
-		{name: "evaluator fails", exit: "7", wantExit: 2},
+		{name: "policy denies without transport noise", exit: "2", wantExit: 2},
+		{name: "evaluator crashes", exit: "7", wantExit: 2, wantErr: "guardrail: handler failure: evaluator exited with code 7"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cmd := exec.Command(os.Getenv("ComSpec"), "/d", "/s", "/c", command)
 			cmd.Env = append(os.Environ(), "GUARDRAIL_TEST_EXIT="+test.exit)
 			cmd.Stdin = strings.NewReader(`{"session_id":"fixture"}`)
+			var stderr strings.Builder
+			cmd.Stderr = &stderr
 			_ = cmd.Run()
 			if got := cmd.ProcessState.ExitCode(); got != test.wantExit {
 				t.Fatalf("exit = %d, want %d; command: %s", got, test.wantExit, command)
+			}
+			if got := stderr.String(); !strings.Contains(got, test.wantErr) || strings.Contains(got, "evaluator unavailable or blocked") {
+				t.Fatalf("stderr = %q, want %q and no conflated fallback", got, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestCodexWindowsMissingBinaryIsTransportFailure(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows command handlers execute through cmd.exe")
+	}
+	hooks := CodexConfig(filepath.Join(t.TempDir(), "missing-guardrail.exe"))["hooks"].(map[string]any)
+	group := hooks["PreToolUse"].([]any)[0].(map[string]any)
+	command := group["hooks"].([]any)[0].(map[string]any)["commandWindows"].(string)
+	cmd := exec.Command(os.Getenv("ComSpec"), "/d", "/s", "/c", command)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	_ = cmd.Run()
+	if got := cmd.ProcessState.ExitCode(); got != 2 {
+		t.Fatalf("exit = %d, want 2", got)
+	}
+	if got := stderr.String(); !strings.Contains(got, "guardrail: transport failure: configured handler executable is unavailable") || strings.Contains(got, "handler failure") {
+		t.Fatalf("stderr = %q, want transport failure only", got)
+	}
+}
+
+func TestCodexPosixCommandSeparatesPolicyAndHandlerFailures(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX hook command executes through sh")
+	}
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "guardrail")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf 'guardrail: policy denial: fixture\\n' >&2\nexit \"$GUARDRAIL_TEST_EXIT\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hooks := CodexConfig(binary)["hooks"].(map[string]any)
+	group := hooks["PreToolUse"].([]any)[0].(map[string]any)
+	command := group["hooks"].([]any)[0].(map[string]any)["command"].(string)
+	for _, test := range []struct {
+		name    string
+		exit    string
+		wantErr string
+	}{
+		{name: "policy", exit: "2", wantErr: "guardrail: policy denial: fixture"},
+		{name: "handler", exit: "7", wantErr: "guardrail: handler failure: evaluator exited with code 7"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cmd := exec.Command("sh", "-c", command)
+			cmd.Env = append(os.Environ(), "GUARDRAIL_TEST_EXIT="+test.exit)
+			var stderr strings.Builder
+			cmd.Stderr = &stderr
+			_ = cmd.Run()
+			if got := cmd.ProcessState.ExitCode(); got != 2 {
+				t.Fatalf("exit = %d, want 2", got)
+			}
+			if got := stderr.String(); !strings.Contains(got, test.wantErr) || strings.Contains(got, "transport failure") {
+				t.Fatalf("stderr = %q, want %q and no transport fallback", got, test.wantErr)
 			}
 		})
 	}

@@ -45,6 +45,9 @@ func TestSelftestCodexEvidence(t *testing.T) {
 			if !strings.Contains(out.String(), "heuristic only") || !strings.Contains(out.String(), "selected session") {
 				t.Fatalf("missing boundary: %s", &out)
 			}
+			if strings.Contains(tc.data, `"session_id":"live"`) && strings.Contains(out.String(), "diagnostic class: transport") {
+				t.Fatalf("an existing selected-session hook record was mislabeled as a transport miss: %s", &out)
+			}
 			after, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatal(err)
@@ -71,8 +74,11 @@ func TestSelftestCodexEvidenceNewestSilentSessionWins(t *testing.T) {
 
 	var out, errb bytes.Buffer
 	code := printCodexEvidence(auditPath, sessionsRoot, cutoff, cutoff.Add(time.Hour), codexEvidenceOptions{}, &out, &errb)
-	if code != 1 || !strings.Contains(out.String(), "selected_session=newest-silent") || !strings.Contains(out.String(), "newest known Codex session is silent") {
+	if code != 1 || !strings.Contains(out.String(), "selected_session=newest-silent") || !strings.Contains(out.String(), "newest known Codex session is silent") || !strings.Contains(out.String(), "diagnostic class: transport") {
 		t.Fatalf("exit=%d output=%s errors=%s", code, &out, &errb)
+	}
+	if !strings.Contains(out.String(), "raw evidence: session=newest-silent hook_records=0") {
+		t.Fatalf("silent session lacks transport evidence: %s", &out)
 	}
 	if strings.Contains(out.String(), "gate opens") {
 		t.Fatalf("older evidence masked newest silence: %s", &out)

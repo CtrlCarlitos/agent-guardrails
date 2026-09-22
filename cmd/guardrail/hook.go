@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/adapter"
@@ -41,6 +42,9 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var highPriorityWarnings []string
 	var tc engine.ToolCall
 	failClosed := func(reason string) int {
+		if plane == "codex" {
+			reason = "guardrail: handler failure: " + strings.TrimPrefix(reason, "guardrail: ")
+		}
 		highPriorityWarnings = append(highPriorityWarnings, reason)
 		if plane == "antigravity" {
 			v := policy.Verdict{Decision: policy.Deny, Reason: reason}
