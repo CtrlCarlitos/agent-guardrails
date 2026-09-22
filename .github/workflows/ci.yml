@@ -101,10 +101,10 @@ jobs:
       - name: windows portable adversarial fixtures
         # The filesystem-root helper preserves exact host root semantics. The
         # broker case also pins cross-platform Operator enrollment now that the
-        # Windows approval gates are lifted; the remaining verdict-bearing
-        # corpus cases stay separately classified.
+        # Windows approval gates are lifted. Native outside-repository paths
+        # keep path-policy verdicts mandatory without borrowing POSIX roots.
         if: matrix.os == 'windows-latest'
-        run: go test ./test/adversarial/ -run '^(TestMaterializeRepoSupportsFilesystemRoot|TestAdversarialCorpus/canonical_night_change_requires_broker_approval)$'
+        run: go test ./test/adversarial/ -run '^(TestMaterializeRepoSupportsFilesystemRoot|TestAdversarialCorpus)$/^(canonical_night_change_requires_broker_approval|outside_repository_(claude_instructions_write|certificate_read_remains_denied|service_account_read_remains_denied))$'
       - name: gofmt
         if: matrix.os != 'windows-latest'
         run: |
