@@ -425,7 +425,7 @@ func findRootCandidates(parsed findActionParseResult, outer Simple, tc ToolCall)
 	var candidates []pathCandidate
 	for _, root := range parsed.roots {
 		if looksLikePathOperand(root.value) {
-			candidates = append(candidates, pathCandidate{path: root.value, cwd: outer.Cwd, cwdUnknown: outer.cwdUnknown, repoRoot: tc.RepoRoot})
+			candidates = append(candidates, pathCandidate{posix: true, path: root.value, cwd: outer.Cwd, cwdUnknown: outer.cwdUnknown, repoRoot: tc.RepoRoot})
 		}
 	}
 	return candidates
@@ -434,7 +434,7 @@ func findRootCandidates(parsed findActionParseResult, outer Simple, tc ToolCall)
 func findOutputCandidates(parsed findActionParseResult, outer Simple, tc ToolCall) []pathCandidate {
 	candidates := make([]pathCandidate, 0, len(parsed.outputs))
 	for _, output := range parsed.outputs {
-		candidates = append(candidates, pathCandidate{path: output.value, cwd: outer.Cwd, cwdUnknown: outer.cwdUnknown, repoRoot: tc.RepoRoot})
+		candidates = append(candidates, pathCandidate{posix: true, path: output.value, cwd: outer.Cwd, cwdUnknown: outer.cwdUnknown, repoRoot: tc.RepoRoot})
 	}
 	return candidates
 }
@@ -442,7 +442,7 @@ func findOutputCandidates(parsed findActionParseResult, outer Simple, tc ToolCal
 func findReadPathCandidates(parsed findActionParseResult, outer Simple, tc ToolCall) []pathCandidate {
 	candidates := make([]pathCandidate, 0, len(parsed.readPaths))
 	for _, input := range parsed.readPaths {
-		candidates = append(candidates, pathCandidate{path: input.value, cwd: outer.Cwd, cwdUnknown: outer.cwdUnknown, repoRoot: tc.RepoRoot})
+		candidates = append(candidates, pathCandidate{posix: true, path: input.value, cwd: outer.Cwd, cwdUnknown: outer.cwdUnknown, repoRoot: tc.RepoRoot})
 	}
 	return candidates
 }

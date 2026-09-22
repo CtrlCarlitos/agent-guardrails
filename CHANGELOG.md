@@ -5,6 +5,46 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Fix (#255): a POSIX path is no longer read as a Win32 one, so `rm -rf /`
+  denies on Windows.** A Bash command's path tokens are POSIX; `ToolCall.CWD`
+  and `RepoRoot` are host paths. `authorizedPath` judged the first against the
+  second with `filepath`, which on Windows reads `/etc` as *relative*:
+  measured, `filepath.IsAbs("/etc")` is false and `filepath.Join(C:\repo,
+  "/etc")` is `C:\repo\etc`. Every POSIX absolute path silently became
+  repo-relative, landed inside the repository, and was authorized. `/` became
+  the repo itself, which is why bare `rm -rf /` -- no wrapper, no redirect, no
+  container -- read as a delete of the working tree's own root and allowed.
+  Not a missing rule: the containment logic was correct and was being handed a
+  path that had already been mistranslated. The fix is the translation ADR-0023
+  built the primitives for and applied at two seams by hand -- `posixIsAbs`,
+  `posixDriveToWin32` -- applied where paths are actually judged. A candidate
+  now records the dialect it was written in at the point it is extracted,
+  never inferred from the string's shape, because `/etc` is also a legal Win32
+  relative path; it is translated once, explicitly, before any `filepath` call.
+  `/c/repo/x` maps to `C:\repo\x` and ordinary Git Bash work is untouched.
+  `/tmp` maps to the host temp root, which is the whole of its handling: the
+  System temp write seam then applies to it unchanged, so descendants stay an
+  authorized write target while the root itself and escapes out of it
+  (`/tmp/../etc`) are protected by the containment that already guards
+  `os.TempDir()`. An absolute POSIX path this host cannot address -- `/`,
+  `/etc`, `/dev/null/child` -- is reported as such rather than guessed at,
+  which routes it to the rule that owns its risk. No fstab reading and no shell
+  probing: that is environment simulation, which ADR-0012 rejects, and it would
+  make a verdict depend on state that can change between check and execution.
+  The translation reconciles two dialects, so it applies only when there are
+  two. A repo root that is itself an unaddressable POSIX path means the whole
+  evaluation is in POSIX coordinates, and folding one side of that would be the
+  same mistranslation in the other direction; `TestTranslationAppliesOnlyToAMixedFrame`
+  pins that boundary rather than leaving it to be discovered. On Linux and
+  macOS the host dialect is POSIX and the translation is the identity by
+  construction, which is how the platforms stay in step without a GOOS branch
+  in any rule.
+  Measured on Windows against the merge base: 29 adversarial nodes close,
+  including `TestHostileOverlayCannotLoosen/recursive_etc_delete` and every
+  `*_recursive_root_delete` wrapper family, with zero new failures; the engine
+  package drops 3 more. No fixture was rewritten into Win32 spellings -- the
+  POSIX forms are reachable through Git Bash, so rewriting them would delete
+  the coverage rather than fix it.
 - **Fix (#235): credentialed CLIs are classified before they publish, deploy or
   bill.** `npm publish`, `docker push`, `kubectl apply`, `terraform apply`,
   `vercel --prod` and their families act with authority the agent never reads --
