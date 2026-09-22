@@ -1,6 +1,9 @@
 package policy
 
-import "time"
+import (
+	"path/filepath"
+	"time"
+)
 
 // Operator-issued command grants: a narrower relaxation than the overnight
 // one.
@@ -112,6 +115,37 @@ func BoundedGrantExpiry(now time.Time, requested time.Duration) time.Time {
 		requested = MaxGrantExpiry
 	}
 	return now.Add(requested)
+}
+
+// GrantKey returns the key in o.Repos under which this repository's grants
+// live, or the cleaned path when there is no entry for it yet.
+//
+// Every writer must go through this rather than indexing the map directly.
+// Matching resolves symlinks before declaring no grant -- on Darwin git
+// reports the physical repo root (/private/var/...) while a grant may be keyed
+// by the symlinked spelling (/var/folders/...) -- so a writer that cleaned the
+// path and indexed the map would read and write a *different* entry than the
+// matcher read.
+//
+// The consequence of that split is not a missed match, which would be
+// harmless. It is an unspendable one: the grant keeps matching and consumption
+// keeps finding nothing to spend, which silently turns a single-use grant into
+// an unlimited one. One resolution rule, used by both sides.
+func (o *OperatorConfig) GrantKey(repoRoot string) string {
+	cleaned := filepath.Clean(repoRoot)
+	if o == nil || o.Repos == nil {
+		return cleaned
+	}
+	if _, ok := o.Repos[cleaned]; ok {
+		return cleaned
+	}
+	want := resolvePathForCompare(cleaned)
+	for root := range o.Repos {
+		if resolved := filepath.Clean(root); resolvePathForCompare(resolved) == want {
+			return resolved
+		}
+	}
+	return cleaned
 }
 
 // AllowsCommand reports whether a live grant authorizes this exact triple.

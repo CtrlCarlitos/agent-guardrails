@@ -41,7 +41,11 @@ func mutateCommandGrants(repo string, mutate func([]policy.CommandGrant) []polic
 	if op.Repos == nil {
 		op.Repos = map[string]policy.RepoGrant{}
 	}
-	cleaned := filepath.Clean(repo)
+	// Resolve to the key matching already uses. Indexing the map with a
+	// cleaned path instead would write a second entry whenever the repo root
+	// arrives by an equivalent spelling, and consumption would then never
+	// find the grant that keeps matching.
+	cleaned := op.GrantKey(repo)
 	entry := op.Repos[cleaned]
 	entry.Commands = mutate(entry.Commands)
 	if len(entry.Commands) == 0 {
