@@ -26,6 +26,7 @@ type Simple struct {
 	resolvedOut           map[int]bool
 	resolvedIn            map[int]bool
 	gitEnvironment        map[string]string
+	goEnvironment         map[string]string
 	gitEnvironmentUnknown bool
 	gitInitExpected       bool
 	fsUncertain           bool
@@ -2734,6 +2735,7 @@ func normalizeWithState(command string, state cwdState, ctx *normalizeContext, f
 		if recursiveState, ok := walker.recursive[s.origin]; ok {
 			s.shellState = recursiveState
 			s.gitEnvironment = gitRepositoryEnvironment(recursiveState.variables)
+			s.goEnvironment = goRedirectEnvironmentValues(recursiveState.variables)
 			s.gitEnvironmentUnknown = recursiveState.gitEnvironmentUnknown
 			if s.gitEnvironmentUnknown && head(s.Argv) == "git" {
 				s.Unresolved = true
@@ -2808,6 +2810,7 @@ func commandDerivedFromAt(outer Simple, argv []string, sourceArg int) Simple {
 		resolvedOut:           outer.resolvedOut,
 		resolvedIn:            outer.resolvedIn,
 		gitEnvironment:        outer.gitEnvironment,
+		goEnvironment:         outer.goEnvironment,
 		gitEnvironmentUnknown: outer.gitEnvironmentUnknown,
 		gitInitExpected:       outer.gitInitExpected,
 		pipelines:             outer.pipelines,
@@ -2820,6 +2823,25 @@ func commandDerivedFromAt(outer Simple, argv []string, sourceArg int) Simple {
 		derived.resolvedArgs = remapProvenance(outer.resolvedArgs, sourceArg, len(argv))
 	}
 	return derived
+}
+
+// goRedirectEnvironmentValues captures the inline assignments that repoint or
+// weaken the Go module fetcher, the same way gitRepositoryEnvironment captures
+// GIT_DIR. The shell assignment prefix never reaches Argv -- `GOPROXY=x go get
+// y` and `go get y` produce identical argv -- so without this the per-
+// invocation form of the redirect is invisible to a rule (#251).
+func goRedirectEnvironmentValues(variables map[string]string) map[string]string {
+	var environment map[string]string
+	for name, value := range variables {
+		if !goRedirectEnvironmentVariable(name) {
+			continue
+		}
+		if environment == nil {
+			environment = make(map[string]string)
+		}
+		environment[name] = value
+	}
+	return environment
 }
 
 func gitRepositoryEnvironment(variables map[string]string) map[string]string {

