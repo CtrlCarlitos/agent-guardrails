@@ -132,3 +132,44 @@ func TestPosixStandardDevice(t *testing.T) {
 		}
 	}
 }
+
+// TestPosixDriveToWin32 verifies translation of MSYS/Git-Bash drive paths
+// (/c, /c/, /c/repo) to Win32 paths (C:\, C:\repo) and strict rejection
+// of non-drive POSIX root paths (/etc, /usr, etc.).
+func TestPosixDriveToWin32(t *testing.T) {
+	cases := []struct {
+		input    string
+		wantPath string
+		wantOK   bool
+	}{
+		{"/c", `C:\`, true},
+		{"/c/", `C:\`, true},
+		{"/c/Users", `C:\Users`, true},
+		{"/c/repo/src", `C:\repo\src`, true},
+		{"/d/data", `D:\data`, true},
+		{"/C/repo", `C:\repo`, true},
+		{"/z/test/dir", `Z:\test\dir`, true},
+		// Non-drives must be rejected
+		{"/etc", "", false},
+		{"/usr/bin", "", false},
+		{"/dev/null", "", false},
+		{"/bin/sh", "", false},
+		{"/tmp", "", false},
+		{"/c1", "", false},
+		{"/c1/foo", "", false},
+		{"/1/foo", "", false},
+		{"/", "", false},
+		{"", "", false},
+		{".", "", false},
+		{"./c/foo", "", false},
+		{"c/foo", "", false},
+		{`C:\foo`, "", false},
+	}
+	for _, tt := range cases {
+		gotPath, gotOK := posixDriveToWin32(tt.input)
+		if gotOK != tt.wantOK || gotPath != tt.wantPath {
+			t.Errorf("posixDriveToWin32(%q) = (%q, %v), want (%q, %v)",
+				tt.input, gotPath, gotOK, tt.wantPath, tt.wantOK)
+		}
+	}
+}

@@ -145,7 +145,10 @@ func enablePlaneIntegration(plane string) error {
 		if err := genconfig.WriteCodexRules(path); err != nil {
 			return err
 		}
-		return genconfig.MergePlaneInto(path, plane, genconfig.CodexConfig(binary))
+		if err := genconfig.WriteCodexWrapper(path, binary); err != nil {
+			return err
+		}
+		return genconfig.MergePlaneInto(path, plane, genconfig.CodexConfigFor(path, binary))
 	case "claude":
 		base, err := policy.LoadBase()
 		if err != nil {

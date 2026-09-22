@@ -104,7 +104,11 @@ func syncPlane(plane, dir, binary string, merged *policy.Policy, stdout, stderr 
 			fmt.Fprintln(stderr, safetext.SingleLine(err.Error()))
 			return
 		}
-		if err := genconfig.MergePlaneInto(target, plane, genconfig.CodexConfig(binary)); err != nil {
+		if err := genconfig.WriteCodexWrapper(target, binary); err != nil {
+			fmt.Fprintln(stderr, safetext.SingleLine(err.Error()))
+			return
+		}
+		if err := genconfig.MergePlaneInto(target, plane, genconfig.CodexConfigFor(target, binary)); err != nil {
 			fmt.Fprintln(stderr, safetext.SingleLine(err.Error()))
 			return
 		}

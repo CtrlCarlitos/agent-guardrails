@@ -4,24 +4,34 @@ package engine
 
 import "path/filepath"
 
-// hostCanProbe reports whether the host OS can probe the existence of
-// path using os.Stat.
+// hostProbePath reports whether the host OS can probe the existence of path
+// using os.Stat, and returns the Win32 host path to probe.
 //
-// On Windows only Win32-absolute paths (drive letters such as C:\,
-// UNC paths such as \\server\share) are resolvable through the Win32
-// filesystem APIs used by os.Stat.  POSIX-absolute paths (starting
-// with '/') — including Git Bash / MSYS2 drive-mapped forms such as
-// /c/repo — are not resolvable: os.Stat returns ERROR_FILE_NOT_FOUND
-// regardless of whether the mapped directory exists.
+// On Windows:
+//   - Win32-absolute paths (drive letters such as C:\, UNC paths such as \\server\share)
+//     are probeable as-is.
+//   - MSYS2 / Git-Bash single-letter drive paths (/c, /c/Users/...) are translated
+//     to their Win32 drive forms (C:\, C:\Users\...) via posixDriveToWin32 and can be
+//     probed.
+//   - Non-drive POSIX-absolute paths (/etc, /usr, /dev/null) cannot be probed and return
+//     ("", false).
 //
-// When hostCanProbe returns false, cdDirectoryState must return
-// cdDirectoryUnknown (fail-closed) rather than cdDirectoryMissing,
-// preserving the conservative both-branches-carried behavior.
-//
-// Note: the failure to probe POSIX-absolute paths on Windows is an
-// accepted narrowing (see ADR-0023 §Consequences). Git Bash users whose
-// CWD and RepoRoot are supplied as POSIX drive paths (/c/repo) will
-// receive conservative ask verdicts for all absolute cd targets.
+// When hostProbePath returns false, cdDirectoryState must return cdDirectoryUnknown
+// (fail-closed) rather than cdDirectoryMissing, preserving the conservative
+// both-branches-carried behavior (ADR-0023).
+func hostProbePath(path string) (string, bool) {
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path), true
+	}
+	if winPath, ok := posixDriveToWin32(path); ok {
+		return filepath.Clean(winPath), true
+	}
+	return "", false
+}
+
+// hostCanProbe reports whether the host OS can probe the existence of path
+// using os.Stat.
 func hostCanProbe(path string) bool {
-	return filepath.IsAbs(path)
+	_, ok := hostProbePath(path)
+	return ok
 }

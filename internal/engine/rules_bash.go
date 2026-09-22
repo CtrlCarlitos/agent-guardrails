@@ -1646,13 +1646,21 @@ func resolvePath(p, cwd string) string {
 	if strings.HasPrefix(p, "~") {
 		return p // treat "~" as outside any safe root; do not expand
 	}
-	if filepath.IsAbs(p) || cwd == "" {
-		return p
+	normalizedP := p
+	if hp, ok := hostProbePath(p); ok && filepath.IsAbs(hp) {
+		normalizedP = hp
 	}
-	if os.IsPathSeparator(cwd[len(cwd)-1]) {
-		return cwd + p
+	if filepath.IsAbs(normalizedP) || cwd == "" {
+		return normalizedP
 	}
-	return cwd + string(filepath.Separator) + p
+	normalizedCwd := cwd
+	if hp, ok := hostProbePath(cwd); ok && filepath.IsAbs(hp) {
+		normalizedCwd = hp
+	}
+	if os.IsPathSeparator(normalizedCwd[len(normalizedCwd)-1]) {
+		return normalizedCwd + normalizedP
+	}
+	return normalizedCwd + string(filepath.Separator) + normalizedP
 }
 
 func simpleCwd(s Simple, tc ToolCall) string {

@@ -62,7 +62,7 @@ const SPAWN_BASE_TIMEOUT_MS = 15000;
 // evidence. Everything else — including a reachable engine that denies,
 // exits non-zero, or returns garbage — still fails closed.
 const DEGRADED_ALLOW_TOOLS = new Set("__DEGRADED_ALLOW_TOOLS__");
-const DEGRADED_PROBE_TIMEOUT_MS = 5000;
+const DEGRADED_PROBE_TIMEOUT_MS = process.platform === "win32" ? 15000 : 5000;
 const degradedAllowReports = [];
 
 // ADR-0022 floor fallback: ReadDiscovery and Mutation tools proceed under
@@ -94,7 +94,7 @@ function callGuardrail(envelope) {
 			degradedAllowReports.push({ tool: envelope.tool, call_id: envelope.call_id || "", ts: new Date().toISOString() });
 			logPluginFailure("degraded-allow", envelope.tool, res.error.message);
 			process.stderr.write(`[guardrail: engine unreachable; degraded allow for ${envelope.tool} — enforcement is offline for this call]\n`);
-			return { decision: "allow", reason: `guardrail: engine unreachable; degraded allow for ${envelope.tool} — enforcement is offline for this call` };
+			return { decision: "allow" };
 		}
 		// The engine answered: fall through to shared handling — a deny or a
 		// malformed response must still fail closed, question included.
