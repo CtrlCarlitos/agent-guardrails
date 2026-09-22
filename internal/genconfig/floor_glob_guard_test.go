@@ -4,20 +4,14 @@ import (
 	"sort"
 	"strings"
 	"testing"
-
-	"github.com/bmatcuk/doublestar/v4"
 )
 
 // A floor glob that matches nothing is worse than a missing one: it reads
-// correct in review, appears in the golden file, and stops nothing. #232 found
-// the first instance — `gh repo delete*` does not match
-// `gh repo delete owner/repo`, because `*` does not cross a path separator and
-// a pattern containing no slash cannot match a subject that does.
+// correct in review, appears in the golden file, and stops nothing.
 //
 // This guard generalises that check. Every deny and ask glob is paired with the
 // command it exists to stop, and a glob that does not match its own example
-// fails the build unless it is listed as known-broken with the issue tracking
-// it.
+// fails the build.
 //
 // Scope is deliberately the deny and ask lists. An allow glob that matches
 // nothing merely fails to grant an exemption, which is fail-closed; a deny or
@@ -37,8 +31,8 @@ var floorExamples = map[string]string{
 	"rm -f -r /": "rm -f -r /", "rm -f -r ~": "rm -f -r ~",
 	"rm -f -r .": "rm -f -r .", "rm -f -r ..": "rm -f -r ..",
 
-	// Device and filesystem destroyers. Every one of these takes a device
-	// path, which is exactly where the separator problem bites.
+	// Device and filesystem destroyers. Their path-bearing examples pin the
+	// command matcher's host semantics: `*` crosses separators.
 	"dd *":     "dd if=/dev/zero of=/dev/sda",
 	"mkfs*":    "mkfs.ext4 /dev/sda1",
 	"wipefs *": "wipefs -a /dev/sda",
@@ -64,9 +58,9 @@ var floorExamples = map[string]string{
 	"git filter-branch*": "git filter-branch --all",
 	"git filter-repo*":   "git filter-repo --force",
 
-	// Git config keys that turn a repo into an execution vector. Each is
-	// listed twice upstream, once for a bare value and once for an absolute
-	// path, which is the existing workaround for the separator problem.
+	// Git config keys that turn a repo into an execution vector. The existing
+	// floor carries both bare-value and absolute-path spellings, so both stay
+	// represented here even though command `*` crosses separators.
 	"git config core.hooksPath *":    "git config core.hooksPath hooks",
 	"git config core.hooksPath /**":  "git config core.hooksPath /tmp/evil",
 	"git config core.fsmonitor *":    "git config core.fsmonitor evil",
@@ -110,9 +104,8 @@ var floorExamples = map[string]string{
 	"gh api --method {,**}":  "gh api --method DELETE repos/o/r/x",
 	"gh repo delete{,**}":    "gh repo delete owner/repo --yes",
 
-	// Porcelain families (#228). Each example carries a slash-bearing or
-	// flag-bearing argument where the real command would, so the guard is
-	// checking the case that broke `gh repo delete*`.
+	// Porcelain families (#228). Each example carries a realistic slash-bearing
+	// or flag-bearing argument so the guard exercises raw command text.
 	"gh secret set{,**}":      "gh secret set MY_TOKEN --repo owner/repo",
 	"gh secret delete{,**}":   "gh secret delete MY_TOKEN --repo owner/repo",
 	"gh variable set{,**}":    "gh variable set MY_VAR --body xyz",
@@ -170,48 +163,6 @@ var floorExamples = map[string]string{
 	"go get *":        "go get example.com/x",
 }
 
-// knownUnmatchedFloorGlobs are globs that do not match their own example.
-//
-// Every one fails for the same reason: `*` does not cross a path separator in
-// this matcher, and the command each exists to stop takes a path, URL or
-// dotted-path argument. They are recorded rather than fixed here because
-// changing them alters what the floor stops on both planes at once, and
-// because the right replacement depends on the production matchers' real
-// semantics, which cannot be established from inside this repo. A rewrite
-// tuned to the wrong model would be worse than this list: it would look fixed.
-//
-// Tracked in #244, which carries the evidence and the order of work.
-//
-// Shrinking this map is the fix. Adding to it needs a reason, and the guard
-// makes a 24th entry a deliberate act rather than an accident.
-const separatorReason = "#244: `*` does not cross a path separator and the argument is a path"
-
-var knownUnmatchedFloorGlobs = map[string]string{
-	"sudo *":                     separatorReason,
-	"doas *":                     separatorReason,
-	"dd *":                       separatorReason,
-	"mkfs*":                      separatorReason,
-	"wipefs *":                   separatorReason,
-	"shred *":                    separatorReason,
-	"srm *":                      separatorReason,
-	"chmod -R *":                 separatorReason,
-	"chmod 777 *":                separatorReason,
-	"chmod -R 777 *":             separatorReason,
-	"chown -R *":                 separatorReason,
-	"truncate *":                 separatorReason,
-	"rm *guardrail/sessions/*":   separatorReason,
-	`rm *guardrail\sessions\*`:   separatorReason,
-	"pip install --index-url*":   separatorReason,
-	"pip3 install --index-url*":  separatorReason,
-	"npm install --registry*":    separatorReason,
-	"git remote add *":           separatorReason,
-	"git remote set-url *":       separatorReason,
-	"git config includeIf.* *":   separatorReason,
-	"git config includeIf.* /**": separatorReason,
-	"go install *":               separatorReason,
-	"go get *":                   separatorReason,
-}
-
 func floorGuardGlobs(t *testing.T) []string {
 	t.Helper()
 	var out []string
@@ -244,19 +195,8 @@ func TestEveryFloorGlobMatchesItsExample(t *testing.T) {
 		if !ok {
 			continue // reported by TestEveryFloorGlobHasAnExample
 		}
-		matched, err := doublestar.Match(pattern, example)
-		if err != nil {
-			t.Errorf("floor glob %q is not a valid pattern: %v", pattern, err)
-			continue
-		}
-		reason, known := knownUnmatchedFloorGlobs[pattern]
-		switch {
-		case matched && known:
-			t.Errorf("floor glob %q now matches %q -- remove it from knownUnmatchedFloorGlobs", pattern, example)
-		case !matched && !known:
+		if !commandGlobMatches(pattern, example) {
 			t.Errorf("floor glob %q does not match its own example %q -- it will not stop the thing it is for", pattern, example)
-		case !matched && known:
-			t.Logf("known unmatched: %q vs %q -- %s", pattern, example, reason)
 		}
 	}
 }
@@ -284,11 +224,6 @@ func TestFloorExamplesHaveNoStaleEntries(t *testing.T) {
 	for pattern := range floorExamples {
 		if !live[pattern] {
 			t.Errorf("floorExamples has %q, which is no longer a floor glob", pattern)
-		}
-	}
-	for pattern := range knownUnmatchedFloorGlobs {
-		if !live[pattern] {
-			t.Errorf("knownUnmatchedFloorGlobs has %q, which is no longer a floor glob", pattern)
 		}
 	}
 }

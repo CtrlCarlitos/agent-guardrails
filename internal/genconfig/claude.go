@@ -62,11 +62,10 @@ func bashDenyGlobs() []string {
 // `gh` is how the fleet checks CI, and prompting on every view trains people
 // to click through the prompts that matter.
 //
-// The `{,**}` shape is load-bearing rather than decorative. `*` does not cross
-// a path separator in the permission matcher, so the obvious `gh repo delete*`
-// silently fails to match `gh repo delete owner/repo` — the single most likely
-// spelling of the command it exists to stop. Measured, not assumed; the brace
-// alternation matches both the bare subcommand and any slash-bearing argument.
+// The `{,**}` spellings predate #244 and remain unchanged by that test-model
+// correction. Both hosts make `*` cross separators; compatibility of Claude's
+// brace syntax with OpenCode's narrower command grammar is tracked in #270 and
+// must be verified per plane rather than inferred from this shared source.
 func ghAskGlobs() []string {
 	return []string{
 		"Bash(gh pr merge{,**})",
@@ -74,13 +73,11 @@ func ghAskGlobs() []string {
 		"Bash(gh release delete{,**})",
 		"Bash(gh workflow run{,**})",
 		// `gh api` is only partly expressible here, and the limit is stated
-		// rather than papered over: the method lives in a flag, the endpoint
-		// carries slashes, and a glob cannot see past the first slash. These
-		// two catch a method flag written *before* the endpoint. The forms
-		// that put the endpoint first — `gh api repos/o/r -X POST`, and every
-		// implicit-POST `-f`/`--input` spelling — are not matched by any glob
-		// that does not also match every read, so they are left to the Engine
-		// (#228) instead of being faked.
+		// rather than papered over: a glob can match a method flag written
+		// *before* the endpoint, but cannot reorder tokens or infer an implicit
+		// POST. Endpoint-first forms such as `gh api repos/o/r -X POST`, plus
+		// `-f`/`--input` spellings, stay with the Engine (#228) instead of being
+		// faked by a glob that would also match reads.
 		"Bash(gh api -X {,**})",
 		"Bash(gh api --method {,**})",
 
