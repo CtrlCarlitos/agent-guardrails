@@ -5,6 +5,39 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Fix (#228): rewriting a GitHub protection through `gh api` now asks.** An
+  agent running under the operator's `gh` login holds the operator's full
+  repo-admin authority, and every GitHub-side protection is editable by that
+  same token -- so the protections do not bind the agent, which can remove a
+  protection and then do the thing it blocked. #228 records this happening: a
+  session rewrote this repository's `main` ruleset bypass actors, created a tag
+  ruleset, changed the Actions permissions policy and enabled immutable
+  releases, all through plain `gh api`, all evaluated as ordinary commands.
+  All six of those calls, and their inverses that remove the protections,
+  now ask.
+  The floor's glob pair (#232) could not reach this and the gap was documented
+  there: the method lives in a flag, the endpoint carries slashes, and a glob
+  does not cross a separator -- measured, the method-aware globs caught 2 of 6
+  mutating spellings while the only shape catching all six also matched every
+  read. The Engine parses the method instead, which is the point of having a
+  precise layer. `gh api` defaults to GET, an explicit `-X`/`--method` wins,
+  and a body flag (`-f`, `-F`, `--field`, `--raw-field`, `--input`) implies a
+  POST with no method flag present anywhere in the command -- the inference a
+  glob cannot make, pinned by its own test.
+  **Reads stay allow**, including an explicit `-X GET`, `--paginate` and
+  `--jq`: auditing these endpoints is routine, and a rule that prompts on
+  inspection is how an operator learns to stop reading the prompts. Ordinary
+  mutations stay allow too -- posting an issue comment is not an admin act.
+  Path spellings do not evade it: a leading slash, a full `https://api.github.com`
+  URL, `--hostname` for GHES and mixed case all normalise to one comparison. A
+  `gh api graphql` call whose query text contains `mutation` asks, which is
+  #228's stated minimum bar for the transport that can perform the same
+  mutations behind a path that says nothing.
+  Deliberately an ask and not a deny, per #228's non-goals: the operator may
+  change their own settings, they just have to be the one deciding. The
+  porcelain families (`gh secret set`, `gh repo edit`, `gh auth switch`,
+  env-prefixed tokens) and the other transports (`curl` to `api.github.com`)
+  are the rest of #228 and are not handled here.
 - **`guardrail audit --verdicts`: what the guard decided, not just that it
   ran.** The evidence gate answers "is the guard present" -- it counts records
   and looks for two pre-hook records in one real session. A guard that runs and

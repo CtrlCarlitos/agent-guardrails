@@ -150,6 +150,7 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 		takeSimple(checkGit(s))
 		takeSimple(checkGitSafety(s, tc))
 		takeSimple(checkDocker(s, tc.Command))
+		takeSimple(checkGhAPIProtection(s))
 		if head(s.Argv) != "find" {
 			takeSimple(checkAskTierWithFindFSExemption(s, tc, pol, findFSExemption))
 		}
