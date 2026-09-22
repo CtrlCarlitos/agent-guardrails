@@ -791,10 +791,14 @@ func checkDestinationWrites(s Simple, tc ToolCall, pol *policy.Policy) *policy.V
 			if authorized {
 				continue
 			}
-			if lexical || candidate.cwdUnknown && !filepath.IsAbs(source) {
+			hostSource, mapped := hostPathForCandidate(candidate, tc.RepoRoot)
+			if !mapped {
+				return ask("P1.out-of-repo-write", "moves a source outside the repo and configured safe roots: "+source)
+			}
+			if lexical || candidate.cwdUnknown && !filepath.IsAbs(hostSource) {
 				return ask("P1.out-of-repo-write", "moves a source that resolves outside the repo and configured safe roots: "+source)
 			}
-			resolved := resolvePath(source, cwd)
+			resolved := resolvePath(hostSource, cwd)
 			if _, err := os.Lstat(resolved); !os.IsNotExist(err) {
 				return ask("P1.out-of-repo-write", "moves a source outside the repo and configured safe roots: "+source)
 			}
@@ -834,13 +838,9 @@ func authorizedPath(candidate pathCandidate, repoRoot string, safeRoots, strictR
 	// coordinates; folding only one side of it would be the same mistranslation
 	// in the other direction.  On Linux and macOS the host dialect is POSIX and
 	// this is the identity by construction.
-	candidatePath := candidate.path
-	if candidate.posix && !unmappablePosixAbsolute(repoRoot) {
-		host, mapped := hostPathForPosix(candidatePath)
-		if !mapped {
-			return false, false
-		}
-		candidatePath = host
+	candidatePath, mapped := hostPathForCandidate(candidate, repoRoot)
+	if !mapped {
+		return false, false
 	}
 	target, err := filepath.Abs(resolvePath(candidatePath, candidate.cwd))
 	if err != nil {
@@ -911,6 +911,13 @@ func authorizedPath(candidate pathCandidate, repoRoot string, safeRoots, strictR
 		}
 	}
 	return false, lexical
+}
+
+func hostPathForCandidate(candidate pathCandidate, repoRoot string) (string, bool) {
+	if candidate.posix && !unmappablePosixAbsolute(repoRoot) {
+		return hostPathForPosix(candidate.path)
+	}
+	return candidate.path, true
 }
 
 func systemTempRoots() []string {

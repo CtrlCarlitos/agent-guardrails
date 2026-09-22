@@ -996,15 +996,16 @@ func TestDestinationWritesToOSTempFromInRepoRemainAllowed(t *testing.T) {
 	}
 }
 
-func TestMoveFromOutsideSafeRootsToOSTempAsks(t *testing.T) {
+func TestWindowsAndPosixMoveFromOutsideSafeRootsToOSTempAsks(t *testing.T) {
 	temp := filepath.Join(os.TempDir(), "agent-guardrails-task7")
+	repo := dialectRepoRoot()
 	commands := []string{
 		fmt.Sprintf(`mv /etc %q`, filepath.Join(temp, "gone")),
 		fmt.Sprintf(`mv --suffix .bak /etc %q`, filepath.Join(temp, "gone")),
 		fmt.Sprintf(`mv --target-directory %q /etc`, temp),
 	}
 	for _, command := range commands {
-		v := evalBash(t, command)
+		v := checkBash(ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, bashPol())
 		if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.out-of-repo-write" {
 			t.Errorf("%q -> %+v, want ask/P1.out-of-repo-write", command, v)
 		}
