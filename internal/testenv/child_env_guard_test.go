@@ -18,6 +18,12 @@ func TestWindowsChildProcessRootEnvUsesSharedHelper(t *testing.T) {
 	}
 	err := filepath.WalkDir(repoRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			// A concurrent package's temp directory can vanish mid-walk; the
+			// suite runs packages in parallel. Same tolerance the exe-suffix
+			// guard adopted in #182.
+			if os.IsNotExist(walkErr) {
+				return nil
+			}
 			return walkErr
 		}
 		if entry.IsDir() {
@@ -31,6 +37,11 @@ func TestWindowsChildProcessRootEnvUsesSharedHelper(t *testing.T) {
 		}
 		source, err := os.ReadFile(path)
 		if err != nil {
+			// The entry was listed before the read; only a concurrent
+			// removal explains the gap, and it is not a policy violation.
+			if os.IsNotExist(err) {
+				return nil
+			}
 			return err
 		}
 		files := token.NewFileSet()
