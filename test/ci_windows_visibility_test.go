@@ -191,8 +191,9 @@ func TestWindowsFullSuiteObservabilityJobIsUnfilteredAndNonblocking(t *testing.T
 	}
 	for _, want := range []string{
 		"\n    runs-on: windows-latest\n",
-		"\n    continue-on-error: true\n",
 		"\n        run: go test ./...\n",
+		"\n        continue-on-error: true\n",
+		"steps.full-suite.outcome == 'failure'",
 	} {
 		if !strings.Contains(block, want) {
 			t.Errorf("windows-portability job does not contain %q:\n%s", want, block)
@@ -200,6 +201,9 @@ func TestWindowsFullSuiteObservabilityJobIsUnfilteredAndNonblocking(t *testing.T
 	}
 	if strings.Contains(block, "-run ") {
 		t.Errorf("windows-portability job filters test names instead of exposing the full suite:\n%s", block)
+	}
+	if strings.Contains(block, "\n    continue-on-error: true\n") {
+		t.Errorf("job-level continuation leaves a red PR check; continuation must live on the full-suite step:\n%s", block)
 	}
 }
 

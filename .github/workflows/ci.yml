@@ -107,10 +107,9 @@ jobs:
 
   windows-portability:
     # Full-suite Windows visibility while the portability sweep is still
-    # converging. Individual failures stay visible in this job's logs, but the
-    # job does not gate merges until the complete suite is portable.
+    # converging. The suite step retains its failure outcome for the warning
+    # below, while its continuation keeps this check green and nonblocking.
     runs-on: windows-latest
-    continue-on-error: true
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -119,4 +118,13 @@ jobs:
           go-version-file: go.mod
           check-latest: true
       - name: full Windows suite (nonblocking)
+        id: full-suite
         run: go test ./...
+        continue-on-error: true
+      - name: report Windows portability failures
+        if: steps.full-suite.outcome == 'failure'
+        shell: pwsh
+        run: |
+          Write-Host "::warning title=Windows portability suite::The full Windows suite has failures. Inspect the preceding full-suite step."
+          "### Windows portability suite" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          "The unfiltered Windows suite has failures. Inspect the **full Windows suite (nonblocking)** step for the package and test inventory." | Add-Content -Path $env:GITHUB_STEP_SUMMARY
