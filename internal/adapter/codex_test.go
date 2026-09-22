@@ -86,6 +86,59 @@ func TestCodexRetainsDeclaredNormalizedAndContractIdentities(t *testing.T) {
 	}
 }
 
+func TestWindowsCodexCollaborationDottedIdentities(t *testing.T) {
+	cases := []struct {
+		tool       string
+		input      any
+		capability policy.Capability
+		decision   policy.Decision
+	}{
+		{"collaboration.spawn_agent", map[string]any{"task_name": "probe", "message": "work"}, policy.CapabilityDelegation, policy.Deny},
+		{"collaboration.send_message", map[string]any{"target": "/root/probe", "message": "hello"}, policy.CapabilityDelegation, policy.Deny},
+		{"collaboration.followup_task", map[string]any{"target": "/root/probe", "message": "work"}, policy.CapabilityDelegation, policy.Deny},
+		{"collaboration.interrupt_agent", map[string]any{"target": "/root/probe"}, policy.CapabilitySafeControl, policy.Allow},
+		{"collaboration.list_agents", map[string]any{}, policy.CapabilitySafeControl, policy.Allow},
+		{"collaboration.wait_agent", map[string]any{"timeout_ms": 1000}, policy.CapabilitySafeControl, policy.Allow},
+	}
+	for _, tt := range cases {
+		t.Run(tt.tool, func(t *testing.T) {
+			tc, err := ParseCodex(strings.NewReader(codexEnvelope(t.TempDir(), tt.tool, tt.input)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.NativeTool != tt.tool || tc.Tool != tt.tool || tc.Capability != tt.capability {
+				t.Fatalf("tool call = %+v, want native/normalized %q and capability %q", tc, tt.tool, tt.capability)
+			}
+			verdict := engine.Evaluate(tc, &policy.Policy{})
+			if verdict.Decision != tt.decision {
+				t.Fatalf("verdict = %+v, want %q", verdict, tt.decision)
+			}
+			if tt.capability == policy.CapabilityDelegation {
+				if verdict.RuleID != "capability-delegation-unverified" {
+					t.Fatalf("verdict = %+v, want capability-delegation-unverified", verdict)
+				}
+				var out, errb bytes.Buffer
+				if code := EmitCodex(verdict, "pre", tc, &out, &errb); code != 2 || !strings.Contains(errb.String(), "perform the work yourself") {
+					t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errb.String())
+				}
+			}
+		})
+	}
+}
+
+func TestWindowsCodexCollaborationResumeAgentStaysUnknownWithoutRuntimeEvidence(t *testing.T) {
+	tc, err := ParseCodex(strings.NewReader(codexEnvelope(t.TempDir(), "collaboration.resume_agent", map[string]any{"target": "/root/probe"})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc.Capability != policy.CapabilityUnknown {
+		t.Fatalf("capability = %q, want unknown until a runtime capture proves this identity", tc.Capability)
+	}
+	if verdict := engine.Evaluate(tc, &policy.Policy{}); verdict.Decision != policy.Deny || verdict.RuleID != "unknown-native-tool" {
+		t.Fatalf("verdict = %+v, want deny/unknown-native-tool", verdict)
+	}
+}
+
 func TestCodexEmitNeverReturnsUnsupportedAsk(t *testing.T) {
 	for _, decision := range []policy.Decision{policy.Allow, policy.Ask, policy.Deny, policy.Complete} {
 		var out, errb bytes.Buffer

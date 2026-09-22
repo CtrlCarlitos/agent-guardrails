@@ -5,6 +5,30 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Fix (#235): credentialed CLIs are classified before they publish, deploy or
+  bill.** `npm publish`, `docker push`, `kubectl apply`, `terraform apply`,
+  `vercel --prod` and their families act with authority the agent never reads --
+  the token lives in a keychain, a kubeconfig, or an inherited environment --
+  and none of them touch the working tree, so nothing else in the Engine saw
+  them. Same projection shape as the PowerShell and cmd.exe work: classify the
+  subcommand, hand the verdict to the family that owns the risk.
+  Rule ids are per family (`P6.publish`, `P6.cluster-mutate`, `P6.cloud-mutate`,
+  `P6.deploy`) rather than one blob, so an operator running a Kubernetes dev
+  loop does not have to waive `npm publish` to do it, and so the per-rule
+  verdict profile stays readable.
+  Reads stay allow throughout, and the read twins are the larger half of the
+  test set: `kubectl get`, `aws ec2 describe-instances`, `docker pull`,
+  `terraform plan`, `helm list`, `npm view`. Those are how somebody inspects
+  the system they are about to change, and gating them is how an operator
+  learns to click through the prompts that matter. `--dry-run` stays allow for
+  the same reason: the CLI guarantees no side effect, so the gate has nothing
+  to protect. A local Kubernetes context (`kind-…`, `minikube`,
+  `docker-desktop`, `k3d-…`, `rancher-desktop`) stays allow; an unstated
+  context asks, because the safe reading of "I cannot tell which cluster" is
+  not "it is fine".
+  Cloud CLIs use a read allowlist rather than a mutation list -- enumerating
+  every mutating operation across aws, gcloud and az is not tractable, and
+  unknown-means-ask is the direction a billing mistake should fail in.
 - **Fix (#129): an Ask now says which approval path applies.** Deny verdicts
   already carried a per-rule continuation; Ask verdicts had one generic
   sentence for every rule, and "request authorization" reads to a model as
