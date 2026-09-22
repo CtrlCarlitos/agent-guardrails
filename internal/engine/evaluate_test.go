@@ -218,6 +218,52 @@ func TestEvaluateWaivedOverlayRuleStillAllows(t *testing.T) {
 	}
 }
 
+// Ruling: when a built-in rule and an Overlay rule match the same command,
+// the more restrictive Verdict wins (deny > ask > allow) regardless of which
+// layer produced it. An Overlay may tighten a built-in but never loosen one.
+// At equal severity the built-in's rule ID reports (Evaluate keeps the first
+// hit). An operator-authorized Waiver clears either layer by rule ID, after
+// which the surviving layer's posture governs.
+func TestBuiltInAndOverlayVerdictsCombineBySeverity(t *testing.T) {
+	overlay := func(t *testing.T, decision policy.Decision) *policy.Policy {
+		t.Helper()
+		p := fullPol()
+		p.Rules = append(p.Rules, policy.Rule{ID: "proj.deploy", Pattern: "terraform apply*", Decision: decision, Reason: "project deploy posture"})
+		return p
+	}
+	tc := ToolCall{Tool: "Bash", Command: "terraform apply", CWD: "/repo", RepoRoot: "/repo"}
+
+	t.Run("overlay cannot loosen a built-in ask", func(t *testing.T) {
+		v := Evaluate(tc, overlay(t, policy.Allow))
+		if v.Decision != policy.Ask || v.RuleID != "P6.cloud-mutate" {
+			t.Fatalf("built-in ask + overlay allow -> %+v, want ask/P6.cloud-mutate", v)
+		}
+	})
+
+	t.Run("overlay can tighten a built-in ask", func(t *testing.T) {
+		v := Evaluate(tc, overlay(t, policy.Deny))
+		if v.Decision != policy.Deny || v.RuleID != "proj.deploy" {
+			t.Fatalf("built-in ask + overlay deny -> %+v, want deny/proj.deploy", v)
+		}
+	})
+
+	t.Run("equal severity reports the built-in rule id", func(t *testing.T) {
+		v := Evaluate(tc, overlay(t, policy.Ask))
+		if v.Decision != policy.Ask || v.RuleID != "P6.cloud-mutate" {
+			t.Fatalf("built-in ask + overlay ask -> %+v, want ask/P6.cloud-mutate", v)
+		}
+	})
+
+	t.Run("waived built-in falls through to the overlay posture", func(t *testing.T) {
+		p := overlay(t, policy.Allow)
+		p.Waived["P6.cloud-mutate"] = true
+		v := Evaluate(tc, p)
+		if v.Decision != policy.Allow {
+			t.Fatalf("waived built-in + overlay allow -> %+v, want allow", v)
+		}
+	})
+}
+
 func TestDelegationInheritsEnforcementOnInProcessPlanes(t *testing.T) {
 	for _, plane := range []string{"opencode", "claude", "antigravity"} {
 		v := Evaluate(ToolCall{Plane: plane, NativeTool: "task", Capability: policy.CapabilityDelegation}, fullPol())
