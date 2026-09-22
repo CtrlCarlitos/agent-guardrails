@@ -151,6 +151,7 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 		takeSimple(checkGitSafety(s, tc))
 		takeSimple(checkDocker(s, tc.Command))
 		takeSimple(checkGhAPIProtection(s))
+		takeSimple(checkGhPorcelain(s))
 		takeSimple(checkGoToolchain(s))
 		takeSimple(checkCredentialedCLI(s))
 		if head(s.Argv) != "find" {
