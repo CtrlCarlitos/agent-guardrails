@@ -13,7 +13,11 @@ func fullPol() *policy.Policy {
 	p := pathPol()
 	p.Slots.SafeRoots = []string{"/repo/tmp"}
 	p.Rules = []policy.Rule{
-		{ID: "proj.tf", Pattern: "terraform apply*", Decision: policy.Ask, Reason: "infra"},
+		// Deliberately a command with no built-in rule. The fixture used
+		// `terraform apply*` until #235 gave terraform a built-in verdict,
+		// at which point both overlay tests below started measuring the
+		// built-in instead of the overlay they exist to test.
+		{ID: "proj.tf", Pattern: "projdeploy sync*", Decision: policy.Ask, Reason: "infra"},
 	}
 	return p
 }
@@ -28,7 +32,7 @@ func TestEvaluate(t *testing.T) {
 		{ToolCall{Tool: "Bash", Command: "rm -rf /", CWD: "/repo", RepoRoot: "/repo"}, policy.Deny, "P1.rm-rf"},
 		{ToolCall{Tool: "Read", Paths: []string{"/h/.ssh/id_rsa"}}, policy.Deny, "P4.secret-path"},
 		{ToolCall{Tool: "Bash", Command: "chmod -R 777 /repo", CWD: "/repo", RepoRoot: "/repo"}, policy.Ask, "P1.chmod"},
-		{ToolCall{Tool: "Bash", Command: "terraform apply -auto-approve", CWD: "/repo", RepoRoot: "/repo"}, policy.Ask, "proj.tf"},
+		{ToolCall{Tool: "Bash", Command: "projdeploy sync --now", CWD: "/repo", RepoRoot: "/repo"}, policy.Ask, "proj.tf"},
 		{ToolCall{Tool: "Bash", Command: `echo "oops`, CWD: "/repo", RepoRoot: "/repo"}, policy.Ask, "tokenize-failed"},
 	}
 	for _, c := range cases {
@@ -208,7 +212,7 @@ func TestEvaluateStrongestUnwaivedSecretTierOnSameForm(t *testing.T) {
 func TestEvaluateWaivedOverlayRuleStillAllows(t *testing.T) {
 	p := fullPol()
 	p.Waived["proj.tf"] = true
-	tc := ToolCall{Tool: "Bash", Command: "terraform apply -auto-approve", CWD: "/repo", RepoRoot: "/repo"}
+	tc := ToolCall{Tool: "Bash", Command: "projdeploy sync --now", CWD: "/repo", RepoRoot: "/repo"}
 	if v := Evaluate(tc, p); v.Decision != policy.Allow {
 		t.Fatalf("waived Overlay rule -> %+v, want allow", v)
 	}
