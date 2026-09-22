@@ -144,14 +144,18 @@ func printCodexEvidence(path, sessionsRoot string, cutoff, now time.Time, opts c
 	if scanErr == nil {
 		evidence, scanErr = audit.ReadCodexEvidenceFiltered(segments, cutoff, now, selectedID, opts.ExpectedTools)
 	}
-	fmt.Fprintf(stdout, "segments=%d records=%d codex=%d synthetic=%d stale=%d rejected=%d other_sessions=%d duplicates=%d malformed=%d eligible=%d sessions=%d qualifying_sessions=%d\n",
-		len(segments), evidence.Records, evidence.Codex, evidence.Synthetic, evidence.Stale, evidence.Rejected, evidence.OtherSessions, evidence.Duplicates, evidence.Malformed, evidence.Eligible, evidence.Sessions, evidence.QualifiedSessions)
+	fmt.Fprintf(stdout, "segments=%d records=%d codex=%d selected=%d synthetic=%d stale=%d rejected=%d other_sessions=%d duplicates=%d malformed=%d eligible=%d sessions=%d qualifying_sessions=%d\n",
+		len(segments), evidence.Records, evidence.Codex, evidence.Selected, evidence.Synthetic, evidence.Stale, evidence.Rejected, evidence.OtherSessions, evidence.Duplicates, evidence.Malformed, evidence.Eligible, evidence.Sessions, evidence.QualifiedSessions)
 	fmt.Fprintf(stdout, "observed_tools=%s\n", evidenceList(evidence.ObservedTools))
 	fmt.Fprintf(stdout, "expected_tools=%s\n", evidenceList(opts.ExpectedTools))
 	fmt.Fprintf(stdout, "missing_expected_tools=%s\n", evidenceList(evidence.MissingExpectedTools))
 	fmt.Fprintln(stdout, "note: heuristic only; two distinct pre-hook records in one non-synthetic session do not prove runtime provenance or complete tool mediation")
 	fmt.Fprintln(stdout, "note: selected session evidence does not verify hosted tools or write_stdin; only explicitly expected tools are asserted")
 	if selected != nil && evidence.Eligible == 0 {
+		if sessionErr == nil && scanErr == nil && evidence.Malformed == 0 && evidence.Selected == 0 {
+			fmt.Fprintln(stdout, "diagnostic class: transport")
+			fmt.Fprintf(stdout, "raw evidence: session=%s hook_records=0\n", safetext.SingleLine(selected.ID))
+		}
 		if opts.SessionID == "" {
 			fmt.Fprintln(stdout, "codex: newest known Codex session is silent in the selected audit window")
 		} else {

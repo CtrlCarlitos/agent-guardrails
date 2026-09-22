@@ -98,16 +98,17 @@ func TestCodexHookBlocksAskAndMalformedAndDelegation(t *testing.T) {
 		tool   string
 		input  any
 		reason string
+		class  string
 	}{
-		{"Bash", map[string]any{"command": "chmod 777 file.txt"}, "cannot request approval"},
-		{"spawn_agent", map[string]any{"message": "work"}, "perform the work yourself"},
-		{"future_tool", map[string]any{}, "unclassified"},
-		{"Bash", map[string]any{"command": 3}, "failing closed"},
+		{"Bash", map[string]any{"command": "chmod 777 file.txt"}, "cannot request approval", "policy denial"},
+		{"spawn_agent", map[string]any{"message": "work"}, "perform the work yourself", "policy denial"},
+		{"future_tool", map[string]any{}, "unclassified", "policy denial"},
+		{"Bash", map[string]any{"command": 3}, "failing closed", "handler failure"},
 	} {
 		t.Run(tt.tool, func(t *testing.T) {
 			raw, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "session_id": "fixture", "cwd": cwd, "tool_name": tt.tool, "tool_input": tt.input})
 			var out, errb bytes.Buffer
-			if code := run([]string{"hook", "codex"}, bytes.NewReader(raw), &out, &errb); code != 2 || !strings.Contains(errb.String(), tt.reason) {
+			if code := run([]string{"hook", "codex"}, bytes.NewReader(raw), &out, &errb); code != 2 || !strings.Contains(errb.String(), tt.reason) || !strings.Contains(errb.String(), "guardrail: "+tt.class+":") {
 				t.Fatalf("code %d: %s %s", code, out.String(), errb.String())
 			}
 		})

@@ -3,25 +3,18 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/binary"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
-	"unicode/utf16"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
 )
 
 func TestDoctorCodexHooksReportsIndependentStagesAndDecodedCommand(t *testing.T) {
 	dir := t.TempDir()
 	hooksPath := filepath.Join(dir, "hooks.json")
-	decoded := `& 'C:\Users\Agent User\.local\bin\guardrail.exe' hook codex; exit $LASTEXITCODE`
-	encoded := encodeUTF16LEForTest(decoded)
-	command := "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand " + encoded + " || (echo guardrail: evaluator unavailable or blocked; continue independent work. 1>&2 & exit /b 2)"
-	posixCommand := "'guardrail' hook codex || { printf '%s\\\\n' 'guardrail: evaluator unavailable or blocked; continue independent work.' >&2; exit 2; }"
-	writePlaneSettings(t, hooksPath, `{"hooks":{`+
-		`"PreToolUse":[{"id":"guardrail-codex-PreToolUse","matcher":"*","hooks":[{"type":"command","command":"`+posixCommand+`","commandWindows":"`+command+`"}]}],`+
-		`"PostToolUse":[{"id":"guardrail-codex-PostToolUse","matcher":"^apply_patch$","hooks":[{"type":"command","command":"`+posixCommand+`","commandWindows":"`+command+`"}]}],`+
-		`"SessionStart":[{"id":"guardrail-codex-SessionStart","matcher":"*","hooks":[{"type":"command","command":"`+posixCommand+`","commandWindows":"`+command+`"}]}]}}`)
+	command := writeCodexDiagnosticConfig(t, hooksPath, `C:\Users\Agent User\.local\bin\guardrail.exe`)
 
 	oldTrust, oldProbe, oldObservation := codexTrustInspector, codexHandlerProbe, codexRuntimeObserver
 	t.Cleanup(func() {
@@ -35,7 +28,7 @@ func TestDoctorCodexHooksReportsIndependentStagesAndDecodedCommand(t *testing.T)
 		}, nil
 	}
 	codexHandlerProbe = func(context.Context, string, string) codexHandlerProbeResult {
-		return codexHandlerProbeResult{Started: true, ExitCode: 2, Stderr: "guardrail: malformed Codex hook payload; failing closed"}
+		return codexHandlerProbeResult{Started: true, ExitCode: 2, Stderr: "guardrail: handler failure: malformed Codex hook payload; failing closed"}
 	}
 	codexRuntimeObserver = func() codexRuntimeObservation {
 		return codexRuntimeObservation{DispatchObserved: true, Capabilities: []string{"command", "mutation"}}
@@ -51,10 +44,11 @@ func TestDoctorCodexHooksReportsIndependentStagesAndDecodedCommand(t *testing.T)
 		"registered: yes",
 		"trusted: yes",
 		"handler id: guardrail-codex-PreToolUse",
-		"decoded effective command: " + decoded,
+		"decoded effective command: $guardrailPath = 'C:\\Users\\Agent User\\.local\\bin\\guardrail.exe'",
+		"handler failure: evaluator exited with code",
 		"trust hash: sha256:pre",
 		"direct exit code: 2",
-		"direct stderr: guardrail: malformed Codex hook payload; failing closed",
+		"direct stderr: guardrail: handler failure: malformed Codex hook payload; failing closed",
 		"handler directly runnable: yes",
 		"handler fail-closed: yes",
 		"runtime dispatch observed: yes (heuristic)",
@@ -70,13 +64,7 @@ func TestDoctorCodexHooksReportsIndependentStagesAndDecodedCommand(t *testing.T)
 func TestDoctorCodexHooksKeepsSilentAndFailOpenStatesRed(t *testing.T) {
 	dir := t.TempDir()
 	hooksPath := filepath.Join(dir, "hooks.json")
-	decoded := `& 'C:\guardrail.exe' hook codex; exit $LASTEXITCODE`
-	command := "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand " + encodeUTF16LEForTest(decoded) + " || (echo guardrail: evaluator unavailable or blocked; continue independent work. 1>&2 & exit /b 2)"
-	posixCommand := "'guardrail' hook codex || { printf '%s\\\\n' 'guardrail: evaluator unavailable or blocked; continue independent work.' >&2; exit 2; }"
-	writePlaneSettings(t, hooksPath, `{"hooks":{`+
-		`"PreToolUse":[{"id":"guardrail-codex-PreToolUse","matcher":"*","hooks":[{"type":"command","command":"`+posixCommand+`","commandWindows":"`+command+`"}]}],`+
-		`"PostToolUse":[{"id":"guardrail-codex-PostToolUse","matcher":"^apply_patch$","hooks":[{"type":"command","command":"`+posixCommand+`","commandWindows":"`+command+`"}]}],`+
-		`"SessionStart":[{"id":"guardrail-codex-SessionStart","matcher":"*","hooks":[{"type":"command","command":"`+posixCommand+`","commandWindows":"`+command+`"}]}]}}`)
+	command := writeCodexDiagnosticConfig(t, hooksPath, `C:\guardrail.exe`)
 
 	oldTrust, oldProbe, oldObservation := codexTrustInspector, codexHandlerProbe, codexRuntimeObserver
 	t.Cleanup(func() {
@@ -111,11 +99,16 @@ func TestDoctorCodexHooksKeepsSilentAndFailOpenStatesRed(t *testing.T) {
 	}
 }
 
-func encodeUTF16LEForTest(s string) string {
-	units := utf16.Encode([]rune(s))
-	raw := make([]byte, len(units)*2)
-	for i, unit := range units {
-		binary.LittleEndian.PutUint16(raw[i*2:], unit)
+func writeCodexDiagnosticConfig(t *testing.T, hooksPath, binary string) string {
+	t.Helper()
+	fragment := genconfig.CodexConfig(binary)
+	raw, err := json.Marshal(fragment)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return base64.StdEncoding.EncodeToString(raw)
+	writePlaneSettings(t, hooksPath, string(raw))
+	hooks := fragment["hooks"].(map[string]any)
+	group := hooks["PreToolUse"].([]any)[0].(map[string]any)
+	handler := group["hooks"].([]any)[0].(map[string]any)
+	return handler["commandWindows"].(string)
 }

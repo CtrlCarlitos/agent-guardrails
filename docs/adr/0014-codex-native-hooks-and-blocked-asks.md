@@ -75,3 +75,13 @@ requires a proven POSIX shell boundary. On Windows, Codex does not identify
 whether the effective command interpreter is PowerShell or `cmd.exe`, so an
 otherwise allowed command hook exits 2 without emitting `updatedInput`. A
 POSIX-shaped rewrite must never reach an unproven Windows shell.
+
+Hook diagnostics keep three failure classes distinct. A known Codex session
+with no selected-session hook records is a transport miss. A handler that
+starts but cannot parse or evaluate the payload, or exits abnormally, is a
+handler failure. A completed Engine verdict that blocks the call is a policy
+denial. Generated shell wrappers preserve the handler's intentional blocking
+exit 2 without appending transport noise; missing executables and launcher
+failures still map to blocking exit 2. This classification is diagnostic only:
+absence remains heuristic evidence and never upgrades the Windows enforcement
+claim.
