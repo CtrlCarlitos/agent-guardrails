@@ -31,21 +31,22 @@ import (
 )
 
 type entry struct {
-	Name                    string           `json:"name"`
-	Tool                    string           `json:"tool"`
-	Command                 string           `json:"command,omitempty"`
-	Paths                   []string         `json:"paths,omitempty"`
-	CWD                     string           `json:"cwd"`
-	RepoRoot                string           `json:"repo_root"`
-	RepoAlias               string           `json:"repo_alias,omitempty"`
-	FixtureFiles            []string         `json:"fixture_files,omitempty"`
-	FixtureSymlinks         []fixtureSymlink `json:"fixture_symlinks,omitempty"`
-	Waive                   []string         `json:"waive,omitempty"`
-	Night                   bool             `json:"night,omitempty"`
-	Want                    string           `json:"want"`
-	WantRuleID              string           `json:"want_rule_id,omitempty"`
-	RewriteLogicalRepoPaths bool             `json:"rewrite_logical_repo_paths,omitempty"`
-	RewriteActualHomePaths  bool             `json:"rewrite_actual_home_paths,omitempty"`
+	Name                      string           `json:"name"`
+	Tool                      string           `json:"tool"`
+	Command                   string           `json:"command,omitempty"`
+	Paths                     []string         `json:"paths,omitempty"`
+	CWD                       string           `json:"cwd"`
+	RepoRoot                  string           `json:"repo_root"`
+	RepoAlias                 string           `json:"repo_alias,omitempty"`
+	FixtureFiles              []string         `json:"fixture_files,omitempty"`
+	FixtureSymlinks           []fixtureSymlink `json:"fixture_symlinks,omitempty"`
+	Waive                     []string         `json:"waive,omitempty"`
+	Night                     bool             `json:"night,omitempty"`
+	Want                      string           `json:"want"`
+	WantRuleID                string           `json:"want_rule_id,omitempty"`
+	RewriteLogicalRepoPaths   bool             `json:"rewrite_logical_repo_paths,omitempty"`
+	RewriteActualHomePaths    bool             `json:"rewrite_actual_home_paths,omitempty"`
+	RewriteWindowsNativePaths bool             `json:"rewrite_windows_native_paths,omitempty"`
 }
 
 type fixtureSymlink struct {
@@ -142,6 +143,7 @@ func TestAdversarialCorpus(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			callEntry = materializeWindowsNativePaths(t, callEntry, runtime.GOOS)
 			var actualHome string
 			if callEntry.RewriteActualHomePaths {
 				workingDirectory, err := os.Getwd()
@@ -888,6 +890,93 @@ func rewriteActualHomePaths(e entry, actualHome string) entry {
 	}
 	e.Paths = paths
 	return e
+}
+
+func materializeWindowsNativePaths(t *testing.T, e entry, goos string) entry {
+	t.Helper()
+	if !e.RewriteWindowsNativePaths || goos != "windows" {
+		return e
+	}
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixtureParent := filepath.Join(workingDirectory, "testdata")
+	if err := os.MkdirAll(fixtureParent, 0o700); err != nil {
+		t.Fatalf("create Windows native fixture parent: %v", err)
+	}
+	fixtureRoot, err := os.MkdirTemp(fixtureParent, "native-")
+	if err != nil {
+		t.Fatalf("create Windows native fixture root: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(fixtureRoot); err != nil {
+			t.Errorf("remove Windows native fixture root: %v", err)
+		}
+	})
+	e, err = rewriteWindowsNativePaths(e, fixtureRoot, goos)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Tool == "Read" {
+		for _, path := range e.Paths {
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatalf("create Windows native fixture directory: %v", err)
+			}
+			if err := os.WriteFile(path, []byte("fixture"), 0o600); err != nil {
+				t.Fatalf("create Windows native fixture file: %v", err)
+			}
+		}
+	}
+	return e
+}
+
+func rewriteWindowsNativePaths(e entry, fixtureRoot, goos string) (entry, error) {
+	if !e.RewriteWindowsNativePaths || goos != "windows" {
+		return e, nil
+	}
+	paths := append([]string(nil), e.Paths...)
+	for i, candidate := range paths {
+		if !strings.HasPrefix(candidate, "/") {
+			return entry{}, fmt.Errorf("Windows native fixture path %q is not POSIX-absolute", candidate)
+		}
+		relative := filepath.Clean(filepath.FromSlash(strings.TrimPrefix(candidate, "/")))
+		if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+			return entry{}, fmt.Errorf("Windows native fixture path %q escapes its fixture root", candidate)
+		}
+		paths[i] = filepath.Join(fixtureRoot, relative)
+	}
+	e.Paths = paths
+	return e, nil
+}
+
+func TestRewriteWindowsNativePathsIsExplicitAndContained(t *testing.T) {
+	original := entry{Paths: []string{"/etc/CLAUDE.md"}}
+	fixtureRoot := filepath.Join("fixture", "root")
+	for _, test := range []struct {
+		name  string
+		entry entry
+		goos  string
+		want  []string
+	}{
+		{"disabled on Windows", original, "windows", original.Paths},
+		{"enabled on POSIX", entry{Paths: original.Paths, RewriteWindowsNativePaths: true}, "linux", original.Paths},
+		{"enabled on Windows", entry{Paths: original.Paths, RewriteWindowsNativePaths: true}, "windows", []string{filepath.Join(fixtureRoot, "etc", "CLAUDE.md")}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := rewriteWindowsNativePaths(test.entry, fixtureRoot, test.goos)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got.Paths, test.want) {
+				t.Fatalf("paths = %q, want %q", got.Paths, test.want)
+			}
+		})
+	}
+	_, err := rewriteWindowsNativePaths(entry{Paths: []string{"/../../escape"}, RewriteWindowsNativePaths: true}, fixtureRoot, "windows")
+	if err == nil {
+		t.Fatal("escaping Windows native fixture path was accepted")
+	}
 }
 
 func actualHomeEnvironment(goos string, actualHome string) string {
