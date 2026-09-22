@@ -61,6 +61,12 @@ jobs:
         # the selected-test name filter above.
         if: matrix.os == 'windows-latest'
         run: go test ./internal/approval/ ./internal/policy/
+      - name: windows portable session suite
+        # Session transactions combine a process-local contention queue with
+        # the store-wide OS lock; run the complete package on Windows so both
+        # monotonic state and cross-process serialization remain mandatory.
+        if: matrix.os == 'windows-latest'
+        run: go test ./internal/session/
       - name: windows portable hook tracking fixtures
         # These assertions use host-native repository coordinates and must run
         # on Windows as well as the POSIX hosts.

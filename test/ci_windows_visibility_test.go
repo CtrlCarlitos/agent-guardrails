@@ -207,6 +207,23 @@ func TestWindowsFullSuiteObservabilityJobIsUnfilteredAndNonblocking(t *testing.T
 	}
 }
 
+func TestWindowsSessionSuiteIsMandatory(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := workflowJobBlock(string(raw), "test")
+	for _, want := range []string{
+		"- name: windows portable session suite",
+		"if: matrix.os == 'windows-latest'",
+		"run: go test ./internal/session/",
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("mandatory Windows test job does not contain %q:\n%s", want, block)
+		}
+	}
+}
+
 func workflowJobBlock(workflow, name string) string {
 	lines := strings.Split(workflow, "\n")
 	start := -1

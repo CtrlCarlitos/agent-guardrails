@@ -113,9 +113,16 @@ func Transaction(sessionID string, update func(*State) error) (err error) {
 		return fmt.Errorf("create session store: %w", err)
 	}
 
-	lock := flock.New(filepath.Join(d, ".lock"), flock.SetPermissions(0o600))
+	lockPath := filepath.Join(d, ".lock")
 	ctx, cancel := context.WithTimeout(context.Background(), lockWait)
 	defer cancel()
+	releaseLocalGate, gateErr := acquireLocalTransactionGate(ctx, lockPath)
+	if gateErr != nil {
+		return fmt.Errorf("acquire session transaction lock: %w", gateErr)
+	}
+	defer releaseLocalGate()
+
+	lock := flock.New(lockPath, flock.SetPermissions(0o600))
 	locked, lockErr := lock.TryLockContext(ctx, lockRetryDelay)
 	if lockErr != nil {
 		return fmt.Errorf("acquire session transaction lock: %w", lockErr)
