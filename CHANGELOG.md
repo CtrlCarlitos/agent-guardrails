@@ -5,6 +5,47 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Fix (#228): the `gh` porcelain is classified, so the Engine is no longer
+  weaker than its own backstop.** `gh api -X DELETE repos/o/r/rulesets/1`
+  asked; `gh repo delete o/r --yes` was allowed. Measured on `772392d`, the
+  *entire* porcelain surface was allow -- `gh secret set`, `gh secret delete`,
+  `gh repo edit`, `gh repo archive`, `gh pr merge`, `gh release create|delete`,
+  `gh workflow run`, `gh auth refresh -s admin:org` -- while the api spelling
+  of the same endpoints asked. The porcelain is the easier spelling, so the
+  gate covered only the form an agent reaches for second.
+  Two things made that worse than an ordinary gap. The declarative floor
+  (ADR-0022) already denies `gh repo delete` and asks on `gh secret set`,
+  `gh pr merge`, `gh release create` and `gh workflow run` -- and the floor
+  exists for when the Engine is *unreachable*, so the backstop being stricter
+  than the primary gate is backwards. And the floor is Claude's settings file,
+  so on codex, opencode and antigravity the porcelain was ungated outright and
+  reached the audit log as an allow with no rule attribution.
+  Rule ids are per family, following #235, so an operator running a release
+  loop does not have to waive secret administration to do it:
+  `P2.gh-repo-delete` (the one deny, matching the floor -- deleting the
+  repository is not a setting that can be changed back), `P2.gh-protection`
+  (secrets, variables, `repo edit`, rulesets -- shared with the api rule, since
+  one risk deserves one rule id whichever spelling reaches it),
+  `P2.gh-repo-admin` (archive, rename, transfer), `P2.gh-auth-scope`,
+  `P2.gh-pr-merge`, `P2.gh-workflow-dispatch`, and `P6.publish` for releases,
+  reusing the existing publish family rather than inventing a gh-shaped twin.
+  Scope escalation keys on the flag rather than the verb: `gh auth refresh -s
+  admin:org` asks, plain `gh auth refresh` does not, because re-authorizing the
+  scopes a token already has is not widening them and asking for it would train
+  the operator to click through the ones that do.
+  Reads stay allow throughout and are the larger half of the test set --
+  `gh secret list`, `gh release view`, `gh pr checks`, `gh workflow list`,
+  `gh ruleset view`, `gh auth status`. `gh` is how the fleet checks CI, and
+  prompting on every view is how an operator learns to click through the
+  prompts that matter.
+  **The env-prefix half of #228 needed no code.** Measured first, as directed:
+  the NF-5b/NF-19 shell-state machinery already strips assignment prefixes
+  before any rule sees the command, so `NPM_TOKEN=… npm publish` already asked
+  and `GH_TOKEN=… rm -rf /etc` already denied. `GH_TOKEN=… gh repo delete` was
+  allowed because `gh repo delete` was allowed, with or without a prefix. The
+  full taxonomy -- single, multiple, inline `env`, `env -i`, absolute
+  `/usr/bin/env`, and `export` chains -- is pinned as tests so a credential
+  prefix cannot become a way to spell past a rule that now fires.
 - **Feature (#173): the operator can authorize one exact command instead of
   losing the action to an out-of-band run.** An Ask that chat cannot clear had
   one endgame: the operator ran the action outside guardrail, which made the
