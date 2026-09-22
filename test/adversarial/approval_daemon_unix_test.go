@@ -16,6 +16,7 @@ import (
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/operatorauth"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func enrollDaemonTestCredential(t *testing.T, stateHome string) {
@@ -33,11 +34,13 @@ func TestApprovalDaemonBinaryCompletesAdversarialNightRequest(t *testing.T) {
 	bin := buildAdversarialBinary(t)
 	stateHome := t.TempDir()
 	configHome := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", stateHome)
-	t.Setenv("XDG_CONFIG_HOME", configHome)
+	roots := testenv.Roots{Home: t.TempDir(), Config: configHome, State: stateHome}
+	testenv.SetHome(t, roots.Home)
+	testenv.SetState(t, roots.State)
+	testenv.SetConfig(t, roots.Config)
 	enrollDaemonTestCredential(t, stateHome)
 	daemon := exec.Command(bin, "approvals", "daemon")
-	daemon.Env = append(os.Environ(), "XDG_STATE_HOME="+stateHome, "XDG_CONFIG_HOME="+configHome)
+	daemon.Env = testenv.ChildProcessEnv(roots)
 	if err := daemon.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +81,7 @@ func TestApprovalDaemonBinaryCompletesAdversarialNightRequest(t *testing.T) {
 	}
 	hook := exec.Command(bin, "hook", "claude")
 	hook.Stdin = bytes.NewReader(payload)
-	hook.Env = append(os.Environ(), "XDG_STATE_HOME="+stateHome, "XDG_CONFIG_HOME="+configHome)
+	hook.Env = testenv.ChildProcessEnv(roots)
 	var stdout, stderr bytes.Buffer
 	hook.Stdout, hook.Stderr = &stdout, &stderr
 	if err := hook.Run(); err != nil {
@@ -93,8 +96,10 @@ func TestSubmitOnDemandReexecsProductionDaemon(t *testing.T) {
 	bin := buildAdversarialBinary(t)
 	stateHome := t.TempDir()
 	configHome := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", stateHome)
-	t.Setenv("XDG_CONFIG_HOME", configHome)
+	roots := testenv.Roots{Home: t.TempDir(), Config: configHome, State: stateHome}
+	testenv.SetHome(t, roots.Home)
+	testenv.SetState(t, roots.State)
+	testenv.SetConfig(t, roots.Config)
 	enrollDaemonTestCredential(t, stateHome)
 	socket := approval.DefaultSocketPath()
 
@@ -114,7 +119,7 @@ func TestSubmitOnDemandReexecsProductionDaemon(t *testing.T) {
 	}
 	hook := exec.Command(bin, "hook", "claude")
 	hook.Stdin = bytes.NewReader(payload)
-	hook.Env = append(os.Environ(), "XDG_STATE_HOME="+stateHome, "XDG_CONFIG_HOME="+configHome)
+	hook.Env = testenv.ChildProcessEnv(roots)
 	hook.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	var stdout, stderr bytes.Buffer
 	hook.Stdout, hook.Stderr = &stdout, &stderr

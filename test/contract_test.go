@@ -76,8 +76,7 @@ func TestClaudeContractFixtures(t *testing.T) {
 			cmd.Stdin = bytes.NewReader(payload)
 			// Isolated config: a developer's night marker or operator grants must
 			// not flip a fixture's verdict.
-			cmd.Env = append(os.Environ(), testenv.ChildRootEnv(roots)...)
-			cmd.Env = append(cmd.Env, "GUARDRAIL_CONFIG=")
+			cmd.Env = testenv.ChildProcessEnv(roots, "GUARDRAIL_CONFIG=")
 			_ = cmd.Run()
 			got := cmd.ProcessState.ExitCode()
 			if got != want.Exit {
@@ -140,7 +139,8 @@ func TestOpencodeContractFixtures(t *testing.T) {
 			}
 			cmd := exec.Command(bin, "hook", "opencode")
 			cmd.Stdin = bytes.NewReader(payload)
-			cmd.Env = append(os.Environ(), "XDG_STATE_HOME="+t.TempDir(), "GUARDRAIL_CONFIG=")
+			roots := testenv.Roots{Home: t.TempDir(), Config: t.TempDir(), State: t.TempDir()}
+			cmd.Env = testenv.ChildProcessEnv(roots, "GUARDRAIL_CONFIG=")
 			_ = cmd.Run()
 			if got := cmd.ProcessState.ExitCode(); got != want.Exit {
 				t.Fatalf("%s: exit %d, want %d", name, got, want.Exit)
@@ -169,11 +169,8 @@ func TestAntigravityContractFixtures(t *testing.T) {
 			}
 			cmd := exec.Command(bin, "hook", "antigravity", "pre")
 			cmd.Stdin = bytes.NewReader(payload)
-			cmd.Env = append(os.Environ(),
-				"XDG_STATE_HOME="+t.TempDir(),
-				"XDG_CONFIG_HOME="+t.TempDir(),
-				"GUARDRAIL_CONFIG=",
-			)
+			roots := testenv.Roots{Home: t.TempDir(), Config: t.TempDir(), State: t.TempDir()}
+			cmd.Env = testenv.ChildProcessEnv(roots, "GUARDRAIL_CONFIG=")
 			out, err := cmd.Output()
 			if err != nil {
 				t.Fatalf("%s: hook failed: %v", name, err)
@@ -203,7 +200,7 @@ func TestClaudeNeverPanics(t *testing.T) {
 		cmd.Stdin = bytes.NewReader([]byte(p))
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
-		cmd.Env = append(os.Environ(), "XDG_STATE_HOME="+t.TempDir())
+		cmd.Env = testenv.ChildProcessEnv(testenv.Roots{Home: t.TempDir(), Config: t.TempDir(), State: t.TempDir()})
 		_ = cmd.Run()
 		code := cmd.ProcessState.ExitCode()
 		if code != 0 && code != 2 {
@@ -237,8 +234,7 @@ func TestCodexContractFixtures(t *testing.T) {
 			roots := testenv.Roots{Home: t.TempDir(), Config: t.TempDir(), State: t.TempDir()}
 			cmd := exec.Command(bin, "hook", "codex")
 			cmd.Stdin = bytes.NewReader(payload)
-			cmd.Env = append(os.Environ(), testenv.ChildRootEnv(roots)...)
-			cmd.Env = append(cmd.Env, "GUARDRAIL_CONFIG=")
+			cmd.Env = testenv.ChildProcessEnv(roots, "GUARDRAIL_CONFIG=")
 			var stderr bytes.Buffer
 			cmd.Stderr = &stderr
 			_ = cmd.Run()
@@ -285,15 +281,15 @@ func TestCodexWindowsContractFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			state := t.TempDir()
+			roots := testenv.Roots{Home: `C:\Users\fixture-user`, Config: t.TempDir(), State: t.TempDir()}
 			cmd := exec.Command(bin, "hook", "codex")
 			cmd.Stdin = bytes.NewReader(payload)
-			cmd.Env = append(os.Environ(), "USERPROFILE=C:\\Users\\fixture-user", "LOCALAPPDATA="+state, "APPDATA="+t.TempDir(), "XDG_STATE_HOME="+state, "XDG_CONFIG_HOME="+t.TempDir(), "GUARDRAIL_CONFIG=")
+			cmd.Env = testenv.ChildProcessEnv(roots, "GUARDRAIL_CONFIG=")
 			_ = cmd.Run()
 			if got := cmd.ProcessState.ExitCode(); got != want.Exit {
 				t.Fatalf("%s: exit %d, want %d", name, got, want.Exit)
 			}
-			rec := lastAuditRecord(t, filepath.Join(state, "guardrail", "audit.jsonl"))
+			rec := lastAuditRecord(t, filepath.Join(roots.State, "guardrail", "audit.jsonl"))
 			if want.Decision != "" && rec.Decision != want.Decision {
 				t.Fatalf("%s: decision %q, want %q", name, rec.Decision, want.Decision)
 			}
@@ -334,15 +330,15 @@ func TestClaudeWindowsContractFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			state := t.TempDir()
+			roots := testenv.Roots{Home: t.TempDir(), Config: t.TempDir(), State: t.TempDir()}
 			cmd := exec.Command(bin, "hook", "claude")
 			cmd.Stdin = bytes.NewReader(payload)
-			cmd.Env = append(os.Environ(), "LOCALAPPDATA="+state, "APPDATA="+t.TempDir(), "XDG_STATE_HOME="+state, "XDG_CONFIG_HOME="+t.TempDir(), "GUARDRAIL_CONFIG=")
+			cmd.Env = testenv.ChildProcessEnv(roots, "GUARDRAIL_CONFIG=")
 			_ = cmd.Run()
 			if got := cmd.ProcessState.ExitCode(); got != want.Exit {
 				t.Fatalf("%s: exit %d, want %d", name, got, want.Exit)
 			}
-			rec := lastAuditRecord(t, filepath.Join(state, "guardrail", "audit.jsonl"))
+			rec := lastAuditRecord(t, filepath.Join(roots.State, "guardrail", "audit.jsonl"))
 			if want.Decision != "" && rec.Decision != want.Decision {
 				t.Fatalf("%s: decision %q, want %q", name, rec.Decision, want.Decision)
 			}
@@ -379,14 +375,10 @@ func TestAntigravityWindowsContractFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			state := t.TempDir()
+			roots := testenv.Roots{Home: t.TempDir(), Config: t.TempDir(), State: t.TempDir()}
 			cmd := exec.Command(bin, "hook", "antigravity", "pre")
 			cmd.Stdin = bytes.NewReader(payload)
-			cmd.Env = append(os.Environ(),
-				"LOCALAPPDATA="+state,
-				"APPDATA="+t.TempDir(),
-				"XDG_STATE_HOME="+state,
-				"XDG_CONFIG_HOME="+t.TempDir(),
+			cmd.Env = testenv.ChildProcessEnv(roots,
 				"GUARDRAIL_CONFIG=",
 				"ANTIGRAVITY_APP_DATA_DIR=C:\\test-gemini\\antigravity-cli",
 			)
@@ -404,7 +396,7 @@ func TestAntigravityWindowsContractFixtures(t *testing.T) {
 				t.Fatalf("%s: decision %q, want %q", name, got.Decision, want.Decision)
 			}
 			if want.Rule != "" || want.Paths != nil {
-				rec := lastAuditRecord(t, filepath.Join(state, "guardrail", "audit.jsonl"))
+				rec := lastAuditRecord(t, filepath.Join(roots.State, "guardrail", "audit.jsonl"))
 				if want.Rule != "" && rec.RuleID != want.Rule {
 					t.Fatalf("%s: rule %q, want %q", name, rec.RuleID, want.Rule)
 				}

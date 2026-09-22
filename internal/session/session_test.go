@@ -678,6 +678,7 @@ func TestStoreWideTransactionSerializesDifferentSessionsAcrossProcesses(t *testi
 
 	stateHome := t.TempDir()
 	testenv.SetState(t, stateHome)
+	childRoots := testenv.Roots{Home: t.TempDir(), Config: t.TempDir(), State: stateHome}
 	if err := Transaction(holderSessionID, func(s *State) error {
 		s.SawPrivateRead = true
 		return nil
@@ -698,10 +699,9 @@ func TestStoreWideTransactionSerializesDifferentSessionsAcrossProcesses(t *testi
 	}
 	var childErr strings.Builder
 	cmd.Stderr = &childErr
-	cmd.Env = append(os.Environ(),
+	cmd.Env = testenv.ChildProcessEnv(childRoots,
 		"GUARDRAIL_TEST_HOLD_TRANSACTION=1",
 		"GUARDRAIL_TEST_LOCK_MARKER="+marker,
-		"XDG_STATE_HOME="+stateHome,
 	)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)

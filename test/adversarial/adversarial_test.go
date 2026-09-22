@@ -219,18 +219,12 @@ func TestAdversarialCorpus(t *testing.T) {
 			}
 			cmd := exec.Command(bin, "hook", "claude")
 			cmd.Stdin = bytes.NewReader(payload)
-			for _, variable := range os.Environ() {
-				if !strings.HasPrefix(variable, "HOME=") {
-					cmd.Env = append(cmd.Env, variable)
-				}
-			}
 			// The Windows names have to travel with the XDG ones: without
 			// LOCALAPPDATA the child writes its audit log into the operator's
 			// real profile and the assertion below reads an empty temp dir.
-			cmd.Env = append(cmd.Env, testenv.ChildRootEnv(testenv.Roots{
+			cmd.Env = testenv.ChildProcessEnv(testenv.Roots{
 				Home: processHome, Config: configHome, State: stateHome,
-			})...)
-			cmd.Env = append(cmd.Env, "GUARDRAIL_CONFIG="+config)
+			}, "GUARDRAIL_CONFIG="+config)
 			if actualHome != "" {
 				cmd.Env = append(cmd.Env, actualHomeEnvironment(runtime.GOOS, actualHome))
 			}
