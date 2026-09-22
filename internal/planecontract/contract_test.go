@@ -139,3 +139,23 @@ func TestAntigravityPreHookMatcherCoversEveryInventoryTool(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexCollaborationInventoryClassifiesObservedIdentities(t *testing.T) {
+	want := map[string]policy.Capability{
+		"collaboration.spawn_agent":     policy.CapabilityDelegation,
+		"collaboration.send_message":    policy.CapabilityDelegation,
+		"collaboration.followup_task":   policy.CapabilityDelegation,
+		"collaboration.interrupt_agent": policy.CapabilitySafeControl,
+		"collaboration.list_agents":     policy.CapabilitySafeControl,
+		"collaboration.wait_agent":      policy.CapabilitySafeControl,
+	}
+	for tool, capability := range want {
+		spec, ok := CodexTool(tool)
+		if !ok || spec.NativeTool != tool || spec.Capability != capability {
+			t.Fatalf("%s = %#v, %v; want native identity and capability %q", tool, spec, ok, capability)
+		}
+	}
+	if spec, ok := CodexTool("collaboration.resume_agent"); ok {
+		t.Fatalf("unsupported identity classified without runtime evidence: %#v", spec)
+	}
+}
