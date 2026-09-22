@@ -83,6 +83,44 @@ func ghAskGlobs() []string {
 		// (#228) instead of being faked.
 		"Bash(gh api -X {,**})",
 		"Bash(gh api --method {,**})",
+
+		// Porcelain equivalents (#228). These reach the same endpoints the
+		// parser watches, without any method flag to parse: `gh secret set`
+		// is a PUT to actions/secrets, `gh repo edit --visibility` a PATCH on
+		// the repo. They are shape-level, which is what a glob can actually
+		// match, so this is the right layer for them.
+		//
+		// Both verbs of a pair are listed on purpose. An ask on `secret set`
+		// alone is evadable by reaching for `secret delete`, and "break CI by
+		// removing the token" is the same authority as "hand CI a token".
+		"Bash(gh secret set{,**})",
+		"Bash(gh secret delete{,**})",
+		"Bash(gh variable set{,**})",
+		"Bash(gh variable delete{,**})",
+
+		// Repository-level acts under the operator's admin authority.
+		// `gh repo delete` denies (below); these ask because the blast radius
+		// is smaller but the authority is identical.
+		"Bash(gh repo edit{,**})",
+		"Bash(gh repo archive{,**})",
+		"Bash(gh repo rename{,**})",
+		"Bash(gh repo transfer{,**})",
+
+		// Changing which authority is in play. These mutate no repository at
+		// all -- they change who the agent *is*, and a second logged-in
+		// account (an employer's, say) is one command away from a session that
+		// started in a personal project.
+		"Bash(gh auth switch{,**})",
+		"Bash(gh auth login{,**})",
+		"Bash(gh auth refresh{,**})",
+		"Bash(gh auth logout{,**})",
+		// Account-level persistence that outlives a token rotation.
+		"Bash(gh ssh-key add{,**})",
+		"Bash(gh gpg-key add{,**})",
+
+		// A published artifact set, the companion to `gh release create`.
+		"Bash(gh release edit{,**})",
+		"Bash(gh release upload{,**})",
 	}
 }
 
