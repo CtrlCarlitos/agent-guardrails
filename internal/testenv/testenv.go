@@ -123,6 +123,14 @@ func ChildRootEnv(roots Roots) []string {
 	}
 }
 
+// ChildProcessEnv returns an inherited child environment with every portable
+// root assignment applied together. Overrides come last so a test can vary one
+// value deliberately without rebuilding the platform pair by hand.
+func ChildProcessEnv(roots Roots, overrides ...string) []string {
+	env := append(os.Environ(), ChildRootEnv(roots)...)
+	return append(env, overrides...)
+}
+
 // hostileWindowsNameBytes maps characters that are hostile to a line-oriented
 // report but illegal in a Windows filename onto ones that are both hostile and
 // legal. Measured on Windows 11 / NTFS: \n, \r, \t and ESC are rejected by the

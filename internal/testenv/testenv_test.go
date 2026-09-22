@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -39,6 +40,33 @@ func TestSettersKeepEquivalentRootsTogether(t *testing.T) {
 	} {
 		if got := os.Getenv(name); got != want {
 			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestChildProcessEnvIncludesEveryRootBeforeOverrides(t *testing.T) {
+	t.Setenv("GUARDRAIL_TEST_PARENT", "inherited")
+	roots := Roots{Home: "child-home", Config: "child-config", State: "child-state"}
+	got := ChildProcessEnv(roots, "LOCALAPPDATA=override-state", "GUARDRAIL_TEST_EXTRA=extra")
+	values := map[string]string{}
+	for _, assignment := range got {
+		name, value, ok := strings.Cut(assignment, "=")
+		if ok {
+			values[name] = value
+		}
+	}
+	for name, want := range map[string]string{
+		"HOME":                  roots.Home,
+		"USERPROFILE":           roots.Home,
+		"XDG_CONFIG_HOME":       roots.Config,
+		"APPDATA":               roots.Config,
+		"XDG_STATE_HOME":        roots.State,
+		"LOCALAPPDATA":          "override-state",
+		"GUARDRAIL_TEST_PARENT": "inherited",
+		"GUARDRAIL_TEST_EXTRA":  "extra",
+	} {
+		if values[name] != want {
+			t.Errorf("%s = %q, want %q; env=%q", name, values[name], want, got)
 		}
 	}
 }

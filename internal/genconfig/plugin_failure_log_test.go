@@ -5,9 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 // TestOpencodePluginLeavesFailureTrail pins the diagnostics half of degraded
@@ -40,10 +41,7 @@ try { await before({ tool: "bash", sessionID: "s" }, { args: { command: "ls" } }
 	cmd := exec.Command(node, "--input-type=module", "--eval", runner, pluginPath)
 	cmd.Stdout = &output
 	cmd.Stderr = &output
-	cmd.Env = append(os.Environ(), "XDG_STATE_HOME="+stateRoot)
-	if runtime.GOOS == "windows" {
-		cmd.Env = append(cmd.Env, "LOCALAPPDATA="+stateRoot)
-	}
+	cmd.Env = testenv.ChildProcessEnv(testenv.Roots{Home: t.TempDir(), Config: t.TempDir(), State: stateRoot})
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("plugin runner failed: %v\n%s", err, output.String())
 	}
