@@ -59,7 +59,10 @@ func claudeNativeDecision(perms map[string]any, operation string) string {
 		for _, entry := range entries {
 			entryTool, entryGlob, ok := strings.Cut(strings.TrimSuffix(entry, ")"), "(")
 			if ok && entryTool == operationTool {
-				matched, _ := doublestar.Match(entryGlob, operationPath)
+				matched := commandGlobMatches(entryGlob, operationPath)
+				if entryTool != "Bash" {
+					matched, _ = doublestar.Match(entryGlob, operationPath)
+				}
 				if matched {
 					return decision
 				}

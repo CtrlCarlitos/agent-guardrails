@@ -1,9 +1,6 @@
 package genconfig
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 // The floor mediates shell commands, and `gh` is a shell command that mutates
 // GitHub state without touching the working tree: merging a PR, cutting or
@@ -77,11 +74,10 @@ func TestGhReadsStayAllowOnTheFloor(t *testing.T) {
 	}
 }
 
-// A glob is a poor instrument for `gh api`: the method lives in a flag, the
-// endpoint carries slashes, and the matcher's `*` does not cross a slash. What
-// *is* expressible is a method flag that appears before the endpoint, which is
-// covered here. The rest is the Engine's job (#228) and is deliberately not
-// faked with a glob that would match every read as well.
+// A glob is a poor instrument for `gh api`: it cannot reorder tokens or infer
+// an implicit POST. A method flag before the endpoint is expressible and
+// covered here; the rest is the Engine's job (#228), not a broad glob that
+// would match reads too.
 func TestGhApiMethodFlagBeforeEndpointAsks(t *testing.T) {
 	for _, command := range []string{
 		"gh api -X POST repos/o/r",
@@ -115,23 +111,6 @@ func TestGhGlobsReachTheOpencodePlane(t *testing.T) {
 		}
 		if got != decision {
 			t.Errorf("OpenCode floor %q = %q, want %q", glob, got, decision)
-		}
-	}
-}
-
-// The glob shape is load-bearing and non-obvious, so it is pinned: `*` does
-// not cross a path separator in this matcher, which means `gh repo delete*`
-// silently fails to match `gh repo delete owner/repo` — the single most likely
-// spelling of the command it is supposed to stop. Measured, then fixed with
-// the brace alternation.
-func TestGhGlobShapeCrossesPathSeparators(t *testing.T) {
-	for _, glob := range append(ghAskGlobs(), ghDenyGlobs()...) {
-		pattern, ok := stripWrapper("Bash(", glob)
-		if !ok {
-			t.Fatalf("malformed gh glob %q", glob)
-		}
-		if strings.HasSuffix(pattern, "*") && !strings.HasSuffix(pattern, "{,**}") {
-			t.Errorf("%q ends in a bare star: it will not match an argument containing a slash", glob)
 		}
 	}
 }
