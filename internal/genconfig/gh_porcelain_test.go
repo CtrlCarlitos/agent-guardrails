@@ -144,9 +144,9 @@ func TestGhPorcelainGlobsReachOpencode(t *testing.T) {
 	frag := OpencodeConfig(secretPol(), "/opt/guardrail/guardrail.js")
 	bash := frag["permission"].(map[string]any)["bash"].(orderedPermissionRules)
 	for _, glob := range []string{
-		"gh secret set{,**}",
-		"gh repo edit{,**}",
-		"gh auth switch{,**}",
+		"gh secret set*",
+		"gh repo edit*",
+		"gh auth switch*",
 	} {
 		if got, ok := bash[glob]; !ok || got != "ask" {
 			t.Errorf("OpenCode floor %q = %q (present=%v), want ask", glob, got, ok)

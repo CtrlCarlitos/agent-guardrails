@@ -62,10 +62,9 @@ func bashDenyGlobs() []string {
 // `gh` is how the fleet checks CI, and prompting on every view trains people
 // to click through the prompts that matter.
 //
-// The `{,**}` spellings predate #244 and remain unchanged by that test-model
-// correction. Both hosts make `*` cross separators; compatibility of Claude's
-// brace syntax with OpenCode's narrower command grammar is tracked in #270 and
-// must be verified per plane rather than inferred from this shared source.
+// The `{,**}` spellings are Claude's source grammar. Both hosts make `*` cross
+// separators, but OpenCode treats braces literally, so OpencodeConfig lowers
+// these patterns into its narrower grammar at generation time (#270).
 func ghAskGlobs() []string {
 	return []string{
 		"Bash(gh pr merge{,**})",

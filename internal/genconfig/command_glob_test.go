@@ -18,9 +18,9 @@ import (
 // Standing-authorization tests follow the consuming host's pinned behavior,
 // never a parallel test model. This helper is command-only: guardrail.toml
 // secret-tier path globs deliberately retain doublestar's separator-sensitive
-// path semantics. The shared source currently also contains Claude brace and
-// character-class syntax; retaining checks for those constructs here does not
-// claim OpenCode compatibility, which is tracked separately in #270.
+// path semantics. The shared source also contains Claude brace and
+// character-class syntax; OpenCode compatibility for those constructs is
+// verified against the generation-time translation in #270.
 func commandGlobMatches(pattern, command string) bool {
 	const nonPathSeparator = "\u001f"
 	normalize := strings.NewReplacer("/", nonPathSeparator, "\\", nonPathSeparator)
