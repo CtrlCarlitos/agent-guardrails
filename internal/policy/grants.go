@@ -38,10 +38,16 @@ const (
 // unknown MCP families, which was never its intent. A grant built without this
 // list would reopen that hole through a new door, and more quietly, because a
 // grant looks narrow at the point of issue.
+//
+// P1.power joins the set on the same property rather than the same subject:
+// ending the machine's uptime (#140) is not outward reach, but it is equally
+// a per-call operator decision -- an overnight window answering "may I
+// reboot?" on the operator's behalf is the same decision made by nobody.
 var outwardReachAsks = map[string]bool{
 	"capability-external":   true,
 	"capability-web-search": true,
 	"unknown-native-tool":   true,
+	"P1.power":              true,
 }
 
 // NeverRelaxable reports whether an Ask stays an Ask no matter which

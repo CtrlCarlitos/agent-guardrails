@@ -84,6 +84,21 @@
     "decision": "allow",
     "exit": 0
   },
+  "powershell-restart-computer.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "P1.power"
+  },
+  "powershell-shutdown-slash-r.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "P1.power"
+  },
+  "powershell-stop-computer.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "P1.power"
+  },
   "read-ssh-key.json": {
     "decision": "deny",
     "exit": 2,
