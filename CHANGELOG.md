@@ -5,6 +5,29 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Fix (#282 M4/C1): two floor classes that only produced false positives are
+  retired.** `Bash(dd *)` blocked `dd if=a.img of=b.img` -- an ordinary file
+  copy -- and the five `Bash(git clean -f*)` globs blocked
+  `git clean -fd --dry-run`, which by definition deletes nothing. Both are
+  prefix matches, so a later no-op flag could not rescue the command.
+  Measured before retiring: the Engine denies **every** destructive member of
+  both families -- `P1.dd` for a device target (`/dev/sda`, `/dev/nvme0n1`),
+  `P1.git-clean` for every forced or recursive clean including `-f`, `-fd`,
+  `-df`, `-xf`, `-fx`, `-fdx` and the spaced `-f -d` -- and deliberately allows
+  the harmless ones. So the floor was not covering a gap; it was contributing
+  refusals the Engine had already decided against.
+  **Claude and OpenCode only. `CodexRules()` keeps both classes**, and that
+  asymmetry is the ADR-0028 carve-out rather than an oversight: Codex's
+  pre-hooks do not dispatch on Windows (openai/codex#24453), so its native
+  floor is not a backstop behind the Engine -- it is the only enforcement it
+  has. Removing a blanket rule there would remove the gate, not a false
+  positive. A test asserts the classes are gone from the shared generator *and*
+  still present in `CodexRules()`, because "make this consistent" is exactly
+  what a later cleanup pass would do to them.
+  OpenCode's permission map is generated from the same `bashDenyGlobs()`, so
+  both planes retire together and cannot drift apart. Floor goldens regenerated
+  on Linux -- 12 deletions, six per plane, nothing else -- because regenerating
+  them on Windows has previously rewritten POSIX paths in place.
 - **Feature (#282): an engine outage is now loud instead of silent.** ADR-0028
   retires the declarative floor on three planes and accepts that an outage
   leaves them ungated. It also states the condition that makes the trade

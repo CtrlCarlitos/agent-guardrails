@@ -33,7 +33,11 @@ var floorExamples = map[string]string{
 
 	// Device and filesystem destroyers. Their path-bearing examples pin the
 	// command matcher's host semantics: `*` crosses separators.
-	"dd *":     "dd if=/dev/zero of=/dev/sda",
+	//
+	// `dd *` and the `git clean` family are absent because those floor classes
+	// were retired (#282 M4/C1): the Engine denies every destructive member,
+	// and the globs only caught `dd` between regular files and
+	// `git clean --dry-run`.
 	"mkfs*":    "mkfs.ext4 /dev/sda1",
 	"wipefs *": "wipefs -a /dev/sda",
 	"shred *":  "shred -u /etc/passwd",
@@ -48,11 +52,6 @@ var floorExamples = map[string]string{
 	// History and worktree destruction.
 	"git push --force*":  "git push --force origin main",
 	"git push -f*":       "git push -f origin main",
-	"git clean -f*":      "git clean -fd",
-	"git clean -xf*":     "git clean -xfd",
-	"git clean -fx*":     "git clean -fxd",
-	"git clean -df*":     "git clean -df",
-	"git clean -fd*":     "git clean -fd",
 	"git reset --hard*":  "git reset --hard HEAD~1",
 	"git reset --keep*":  "git reset --keep HEAD~1",
 	"git filter-branch*": "git filter-branch --all",
