@@ -95,7 +95,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 	if err != nil {
 		return failClosed(fmt.Sprintf("guardrail: unparseable hook payload (%v); failing closed", err))
 	}
-	if tc.Event != "session-start" {
+	if tc.Event != "session-start" && tc.Event != "session-completion" {
 		if client, dialErr := daemon.Dial(""); dialErr == nil {
 			defer client.Close()
 			if v, evalErr := client.Evaluate(tc); evalErr == nil {
@@ -167,7 +167,13 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 	var v policy.Verdict
 	stateApplied := false
 	announceNight := needsNightAnnouncement && tc.SessionID == ""
-	if tc.Event == "pre" && hasOperatorAction {
+	if tc.Event == "session-completion" {
+		v = policy.Verdict{Decision: policy.Allow, RuleID: "P8.recipe-lint", Reason: "session checks passed"}
+		if rv := recipe.CheckSession(tc.RepoRoot); rv != nil {
+			v = *rv
+		}
+		stateApplied = true
+	} else if tc.Event == "pre" && hasOperatorAction {
 		scope := approval.Allow
 		if operatorAction.Name == "web-host-grant" || operatorAction.Name == "web-host-revoke" {
 			scope = approval.Scope(operatorAction.Parameters["scope"])

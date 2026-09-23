@@ -138,6 +138,21 @@ func TestParseClaudeSessionStart(t *testing.T) {
 	}
 }
 
+func TestParseClaudeSessionCompletionEvents(t *testing.T) {
+	for _, event := range []string{"Stop", "SubagentStop"} {
+		t.Run(event, func(t *testing.T) {
+			raw := fmt.Sprintf(`{"session_id":"s1","cwd":"/tmp","hook_event_name":%q,"stop_hook_active":false}`, event)
+			tc, err := ParseClaude(strings.NewReader(raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.Event != "session-completion" || tc.Plane != "claude" {
+				t.Fatalf("ParseClaude(%s) = %+v", event, tc)
+			}
+		})
+	}
+}
+
 func TestPostureText(t *testing.T) {
 	txt := PostureText(nil, nil)
 	if !strings.Contains(txt, "autonomously") {

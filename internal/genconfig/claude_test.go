@@ -358,6 +358,24 @@ func TestClaudeHooksSessionStart(t *testing.T) {
 	}
 }
 
+func TestClaudeHooksSessionCompletion(t *testing.T) {
+	h := claudeHooks("/usr/local/bin/guardrail")
+	for _, event := range []string{"Stop", "SubagentStop"} {
+		groups, ok := h[event].([]any)
+		if !ok || len(groups) != 1 {
+			t.Fatalf("%s shape wrong: %#v", event, h[event])
+		}
+		group := groups[0].(map[string]any)
+		if _, hasMatcher := group["matcher"]; hasMatcher {
+			t.Errorf("%s must not claim a matcher: %#v", event, group)
+		}
+		hook := group["hooks"].([]any)[0].(map[string]any)
+		if hook["command"] != "/usr/local/bin/guardrail hook claude" || hook["timeout"] != 600 {
+			t.Errorf("%s command hook = %#v", event, hook)
+		}
+	}
+}
+
 // Claude Code's auto-mode classifier rejects `guardrail fetch` as
 // self-modification unless a permission rule allows it; the Engine already
 // gates fetch by the egress allowlist, so the floor may pre-approve exactly

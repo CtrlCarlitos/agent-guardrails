@@ -44,6 +44,8 @@ func ParseClaude(r io.Reader) (engine.ToolCall, error) {
 		event = "post"
 	case "SessionStart":
 		event = "session-start"
+	case "Stop", "SubagentStop":
+		event = "session-completion"
 	}
 	var mcpPaths []string
 	isMCP := false
