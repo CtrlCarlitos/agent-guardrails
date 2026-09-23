@@ -177,7 +177,28 @@ explicitly in **Breaking** notes.
   raw hook diagnostics (#258), classified collaboration tools (#259), and gated
   runtime schema drift (#263).
 
+### Recipes (P8)
+- **New (#290, #302, #305, #306): the recipe system ships with four recipes.** A
+  `[recipes]` schema in `guardrail.toml` enables per-language format-and-lint
+  command sets: automatic extension matching for Elixir, and explicit opt-in
+  composition for Odoo with project-configured module, test database, and Relax
+  NG path (ADR-0009's composition model). Session-completion recipes run on
+  Claude's Stop/SubagentStop hooks only; doctor reports other planes as
+  explicitly unsupported rather than claiming coverage. Doctor shows recipe
+  coverage per plane, and generator output that adds recipe visibility without
+  the matching host hook and goldens fails an ADR-0009 invariant test -
+  registry visibility is not coverage.
+
 ### Tests & CI Portability
+- **CI (#312, closes #174): the portable engine suite is mandatory on Windows.**
+  The #174 ledger is closed: every Windows-suite failure is fixed, explained, or
+  explicitly platform-bounded. The two genuinely host-semantic families (exact
+  POSIX CDPATH/`cd -P` behavior, POSIX permission-bit reachability) are
+  documented conditional skips; Windows symlink privilege error 1314 is treated
+  as an unavailable test capability with assertions retained on hosted Windows
+  and POSIX. No tests were deleted. The unfiltered portable engine package now
+  blocks Windows CI, so future portability regressions fail loudly instead of
+  accumulating as residue.
 - **Test (#310): genconfig tests no longer write into the real state directory.**
   `MergePlaneInto` writes an ownership manifest to the state root (#309), so merge
   tests that did not redirect that root wrote manifests onto whatever machine ran
