@@ -15,6 +15,7 @@ type Recipe struct {
 	Name       string
 	Extensions []string
 	PerEdit    [][]string
+	Session    [][]string
 }
 
 var Registry = []Recipe{
@@ -44,6 +45,31 @@ var Registry = []Recipe{
 		Extensions: []string{".rs"},
 		PerEdit:    [][]string{{"rustfmt", "{file}"}},
 	},
+}
+
+// NamesWithPerEdit returns the Recipes whose per-edit tier is implemented.
+// Doctor uses the registry itself so an implementation cannot silently exist
+// without appearing in operator-visible diagnostics.
+func NamesWithPerEdit() []string {
+	var names []string
+	for _, r := range Registry {
+		if len(r.PerEdit) > 0 {
+			names = append(names, r.Name)
+		}
+	}
+	return names
+}
+
+// NamesWithSession returns the Recipes whose session-completion tier is
+// implemented. Execution remains Claude-only at the plane seam.
+func NamesWithSession() []string {
+	var names []string
+	for _, r := range Registry {
+		if len(r.Session) > 0 {
+			names = append(names, r.Name)
+		}
+	}
+	return names
 }
 
 func ForFile(path string) (Recipe, bool) {

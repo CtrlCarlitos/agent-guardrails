@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -25,6 +26,7 @@ type Overlay struct {
 	SecretAllow        []string
 	EgressAllowlist    []string
 	WebHosts           []string
+	Recipes            RecipeConfig
 	Rules              []Rule
 	Waive              []string
 	Path               string
@@ -136,6 +138,13 @@ func LoadOverlay(pth string) (*Overlay, error) {
 			EgressAllowlist []string `toml:"egress_allowlist"`
 			WebHosts        []string `toml:"web_hosts"`
 		} `toml:"slots"`
+		Recipes struct {
+			Odoo *struct {
+				Module       string `toml:"module"`
+				TestDatabase string `toml:"test_database"`
+				RelaxNG      string `toml:"relax_ng"`
+			} `toml:"odoo"`
+		} `toml:"recipes"`
 		Rules []struct {
 			ID       string   `toml:"id"`
 			Tool     string   `toml:"tool"`
@@ -145,8 +154,14 @@ func LoadOverlay(pth string) (*Overlay, error) {
 			Waive    []string `toml:"waive"`
 		} `toml:"rules"`
 	}
-	if err := toml.Unmarshal(raw, &f); err != nil {
+	metadata, err := toml.Decode(string(raw), &f)
+	if err != nil {
 		return nil, fmt.Errorf("parsing overlay %s: %w", pth, err)
+	}
+	for _, key := range metadata.Undecoded() {
+		if len(key) > 0 && key[0] == "recipes" {
+			return nil, fmt.Errorf("parsing overlay %s: unsupported recipe setting %s", pth, key.String())
+		}
 	}
 	var unknownToolPosture UnknownToolPosture
 	if f.UnknownToolPosture != "" {
@@ -169,6 +184,17 @@ func LoadOverlay(pth string) (*Overlay, error) {
 		Waive:              f.Waive,
 		Path:               pth,
 	}
+	if f.Recipes.Odoo != nil {
+		odoo := OdooRecipeConfig{
+			Module:       f.Recipes.Odoo.Module,
+			TestDatabase: f.Recipes.Odoo.TestDatabase,
+			RelaxNG:      f.Recipes.Odoo.RelaxNG,
+		}
+		if err := validateOdooRecipeConfig(odoo); err != nil {
+			return nil, fmt.Errorf("parsing overlay %s: %w", pth, err)
+		}
+		ov.Recipes.Odoo = &odoo
+	}
 	for _, r := range f.Rules {
 		ov.Rules = append(ov.Rules, Rule{
 			ID: r.ID, Tool: r.Tool, Pattern: r.Pattern,
@@ -177,4 +203,45 @@ func LoadOverlay(pth string) (*Overlay, error) {
 		ov.Waive = append(ov.Waive, r.Waive...)
 	}
 	return ov, nil
+}
+
+func validateOdooRecipeConfig(config OdooRecipeConfig) error {
+	for _, field := range []struct{ name, value string }{
+		{"module", config.Module},
+		{"test_database", config.TestDatabase},
+	} {
+		name, value := field.name, field.value
+		if value == "" {
+			return fmt.Errorf("recipes.odoo.%s is required; unresolved recipe values fail closed", name)
+		}
+		for _, r := range value {
+			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' || r == '.') {
+				return fmt.Errorf("recipes.odoo.%s must be a literal command argument", name)
+			}
+		}
+	}
+	if config.RelaxNG == "" {
+		return fmt.Errorf("recipes.odoo.relax_ng is required; unresolved recipe values fail closed")
+	}
+	clean := filepath.Clean(config.RelaxNG)
+	forwardSlashClean := path.Clean(strings.ReplaceAll(config.RelaxNG, "\\", "/"))
+	if filepath.IsAbs(config.RelaxNG) || filepath.VolumeName(config.RelaxNG) != "" ||
+		looksLikeWindowsDrivePath(config.RelaxNG) ||
+		strings.HasPrefix(config.RelaxNG, "/") || strings.HasPrefix(config.RelaxNG, "\\") ||
+		clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) ||
+		forwardSlashClean == ".." || strings.HasPrefix(forwardSlashClean, "../") {
+		return fmt.Errorf("recipes.odoo.relax_ng must be a repository-relative file path")
+	}
+	if strings.ContainsAny(config.RelaxNG, "$%*?{}") {
+		return fmt.Errorf("recipes.odoo.relax_ng must be a literal repository-relative path")
+	}
+	return nil
+}
+
+func looksLikeWindowsDrivePath(value string) bool {
+	if len(value) < 2 || value[1] != ':' {
+		return false
+	}
+	drive := value[0]
+	return drive >= 'a' && drive <= 'z' || drive >= 'A' && drive <= 'Z'
 }

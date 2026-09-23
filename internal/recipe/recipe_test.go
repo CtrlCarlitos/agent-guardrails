@@ -1,6 +1,7 @@
 package recipe
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -24,6 +25,15 @@ func TestForFile(t *testing.T) {
 	}
 	if _, ok := ForFile("README.md"); ok {
 		t.Error("README.md should have no recipe")
+	}
+}
+
+func TestDoctorNamesComeFromImplementedRegistryTiers(t *testing.T) {
+	if got, want := NamesWithPerEdit(), []string{"go", "python", "js-ts", "rust"}; !slices.Equal(got, want) {
+		t.Fatalf("NamesWithPerEdit() = %v, want %v", got, want)
+	}
+	if got := NamesWithSession(); len(got) != 0 {
+		t.Fatalf("NamesWithSession() = %v, want none", got)
 	}
 }
 

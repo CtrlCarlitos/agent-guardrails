@@ -1,33 +1,50 @@
-# Recipe scope: four languages, per-edit tier only
+# Recipe composition and trigger scope
 
-Two deliberate cuts from DESIGN.md's full P8 vision.
+P8 Recipes have two independent trigger tiers. The per-edit tier runs after a
+supported write tool changes a matching file. The session-completion tier runs
+only when the host reports that the session or subagent is stopping. A Recipe
+may implement either or both tiers.
 
-**Odoo and Elixir are not in the registry.** Odoo's Python files use the
-`.py` extension — identical to the generic Python recipe's claim. A recipe
-registry keyed purely by extension can't express "this .py file additionally
-gets pylint-odoo" without either exclusive-claim conflicts or an
-additive-composition model (multiple recipes contributing commands for one
-extension, gated by an explicit per-project opt-in — DESIGN.md's Q9 always
-intended Odoo/Elixir to be off-by-default, opt-in). Building that
-composition model well is its own design work. Elixir's `.ex`/`.exs` don't
-collide with anything, but is cut alongside Odoo for the same reason: both
-were envisioned as opt-in from the start, and opt-in needs the overlay
-`[recipes]` schema this plan didn't build.
+## Project configuration and composition
 
-**Only the per-edit tier ships.** No `Stop` hook, no `go vet`/`go build`/
-`pytest`/`mix test`/`cargo test`/full-project lint runs. Claude Code
-supports a `Stop` event (confirmed by this project's own hooks research)
-that could carry this, but wiring a new hook event, deciding what "block
-session end" means for opencode/Antigravity (neither of which has an
-obviously analogous event), and running potentially-slow full-suite
-commands from inside a tool-use hook is real additional scope.
+Go, Python, JavaScript/TypeScript, Rust, and Elixir Recipes match their file
+extensions automatically. Odoo is an explicit, additive opt-in because its
+Python and JavaScript files also belong to the generic Recipes. An Overlay opts
+in with all three project values:
 
-## Consequences
+```toml
+[recipes.odoo]
+module = "sale_guardrail"
+test_database = "guardrail_test"
+relax_ng = "schema/import_xml.rng"
+```
 
-- A Go/Python/JS-TS/Rust project gets real, working format+lint enforcement
-  today. An Odoo or Elixir project gets nothing recipe-related until a
-  follow-up builds the opt-in composition model.
-- Nothing here blocks catching a *syntax-breaking* edit at commit/CI time —
-  the per-edit formatter often surfaces that anyway (e.g. `gofmt` fails
-  loudly on unparseable Go). The session-completion tier's value is deeper
-  checks (type errors, failing tests), not just "is broken code possible."
+`module` and `test_database` are literal command arguments. `relax_ng` is a
+literal repository-relative file path. Missing, dynamic, absolute, escaping,
+or unknown Recipe values fail while loading the Overlay. Commands receive these
+values directly as argument-vector entries; Recipes do not expand a shell or
+infer them from environment variables. This preserves the P3 rule that an
+unresolved value cannot silently become authorization.
+
+Odoo contributes checks in addition to the automatic Recipe for the edited
+file. Opting in never suppresses Python or JavaScript/TypeScript checks.
+
+## Plane support
+
+Per-edit Recipes continue to run at the Engine's post-write seam on supported
+planes. Session completion is exposed only through Claude's `Stop` and
+`SubagentStop` events. OpenCode, Antigravity, and Codex do not currently expose
+an equivalent Guardrail trigger and are reported by `guardrail doctor` as
+unsupported; registration or per-edit coverage must not be described as
+session-completion coverage.
+
+Doctor derives installed Recipe names from the Recipe registry and separately
+reports configuration, execution availability, and unsupported planes. Schema
+and doctor visibility ship together so an accepted Recipe configuration cannot
+be invisible to the operator.
+
+## Delivery sequence
+
+The schema and doctor contract land first. Session completion, Elixir, and Odoo
+execution then land as separate milestones, each adding its behavior to the
+same registry-backed diagnostic surface.

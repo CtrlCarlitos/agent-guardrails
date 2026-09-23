@@ -35,6 +35,7 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 			WebHosts:        append([]string{}, base.Slots.WebHosts...),
 			AuditLog:        base.Slots.AuditLog,
 		},
+		Recipes:            base.Recipes.clone(),
 		Rules:              append([]Rule{}, base.Rules...),
 		Waived:             map[string]bool{},
 		UnknownToolPosture: unknownToolPosture,
@@ -52,6 +53,9 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 	var warns []string
 	if ov == nil {
 		return m, warns, nil
+	}
+	if ov.Recipes.Odoo != nil {
+		m.Recipes.Odoo = ov.Recipes.clone().Odoo
 	}
 
 	// These additions can only make the Base policy stricter.

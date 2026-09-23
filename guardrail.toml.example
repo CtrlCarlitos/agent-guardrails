@@ -30,6 +30,14 @@ egress_allowlist = ["api.github.com"]    # P6: hosts curl/wget may reach
 # secret_ask_globs = ["**/*.crt"]          # P4: Ask in-repo, Deny outside
 # secret_allow     = ["**/*.example"]      # P4: authorized file allowance; never overrides secret_dirs
 
+# Optional additive Odoo Recipe. All three literal project values are required;
+# `relax_ng` is a repository-relative file path. The Odoo checks run in addition
+# to the automatic Python/JavaScript Recipes rather than replacing them.
+# [recipes.odoo]
+# module = "sale_guardrail"
+# test_database = "guardrail_test"
+# relax_ng = "schema/import_xml.rng"
+
 # Extra project rules (added to the Base).
 [[rules]]
 id       = "project.terraform-apply"
