@@ -50,7 +50,10 @@ unrelated repository.
 Doctor derives installed Recipe names from the Recipe registry and separately
 reports configuration, execution availability, and unsupported planes. Schema
 and doctor visibility ship together so an accepted Recipe configuration cannot
-be invisible to the operator.
+be invisible to the operator. A host-configured trigger must update and test
+the generated host configuration, including its golden fixtures, in the same
+milestone; registry or doctor visibility without the emitted hook is not
+coverage.
 
 ## Delivery sequence
 
