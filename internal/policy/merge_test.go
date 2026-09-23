@@ -282,9 +282,7 @@ func TestMergeSafeRootsRejectExistingSymlinkEscape(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(outside, "existing"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(outside, filepath.Join(repoRoot, "escape")); err != nil {
-		t.Fatal(err)
-	}
+	testenv.RequireSymlink(t, outside, filepath.Join(repoRoot, "escape"))
 
 	m, warns, err := Merge(&Policy{Waived: map[string]bool{}}, &Overlay{SafeRoots: []string{"escape/existing"}}, "1.0.0", nil, repoRoot)
 	if err != nil {
@@ -324,9 +322,7 @@ func TestMergeSafeRootsRejectExternalAliasResolvingIntoRepo(t *testing.T) {
 	repoRoot := t.TempDir()
 	externalDir := t.TempDir()
 	externalAlias := filepath.Join(externalDir, "back-in")
-	if err := os.Symlink(repoRoot, externalAlias); err != nil {
-		t.Fatal(err)
-	}
+	testenv.RequireSymlink(t, repoRoot, externalAlias)
 
 	requested := filepath.Join(externalAlias, "tmp")
 	m, warns, err := Merge(&Policy{Waived: map[string]bool{}}, &Overlay{SafeRoots: []string{requested}}, "1.0.0", nil, repoRoot)
@@ -344,9 +340,7 @@ func TestMergeSafeRootsKeepNonexistentChildUnderResolvedInRepoAncestor(t *testin
 	if err := os.Mkdir(realDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(realDir, filepath.Join(repoRoot, "alias")); err != nil {
-		t.Fatal(err)
-	}
+	testenv.RequireSymlink(t, realDir, filepath.Join(repoRoot, "alias"))
 
 	m, warns, err := Merge(&Policy{Waived: map[string]bool{}}, &Overlay{SafeRoots: []string{"alias/future/nested"}}, "1.0.0", nil, repoRoot)
 	if err != nil {

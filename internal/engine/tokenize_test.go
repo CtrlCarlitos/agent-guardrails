@@ -22,6 +22,20 @@ func argvs(ss []Simple) [][]string {
 	return out
 }
 
+func nf19DestructiveFixturePath(elements ...string) string {
+	base := "/etc"
+	if runtime.GOOS == "windows" {
+		// The assertion is loop-candidate retention, not POSIX mount-table
+		// emulation. Keep the operand host-absolute even after loop control makes
+		// the candidate CWD unknown; forward slashes remain valid Bash spelling.
+		base = filepath.ToSlash(outsideRepoTarget())
+	}
+	if len(elements) == 0 {
+		return base
+	}
+	return shellJoinedFixturePath(base, elements...)
+}
+
 func TestSplitSimples(t *testing.T) {
 	cases := []struct {
 		src  string
@@ -763,14 +777,14 @@ func TestNF19ShadowedWrapperPrefixAssignmentsAreScoped(t *testing.T) {
 // Mutation caught: exact break/continue execution omits a syntactic body tail and can hide a destructive policy candidate.
 func TestNF19PlainLoopControlCannotHideBodyTail(t *testing.T) {
 	for _, control := range []string{"break", "continue"} {
-		command := fmt.Sprintf(`for n in one two; do %s; rm -rf /etc/$n; done`, control)
+		command := fmt.Sprintf(`for n in one two; do %s; rm -rf %q; done`, control, nf19DestructiveFixturePath("$n"))
 		got, err := Normalize(command, "/repo")
 		if err != nil {
 			t.Fatal(err)
 		}
 		want := [][]string{
-			{control}, {"rm", "-rf", "/etc/one"},
-			{control}, {"rm", "-rf", "/etc/two"}, nil,
+			{control}, {"rm", "-rf", nf19DestructiveFixturePath("one")},
+			{control}, {"rm", "-rf", nf19DestructiveFixturePath("two")}, nil,
 		}
 		if !reflect.DeepEqual(argvs(got), want) {
 			t.Errorf("Normalize(%q) argv = %v, want complete per-item candidates %v", command, argvs(got), want)
@@ -788,14 +802,14 @@ func TestNF19PlainLoopControlCannotHideBodyTail(t *testing.T) {
 // Mutation caught: recognizing builtin/command wrappers as exact loop control omits the remaining syntactic body candidates.
 func TestNF19WrappedLoopControlCannotHideBodyTail(t *testing.T) {
 	for _, wrapper := range []string{"builtin", "command"} {
-		command := fmt.Sprintf(`for n in one two; do %s break; rm -rf /etc/$n; done`, wrapper)
+		command := fmt.Sprintf(`for n in one two; do %s break; rm -rf %q; done`, wrapper, nf19DestructiveFixturePath("$n"))
 		got, err := Normalize(command, "/repo")
 		if err != nil {
 			t.Fatal(err)
 		}
 		want := [][]string{
-			{"break"}, {"rm", "-rf", "/etc/one"},
-			{"break"}, {"rm", "-rf", "/etc/two"}, nil,
+			{"break"}, {"rm", "-rf", nf19DestructiveFixturePath("one")},
+			{"break"}, {"rm", "-rf", nf19DestructiveFixturePath("two")}, nil,
 		}
 		if !reflect.DeepEqual(argvs(got), want) {
 			t.Errorf("Normalize(%q) argv = %v, want complete wrapped-control candidates %v", command, argvs(got), want)
@@ -965,7 +979,7 @@ func TestNF19PostLoopStateAndStatusRemainUnresolved(t *testing.T) {
 		}
 	}
 
-	command := `for n in one; do true; done && TARGET=/repo/safe; rm -rf /etc`
+	command := fmt.Sprintf(`for n in one; do true; done && TARGET=/repo/safe; rm -rf %q`, nf19DestructiveFixturePath())
 	verdict := evalBash(t, command)
 	if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
 		t.Fatalf("checkBash(%q) = %+v, want independent literal deny/P1.rm-rf", command, verdict)
@@ -3185,21 +3199,6 @@ func TestNormalizeCdPathAssignmentsAndModes(t *testing.T) {
 		t.Fatalf("dot-relative CDPATH bypass last = %+v, want %s", last, localSSL)
 	}
 
-	t.Setenv("CDPATH", "")
-	commandCDPath := t.TempDir()
-	for _, directory := range []string{"first", "next"} {
-		if err := os.Mkdir(filepath.Join(commandCDPath, directory), 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	got, err = Normalize(fmt.Sprintf(`CDPATH=%q cd first; cd next; pwd`, commandCDPath), repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := filepath.Join(commandCDPath, "first"); got[len(got)-1].Cwd != want || got[len(got)-1].Unresolved {
-		t.Fatalf("temporary CDPATH assignment last = %+v, want failed second cd to retain %s", got[len(got)-1], want)
-	}
-
 	got, err = Normalize(`cd -LP /etc; pwd`, repo)
 	if err != nil {
 		t.Fatal(err)
@@ -3220,6 +3219,25 @@ func TestNormalizeCdPathAssignmentsAndModes(t *testing.T) {
 	}
 	if last := got[len(got)-1]; last.Cwd != "" || !last.Unresolved {
 		t.Fatalf("post-mutation CDPATH selection last = %+v, want unknown cwd", last)
+	}
+}
+
+func TestNormalizeTemporaryCDPathAssignmentUsesShellPath(t *testing.T) {
+	repo := t.TempDir()
+	commandCDPath := t.TempDir()
+	for _, directory := range []string{"first", "next"} {
+		if err := os.Mkdir(filepath.Join(commandCDPath, directory), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	commandCDPathShell := posixHostPath(commandCDPath)
+	got, err := Normalize(fmt.Sprintf(`CDPATH=%q cd first; cd next; pwd`, commandCDPathShell), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := posixHostPath(filepath.Join(commandCDPath, "first")); got[len(got)-1].Cwd != want || got[len(got)-1].Unresolved {
+		t.Fatalf("temporary CDPATH assignment last = %+v, want failed second cd to retain %s", got[len(got)-1], want)
 	}
 }
 

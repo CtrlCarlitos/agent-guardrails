@@ -24,11 +24,9 @@ jobs:
           check-latest: true
       - run: go build ./...
       - run: go vet ./...
-      # Full test suite is ubuntu-only: the engine's policy semantics are
-      # POSIX-shell-native by design (planes evaluate bash-style commands), so
-      # Windows-host path assumptions (IsAbs, HOME vs USERPROFILE, XDG vs
-      # LOCALAPPDATA) fail there. Windows coverage = build + vet; windows
-      # binaries remain a first-class RELEASE artifact.
+      # The unfiltered Windows suite remains visible in windows-portability.
+      # Packages whose host coordinates and platform-only semantics have been
+      # bounded are promoted to mandatory steps below.
       - name: sow stray temp-root repo
         # Regression guard for the temp-root discovery boundary (ADR: the
         # /tmp/.git lesson): an empty .git at the system temp root must not
@@ -67,6 +65,12 @@ jobs:
         # monotonic state and cross-process serialization remain mandatory.
         if: matrix.os == 'windows-latest'
         run: go test ./internal/session/
+      - name: windows portable engine suite
+        # Host-frame fixtures preserve policy intent on Win32. Exact POSIX
+        # filesystem semantics stay as documented conditional subtest skips;
+        # every portable Engine assertion is mandatory here.
+        if: matrix.os == 'windows-latest'
+        run: go test ./internal/engine/
       - name: windows portable hook tracking fixtures
         # These assertions use host-native repository coordinates and must run
         # on Windows as well as the POSIX hosts.
