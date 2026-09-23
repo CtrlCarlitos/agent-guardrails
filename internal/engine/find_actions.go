@@ -412,6 +412,7 @@ func adaptFindCallbacks(parsed *findActionParseResult, outer Simple, tc ToolCall
 			}
 		}
 		callbackSimple := commandDerivedFromAt(outer, argv, callback.sourceArg)
+		callbackSimple.findCallback = true
 		if callback.execDir {
 			callbackSimple.Unresolved = true
 			callbackSimple.cwdUnknown = true

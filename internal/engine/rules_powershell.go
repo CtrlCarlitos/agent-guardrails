@@ -207,6 +207,16 @@ func checkPSRemoveItem(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdic
 	if !binding.has("recurse") && !binding.has("force") {
 		return nil // Matches rm: one of the two is what makes it dangerous.
 	}
+	if binding.has("filter") || binding.has("exclude") || binding.has("include") || binding.has("stream") {
+		for _, op := range binding.operands {
+			candidate := pathCandidate{posix: false, path: op, cwd: simpleCwd(s, tc), cwdUnknown: s.cwdUnknown}
+			if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, strictWriteRoots(tc, candidate), false); !authorized {
+				return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.rm-rf",
+					Reason: "recursive/forced rm of a path outside the repo and configured safe roots: " + op}
+			}
+		}
+		return nil
+	}
 	argv := []string{"rm", psRmFlags(binding)}
 	argv = append(argv, binding.operands...)
 	return checkRmRf(commandDerivedFromAt(s, argv, -1), tc, pol)

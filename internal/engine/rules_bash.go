@@ -1056,6 +1056,60 @@ func nonFlagArgs(argv []string) []string {
 	return out
 }
 
+func isWorkingTreeDeletion(candidate pathCandidate, repoRoot, sessionCWD string) bool {
+	if candidate.cwdUnknown && !filepath.IsAbs(candidate.path) {
+		return false
+	}
+	candidatePath, mapped := hostPathForCandidate(candidate, repoRoot)
+	if !mapped {
+		return false
+	}
+	cwd := candidate.cwd
+	if cwd == "" && !filepath.IsAbs(candidatePath) {
+		return false
+	}
+	target, err := filepath.Abs(resolvePath(candidatePath, cwd))
+	if err != nil {
+		return false
+	}
+	physicalTarget, hasPhysical := resolveExistingPath(target, "")
+
+	checkMatch := func(reference string) bool {
+		if reference == "" {
+			return false
+		}
+		refAbs, err := filepath.Abs(reference)
+		if err != nil {
+			return false
+		}
+		if pathRelationBetween(target, refAbs).equal {
+			return true
+		}
+		if pathRelationBetween(refAbs, target).within {
+			return true
+		}
+		if hasPhysical {
+			if physRef, ok := resolveExistingPath(refAbs, ""); ok {
+				if pathRelationBetween(physicalTarget, physRef).equal {
+					return true
+				}
+				if pathRelationBetween(physRef, physicalTarget).within {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	if sessionCWD != "" && checkMatch(sessionCWD) {
+		return true
+	}
+	if repoRoot != "" && checkMatch(repoRoot) {
+		return true
+	}
+	return false
+}
+
 func checkRmRf(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	if head(s.Argv) != "rm" {
 		return nil
@@ -1069,10 +1123,21 @@ func checkRmRf(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	if !recursive && !force {
 		return nil
 	}
-	for _, raw := range nonFlagArgs(s.Argv) {
+	for i := 1; i < len(s.Argv); i++ {
+		raw := s.Argv[i]
+		if strings.HasPrefix(raw, "-") {
+			continue
+		}
+		if s.wordUnresolved(i) {
+			continue // P3 owns unresolved operands.
+		}
 		candidate := pathCandidate{posix: true, path: raw, cwd: simpleCwd(s, tc), cwdUnknown: s.cwdUnknown}
 		if candidate.cwdUnknown && !filepath.IsAbs(raw) {
 			continue // P3 owns runtime-relative targets whose cwd is unknowable.
+		}
+		if !s.Unresolved && !s.findCallback && isWorkingTreeDeletion(candidate, tc.RepoRoot, tc.CWD) {
+			return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.rm-rf",
+				Reason: "recursive/forced rm of working directory or repository root: " + raw}
 		}
 		if authorized, _ := authorizedPath(candidate, tc.RepoRoot, pol.Slots.SafeRoots, strictWriteRoots(tc, candidate), false); !authorized {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.rm-rf",
