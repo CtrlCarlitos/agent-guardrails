@@ -20,6 +20,8 @@ func TestForFile(t *testing.T) {
 		"index.ts":      "js-ts",
 		"component.tsx": "js-ts",
 		"lib.rs":        "rust",
+		"lib/app.ex":    "elixir",
+		"test/app.exs":  "elixir",
 	}
 	for file, want := range cases {
 		r, ok := ForFile(file)
@@ -33,11 +35,29 @@ func TestForFile(t *testing.T) {
 }
 
 func TestDoctorNamesComeFromImplementedRegistryTiers(t *testing.T) {
-	if got, want := NamesWithPerEdit(), []string{"go", "python", "js-ts", "rust"}; !slices.Equal(got, want) {
+	if got, want := NamesWithPerEdit(), []string{"go", "python", "js-ts", "rust", "elixir"}; !slices.Equal(got, want) {
 		t.Fatalf("NamesWithPerEdit() = %v, want %v", got, want)
 	}
-	if got, want := NamesWithSession(), []string{"go", "python", "js-ts", "rust"}; !slices.Equal(got, want) {
+	if got, want := NamesWithSession(), []string{"go", "python", "js-ts", "rust", "elixir"}; !slices.Equal(got, want) {
 		t.Fatalf("NamesWithSession() = %v, want %v", got, want)
+	}
+}
+
+func TestElixirRecipeCommands(t *testing.T) {
+	r, ok := ForFile("lib/app.ex")
+	if !ok {
+		t.Fatal("Elixir Recipe not found")
+	}
+	wantPerEdit := [][]string{
+		{"mix", "format", "{file}"},
+		{"mix", "credo", "{file}", "--format", "json"},
+	}
+	wantSession := [][]string{
+		{"mix", "compile", "--warnings-as-errors"},
+		{"mix", "test"},
+	}
+	if !slices.EqualFunc(r.PerEdit, wantPerEdit, slices.Equal) || !slices.EqualFunc(r.Session, wantSession, slices.Equal) {
+		t.Fatalf("Elixir Recipe = %+v", r)
 	}
 }
 

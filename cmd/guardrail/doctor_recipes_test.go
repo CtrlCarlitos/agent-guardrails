@@ -13,9 +13,9 @@ func TestDoctorRecipeStatusShowsEffectiveSupport(t *testing.T) {
 	printRecipeStatus(&policy.Policy{}, &out)
 	text := out.String()
 	for _, want := range []string{
-		"recipes per-edit: go, python, js-ts, rust",
+		"recipes per-edit: go, python, js-ts, rust, elixir",
 		"recipes odoo: disabled (opt in with [recipes.odoo])",
-		"recipes session-completion claude: go, python, js-ts, rust (Stop/SubagentStop)",
+		"recipes session-completion claude: go, python, js-ts, rust, elixir (Stop/SubagentStop)",
 		"recipes session-completion opencode: unsupported",
 		"recipes session-completion antigravity: unsupported",
 		"recipes session-completion codex: unsupported",
