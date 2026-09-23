@@ -355,32 +355,42 @@ func TestCdPathAndPhysicalModeReachEffectiveDirectory(t *testing.T) {
 	if err := os.Mkdir(repoSSL, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	outside := "/etc"
-	link := filepath.Join(repo, "link")
-	if err := os.Symlink(outside, link); err != nil {
-		t.Skipf("create symlink: %v", err)
-	}
-	commands := []string{
-		`CDPATH=/etc cd ssl; rm -rf .`,
-		`CDPATH=/etc; cd ssl; rm -rf .`,
-		`cd -P link; rm -rf .`,
-	}
-	for _, command := range commands {
-		tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
-		v := checkBash(tc, bashPol())
-		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
-			t.Errorf("%q -> %+v, want deny/P1.rm-rf", command, v)
-		}
-	}
 
-	t.Setenv("CDPATH", "/etc")
-	tc := ToolCall{Tool: "Bash", Command: `cd ssl; rm -rf .`, CWD: repo, RepoRoot: repo}
-	if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
-		t.Fatalf("ambient CDPATH -> %+v, want deny/P1.rm-rf", v)
-	}
-	if v := checkBash(ToolCall{Tool: "Bash", Command: `cd ./ssl; rm -rf .`, CWD: repo, RepoRoot: repo}, bashPol()); v != nil {
-		t.Fatalf("dot-relative cd should bypass CDPATH -> %+v, want allow", v)
-	}
+	t.Run("dot-relative bypasses CDPATH", func(t *testing.T) {
+		t.Setenv("CDPATH", "/etc")
+		if v := checkBash(ToolCall{Tool: "Bash", Command: `cd ./ssl; rm -rf .`, CWD: repo, RepoRoot: repo}, bashPol()); v != nil {
+			t.Fatalf("dot-relative cd should bypass CDPATH -> %+v, want allow", v)
+		}
+	})
+
+	t.Run("POSIX effective directory", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("concrete /etc CDPATH and cd -P resolution require a POSIX host filesystem; Windows retains the conservative unresolved-path coverage")
+		}
+		outside := "/etc"
+		link := filepath.Join(repo, "link")
+		if err := os.Symlink(outside, link); err != nil {
+			t.Skipf("create symlink: %v", err)
+		}
+		commands := []string{
+			`CDPATH=/etc cd ssl; rm -rf .`,
+			`CDPATH=/etc; cd ssl; rm -rf .`,
+			`cd -P link; rm -rf .`,
+		}
+		for _, command := range commands {
+			tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
+			v := checkBash(tc, bashPol())
+			if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+				t.Errorf("%q -> %+v, want deny/P1.rm-rf", command, v)
+			}
+		}
+
+		t.Setenv("CDPATH", "/etc")
+		tc := ToolCall{Tool: "Bash", Command: `cd ssl; rm -rf .`, CWD: repo, RepoRoot: repo}
+		if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+			t.Fatalf("ambient CDPATH -> %+v, want deny/P1.rm-rf", v)
+		}
+	})
 }
 
 func TestEvalRunsInCurrentShell(t *testing.T) {

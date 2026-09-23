@@ -22,6 +22,20 @@ func argvs(ss []Simple) [][]string {
 	return out
 }
 
+func nf19DestructiveFixturePath(elements ...string) string {
+	base := "/etc"
+	if runtime.GOOS == "windows" {
+		// The assertion is loop-candidate retention, not POSIX mount-table
+		// emulation. Keep the operand host-absolute even after loop control makes
+		// the candidate CWD unknown; forward slashes remain valid Bash spelling.
+		base = filepath.ToSlash(outsideRepoTarget())
+	}
+	if len(elements) == 0 {
+		return base
+	}
+	return shellJoinedFixturePath(base, elements...)
+}
+
 func TestSplitSimples(t *testing.T) {
 	cases := []struct {
 		src  string
@@ -763,14 +777,14 @@ func TestNF19ShadowedWrapperPrefixAssignmentsAreScoped(t *testing.T) {
 // Mutation caught: exact break/continue execution omits a syntactic body tail and can hide a destructive policy candidate.
 func TestNF19PlainLoopControlCannotHideBodyTail(t *testing.T) {
 	for _, control := range []string{"break", "continue"} {
-		command := fmt.Sprintf(`for n in one two; do %s; rm -rf /etc/$n; done`, control)
+		command := fmt.Sprintf(`for n in one two; do %s; rm -rf %q; done`, control, nf19DestructiveFixturePath("$n"))
 		got, err := Normalize(command, "/repo")
 		if err != nil {
 			t.Fatal(err)
 		}
 		want := [][]string{
-			{control}, {"rm", "-rf", "/etc/one"},
-			{control}, {"rm", "-rf", "/etc/two"}, nil,
+			{control}, {"rm", "-rf", nf19DestructiveFixturePath("one")},
+			{control}, {"rm", "-rf", nf19DestructiveFixturePath("two")}, nil,
 		}
 		if !reflect.DeepEqual(argvs(got), want) {
 			t.Errorf("Normalize(%q) argv = %v, want complete per-item candidates %v", command, argvs(got), want)
@@ -788,14 +802,14 @@ func TestNF19PlainLoopControlCannotHideBodyTail(t *testing.T) {
 // Mutation caught: recognizing builtin/command wrappers as exact loop control omits the remaining syntactic body candidates.
 func TestNF19WrappedLoopControlCannotHideBodyTail(t *testing.T) {
 	for _, wrapper := range []string{"builtin", "command"} {
-		command := fmt.Sprintf(`for n in one two; do %s break; rm -rf /etc/$n; done`, wrapper)
+		command := fmt.Sprintf(`for n in one two; do %s break; rm -rf %q; done`, wrapper, nf19DestructiveFixturePath("$n"))
 		got, err := Normalize(command, "/repo")
 		if err != nil {
 			t.Fatal(err)
 		}
 		want := [][]string{
-			{"break"}, {"rm", "-rf", "/etc/one"},
-			{"break"}, {"rm", "-rf", "/etc/two"}, nil,
+			{"break"}, {"rm", "-rf", nf19DestructiveFixturePath("one")},
+			{"break"}, {"rm", "-rf", nf19DestructiveFixturePath("two")}, nil,
 		}
 		if !reflect.DeepEqual(argvs(got), want) {
 			t.Errorf("Normalize(%q) argv = %v, want complete wrapped-control candidates %v", command, argvs(got), want)
@@ -965,7 +979,7 @@ func TestNF19PostLoopStateAndStatusRemainUnresolved(t *testing.T) {
 		}
 	}
 
-	command := `for n in one; do true; done && TARGET=/repo/safe; rm -rf /etc`
+	command := fmt.Sprintf(`for n in one; do true; done && TARGET=/repo/safe; rm -rf %q`, nf19DestructiveFixturePath())
 	verdict := evalBash(t, command)
 	if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
 		t.Fatalf("checkBash(%q) = %+v, want independent literal deny/P1.rm-rf", command, verdict)
