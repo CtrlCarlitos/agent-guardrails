@@ -19,6 +19,7 @@ type Simple struct {
 	ReadRedirects         []string
 	Cwd                   string
 	Unresolved            bool
+	findCallback          bool
 	literalArgs           map[int]bool
 	literalOut            map[int]bool
 	literalIn             map[int]bool
@@ -2805,6 +2806,7 @@ func commandDerivedFromAt(outer Simple, argv []string, sourceArg int) Simple {
 		Argv:                  argv,
 		Cwd:                   outer.Cwd,
 		Unresolved:            outer.Unresolved || outer.gitEnvironmentUnknown && head(argv) == "git",
+		findCallback:          outer.findCallback,
 		literalOut:            outer.literalOut,
 		literalIn:             outer.literalIn,
 		resolvedOut:           outer.resolvedOut,

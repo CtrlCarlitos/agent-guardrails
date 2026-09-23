@@ -1056,7 +1056,7 @@ func nonFlagArgs(argv []string) []string {
 	return out
 }
 
-func isWorkingTreeDeletion(candidate pathCandidate, repoRoot string) bool {
+func isWorkingTreeDeletion(candidate pathCandidate, repoRoot, sessionCWD string) bool {
 	if candidate.cwdUnknown && !filepath.IsAbs(candidate.path) {
 		return false
 	}
@@ -1078,7 +1078,7 @@ func isWorkingTreeDeletion(candidate pathCandidate, repoRoot string) bool {
 		if reference == "" {
 			return false
 		}
-		refAbs, err := filepath.Abs(resolvePath(reference, cwd))
+		refAbs, err := filepath.Abs(reference)
 		if err != nil {
 			return false
 		}
@@ -1101,7 +1101,7 @@ func isWorkingTreeDeletion(candidate pathCandidate, repoRoot string) bool {
 		return false
 	}
 
-	if cwd != "" && checkMatch(cwd) {
+	if sessionCWD != "" && checkMatch(sessionCWD) {
 		return true
 	}
 	if repoRoot != "" && checkMatch(repoRoot) {
@@ -1135,7 +1135,7 @@ func checkRmRf(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 		if candidate.cwdUnknown && !filepath.IsAbs(raw) {
 			continue // P3 owns runtime-relative targets whose cwd is unknowable.
 		}
-		if isWorkingTreeDeletion(candidate, tc.RepoRoot) {
+		if !s.Unresolved && !s.findCallback && isWorkingTreeDeletion(candidate, tc.RepoRoot, tc.CWD) {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P1.rm-rf",
 				Reason: "recursive/forced rm of working directory or repository root: " + raw}
 		}
