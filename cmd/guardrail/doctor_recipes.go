@@ -22,7 +22,7 @@ func printRecipeStatus(pol *policy.Policy, stdout io.Writer) {
 		fmt.Fprintln(stdout, "recipes odoo: disabled (opt in with [recipes.odoo])")
 	} else {
 		odoo := pol.Recipes.Odoo
-		fmt.Fprintf(stdout, "recipes odoo: configured (module=%s, test_database=%s, relax_ng=%s); execution not installed\n",
+		fmt.Fprintf(stdout, "recipes odoo: enabled (per-edit + claude session-completion; module=%s, test_database=%s, relax_ng=%s)\n",
 			safetext.SingleLine(odoo.Module), safetext.SingleLine(odoo.TestDatabase), safetext.SingleLine(odoo.RelaxNG))
 	}
 

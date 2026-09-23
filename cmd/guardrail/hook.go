@@ -169,7 +169,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 	announceNight := needsNightAnnouncement && tc.SessionID == ""
 	if tc.Event == "session-completion" {
 		v = policy.Verdict{Decision: policy.Allow, RuleID: "P8.recipe-lint", Reason: "session checks passed"}
-		if rv := recipe.CheckSession(tc.RepoRoot); rv != nil {
+		if rv := recipe.CheckSession(tc.RepoRoot, merged); rv != nil {
 			v = *rv
 		}
 		stateApplied = true
@@ -242,7 +242,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 	}
 
 	if v.Decision == policy.Allow {
-		if rv := recipe.Check(tc); rv != nil {
+		if rv := recipe.Check(tc, merged); rv != nil {
 			v = *rv
 		}
 	}

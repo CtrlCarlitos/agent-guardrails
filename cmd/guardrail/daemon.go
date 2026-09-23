@@ -50,7 +50,7 @@ func cmdDaemon(args []string, stdout, stderr io.Writer) int {
 
 			v := engine.Evaluate(tc, merged)
 			if v.Decision == policy.Allow {
-				if rv := recipe.Check(tc); rv != nil {
+				if rv := recipe.Check(tc, merged); rv != nil {
 					v = *rv
 				}
 			}

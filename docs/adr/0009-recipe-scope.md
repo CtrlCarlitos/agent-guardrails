@@ -28,6 +28,16 @@ unresolved value cannot silently become authorization.
 
 Odoo contributes checks in addition to the automatic Recipe for the edited
 file. Opting in never suppresses Python or JavaScript/TypeScript checks.
+After those automatic checks, Odoo adds `pylint_odoo` for Python, the
+project's OWL-aware `eslint` configuration for JavaScript, and both basic and
+configured Relax NG `xmllint` validation for XML. The Relax NG path is resolved
+under the repository root before it becomes an argument.
+
+At session completion, an enabled Odoo Recipe runs full `pylint_odoo`, the
+OCA `oca-checks-odoo-module` entry point, and an Odoo test-database startup with
+`--stop-after-init --test-enable -i <module>`. The configured module and test
+database remain distinct argument-vector values; no shell interpolation is
+involved.
 
 ## Plane support
 
