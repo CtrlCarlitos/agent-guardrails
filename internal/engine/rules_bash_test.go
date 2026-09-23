@@ -1077,17 +1077,17 @@ func TestConfiguredSafeRootDestinationSymlinkOutsideSafeRootsAsks(t *testing.T) 
 func TestPhysicalContainmentAppliesToRmRedirectAndSafeRootItself(t *testing.T) {
 	repo := t.TempDir()
 	escape := filepath.Join(repo, "escape")
-	if err := os.Symlink("/etc", escape); err != nil {
+	if err := os.Symlink(outsideRepoTarget(), escape); err != nil {
 		t.Skipf("create symlink: %v", err)
 	}
 	cases := []struct {
 		command string
 		ruleID  string
 	}{
-		{fmt.Sprintf(`rm -rf %q`, filepath.Join(escape, "missing")), "P1.rm-rf"},
-		{fmt.Sprintf(`printf x > %q`, filepath.Join(escape, "missing")), "P1.redirect"},
-		{fmt.Sprintf(`cp source %q`, filepath.Join(escape, "missing")), "P1.out-of-repo-write"},
-		{fmt.Sprintf(`mv %q %q`, filepath.Join(escape, "missing"), filepath.Join(repo, "moved")), "P1.out-of-repo-write"},
+		{`rm -rf ` + bashFixturePath(filepath.Join(escape, "missing")), "P1.rm-rf"},
+		{`printf x > ` + bashFixturePath(filepath.Join(escape, "missing")), "P1.redirect"},
+		{`cp source ` + bashFixturePath(filepath.Join(escape, "missing")), "P1.out-of-repo-write"},
+		{`mv ` + bashFixturePath(filepath.Join(escape, "missing")) + ` ` + bashFixturePath(filepath.Join(repo, "moved")), "P1.out-of-repo-write"},
 	}
 	for _, test := range cases {
 		tc := ToolCall{Tool: "Bash", Command: test.command, CWD: repo, RepoRoot: repo}
@@ -1097,12 +1097,12 @@ func TestPhysicalContainmentAppliesToRmRedirectAndSafeRootItself(t *testing.T) {
 	}
 
 	safeAlias := filepath.Join(repo, "safe-alias")
-	if err := os.Symlink("/etc", safeAlias); err != nil {
+	if err := os.Symlink(outsideRepoTarget(), safeAlias); err != nil {
 		t.Skipf("create safe-root symlink: %v", err)
 	}
 	pol := bashPol()
 	pol.Slots.SafeRoots = []string{safeAlias}
-	command := fmt.Sprintf(`cp source %q`, filepath.Join(safeAlias, "missing"))
+	command := `cp source ` + bashFixturePath(filepath.Join(safeAlias, "missing"))
 	tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: ""}
 	if v := checkBash(tc, pol); v == nil || v.RuleID != "P1.out-of-repo-write" {
 		t.Fatalf("configured symlink root %q -> %+v, want P1.out-of-repo-write", command, v)
@@ -1324,13 +1324,13 @@ func TestConservativeCdBranchesRemainNonAllowAtVerdictLevel(t *testing.T) {
 func TestMoveSourceSymlinkOutsideSafeRootsAsks(t *testing.T) {
 	repo := t.TempDir()
 	escape := filepath.Join(repo, "escape")
-	if err := os.Symlink("/etc", escape); err != nil {
+	if err := os.Symlink(outsideRepoTarget(), escape); err != nil {
 		t.Skipf("create symlink: %v", err)
 	}
 	commands := []string{
-		fmt.Sprintf(`mv %q %q`, filepath.Join(escape, "hosts"), filepath.Join(repo, "hosts")),
-		fmt.Sprintf(`mv %q %q`, filepath.Join(escape, "agent-guardrails-missing"), filepath.Join(repo, "missing")),
-		fmt.Sprintf(`mv %q %q`, escape, filepath.Join(repo, "escape-moved")),
+		`mv ` + bashFixturePath(filepath.Join(escape, "hosts")) + ` ` + bashFixturePath(filepath.Join(repo, "hosts")),
+		`mv ` + bashFixturePath(filepath.Join(escape, "agent-guardrails-missing")) + ` ` + bashFixturePath(filepath.Join(repo, "missing")),
+		`mv ` + bashFixturePath(escape) + ` ` + bashFixturePath(filepath.Join(repo, "escape-moved")),
 	}
 	for _, command := range commands {
 		tc := ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}
