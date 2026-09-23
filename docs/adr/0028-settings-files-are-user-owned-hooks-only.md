@@ -218,3 +218,80 @@ Two consequences follow, both deliberate:
 - The two `plane disable` defects (claude leaves the floor behind, opencode
   deletes user entries) are resolved by the manifest, which must land with the
   retirement phases rather than after them.
+
+## Amendment 1 — the ownership manifest (operator, 2026-09-22)
+
+The decision above requires guardrail's entries to be precisely removable. This
+amendment records the mechanism, because designing it surfaced a constraint the
+original decision did not anticipate.
+
+### Why a key list is not enough
+
+Merging does not simply write guardrail's entries. Where both guardrail and the
+operator name the same pattern, the **stricter verdict wins**, so guardrail
+overwrites an operator value that was looser. "Guardrail wrote this" therefore
+never implies "this did not exist before guardrail".
+
+A manifest recording only ownership would make removal delete the key, and the
+operator's own setting would be gone — the same harm the manifest exists to
+prevent, reintroduced by the fix for it.
+
+**So the record stores the prior value, and removal restores rather than
+deletes.**
+
+### The record is the diff
+
+The manifest is the diff of the target document across a merge: what the file
+gained, and what each changed key held before. One mechanism covers every
+plane — a string in Claude's `permissions.deny[]`, a key in OpenCode's
+`permission.bash{}`, a group in `hooks{}` — instead of a schema per config
+shape.
+
+That shape also gets a property worth naming: an entry guardrail generated but
+did not actually change, because the operator already had it, produces no diff.
+Guardrail does not claim it, and removal leaves it alone. Deriving ownership
+from the generated fragment instead would claim entries guardrail never wrote.
+
+The record **accumulates** across merges. Merging is idempotent and gets run
+repeatedly; a second merge's diff is empty, and writing that would erase the
+record of everything the first wrote. Where both describe the same slot the
+*recorded* prior wins, because on a second merge the value guardrail sees as
+prior is its own first write.
+
+### Location and degradation
+
+`$XDG_STATE_HOME/guardrail/manifests/<plane>.json` (`%LOCALAPPDATA%` on
+Windows), following the coverage cache: this is guardrail's record of its own
+actions, not operator-owned configuration. Another file the operator must keep
+in step would be the problem, not the fix.
+
+Every installation predating this amendment has no manifest, and state
+directories get cleared, so absence is ordinary. Removal then falls back to
+what an honest removal can conclude without a record: hooks by their
+`guardrail-` id, the opencode plugin by its basename, and permission entries
+by regenerating what the binary would write and removing only exact matches.
+The fallback is narrower — it cannot restore a prior it never saw, nor
+recognise output from an older release — and it reports that it was a fallback,
+because a degraded removal must not look like a clean one.
+
+### Operator edits are left alone
+
+If an entry's current value no longer matches what guardrail wrote, removal
+leaves it and reports it. The operator changed it since; it is theirs now, and
+silently reverting an edit is the same class of harm as deleting one.
+
+### Drift becomes visible
+
+`doctor` reports three conditions per installed plane, each meaning something
+different: entries **missing** from settings (the floor drifted), entries
+**present but unclaimed** (output from an older release that nothing would
+otherwise clean up), and entries the operator has **edited**. A plane with no
+manifest says so rather than reporting clean, since absence of knowledge is not
+absence of drift.
+
+### Consequence for the retirement phases
+
+Without the manifest, phase 1 does not remove the floor from anyone's settings
+file — it only stops generating it, and the entries already on disk stay
+forever. That is the first defect above applied to the reset itself, which is
+why this is a precondition and not a follow-up.
