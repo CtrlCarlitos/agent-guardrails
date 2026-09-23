@@ -25,38 +25,38 @@ func TestRootOnlyGlobsMatchOnlyAtRepoRoot(t *testing.T) {
 	}
 	for _, d := range deep {
 		tc := ToolCall{Tool: "Write", Paths: []string{d.path}, CWD: d.cwd, RepoRoot: "/repo"}
-		wantAllow(t, "selfConfig "+d.path+" cwd "+d.cwd, checkSelfConfig(tc))
-		wantAllow(t, "ciInfra "+d.path+" cwd "+d.cwd, checkCIInfraLockfile(tc))
+		wantAllow(t, "selfConfig "+d.path+" cwd "+d.cwd, checkSelfConfigHostFrameFixture(tc))
+		wantAllow(t, "ciInfra "+d.path+" cwd "+d.cwd, checkCIInfraHostFrameFixture(tc))
 	}
 	for _, r := range []struct{ path, cwd, root string }{
 		{"CLAUDE.md", "/repo", "/repo"}, {"/repo/CLAUDE.md", "/repo", "/repo"}, {"./CLAUDE.md", "/repo", "/repo"},
 		{"/CLAUDE.md", "/", "/"}, // repoRoot "/" — must not be rejected by containment
 	} {
 		tc := ToolCall{Tool: "Write", Paths: []string{r.path}, CWD: r.cwd, RepoRoot: r.root}
-		if v := checkSelfConfig(tc); v == nil || v.Decision != policy.Deny {
+		if v := checkSelfConfigHostFrameFixture(tc); v == nil || v.Decision != policy.Deny {
 			t.Errorf("selfConfig %q (root %s) -> %+v, want deny", r.path, r.root, v)
 		}
 	}
 	for _, p := range []string{"/home/u/.bashrc", "/repo/sub/.envrc", "/repo/.envrc"} {
 		tc := ToolCall{Tool: "Write", Paths: []string{p}, CWD: "/repo", RepoRoot: "/repo"}
-		if v := checkSelfConfig(tc); v == nil || v.Decision != policy.Deny {
+		if v := checkSelfConfigHostFrameFixture(tc); v == nil || v.Decision != policy.Deny {
 			t.Errorf("%q -> %+v, want deny (anywhere glob unaffected by repo scoping)", p, v)
 		}
 	}
 	// Containment is case-insensitive; an escape is never repo-relative.
 	up := ToolCall{Tool: "Write", Paths: []string{"/REPO/CLAUDE.md"}, CWD: "/REPO", RepoRoot: "/repo"}
-	if v := checkSelfConfig(up); v == nil || v.Decision != policy.Deny {
+	if v := checkSelfConfigHostFrameFixture(up); v == nil || v.Decision != policy.Deny {
 		t.Errorf("/REPO/CLAUDE.md with root /repo -> %+v, want deny", v)
 	}
 	esc := ToolCall{Tool: "Write", Paths: []string{"/etc/CLAUDE.md"}, CWD: "/repo", RepoRoot: "/repo"}
-	wantAllow(t, "/etc/CLAUDE.md is outside the repo (self-config)", checkSelfConfig(esc))
+	wantAllow(t, "/etc/CLAUDE.md is outside the repo (self-config)", checkSelfConfigHostFrameFixture(esc))
 	// Root-level CI files still ask; nested ones do not.
 	rootMk := ToolCall{Tool: "Write", Paths: []string{"/repo/Makefile"}, CWD: "/repo", RepoRoot: "/repo"}
-	if v := checkCIInfraLockfile(rootMk); v == nil || v.Decision != policy.Ask {
+	if v := checkCIInfraHostFrameFixture(rootMk); v == nil || v.Decision != policy.Ask {
 		t.Errorf("/repo/Makefile -> %+v, want ask", v)
 	}
 	nestedWf := ToolCall{Tool: "Write", Paths: []string{"/repo/sub/.github/workflows/ci.yml"}, CWD: "/repo", RepoRoot: "/repo"}
-	if v := checkCIInfraLockfile(nestedWf); v == nil || v.Decision != policy.Ask {
+	if v := checkCIInfraHostFrameFixture(nestedWf); v == nil || v.Decision != policy.Ask {
 		t.Errorf("nested workflows dir -> %+v, want ask (anywhere glob)", v)
 	}
 }
@@ -76,7 +76,7 @@ func TestRepoRelativeHandlesRootAndEscapes(t *testing.T) {
 		{"/repo/x", "/repo", "", "x", true}, // no RepoRoot: adapters fall back to CWD
 		{"/repo/x", "", "", "", false},
 	} {
-		got, ok := repoRelative(c.p, c.cwd, c.root)
+		got, ok := repoRelative(hostFixturePath(c.p), hostFixturePath(c.cwd), hostFixturePath(c.root))
 		if ok != c.ok || got != c.want {
 			t.Errorf("repoRelative(%q,%q,%q) = (%q,%v), want (%q,%v)", c.p, c.cwd, c.root, got, ok, c.want, c.ok)
 		}
@@ -118,7 +118,7 @@ func TestGlobMatchingIsCaseInsensitiveAcrossLists(t *testing.T) {
 		{"Write", "/repo/.GitHub/Workflows/ci.yml", "P5.ci-infra-lockfile", policy.Ask},
 	} {
 		tc := ToolCall{Tool: c.tool, Paths: []string{c.path}, CWD: "/repo", RepoRoot: "/repo"}
-		v := checkPaths(tc, pol)
+		v := checkPathsHostFrameFixture(tc, pol)
 		if v == nil || v.Decision != c.want || v.RuleID != c.rule {
 			t.Errorf("%s %q -> %+v, want %s/%s", c.tool, c.path, v, c.want, c.rule)
 		}

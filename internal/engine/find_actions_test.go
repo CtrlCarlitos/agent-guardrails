@@ -16,7 +16,7 @@ type findVerdictExpectation struct {
 
 func requireFindVerdict(t *testing.T, tc ToolCall, pol *policy.Policy, want findVerdictExpectation) {
 	t.Helper()
-	got := Evaluate(tc, pol)
+	got := Evaluate(hostFrameFixture(tc), hostFramePolicy(pol))
 	if got.Decision != want.decision || got.RuleID != want.ruleID {
 		t.Fatalf("Evaluate(%q) = %s/%s, want %s/%s; reason: %s", tc.Command, got.Decision, got.RuleID, want.decision, want.ruleID, got.Reason)
 	}
@@ -208,9 +208,10 @@ func TestFindFixedArityArgumentsConsumeTokenShapedValues(t *testing.T) {
 // Mutation caught: leaving {} as inert text misses a callback write that the outer find does not perform.
 func TestFindCallbackPlaceholderAdaptsWriteTarget(t *testing.T) {
 	tc := ToolCall{Tool: "Bash", CWD: "/repo", RepoRoot: "/repo"}
-	tc.Command = `find /etc/passwd -print`
+	target := outsideCommandFixturePath("passwd")
+	tc.Command = `find ` + target + ` -print`
 	requireFindVerdict(t, tc, bashPol(), findVerdictExpectation{decision: policy.Allow})
-	tc.Command = `find /etc/passwd -exec tee {} +`
+	tc.Command = `find ` + target + ` -exec tee {} +`
 	requireFindVerdict(t, tc, bashPol(), findVerdictExpectation{policy.Ask, "P1.out-of-repo-write"})
 }
 
