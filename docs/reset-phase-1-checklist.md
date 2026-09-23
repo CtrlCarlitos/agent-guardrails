@@ -170,16 +170,24 @@ Floor retirement removes the 213 current guardrail entries and cleans up the 6 s
    ```bash
    guardrail doctor
    ```
-   *Expected report*:
-   ```text
-   claude settings: guardrail hook registered
-   claude ownership: 6 stale guardrail entries the manifest does not claim; 4 operator-edited entries (left as-is); run `guardrail plane enable claude` to reconcile
-   engine health: reachable (self-spawn ok)
-   ```
-   *Note on the reconcile line*:
-   - The ownership line explicitly surfaces the 6 stale entries and 4 operator entries.
-   - The advisory `run 'guardrail plane enable claude' to reconcile` indicates that running `plane enable` reconciles generated entries against the ownership manifest (restoring prior values and leaving operator entries intact).
-   - For Phase C floor retirement, we proceed with removing guardrail's 219 entries (213 current + 6 stale) while keeping the 4 operator entries intact.
+   - **Initial Pre-Reconcile State** (host predating manifests / no state recorded):
+     On an existing installation before a manifest is created, `doctor` reports the fallback condition:
+     ```text
+     claude settings: guardrail hook registered
+     claude ownership: no manifest (entries written before this release, or state cleared); `plane disable claude` will fall back to matching current generated output
+     engine health: reachable (self-spawn ok)
+     ```
+   - **Post-Reconcile / Manifest-Tracked State** (after manifest initialization):
+     Once the manifest is established (or after running `guardrail plane enable claude` to baseline):
+     ```text
+     claude settings: guardrail hook registered
+     claude ownership: 6 stale guardrail entries the manifest does not claim; 4 operator-edited entries (left as-is); run `guardrail plane enable claude` to reconcile
+     engine health: reachable (self-spawn ok)
+     ```
+     *Note on the reconcile line*:
+     - The ownership line explicitly surfaces the 6 stale entries and 4 operator entries.
+     - The advisory `run 'guardrail plane enable claude' to reconcile` indicates that running `plane enable` reconciles generated entries against the ownership manifest (restoring prior values and leaving operator entries intact).
+     - For Phase C floor retirement, we proceed with removing guardrail's 219 entries (213 current + 6 stale) while keeping the 4 operator entries intact.
 
 3. **Edit `settings.json` (Retire Floor)**:
    Prune the 213 current guardrail floor entries and the 6 stale guardrail entries from `"permissions"`.
