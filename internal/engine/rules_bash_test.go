@@ -424,14 +424,21 @@ func TestShellFunctionsAreEvaluatedOnlyWhenInvoked(t *testing.T) {
 	if v := evalBash(t, `danger() { rm -rf /; }`); v != nil {
 		t.Fatalf("uncalled function -> %+v, want allow", v)
 	}
-	for _, command := range []string{
-		`danger() { rm -rf /; }; danger`,
-		`move() { cd /etc; }; move; rm -rf .`,
-	} {
-		v := evalBash(t, command)
-		if v == nil || v.Decision != policy.Deny {
-			t.Errorf("%q -> %+v, want deny", command, v)
+	danger := `danger() { rm -rf /; }; danger`
+	if v := evalBash(t, danger); v == nil || v.Decision != policy.Deny {
+		t.Errorf("%q -> %+v, want deny", danger, v)
+	}
+	move := `move() { cd /etc; }; move; rm -rf .`
+	moveVerdict := evalBash(t, move)
+	if runtime.GOOS == "windows" {
+		// Win32 cannot probe the POSIX /etc mount reached inside the function.
+		// The conservative unresolved result remains exact and non-allow; POSIX
+		// hosts retain the concrete deny assertion below.
+		if moveVerdict == nil || moveVerdict.Decision != policy.Ask || moveVerdict.RuleID != "P3.unresolved" {
+			t.Errorf("%q -> %+v, want ask/P3.unresolved without a POSIX mount table", move, moveVerdict)
 		}
+	} else if moveVerdict == nil || moveVerdict.Decision != policy.Deny {
+		t.Errorf("%q -> %+v, want deny", move, moveVerdict)
 	}
 	for _, command := range []string{
 		`recur() { recur; }; recur; rm -rf .`,

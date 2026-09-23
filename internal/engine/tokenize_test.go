@@ -1175,6 +1175,17 @@ func TestNF19LoopBindingSynchronizesCDPATH(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"rm", "-rf", "/etc/guardrail-test"}
+	if runtime.GOOS == "windows" {
+		last := got[len(got)-1]
+		if !last.Unresolved || !last.cwdUnknown {
+			t.Fatalf("Normalize(%q) last = %+v, want conservative unresolved CWD without a POSIX mount table", command, last)
+		}
+		verdict := checkBashHostFrameFixture(ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, bashPol())
+		if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
+			t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved without a POSIX mount table", command, verdict)
+		}
+		return
+	}
 	if !hasArgv(got, want) {
 		t.Fatalf("Normalize(%q) = %+v, want runtime-reachable candidate %q", command, got, want)
 	}
@@ -1299,14 +1310,21 @@ func TestNF19UnquotedTrackedExtglobValuesFailClosed(t *testing.T) {
 
 // Mutation caught: applying unquoted extglob restrictions inside quotes or to ordinary safe values loses concrete fields.
 func TestNF19QuotedExtglobAndOrdinaryValuesRemainConcrete(t *testing.T) {
-	for _, command := range []string{
-		`S='@(safe|etc)'; rm -rf "$S"`,
-		`S=safe; rm -rf $S`,
-	} {
+	t.Run("quoted extglob value", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip(`Win32 cannot represent the literal extglob filename "@(safe|etc)" because '|' is forbidden; POSIX hosts retain the policy assertion`)
+		}
+		command := `S='@(safe|etc)'; rm -rf "$S"`
 		if verdict := evalBash(t, command); verdict != nil {
 			t.Errorf("checkBash(%q) = %+v, want allow", command, verdict)
 		}
-	}
+	})
+	t.Run("ordinary value", func(t *testing.T) {
+		command := `S=safe; rm -rf $S`
+		if verdict := evalBash(t, command); verdict != nil {
+			t.Errorf("checkBash(%q) = %+v, want allow", command, verdict)
+		}
+	})
 }
 
 // Mutation caught: an unresolved state-seam candidate must not outrank or erase an independent literal Deny.
@@ -1320,6 +1338,9 @@ func TestNF19StateSeamUncertaintyPreservesLiteralDeny(t *testing.T) {
 
 // Mutation caught: a real extglob-enabled shell can expand these prior-literal values into runtime path fields.
 func TestNF19BashExtglobSemanticFixture(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a Win32 working directory cannot be passed portably to WSL/Git Bash for this POSIX extglob execution fixture")
+	}
 	bash, err := exec.LookPath("bash")
 	if err != nil {
 		t.Skip("bash is not installed")
