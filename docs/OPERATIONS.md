@@ -65,6 +65,47 @@ like from the outside for four days: `registered`, green, enforcing nothing.
 | Too many asks tonight | `guardrail night on --for 8h` (terminal only) | Relaxes routine asks to allow until then. External-tier asks (publishing, schedulers, unknown MCP) are never relaxed (ADR-0018). `guardrail night off` restores. `guardrail night status` works from anywhere and exits 1 when inactive — a state, not a failure. |
 | Windows: an opencode agent reports *every* tool call failing `guardrail: could not run (spawnSync … ETIMEDOUT); failing closed` | see **Windows: engine unreachable** below | Per-spawn latency (Defender scan + NTFS `CreateProcess`, #132) exceeded the opencode plugin's budget; the plugin denies everything when the engine cannot run — fail-closed by design. Other planes have larger hook budgets and keep working; opencode failing alone is expected, not evidence of a binary bug. |
 
+## Grant one exact command
+
+When a policy verdict asks but repeating the command should not require a live
+approval ceremony, issue a scoped grant from an **interactive operator
+terminal**:
+
+```
+guardrail approvals grant --repo <absolute-repo-path> --rule <rule-id> --command "<exact-command>"
+```
+
+Issuance is refused from agents, CI, pipes, and other non-interactive contexts.
+Copy the rule ID and the complete command from the ask or audit record. Shell
+quotes used to pass `--command` are not part of the value.
+
+Before accepting `yes`, the ceremony prints the command whole and then prints
+an exact quoted representation with its byte count. Read both: the first makes
+the intended operation legible; the second exposes tabs, trailing whitespace,
+control characters, and any other byte-level difference that literal matching
+would otherwise hide. The grant matches only that repository, rule, and exact
+command. A longer command, a near miss, or the same text in another repository
+is not authorized.
+
+Omitting `--uses` creates a one-use grant. Omit `--for` for the 30-minute
+default; longer requested lifetimes are clamped to 24 hours. Spending is
+rechecked and committed under the machine-wide operator lock, so two concurrent
+calls cannot consume the same final use and a non-matching call consumes
+nothing.
+
+Inspect active and spent grants with `guardrail approvals list --grants`.
+Revoke an unspent grant by repeating its exact scope:
+
+```
+guardrail approvals revoke --repo <absolute-repo-path> --rule <rule-id> --command "<exact-command>"
+```
+
+The audit log records issuance and revocation as operator actions, including
+the repository, rule, exact command, decision, and reason. A successful spend
+is recorded with rule `ask-allowed-by-operator-grant` and preserves the original
+ask rule as `origin_rule_id`. See [ADR-0027](adr/0027-operator-issued-grants-authorize-one-exact-command.md)
+for the trust and transaction design.
+
 ## Things that look like bugs and aren't
 
 - **Writing `.env` inside the repo is denied.** `.env` is a File secret (definitive tier). Use `.env.example`, or an operator-authorised `secret_allow`.
