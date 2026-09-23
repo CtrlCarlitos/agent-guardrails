@@ -167,7 +167,7 @@ func TestNF5bResolvesPlainParametersEmbeddedInUnquotedWords(t *testing.T) {
 		if !reflect.DeepEqual(last.Argv, wantArgv) || last.Unresolved || !last.resolvedArgs[1] || last.wordUnresolved(1) {
 			t.Errorf("Normalize(%q) last = %+v, want resolved argv %q with concrete provenance", test.command, last, wantArgv)
 		}
-		if verdict := checkBash(ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}, bashPol()); verdict != nil {
+		if verdict := checkBashHostFrameFixture(ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}, bashPol()); verdict != nil {
 			t.Errorf("checkBash(%q) = %+v, want allow", test.command, verdict)
 		}
 	}
@@ -602,7 +602,7 @@ func TestNF19NestedFiniteLoopsFailClosedWithoutProductExpansion(t *testing.T) {
 	done := make(chan result, 1)
 	go func() {
 		simples, err := Normalize(command, "/repo")
-		verdict := checkBash(ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, bashPol())
+		verdict := checkBashHostFrameFixture(ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, bashPol())
 		done <- result{simples: simples, verdict: verdict, err: err}
 	}()
 	select {
@@ -643,7 +643,7 @@ func TestNF19FiniteLoopItemLimit(t *testing.T) {
 			if len(simples) != test.candidates {
 				t.Fatalf("Normalize produced %d candidates, want %d", len(simples), test.candidates)
 			}
-			verdict := checkBash(ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, bashPol())
+			verdict := checkBashHostFrameFixture(ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, bashPol())
 			if test.decision == policy.Allow {
 				if verdict != nil {
 					t.Fatalf("checkBash = %+v, want allow", verdict)
@@ -928,7 +928,7 @@ func TestNF19StateInertAuditedLoopRemainsConcrete(t *testing.T) {
 func TestNF19CrossIterationFilesystemMutationBeforeFindFailsClosed(t *testing.T) {
 	root := t.TempDir()
 	command := fmt.Sprintf(`for n in one two; do find %q -mindepth 1 -delete; done`, root)
-	verdict := checkBash(
+	verdict := checkBashHostFrameFixture(
 		ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"},
 		&policy.Policy{Slots: policy.Slots{SafeRoots: []string{root}}, Waived: map[string]bool{}},
 	)
@@ -941,7 +941,7 @@ func TestNF19CrossIterationFilesystemMutationBeforeFindFailsClosed(t *testing.T)
 func TestNF19CrossIterationReadOnlyFindRemainsConcrete(t *testing.T) {
 	root := t.TempDir()
 	command := fmt.Sprintf(`for n in one two; do find %q -maxdepth 1; done`, root)
-	verdict := checkBash(
+	verdict := checkBashHostFrameFixture(
 		ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"},
 		&policy.Policy{Slots: policy.Slots{SafeRoots: []string{root}}, Waived: map[string]bool{}},
 	)
@@ -1087,7 +1087,7 @@ func TestNF19UnknownAttributeAssignmentFailsClosed(t *testing.T) {
 func TestNF19AttributedPWDPublicationFailsClosed(t *testing.T) {
 	repo := t.TempDir()
 	command := fmt.Sprintf(`declare -u PWD; cd %q; rm -rf "$PWD/guardrail-test"`, repo)
-	verdict := checkBash(ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, bashPol())
+	verdict := checkBashHostFrameFixture(ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, bashPol())
 	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
 		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
 	}
@@ -1102,7 +1102,7 @@ func TestNF19AttributedCDPATHSearchFailsClosed(t *testing.T) {
 	}
 	t.Setenv("CDPATH", searchRoot)
 	command := `declare -u CDPATH; cd target; rm -rf "$PWD/guardrail-test"`
-	verdict := checkBash(ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, bashPol())
+	verdict := checkBashHostFrameFixture(ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, bashPol())
 	if verdict == nil || verdict.Decision != policy.Ask || verdict.RuleID != "P3.unresolved" {
 		t.Fatalf("checkBash(%q) = %+v, want ask/P3.unresolved", command, verdict)
 	}
@@ -1128,8 +1128,15 @@ func TestNF19OrdinaryAssignmentsAndPWDRemainConcrete(t *testing.T) {
 			t.Errorf("Normalize(%q) candidate %d = %+v, want concrete", command, index, simple)
 		}
 	}
-	if verdict := evalBash(t, command); verdict != nil {
-		t.Fatalf("checkBash(%q) = %+v, want allow", command, verdict)
+	policyCommand := command
+	if runtime.GOOS == "windows" {
+		// The assertion here is assignment/PWD tracking, not MSYS mount-table
+		// emulation. A relative no-op reaches the same concrete directory while
+		// keeping the host-framed policy check addressable on Win32.
+		policyCommand = strings.Replace(policyCommand, "cd /repo", "cd .", 1)
+	}
+	if verdict := evalBash(t, policyCommand); verdict != nil {
+		t.Fatalf("checkBash(%q) = %+v, want allow", policyCommand, verdict)
 	}
 }
 
@@ -1170,7 +1177,7 @@ func TestNF19LoopBindingSynchronizesCDPATH(t *testing.T) {
 	if !hasArgv(got, want) {
 		t.Fatalf("Normalize(%q) = %+v, want runtime-reachable candidate %q", command, got, want)
 	}
-	verdict := checkBash(ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, bashPol())
+	verdict := checkBashHostFrameFixture(ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, bashPol())
 	if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
 		t.Fatalf("checkBash(%q) = %+v, want loop-bound CDPATH to reach deny/P1.rm-rf", command, verdict)
 	}
@@ -1193,7 +1200,7 @@ func TestNF19SafeLoopBoundCDPATHRemainsConcrete(t *testing.T) {
 	if last := got[len(got)-1]; !reflect.DeepEqual(last.Argv, want) || last.Unresolved {
 		t.Fatalf("Normalize(%q) last = %+v, want concrete %q", command, last, want)
 	}
-	if verdict := checkBash(ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, bashPol()); verdict != nil {
+	if verdict := checkBashHostFrameFixture(ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, bashPol()); verdict != nil {
 		t.Fatalf("checkBash(%q) = %+v, want allow", command, verdict)
 	}
 }
@@ -1458,7 +1465,7 @@ func TestNF19ResolvesSeededPWDAndHOME(t *testing.T) {
 	if len(got) != 1 || !reflect.DeepEqual(got[0].Argv, want) || got[0].Unresolved {
 		t.Fatalf("Normalize(%q) = %+v, want seeded paths %q", command, got, want)
 	}
-	if verdict := checkBash(ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, bashPol()); verdict != nil {
+	if verdict := checkBashHostFrameFixture(ToolCall{Tool: "Bash", Command: command, CWD: repo, RepoRoot: repo}, bashPol()); verdict != nil {
 		t.Fatalf("seeded repository paths = %+v, want allow", verdict)
 	}
 }
@@ -1536,7 +1543,7 @@ func TestNF19PWDAndHOMEStateChangesRemainFailClosed(t *testing.T) {
 		}
 	}
 
-	verdict := checkBash(ToolCall{Tool: "Bash", Command: `rm -rf $PWD/x`, CWD: "/etc", RepoRoot: "/repo"}, bashPol())
+	verdict := checkBashHostFrameFixture(ToolCall{Tool: "Bash", Command: `rm -rf $PWD/x`, CWD: "/etc", RepoRoot: "/repo"}, bashPol())
 	if verdict == nil || verdict.Decision != policy.Deny || verdict.RuleID != "P1.rm-rf" {
 		t.Fatalf("cwd-seeded /etc PWD = %+v, want deny/P1.rm-rf", verdict)
 	}

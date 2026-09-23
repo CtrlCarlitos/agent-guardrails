@@ -18,7 +18,7 @@ func bashPol() *policy.Policy {
 
 func evalBash(t *testing.T, cmd string) *policy.Verdict {
 	t.Helper()
-	return checkBash(ToolCall{Tool: "Bash", Command: cmd, CWD: "/repo", RepoRoot: "/repo"}, bashPol())
+	return checkBash(hostFrameFixture(ToolCall{Tool: "Bash", Command: cmd, CWD: "/repo", RepoRoot: "/repo"}), hostFramePolicy(bashPol()))
 }
 
 func TestHeadCanonicalizesExecutableIdentity(t *testing.T) {
@@ -2623,7 +2623,7 @@ func TestLocallyResolvedSecretAndSelfConfigPathsReachPathPolicy(t *testing.T) {
 		{`SECRET=/home/u/.ssh/id_rsa; cat "$SECRET"`, "P4.secret-path"},
 		{`CONFIG=/repo/CLAUDE.md; echo x > "$CONFIG"`, "P5.self-config"},
 	} {
-		v := Evaluate(ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}, pol)
+		v := evaluateHostFrameFixture(ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}, pol)
 		if v.Decision != policy.Deny || v.RuleID != test.ruleID {
 			t.Errorf("%q -> %+v, want deny/%s", test.command, v, test.ruleID)
 		}

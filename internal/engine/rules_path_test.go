@@ -87,7 +87,7 @@ func TestSecretDirsStayUnwaivableThroughSecretNamedSymlink(t *testing.T) {
 func TestSecretTiers(t *testing.T) {
 	pol := pathPol()
 	read := func(p string) *policy.Verdict {
-		return checkPaths(ToolCall{Tool: "Read", Paths: []string{p}, CWD: "/repo", RepoRoot: "/repo"}, pol)
+		return checkPathsHostFrameFixture(ToolCall{Tool: "Read", Paths: []string{p}, CWD: "/repo", RepoRoot: "/repo"}, pol)
 	}
 	for _, p := range []string{"/repo/i18n/translations.key", "/repo/testdata/id_rsa.pub", "/repo/keys/server.pub"} {
 		wantAllow(t, p, read(p))
@@ -479,7 +479,7 @@ func TestSedInPlaceUsesParsedFileRoles(t *testing.T) {
 		{`sed --in-p /repo/CLAUDE.md --exp=s/x/y/`, "P5.self-config"},
 	} {
 		tc := ToolCall{Tool: "Bash", Command: test.command, CWD: "/repo", RepoRoot: "/repo"}
-		if v := checkPaths(tc, pathPol()); v == nil || v.Decision != policy.Deny || v.RuleID != test.ruleID {
+		if v := checkPathsHostFrameFixture(tc, pathPol()); v == nil || v.Decision != policy.Deny || v.RuleID != test.ruleID {
 			t.Errorf("%q -> %+v, want deny/%s", test.command, v, test.ruleID)
 		}
 	}
@@ -708,7 +708,7 @@ func TestEvaluateJQYQUnknownOptionsAsk(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			tc := ToolCall{Tool: "Bash", Command: test.command, CWD: "/home/u/.ssh", RepoRoot: "/repo"}
-			if v := Evaluate(tc, pathPol()); v.Decision != policy.Ask || v.RuleID != ruleID || v.Reason != test.reason {
+			if v := evaluateHostFrameFixture(tc, pathPol()); v.Decision != policy.Ask || v.RuleID != ruleID || v.Reason != test.reason {
 				t.Fatalf("Evaluate(%q) = %+v, want ask/%s with reason %q", test.command, v, ruleID, test.reason)
 			}
 		})
@@ -977,7 +977,7 @@ func TestBashPathCandidatesRetainStatementCwd(t *testing.T) {
 	}
 	for _, test := range cases {
 		tc := ToolCall{Tool: "Bash", Command: test.command, CWD: repo, RepoRoot: repo}
-		v := checkPaths(tc, pathPol())
+		v := checkPathsHostFrameFixture(tc, pathPol())
 		if v == nil || v.RuleID != test.ruleID {
 			t.Errorf("%q -> %+v, want %s", test.command, v, test.ruleID)
 		}
@@ -1099,7 +1099,7 @@ func TestOutsideRepoSymlinkTargets(t *testing.T) {
 		}
 	}
 	tc.Paths = []string{benignAlias}
-	if v := checkPaths(tc, pathPol()); v != nil {
+	if v := checkPathsHostFrameFixture(tc, pathPol()); v != nil {
 		t.Errorf("Read benign outside-repo alias %q -> %+v, want nil", benignAlias, v)
 	}
 }
@@ -1124,13 +1124,13 @@ func TestSelfConfigDenied(t *testing.T) {
 	deny := []string{"/repo/.claude/settings.json", "/repo/CLAUDE.md", "/repo/AGENTS.md", "/repo/.mcp.json", "/repo/.envrc", "/home/u/.bashrc", "/home/u/.zshrc"}
 	for _, p := range deny {
 		tc := ToolCall{Tool: "Edit", Paths: []string{p}, RepoRoot: "/repo", CWD: "/repo"}
-		v := checkPaths(tc, pathPol())
+		v := checkPathsHostFrameFixture(tc, pathPol())
 		if v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
 			t.Errorf("Edit %q -> %+v, want deny/P5.self-config", p, v)
 		}
 	}
 	tc := ToolCall{Tool: "Edit", Paths: []string{"/repo/src/main.go"}, RepoRoot: "/repo", CWD: "/repo"}
-	if v := checkPaths(tc, pathPol()); v != nil {
+	if v := checkPathsHostFrameFixture(tc, pathPol()); v != nil {
 		t.Errorf("unrelated path -> %+v, want nil", v)
 	}
 }
@@ -1569,9 +1569,10 @@ func TestSelfConfigAndGitProtectedStillDenyWrites(t *testing.T) {
 	for _, tool := range []string{"Edit", "Write", "MultiEdit"} {
 		for _, test := range deny {
 			tc := ToolCall{Tool: tool, Paths: []string{test.path}, RepoRoot: "/repo", CWD: "/repo"}
-			v := checkPaths(tc, pathPol())
-			if v == nil || v.Decision != policy.Deny || v.RuleID != test.ruleID || v.Reason != test.wantReason {
-				t.Errorf("%s %q -> %+v, want deny/%s with reason %q", tool, test.path, v, test.ruleID, test.wantReason)
+			v := checkPathsHostFrameFixture(tc, pathPol())
+			wantReason := strings.ReplaceAll(test.wantReason, test.path, hostFixturePath(test.path))
+			if v == nil || v.Decision != policy.Deny || v.RuleID != test.ruleID || v.Reason != wantReason {
+				t.Errorf("%s %q -> %+v, want deny/%s with reason %q", tool, test.path, v, test.ruleID, wantReason)
 			}
 		}
 	}
@@ -1589,9 +1590,10 @@ func TestSelfConfigAndGitProtectedStillDenyBashRedirects(t *testing.T) {
 	for _, test := range deny {
 		for _, command := range []string{"printf x > " + test.path, "> " + test.path} {
 			tc := ToolCall{Tool: "Bash", Command: command, RepoRoot: "/repo", CWD: "/repo"}
-			v := checkPaths(tc, pathPol())
-			if v == nil || v.Decision != policy.Deny || v.RuleID != test.ruleID || v.Reason != test.wantReason {
-				t.Errorf("Bash %q -> %+v, want deny/%s with reason %q", command, v, test.ruleID, test.wantReason)
+			v := checkPathsHostFrameFixture(tc, pathPol())
+			wantReason := strings.ReplaceAll(test.wantReason, test.path, posixFixturePath(test.path))
+			if v == nil || v.Decision != policy.Deny || v.RuleID != test.ruleID || v.Reason != wantReason {
+				t.Errorf("Bash %q -> %+v, want deny/%s with reason %q", command, v, test.ruleID, wantReason)
 			}
 		}
 	}
@@ -1604,7 +1606,7 @@ func TestCommandLookupRedirectsReachProtectedPathChecks(t *testing.T) {
 		`command > /repo/CLAUDE.md`,
 	} {
 		tc := ToolCall{Tool: "Bash", Command: command, RepoRoot: "/repo", CWD: "/repo"}
-		v := checkPaths(tc, pathPol())
+		v := checkPathsHostFrameFixture(tc, pathPol())
 		if v == nil || v.Decision != policy.Deny || v.RuleID != "P5.self-config" {
 			t.Errorf("%q -> %+v, want deny/P5.self-config", command, v)
 		}
@@ -1629,7 +1631,7 @@ func TestInputRedirectsDoNotReachWritePathRules(t *testing.T) {
 func TestRedirectPathsReachSecretChecks(t *testing.T) {
 	for _, command := range []string{`> /repo/.env`, `< /repo/.env`, `<> /repo/.env`} {
 		tc := ToolCall{Tool: "Bash", Command: command, RepoRoot: "/repo", CWD: "/repo"}
-		v := checkPaths(tc, pathPol())
+		v := checkPathsHostFrameFixture(tc, pathPol())
 		if v == nil || v.Decision != policy.Deny || v.RuleID != "P4.secret-path" {
 			t.Errorf("%q -> %+v, want deny/P4.secret-path", command, v)
 		}
@@ -1651,7 +1653,7 @@ func TestRedirectPathsReachSymlinkEscapeChecks(t *testing.T) {
 	}
 	for _, operator := range []string{">", "<", "<>"} {
 		tc := ToolCall{Tool: "Bash", Command: operator + " " + link, RepoRoot: repo, CWD: repo}
-		v := checkPaths(tc, pathPol())
+		v := checkPathsHostFrameFixture(tc, pathPol())
 		if v == nil || v.Decision != policy.Deny || v.RuleID != "P4.symlink-escape" {
 			t.Errorf("%q -> %+v, want deny/P4.symlink-escape", tc.Command, v)
 		}
@@ -1670,7 +1672,7 @@ func TestCompoundRedirectsReachPathChecks(t *testing.T) {
 	}
 	for _, c := range cases {
 		tc := ToolCall{Tool: "Bash", Command: c.command, RepoRoot: "/repo", CWD: "/repo"}
-		v := checkPaths(tc, pathPol())
+		v := checkPathsHostFrameFixture(tc, pathPol())
 		if v == nil || v.Decision != policy.Deny || v.RuleID != c.ruleID {
 			t.Errorf("%q -> %+v, want deny/%s", c.command, v, c.ruleID)
 		}
@@ -1910,13 +1912,13 @@ func TestCIInfraLockfileAsk(t *testing.T) {
 	}
 	for _, p := range ask {
 		tc := ToolCall{Tool: "Write", Paths: []string{p}, RepoRoot: "/repo", CWD: "/repo"}
-		v := checkPaths(tc, pathPol())
+		v := checkPathsHostFrameFixture(tc, pathPol())
 		if v == nil || v.Decision != policy.Ask || v.RuleID != "P5.ci-infra-lockfile" {
 			t.Errorf("Write %q -> %+v, want ask/P5.ci-infra-lockfile", p, v)
 		}
 	}
 	tc := ToolCall{Tool: "Read", Paths: []string{"/repo/go.sum"}, RepoRoot: "/repo", CWD: "/repo"}
-	if v := checkPaths(tc, pathPol()); v != nil {
+	if v := checkPathsHostFrameFixture(tc, pathPol()); v != nil {
 		t.Errorf("reading a lockfile -> %+v, want nil", v)
 	}
 }
