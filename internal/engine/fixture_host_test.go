@@ -24,6 +24,12 @@ func bashFixturePath(path string) string {
 	return strconv.Quote(posixHostPath(path))
 }
 
+// shellJoinedFixturePath mirrors shell parameter expansion: a slash written
+// in command text remains a slash even when the seeded value is a Win32 path.
+func shellJoinedFixturePath(base string, elements ...string) string {
+	return strings.TrimSuffix(base, "/") + "/" + strings.Join(elements, "/")
+}
+
 // hostFrameFixture preserves the abstract fixture meaning while expressing
 // adapter-owned coordinates in the running host's dialect. Bash command text
 // remains POSIX-shaped; on Windows its fixture roots use MSYS drive spelling.
