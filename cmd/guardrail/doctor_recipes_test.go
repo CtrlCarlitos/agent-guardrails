@@ -26,14 +26,14 @@ func TestDoctorRecipeStatusShowsEffectiveSupport(t *testing.T) {
 	}
 }
 
-func TestDoctorRecipeStatusShowsOdooConfigurationWithoutClaimingExecution(t *testing.T) {
+func TestDoctorRecipeStatusShowsEnabledOdooConfiguration(t *testing.T) {
 	pol := &policy.Policy{Recipes: policy.RecipeConfig{Odoo: &policy.OdooRecipeConfig{
 		Module: "sale_guardrail", TestDatabase: "guardrail_test", RelaxNG: "schema/import_xml.rng",
 	}}}
 	var out bytes.Buffer
 	printRecipeStatus(pol, &out)
 	text := out.String()
-	if !strings.Contains(text, "recipes odoo: configured (module=sale_guardrail, test_database=guardrail_test, relax_ng=schema/import_xml.rng); execution not installed") {
+	if !strings.Contains(text, "recipes odoo: enabled (per-edit + claude session-completion; module=sale_guardrail, test_database=guardrail_test, relax_ng=schema/import_xml.rng)") {
 		t.Fatal(text)
 	}
 }

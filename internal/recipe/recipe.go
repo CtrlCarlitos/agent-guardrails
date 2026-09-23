@@ -12,11 +12,12 @@ import (
 )
 
 type Recipe struct {
-	Name        string
-	Extensions  []string
-	PerEdit     [][]string
-	Session     [][]string
-	RootMarkers []string
+	Name             string
+	Extensions       []string
+	PerEdit          [][]string
+	PerExtensionEdit map[string][][]string
+	Session          [][]string
+	RootMarkers      []string
 }
 
 var Registry = []Recipe{
@@ -132,17 +133,25 @@ func ForFile(path string) (Recipe, bool) {
 	return Recipe{}, false
 }
 
-func Check(tc engine.ToolCall) *policy.Verdict {
+func Check(tc engine.ToolCall, pol *policy.Policy) *policy.Verdict {
 	if tc.Event != "post" || !isWriteTool(tc.Tool) {
 		return nil
 	}
 	for _, p := range tc.Paths {
-		r, ok := ForFile(p)
-		if !ok {
-			continue
+		var applicable []Recipe
+		if r, ok := ForFile(p); ok {
+			applicable = append(applicable, r)
 		}
-		if v := runRecipe(r, p); v != nil {
-			return v
+		if pol != nil && pol.Recipes.Odoo != nil {
+			odoo := odooRecipe(*pol.Recipes.Odoo, tc.RepoRoot)
+			if recipeMatchesExtension(odoo, filepath.Ext(p)) {
+				applicable = append(applicable, odoo)
+			}
+		}
+		for _, r := range applicable {
+			if v := runRecipe(r, p); v != nil {
+				return v
+			}
 		}
 	}
 	return nil
@@ -151,9 +160,13 @@ func Check(tc engine.ToolCall) *policy.Verdict {
 // CheckSession runs every installed session tier whose project marker exists
 // at the repository root. The hook pipeline invokes it only for Claude
 // Stop/SubagentStop events.
-func CheckSession(root string) *policy.Verdict {
-	for _, r := range Registry {
-		if len(r.Session) == 0 || !hasRootMarker(root, r.RootMarkers) {
+func CheckSession(root string, pol *policy.Policy) *policy.Verdict {
+	configured := append([]Recipe{}, Registry...)
+	if pol != nil && pol.Recipes.Odoo != nil {
+		configured = append(configured, odooRecipe(*pol.Recipes.Odoo, root))
+	}
+	for _, r := range configured {
+		if len(r.Session) == 0 || (len(r.RootMarkers) > 0 && !hasRootMarker(root, r.RootMarkers)) {
 			continue
 		}
 		if v := runCommands(r.Session, root, "", r.Name+" session checks"); v != nil {
@@ -184,7 +197,46 @@ func isWriteTool(tool string) bool {
 }
 
 func runRecipe(r Recipe, file string) *policy.Verdict {
-	return runCommands(r.PerEdit, "", file, "file "+file)
+	commands := append([][]string{}, r.PerEdit...)
+	commands = append(commands, r.PerExtensionEdit[filepath.Ext(file)]...)
+	return runCommands(commands, "", file, "file "+file)
+}
+
+func recipeMatchesExtension(r Recipe, extension string) bool {
+	for _, candidate := range r.Extensions {
+		if candidate == extension {
+			return true
+		}
+	}
+	return false
+}
+
+func odooRecipe(config policy.OdooRecipeConfig, root string) Recipe {
+	relaxNG := config.RelaxNG
+	if root != "" {
+		relaxNG = filepath.Join(root, strings.ReplaceAll(config.RelaxNG, "\\", string(filepath.Separator)))
+	}
+	return Recipe{
+		Name:       "odoo",
+		Extensions: []string{".py", ".js", ".xml"},
+		PerExtensionEdit: map[string][][]string{
+			".py": {
+				{"pylint", "--load-plugins=pylint_odoo", "-d", "all", "-e", "odoolint", "{file}"},
+			},
+			".js": {
+				{"eslint", "--fix", "{file}"},
+			},
+			".xml": {
+				{"xmllint", "--noout", "{file}"},
+				{"xmllint", "--noout", "--relaxng", relaxNG, "{file}"},
+			},
+		},
+		Session: [][]string{
+			{"pylint", "--load-plugins=pylint_odoo", "-d", "all", "-e", "odoolint", config.Module},
+			{"oca-checks-odoo-module", config.Module},
+			{"odoo", "-d", config.TestDatabase, "--stop-after-init", "--test-enable", "-i", config.Module},
+		},
+	}
 }
 
 func runCommands(commands [][]string, dir, file, target string) *policy.Verdict {
