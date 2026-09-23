@@ -3,9 +3,11 @@
 package testenv
 
 import (
+	"errors"
 	"os"
 	"runtime"
 	"strings"
+	"syscall"
 )
 
 // TB is the part of testing.TB needed by the environment helpers.
@@ -13,6 +15,26 @@ type TB interface {
 	Helper()
 	Setenv(string, string)
 	TempDir() string
+}
+
+type symlinkTB interface {
+	Helper()
+	Fatalf(string, ...any)
+	Skipf(string, ...any)
+}
+
+// RequireSymlink creates the link or skips only when an ordinary Windows
+// account lacks SeCreateSymbolicLinkPrivilege. Hosted Windows and POSIX hosts
+// still execute the caller's link-sensitive security assertion; every other
+// creation error remains a failure.
+func RequireSymlink(t symlinkTB, oldname, newname string) {
+	t.Helper()
+	if err := os.Symlink(oldname, newname); err != nil {
+		if runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
+			t.Skipf("Windows symlink privilege is unavailable; hosted Windows and POSIX retain this assertion: %v", err)
+		}
+		t.Fatalf("symlink %s %s: %v", oldname, newname, err)
+	}
 }
 
 // Roots contains the three independent filesystem roots used by Sandbox.

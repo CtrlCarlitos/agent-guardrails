@@ -109,9 +109,7 @@ func TestClaudeBundlePathResolvesSymlinkOnPATH(t *testing.T) {
 	if err := os.WriteFile(real, []byte(syntheticBundle), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(real, filepath.Join(dir, testenv.ExecutableName("claude"))); err != nil {
-		t.Fatal(err)
-	}
+	testenv.RequireSymlink(t, real, filepath.Join(dir, testenv.ExecutableName("claude")))
 	t.Setenv("PATH", dir)
 	got, err := ClaudeBundlePath()
 	if err != nil {
