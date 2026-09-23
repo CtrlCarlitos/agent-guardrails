@@ -12,9 +12,14 @@ import (
 
 func TestBashDenyGlobs(t *testing.T) {
 	got := bashDenyGlobs()
+	// `dd` and `git clean` are deliberately not here: retired as no-op floor
+	// classes by operator ruling on #282 (M4/C1), because the Engine denies
+	// every destructive member of both families and the globs only blocked
+	// `dd` between regular files and `git clean --dry-run`. The retirement
+	// itself is pinned in floor_noop_classes_test.go.
 	mustHave := []string{
-		"Bash(rm -rf /)", "Bash(dd *)", "Bash(mkfs*)", "Bash(shred *)",
-		"Bash(sudo *)", "Bash(git push --force*)", "Bash(git clean -f*)",
+		"Bash(rm -rf /)", "Bash(mkfs*)", "Bash(shred *)",
+		"Bash(sudo *)", "Bash(git push --force*)",
 		"Bash(docker compose down*)", "Bash(docker system prune*)",
 	}
 	for _, m := range mustHave {

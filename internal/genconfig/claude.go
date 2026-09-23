@@ -23,13 +23,24 @@ func bashDenyGlobs() []string {
 		"Bash(rm -fr /)", "Bash(rm -fr ~)", "Bash(rm -fr .)", "Bash(rm -fr ..)",
 		"Bash(rm -r -f /)", "Bash(rm -r -f ~)", "Bash(rm -r -f .)", "Bash(rm -r -f ..)",
 		"Bash(rm -f -r /)", "Bash(rm -f -r ~)", "Bash(rm -f -r .)", "Bash(rm -f -r ..)",
-		"Bash(dd *)",
+		// `dd` and `git clean` are deliberately absent (#282 M4/C1, operator
+		// ruling). Both were prefix matches that blocked a flag doing nothing:
+		// `Bash(dd *)` caught `dd if=a.img of=b.img`, an ordinary file copy,
+		// and `Bash(git clean -fd*)` caught `git clean -fd --dry-run`, which
+		// by definition deletes nothing. Neither was covering a gap -- the
+		// Engine denies every destructive member of both families (`P1.dd` on
+		// a device target, `P1.git-clean` on any forced or recursive clean)
+		// and deliberately allows the harmless ones, so the floor contributed
+		// false positives only.
+		//
+		// CodexRules() keeps both, and that asymmetry is not an oversight:
+		// Codex's hooks do not dispatch (openai/codex#24453), so its native
+		// floor is the only enforcement it has rather than a backstop behind
+		// the Engine (ADR-0028's exception plane).
 		"Bash(mkfs*)", "Bash(wipefs *)",
 		"Bash(shred *)", "Bash(srm *)",
 		"Bash(sudo *)", "Bash(su *)", "Bash(su)", "Bash(doas *)",
 		"Bash(git push --force*)", "Bash(git push -f*)",
-		"Bash(git clean -f*)", "Bash(git clean -xf*)", "Bash(git clean -fx*)",
-		"Bash(git clean -df*)", "Bash(git clean -fd*)",
 		"Bash(git reset --hard*)", "Bash(git reset --keep*)",
 		"Bash(git config core.hooksPath *)", "Bash(git config core.hooksPath /**)",
 		"Bash(git config core.fsmonitor *)", "Bash(git config core.fsmonitor /**)",
