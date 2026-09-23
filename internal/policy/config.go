@@ -214,6 +214,9 @@ func validateOdooRecipeConfig(config OdooRecipeConfig) error {
 		if value == "" {
 			return fmt.Errorf("recipes.odoo.%s is required; unresolved recipe values fail closed", name)
 		}
+		if strings.HasPrefix(value, "-") {
+			return fmt.Errorf("recipes.odoo.%s must not begin with an option prefix", name)
+		}
 		for _, r := range value {
 			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' || r == '.') {
 				return fmt.Errorf("recipes.odoo.%s must be a literal command argument", name)

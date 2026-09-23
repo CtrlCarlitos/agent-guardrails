@@ -154,6 +154,7 @@ func TestLoadOverlayRejectsUnresolvedOrUnknownRecipeConfiguration(t *testing.T) 
 	}{
 		{"missing module", "[recipes.odoo]\ntest_database='test'\nrelax_ng='schema/import_xml.rng'\n", "recipes.odoo.module is required"},
 		{"dynamic database", "[recipes.odoo]\nmodule='sale'\ntest_database='$DB'\nrelax_ng='schema/import_xml.rng'\n", "test_database must be a literal command argument"},
+		{"option module", "[recipes.odoo]\nmodule='--help'\ntest_database='test'\nrelax_ng='schema/import_xml.rng'\n", "module must not begin with an option prefix"},
 		{"absolute schema", "[recipes.odoo]\nmodule='sale'\ntest_database='test'\nrelax_ng='/etc/import_xml.rng'\n", "relax_ng must be a repository-relative file path"},
 		{"drive schema", "[recipes.odoo]\nmodule='sale'\ntest_database='test'\nrelax_ng='C:\\\\schema\\\\import_xml.rng'\n", "relax_ng must be a repository-relative file path"},
 		{"escaping schema", "[recipes.odoo]\nmodule='sale'\ntest_database='test'\nrelax_ng='../import_xml.rng'\n", "relax_ng must be a repository-relative file path"},
