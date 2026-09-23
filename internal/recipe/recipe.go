@@ -71,6 +71,19 @@ var Registry = []Recipe{
 		},
 		RootMarkers: []string{"Cargo.toml"},
 	},
+	{
+		Name:       "elixir",
+		Extensions: []string{".ex", ".exs"},
+		PerEdit: [][]string{
+			{"mix", "format", "{file}"},
+			{"mix", "credo", "{file}", "--format", "json"},
+		},
+		Session: [][]string{
+			{"mix", "compile", "--warnings-as-errors"},
+			{"mix", "test"},
+		},
+		RootMarkers: []string{"mix.exs"},
+	},
 }
 
 var (
