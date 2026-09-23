@@ -328,5 +328,21 @@ func claudeHooks(binary string) map[string]any {
 				},
 			},
 		},
+		"Stop": []any{
+			map[string]any{
+				"id": "guardrail-claude-stop",
+				"hooks": []any{
+					map[string]any{"type": "command", "command": cmd, "timeout": 600},
+				},
+			},
+		},
+		"SubagentStop": []any{
+			map[string]any{
+				"id": "guardrail-claude-subagent-stop",
+				"hooks": []any{
+					map[string]any{"type": "command", "command": cmd, "timeout": 600},
+				},
+			},
+		},
 	}
 }
