@@ -103,6 +103,51 @@ explicitly in **Breaking** notes.
   to 0.13.1.
 
 ### Declarative Floor & Reset Work
+- **Fix (#278, #282, ADR-0028 Amendment 1): guardrail-owned settings entries are
+  precisely removable.** Permission entries are bare strings and bare keys sharing a
+  container with the operator's own, so nothing in the file said whose was whose.
+  Three consequences: `plane disable claude` removed nothing (its branch handled
+  `hooks` only, leaving all 243 floor entries in a file the operator had just asked
+  guardrail to stop writing to); `plane disable opencode` removed everything,
+  deleting the whole `permission` block *and* the whole `plugin` array — which on a
+  real machine **unregisters the operator's own plugins**, live user-data
+  destruction independent of the reset; and drift was invisible, 24 entries behind
+  on Claude and 42 on OpenCode, discoverable only by regenerating and diffing by
+  hand.
+  A sidecar manifest in `$XDG_STATE_HOME/guardrail/manifests/<plane>.json`
+  (`%LOCALAPPDATA%` on Windows) now records what guardrail wrote. It is the **diff
+  of the target document across a merge**, which makes one mechanism cover a string
+  in Claude's `permissions.deny[]`, a key in OpenCode's `permission.bash{}` and a
+  group in `hooks{}` rather than a schema per config shape.
+  The record stores the **prior value**, not just ownership, and that is the
+  load-bearing part. Merging does not simply write guardrail's entries: where both
+  sides name a pattern the stricter verdict wins, so guardrail *overwrites* an
+  operator value that was looser. A manifest recording only ownership would make
+  removal delete the key and the operator's setting would be gone — the same harm
+  the manifest exists to prevent, reintroduced by the fix for it. Removal restores.
+  The diff shape earns a second property: an entry guardrail generated but did not
+  actually change, because the operator already had it, produces no diff, so
+  guardrail does not claim it and removal leaves it alone.
+  The record accumulates across merges. Merging is idempotent and gets run
+  repeatedly, so a second merge's diff is empty; writing that would erase the record
+  of everything the first wrote and leave the entries orphaned in the settings file.
+  Where both describe the same slot the recorded prior wins, since on a re-merge the
+  value guardrail sees as prior is its own first write.
+  Operator edits are left and reported, never reverted — the value is theirs now.
+  Absent manifests are ordinary (every installation predating this has none, and
+  state directories get cleared), so removal falls back to hooks by their
+  `guardrail-` id, the opencode plugin by basename — the identification the merge
+  path already had and the removal path never used — and permission entries by
+  regenerating current output and removing only exact matches. The fallback reports
+  that it was one, because a degraded removal must not look like a clean one.
+  `guardrail doctor` gains an ownership line per installed plane, naming the three
+  drift conditions separately since each means something different: entries missing
+  from settings, entries present but unclaimed (older output nothing would otherwise
+  clean up), and operator-edited entries. A plane with no manifest says so rather
+  than reporting clean, because absence of knowledge is not absence of drift.
+  This is why the manifest is a precondition and not a follow-up: without it phase 1
+  does not remove the floor from anyone's settings file, it only stops generating
+  it, and the entries already on disk stay forever.
 - **Docs (#282, #287, ADR-0028): settings files are user-owned; enforcement moves to Engine.**
   Four-seat audit confirmed declarative floor rules in plane settings files were a
   drifting, redundant copy of Engine policy. Settings files return to user-owned

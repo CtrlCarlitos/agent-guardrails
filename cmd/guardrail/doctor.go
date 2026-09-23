@@ -355,6 +355,7 @@ func printDoctor(stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "  WARNING: Antigravity has no declarative floor (ADR-0008); without hooks.json, Antigravity runs completely unguarded. Run `guardrail plane enable antigravity`.\n")
 		}
 	}
+	printOwnershipDrift(stdout)
 	printEngineHealth(stdout)
 	printSpawnProbe(stdout)
 	// Posture, not policy: guardrail cannot narrow the operator's credential,

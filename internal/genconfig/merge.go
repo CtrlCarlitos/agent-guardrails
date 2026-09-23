@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
 // MergeInto deep-merges frag into the JSON object stored at path, creating the
@@ -33,59 +35,214 @@ func MergePlaneInto(path, plane string, frag Fragment) error {
 
 // RemovePlaneFrom removes only Guardrail-owned integration entries for a plane.
 // It is intentionally idempotent so declarative installers can reconcile off state.
+//
+// Manifest first: the record written at merge time says exactly which entries
+// guardrail added and what each changed key held before, so removal restores
+// rather than deletes and never touches an entry it did not write.
+//
+// Without a manifest -- every installation predating it, and any host whose
+// state directory was cleared -- removal falls back to the in-band signals
+// that survive state loss: the `guardrail-` hook id and the plugin file's
+// basename. Permission entries have no in-band signal, which is the whole
+// reason the manifest exists, so the fallback leaves them and reports rather
+// than guessing. Leaving them is the honest answer and it is what the old code
+// already did for claude; what it must not do is delete the operator's
+// entries alongside guardrail's, which is what it did for opencode.
 func RemovePlaneFrom(path, plane string) error {
+	_, err := RemovePlaneFromReporting(path, plane)
+	return err
+}
+
+// RemovePlaneFromReporting is RemovePlaneFrom with the detail doctor and the
+// plane lifecycle need: what was removed, what was restored, and what was left
+// because the operator had edited it since.
+func RemovePlaneFromReporting(path, plane string) (RemovalReport, error) {
+	report := RemovalReport{}
 	if plane != "claude" && plane != "opencode" && plane != "antigravity" && plane != "codex" {
-		return fmt.Errorf("unsupported plane %q", plane)
+		return report, fmt.Errorf("unsupported plane %q", plane)
 	}
 
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return nil
+		return report, nil
 	}
 	if err != nil {
-		return err
+		return report, err
 	}
 	var existing map[string]any
 	if err := json.Unmarshal(raw, &existing); err != nil || existing == nil {
-		return fmt.Errorf("%s is not a JSON object; refusing to overwrite", path)
+		return report, fmt.Errorf("%s is not a JSON object; refusing to overwrite", path)
 	}
 
-	switch plane {
-	case "claude", "codex":
-		hooks, _ := existing["hooks"].(map[string]any)
-		for event, value := range hooks {
-			groups, ok := value.([]any)
-			if !ok {
-				continue
-			}
-			kept := groups[:0]
-			for _, group := range groups {
-				if !ownedByGuardrail(group) || plane == "codex" && !codexOwnedGroup(group) {
-					kept = append(kept, group)
-				}
-			}
-			if len(kept) == 0 {
-				delete(hooks, event)
-			} else {
-				hooks[event] = kept
-			}
-		}
-		if len(hooks) == 0 {
-			delete(existing, "hooks")
-		}
-	case "opencode":
-		delete(existing, "permission")
-		delete(existing, "plugin")
-	case "antigravity":
-		delete(existing, "guardrail")
+	manifest, _ := LoadManifest(plane)
+	if manifest != nil && sameTarget(manifest.Target, path) {
+		report = applyManifestRemoval(existing, manifest)
+		_ = clearManifest(plane)
+	} else {
+		report = removeByInBandMarkers(existing, plane)
+		report.Fallback = true
 	}
 
 	out, err := json.MarshalIndent(existing, "", "  ")
 	if err != nil {
+		return report, err
+	}
+	out = append(out, 10)
+	return report, os.WriteFile(path, out, 0o600)
+}
+
+// sameTarget compares the manifest's recorded target with the file being
+// disabled. A manifest for a different file is not this file's record, and
+// applying it would remove entries by coincidence of shape.
+func sameTarget(recorded, path string) bool {
+	if recorded == "" {
+		return false
+	}
+	return filepath.Clean(recorded) == filepath.Clean(path)
+}
+
+// removeByInBandMarkers is the no-manifest fallback.
+//
+// Two signals survive state loss. Hooks carry a `guardrail-` id and the
+// opencode plugin is identifiable by basename -- the identification the merge
+// path already had and the removal path never used, which is the defect that
+// unregistered the operator's own plugins.
+//
+// Permission entries carry no signal at all, so the fallback regenerates what
+// this binary would write and removes only entries whose current value matches
+// it exactly. That is the most an honest removal can conclude without a
+// record: an entry matching current output is one guardrail would have
+// written, and one that does not is left alone rather than guessed at. It is
+// strictly narrower than the manifest -- it cannot restore a prior value it
+// never saw, and it cannot recognise output from an older release -- which is
+// why the report says the removal was a fallback.
+func removeByInBandMarkers(existing map[string]any, plane string) RemovalReport {
+	report := RemovalReport{}
+	switch plane {
+	case "claude", "codex":
+		report.Removed += removeGuardrailHookGroups(existing, plane)
+	case "opencode":
+		before, _ := toAnySlice(existing["plugin"])
+		absorbGuardrailPluginEntries(existing)
+		after, _ := toAnySlice(existing["plugin"])
+		report.Removed += len(before) - len(after)
+	case "antigravity":
+		if _, ok := existing["guardrail"]; ok {
+			delete(existing, "guardrail")
+			report.Removed++
+		}
+	}
+	report.Removed += removeGeneratedMatches(existing, plane)
+	pruneEmpty(existing)
+	return report
+}
+
+// removeGeneratedMatches deletes entries equal to what this binary generates.
+//
+// The generated fragment is walked with the same differ the manifest uses,
+// against an empty document, so "everything guardrail would write" is
+// expressed in exactly the same entry shape as "everything guardrail did
+// write". One walker, two sources.
+func removeGeneratedMatches(existing map[string]any, plane string) int {
+	fragment, ok := fallbackFragment(plane)
+	if !ok {
+		return 0
+	}
+	removed := 0
+	for _, entry := range ownershipEntries(map[string]any{}, fragment, nil) {
+		if entry.Kind != "permission" {
+			continue // hooks and plugins already went by their in-band signal
+		}
+		if entry.Key == "" {
+			parent, ok := containerAt(existing, entry.Path[:len(entry.Path)-1])
+			if !ok {
+				continue
+			}
+			list, ok := toAnySlice(parent[entry.Path[len(entry.Path)-1]])
+			if !ok {
+				continue
+			}
+			want := jsonKey(entry.Value)
+			kept := make([]any, 0, len(list))
+			for _, v := range list {
+				if jsonKey(v) == want {
+					removed++
+					continue
+				}
+				kept = append(kept, v)
+			}
+			parent[entry.Path[len(entry.Path)-1]] = kept
+			continue
+		}
+		container, ok := containerAt(existing, entry.Path)
+		if !ok {
+			continue
+		}
+		if current, present := container[entry.Key]; present && jsonKey(current) == jsonKey(entry.Value) {
+			delete(container, entry.Key)
+			removed++
+		}
+	}
+	return removed
+}
+
+// fallbackFragment is what this binary would write for the plane. The plugin
+// path is derived the way gen-config defaults it, alongside the config file.
+func fallbackFragment(plane string) (map[string]any, bool) {
+	base, err := policy.LoadBase()
+	if err != nil {
+		return nil, false
+	}
+	switch plane {
+	case "claude":
+		return ClaudeConfig(base, "guardrail"), true
+	case "opencode":
+		return OpencodeConfig(base, "guardrail.js"), true
+	}
+	return nil, false
+}
+
+func removeGuardrailHookGroups(existing map[string]any, plane string) int {
+	removed := 0
+	hooks, _ := existing["hooks"].(map[string]any)
+	for event, value := range hooks {
+		groups, ok := value.([]any)
+		if !ok {
+			continue
+		}
+		kept := groups[:0]
+		for _, group := range groups {
+			if !ownedByGuardrail(group) || plane == "codex" && !codexOwnedGroup(group) {
+				kept = append(kept, group)
+				continue
+			}
+			removed++
+		}
+		if len(kept) == 0 {
+			delete(hooks, event)
+		} else {
+			hooks[event] = kept
+		}
+	}
+	if len(hooks) == 0 {
+		delete(existing, "hooks")
+	}
+	return removed
+}
+
+// clearManifest drops the record once its entries are removed. A stale
+// manifest would make a later disable try to remove entries that are already
+// gone, and would make doctor report drift against a file guardrail no longer
+// owns.
+func clearManifest(plane string) error {
+	path, err := manifestPath(plane)
+	if err != nil {
 		return err
 	}
-	out = append(out, '\n')
-	return os.WriteFile(path, out, 0o600)
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func mergeInto(path, plane string, frag Fragment) error {
@@ -98,6 +255,10 @@ func mergeInto(path, plane string, frag Fragment) error {
 		}
 		return fmt.Errorf("%s is not a JSON object; refusing to overwrite: %w", path, err)
 	}
+	// The manifest is the diff of this document across the merge, so the
+	// pre-merge state has to survive the in-place mutation below.
+	before := snapshot(existing)
+
 	removeRetiredBashFloorRules(existing, plane)
 	if plane == "" || plane == "opencode" {
 		absorbGuardrailPluginEntries(existing)
@@ -115,6 +276,8 @@ func mergeInto(path, plane string, frag Fragment) error {
 	} else {
 		deepMerge(existing, frag)
 	}
+
+	recordOwnership(plane, path, before, existing)
 
 	out, err := json.MarshalIndent(existing, "", "  ")
 	if err != nil {
