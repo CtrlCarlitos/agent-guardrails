@@ -152,6 +152,14 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 		if line := selftestPosture(version); line != "" {
 			text += "\n\n" + line
 		}
+		// ADR-0028's loud-outage posture. Last, and unconditional when it
+		// fires: with the floor retired this plane runs ungated during an
+		// outage and silently no-ops a failed hook spawn (#151), so the
+		// advisory is the only thing that says enforcement stopped. Empty
+		// when the engine is reachable.
+		if line := engineHealthPosture(currentEngineHealth()); line != "" {
+			text += "\n\n" + line
+		}
 		if nightState.Active {
 			text = nightState.Banner() + "\n" + text
 		}

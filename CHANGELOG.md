@@ -5,6 +5,33 @@ within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
 ## v0.20.27-dev
+- **Feature (#282): an engine outage is now loud instead of silent.** ADR-0028
+  retires the declarative floor on three planes and accepts that an outage
+  leaves them ungated. It also states the condition that makes the trade
+  defensible: trading silent partial coverage for none is only an improvement
+  if the signal is real. This is the signal, and it is a precondition of the
+  first retirement phase rather than a follow-up to it.
+  Claude Code silently no-ops a failed hook spawn (#151), so nothing in a
+  session announces that enforcement stopped -- calls simply start succeeding,
+  which looks exactly like calls being allowed. The SessionStart advisory now
+  probes whether the engine can still spawn itself (the same cost and the same
+  failure mode every per-call hook pays, #132) and, when it cannot, says so in
+  the one place guardrail is guaranteed to be heard.
+  The advisory is concrete rather than general, because an agent reading
+  "guardrail may be degraded" keeps working as though the boundaries hold. It
+  names what is unchecked -- destructive commands, secret-tier reads,
+  out-of-repo writes, self-config edits -- says nothing is reaching the audit
+  log, and explicitly **withdraws the autonomy instruction** the posture gives
+  two paragraphs earlier: with no guard in place, "operate autonomously" is
+  active misdirection, so the advisory tells the model to surface actions to
+  the operator instead. It ends with what the operator should run.
+  The healthy path stays silent at SessionStart on purpose: a line every
+  session is how an operator learns to skip the section, and this section has
+  to be readable on the day it says something. `doctor` states both outcomes,
+  since there silence cannot be told apart from never having checked.
+  The probe lives in its own file so SessionStart and doctor share one
+  implementation, and it declines to re-exec inside a test binary (#58) rather
+  than running the suite recursively.
 - **Fix (#282 M2/M3): adding a key to the GitHub account, and logging out, now
   ask.** Both came out of the four-seat gap analysis the same way: three of the
   four declarative floors gate these commands and the Engine allowed them. With
