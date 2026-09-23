@@ -1,6 +1,10 @@
 package recipe
 
 import (
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -32,8 +36,65 @@ func TestDoctorNamesComeFromImplementedRegistryTiers(t *testing.T) {
 	if got, want := NamesWithPerEdit(), []string{"go", "python", "js-ts", "rust"}; !slices.Equal(got, want) {
 		t.Fatalf("NamesWithPerEdit() = %v, want %v", got, want)
 	}
-	if got := NamesWithSession(); len(got) != 0 {
-		t.Fatalf("NamesWithSession() = %v, want none", got)
+	if got, want := NamesWithSession(), []string{"go", "python", "js-ts", "rust"}; !slices.Equal(got, want) {
+		t.Fatalf("NamesWithSession() = %v, want %v", got, want)
+	}
+}
+
+func TestCheckSessionRunsOnlyRecipesWithRootMarkers(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.test/session\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldFind, oldRun := findExecutable, runCommand
+	t.Cleanup(func() { findExecutable, runCommand = oldFind, oldRun })
+	findExecutable = func(file string) (string, error) { return file, nil }
+	var got [][]string
+	runCommand = func(dir string, argv []string) ([]byte, error) {
+		if dir != root {
+			t.Fatalf("command dir = %q, want %q", dir, root)
+		}
+		got = append(got, append([]string{}, argv...))
+		return nil, nil
+	}
+	if v := CheckSession(root); v != nil {
+		t.Fatalf("CheckSession() = %+v, want allow", v)
+	}
+	want := [][]string{
+		{"go", "build", "./..."},
+		{"go", "test", "./..."},
+		{"golangci-lint", "run"},
+		{"govulncheck", "./..."},
+	}
+	if !slices.EqualFunc(got, want, slices.Equal) {
+		t.Fatalf("session commands = %v, want %v", got, want)
+	}
+}
+
+func TestCheckSessionBlocksOnFirstRealFailureAndSkipsMissingTools(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldFind, oldRun := findExecutable, runCommand
+	t.Cleanup(func() { findExecutable, runCommand = oldFind, oldRun })
+	findExecutable = func(file string) (string, error) {
+		if file == "ruff" {
+			return "", errors.New("missing")
+		}
+		return file, nil
+	}
+	var got [][]string
+	runCommand = func(_ string, argv []string) ([]byte, error) {
+		got = append(got, append([]string{}, argv...))
+		return []byte("type check failed"), &exec.ExitError{}
+	}
+	v := CheckSession(root)
+	if v == nil || v.Decision != policy.Deny || v.RuleID != "P8.recipe-lint" || v.Reason != "type check failed" {
+		t.Fatalf("CheckSession() = %+v, want P8 deny", v)
+	}
+	if want := [][]string{{"mypy", "."}}; !slices.EqualFunc(got, want, slices.Equal) {
+		t.Fatalf("commands before failure = %v, want %v", got, want)
 	}
 }
 

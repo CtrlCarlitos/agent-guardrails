@@ -1,8 +1,8 @@
-// Package recipe runs per-language format+lint commands after an edit. See
-// docs/adr/0009-recipe-scope.md for why only four languages, per-edit only.
+// Package recipe runs the per-edit and session-completion tiers of P8 Recipes.
 package recipe
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -12,10 +12,11 @@ import (
 )
 
 type Recipe struct {
-	Name       string
-	Extensions []string
-	PerEdit    [][]string
-	Session    [][]string
+	Name        string
+	Extensions  []string
+	PerEdit     [][]string
+	Session     [][]string
+	RootMarkers []string
 }
 
 var Registry = []Recipe{
@@ -23,6 +24,13 @@ var Registry = []Recipe{
 		Name:       "go",
 		Extensions: []string{".go"},
 		PerEdit:    [][]string{{"gofmt", "-w", "{file}"}},
+		Session: [][]string{
+			{"go", "build", "./..."},
+			{"go", "test", "./..."},
+			{"golangci-lint", "run"},
+			{"govulncheck", "./..."},
+		},
+		RootMarkers: []string{"go.mod", "go.work"},
 	},
 	{
 		Name:       "python",
@@ -31,6 +39,12 @@ var Registry = []Recipe{
 			{"ruff", "format", "{file}"},
 			{"ruff", "check", "--fix", "{file}"},
 		},
+		Session: [][]string{
+			{"ruff", "check", "."},
+			{"mypy", "."},
+			{"pytest"},
+		},
+		RootMarkers: []string{"pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"},
 	},
 	{
 		Name:       "js-ts",
@@ -39,13 +53,34 @@ var Registry = []Recipe{
 			{"prettier", "--write", "{file}"},
 			{"eslint", "--fix", "{file}"},
 		},
+		Session: [][]string{
+			{"tsc", "--noEmit"},
+			{"eslint", "."},
+			{"npm", "test", "--if-present"},
+		},
+		RootMarkers: []string{"package.json", "tsconfig.json", "jsconfig.json"},
 	},
 	{
 		Name:       "rust",
 		Extensions: []string{".rs"},
 		PerEdit:    [][]string{{"rustfmt", "{file}"}},
+		Session: [][]string{
+			{"cargo", "fmt", "--all", "--", "--check"},
+			{"cargo", "clippy", "--all-targets", "--", "-D", "warnings"},
+			{"cargo", "test"},
+		},
+		RootMarkers: []string{"Cargo.toml"},
 	},
 }
+
+var (
+	findExecutable = exec.LookPath
+	runCommand     = func(dir string, argv []string) ([]byte, error) {
+		cmd := exec.Command(argv[0], argv[1:]...)
+		cmd.Dir = dir
+		return cmd.CombinedOutput()
+	}
+)
 
 // NamesWithPerEdit returns the Recipes whose per-edit tier is implemented.
 // Doctor uses the registry itself so an implementation cannot silently exist
@@ -100,6 +135,33 @@ func Check(tc engine.ToolCall) *policy.Verdict {
 	return nil
 }
 
+// CheckSession runs every installed session tier whose project marker exists
+// at the repository root. The hook pipeline invokes it only for Claude
+// Stop/SubagentStop events.
+func CheckSession(root string) *policy.Verdict {
+	for _, r := range Registry {
+		if len(r.Session) == 0 || !hasRootMarker(root, r.RootMarkers) {
+			continue
+		}
+		if v := runCommands(r.Session, root, "", r.Name+" session checks"); v != nil {
+			return v
+		}
+	}
+	return nil
+}
+
+func hasRootMarker(root string, markers []string) bool {
+	if root == "" {
+		return false
+	}
+	for _, marker := range markers {
+		if info, err := os.Stat(filepath.Join(root, marker)); err == nil && !info.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
 func isWriteTool(tool string) bool {
 	switch strings.ToLower(tool) {
 	case "write", "edit", "multiedit":
@@ -109,7 +171,11 @@ func isWriteTool(tool string) bool {
 }
 
 func runRecipe(r Recipe, file string) *policy.Verdict {
-	for _, cmdTemplate := range r.PerEdit {
+	return runCommands(r.PerEdit, "", file, "file "+file)
+}
+
+func runCommands(commands [][]string, dir, file, target string) *policy.Verdict {
+	for _, cmdTemplate := range commands {
 		argv := make([]string, len(cmdTemplate))
 		for i, a := range cmdTemplate {
 			if a == "{file}" {
@@ -117,17 +183,17 @@ func runRecipe(r Recipe, file string) *policy.Verdict {
 			}
 			argv[i] = a
 		}
-		if _, err := exec.LookPath(argv[0]); err != nil {
+		if _, err := findExecutable(argv[0]); err != nil {
 			continue // tool not installed: skip silently
 		}
-		out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput()
+		out, err := runCommand(dir, argv)
 		if err == nil {
 			continue
 		}
 		if _, isExit := err.(*exec.ExitError); isExit {
 			reason := strings.TrimSpace(string(out))
 			if reason == "" {
-				reason = argv[0] + " failed on " + file
+				reason = argv[0] + " failed on " + target
 			}
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P8.recipe-lint", Reason: reason}
 		}

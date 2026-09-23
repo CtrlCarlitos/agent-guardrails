@@ -15,7 +15,7 @@ func TestDoctorRecipeStatusShowsEffectiveSupport(t *testing.T) {
 	for _, want := range []string{
 		"recipes per-edit: go, python, js-ts, rust",
 		"recipes odoo: disabled (opt in with [recipes.odoo])",
-		"recipes session-completion claude: none installed (Stop/SubagentStop is the only supported trigger)",
+		"recipes session-completion claude: go, python, js-ts, rust (Stop/SubagentStop)",
 		"recipes session-completion opencode: unsupported",
 		"recipes session-completion antigravity: unsupported",
 		"recipes session-completion codex: unsupported",

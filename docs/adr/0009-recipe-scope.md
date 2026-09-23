@@ -38,10 +38,22 @@ an equivalent Guardrail trigger and are reported by `guardrail doctor` as
 unsupported; registration or per-edit coverage must not be described as
 session-completion coverage.
 
+An installed session tier activates only when the repository root contains a
+language marker: `go.mod` or `go.work` for Go; `pyproject.toml`, `setup.py`,
+`setup.cfg`, or `requirements.txt` for Python; `package.json`, `tsconfig.json`,
+or `jsconfig.json` for JavaScript/TypeScript; and `Cargo.toml` for Rust. Commands
+run from that root. As in the per-edit tier, an unavailable executable is
+skipped, while a command that starts and exits nonzero blocks completion with
+P8 diagnostics. This avoids running every installed host toolchain against an
+unrelated repository.
+
 Doctor derives installed Recipe names from the Recipe registry and separately
 reports configuration, execution availability, and unsupported planes. Schema
 and doctor visibility ship together so an accepted Recipe configuration cannot
-be invisible to the operator.
+be invisible to the operator. A host-configured trigger must update and test
+the generated host configuration, including its golden fixtures, in the same
+milestone; registry or doctor visibility without the emitted hook is not
+coverage.
 
 ## Delivery sequence
 

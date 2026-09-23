@@ -1232,6 +1232,24 @@ func TestHookRecipeSilentOnBenignEdit(t *testing.T) {
 	}
 }
 
+func TestHookRecipeSessionCompletionBlocksOnSuiteFailure(t *testing.T) {
+	testenv.SetState(t, t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module example.test/session\n\ngo 1.23\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "broken.go"), []byte("package broken\nfunc nope(\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	payload := fmt.Sprintf(`{"session_id":"s1","cwd":%q,"hook_event_name":"Stop","stop_hook_active":false}`, repo)
+	var out, errb bytes.Buffer
+	code := run([]string{"hook", "claude"}, strings.NewReader(payload), &out, &errb)
+	if code != 2 || !strings.Contains(errb.String(), "guardrail:") {
+		t.Fatalf("session completion exit=%d stdout=%s stderr=%s", code, out.String(), errb.String())
+	}
+}
+
 func TestHookOpencodeDeny(t *testing.T) {
 	testenv.SetState(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
