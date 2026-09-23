@@ -3185,21 +3185,6 @@ func TestNormalizeCdPathAssignmentsAndModes(t *testing.T) {
 		t.Fatalf("dot-relative CDPATH bypass last = %+v, want %s", last, localSSL)
 	}
 
-	t.Setenv("CDPATH", "")
-	commandCDPath := t.TempDir()
-	for _, directory := range []string{"first", "next"} {
-		if err := os.Mkdir(filepath.Join(commandCDPath, directory), 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	got, err = Normalize(fmt.Sprintf(`CDPATH=%q cd first; cd next; pwd`, commandCDPath), repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := filepath.Join(commandCDPath, "first"); got[len(got)-1].Cwd != want || got[len(got)-1].Unresolved {
-		t.Fatalf("temporary CDPATH assignment last = %+v, want failed second cd to retain %s", got[len(got)-1], want)
-	}
-
 	got, err = Normalize(`cd -LP /etc; pwd`, repo)
 	if err != nil {
 		t.Fatal(err)
@@ -3220,6 +3205,25 @@ func TestNormalizeCdPathAssignmentsAndModes(t *testing.T) {
 	}
 	if last := got[len(got)-1]; last.Cwd != "" || !last.Unresolved {
 		t.Fatalf("post-mutation CDPATH selection last = %+v, want unknown cwd", last)
+	}
+}
+
+func TestNormalizeTemporaryCDPathAssignmentUsesShellPath(t *testing.T) {
+	repo := t.TempDir()
+	commandCDPath := t.TempDir()
+	for _, directory := range []string{"first", "next"} {
+		if err := os.Mkdir(filepath.Join(commandCDPath, directory), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	commandCDPathShell := posixHostPath(commandCDPath)
+	got, err := Normalize(fmt.Sprintf(`CDPATH=%q cd first; cd next; pwd`, commandCDPathShell), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := posixHostPath(filepath.Join(commandCDPath, "first")); got[len(got)-1].Cwd != want || got[len(got)-1].Unresolved {
+		t.Fatalf("temporary CDPATH assignment last = %+v, want failed second cd to retain %s", got[len(got)-1], want)
 	}
 }
 
