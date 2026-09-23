@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## v0.23.0-dev
+## v0.23.0-dev (2026-09-23)
 
 ### Engine Enforcement & Policy
 - **Fix (#282 M1, #288): deny working-tree and repository root deletion.** Semantic
