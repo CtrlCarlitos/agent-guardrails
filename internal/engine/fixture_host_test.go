@@ -4,11 +4,25 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
+
+func setSystemTempRoot(t *testing.T, root string) {
+	t.Helper()
+	t.Setenv("TMPDIR", root)
+	if runtime.GOOS == "windows" {
+		t.Setenv("TEMP", root)
+		t.Setenv("TMP", root)
+	}
+}
+
+func bashFixturePath(path string) string {
+	return strconv.Quote(posixHostPath(path))
+}
 
 // hostFrameFixture preserves the abstract fixture meaning while expressing
 // adapter-owned coordinates in the running host's dialect. Bash command text
