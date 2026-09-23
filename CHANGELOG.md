@@ -178,6 +178,23 @@ explicitly in **Breaking** notes.
   runtime schema drift (#263).
 
 ### Tests & CI Portability
+- **Test (#310): genconfig tests no longer write into the real state directory.**
+  `MergePlaneInto` writes an ownership manifest to the state root (#309), so merge
+  tests that did not redirect that root wrote manifests onto whatever machine ran
+  them -- three turned up on a developer host with `t.TempDir()` targets, found
+  while capturing the phase-1 baseline rather than by CI, because runners are
+  disposable and never inspect their own state directory afterwards.
+  Nothing was mis-enforced: a manifest whose recorded target is not the file being
+  operated on is rejected, so `doctor` still reported no manifest for the real
+  settings files and removal still used the documented fallback. The guard held;
+  the suite simply should not write outside its own temp space.
+  Fixed with a package-level `TestMain` redirecting the state root for the whole
+  package, rather than adding isolation to each merge test. The manifest tests
+  already isolated themselves; the merge tests predate manifests and had no reason
+  to, and a test added tomorrow would have the same no reason -- so hermeticity is
+  enforced structurally instead of being something each test has to remember. Two
+  guards come with it: one that the manifest directory resolves inside the
+  redirected root, and one that a real merge actually writes there.
 - **Test (#240, #241, #254, #260, #268, #281, #285, #294): host coordinate & child-env isolation.**
   Materialized host-native contract paths (#240, #285, #294); isolated adversarial child
   roots (#241, #260); expected host filesystem root on Windows (#254); toleration for
