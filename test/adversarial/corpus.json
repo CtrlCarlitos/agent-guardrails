@@ -1348,6 +1348,7 @@
     "command": "find /tmp/guardrail-nf18-target -exec rm -rf {} +",
     "cwd": "/repo",
     "repo_root": "/repo",
+    "rewrite_windows_temp_paths": true,
     "want": "allow"
   },
   {

@@ -982,12 +982,12 @@ func TestDestinationWritesWithinConfiguredSafeRootRemainAllowed(t *testing.T) {
 func TestDestinationWritesToOSTempFromInRepoRemainAllowed(t *testing.T) {
 	temp := filepath.Join(os.TempDir(), "agent-guardrails-task7")
 	commands := []string{
-		fmt.Sprintf(`cp /repo/source %q`, filepath.Join(temp, "copy")),
-		fmt.Sprintf(`mv /repo/source %q`, filepath.Join(temp, "move")),
-		fmt.Sprintf(`ln -s /repo/source %q`, filepath.Join(temp, "link")),
-		fmt.Sprintf(`tee %q`, filepath.Join(temp, "tee")),
-		fmt.Sprintf(`install /repo/source %q`, filepath.Join(temp, "install")),
-		fmt.Sprintf(`rsync --delete /repo/source/ %q`, filepath.Join(temp, "rsync")+string(filepath.Separator)),
+		`cp /repo/source ` + bashFixturePath(filepath.Join(temp, "copy")),
+		`mv /repo/source ` + bashFixturePath(filepath.Join(temp, "move")),
+		`ln -s /repo/source ` + bashFixturePath(filepath.Join(temp, "link")),
+		`tee ` + bashFixturePath(filepath.Join(temp, "tee")),
+		`install /repo/source ` + bashFixturePath(filepath.Join(temp, "install")),
+		`rsync --delete /repo/source/ ` + bashFixturePath(filepath.Join(temp, "rsync")+string(filepath.Separator)),
 	}
 	for _, command := range commands {
 		if v := evalBash(t, command); v != nil {
@@ -1104,29 +1104,31 @@ func TestPhysicalContainmentAppliesToRmRedirectAndSafeRootItself(t *testing.T) {
 
 func TestSystemTempDescendantsAllowRmAndRedirectsButNotRoots(t *testing.T) {
 	tmpdir := t.TempDir()
-	t.Setenv("TMPDIR", tmpdir)
+	setSystemTempRoot(t, tmpdir)
 	roots := []string{tmpdir}
-	for _, root := range []string{"/tmp", "/var/tmp"} {
-		if _, err := os.Stat(root); err == nil {
-			roots = append(roots, root)
+	if runtime.GOOS != "windows" {
+		for _, root := range []string{"/tmp", "/var/tmp"} {
+			if _, err := os.Stat(root); err == nil {
+				roots = append(roots, root)
+			}
 		}
 	}
 
 	for _, root := range roots {
 		for _, command := range []string{
-			fmt.Sprintf(`rm -rf %q`, filepath.Join(root, "work", "item")),
-			fmt.Sprintf(`echo x >%q`, filepath.Join(root, "work", "out")),
+			`rm -rf ` + bashFixturePath(filepath.Join(root, "work", "item")),
+			`echo x >` + bashFixturePath(filepath.Join(root, "work", "out")),
 		} {
 			if v := evalBash(t, command); v != nil {
 				t.Errorf("%q -> %+v, want allow", command, v)
 			}
 		}
 
-		v := evalBash(t, fmt.Sprintf(`rm -rf %q`, root))
+		v := evalBash(t, `rm -rf `+bashFixturePath(root))
 		if v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
 			t.Errorf("rm temp root %q -> %+v, want deny/P1.rm-rf", root, v)
 		}
-		v = evalBash(t, fmt.Sprintf(`echo x >%q`, root))
+		v = evalBash(t, `echo x >`+bashFixturePath(root))
 		if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.redirect" {
 			t.Errorf("redirect temp root %q -> %+v, want ask/P1.redirect", root, v)
 		}
@@ -1151,7 +1153,7 @@ func TestSymlinkedBaseTempRootRequiresLexicalAndPhysicalStrictDescendants(t *tes
 	if err := os.Symlink(physical, alias); err != nil {
 		t.Skipf("create temp-root alias: %v", err)
 	}
-	t.Setenv("TMPDIR", alias)
+	setSystemTempRoot(t, alias)
 
 	roots := systemTempRoots()
 	found := false
@@ -1184,17 +1186,17 @@ func TestSymlinkedBaseTempRootRequiresLexicalAndPhysicalStrictDescendants(t *tes
 
 func TestSystemTempAuthorizationUsesPhysicalStrictDescendants(t *testing.T) {
 	tmpdir := t.TempDir()
-	t.Setenv("TMPDIR", tmpdir)
+	setSystemTempRoot(t, tmpdir)
 	escape := filepath.Join(tmpdir, "escape")
 	if err := os.Symlink("/etc", escape); err != nil {
 		t.Skipf("create symlink: %v", err)
 	}
 
-	rm := fmt.Sprintf(`rm -rf %q`, filepath.Join(escape, "guardrail-missing"))
+	rm := `rm -rf ` + bashFixturePath(filepath.Join(escape, "guardrail-missing"))
 	if v := evalBash(t, rm); v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
 		t.Errorf("%q -> %+v, want deny/P1.rm-rf", rm, v)
 	}
-	redirect := fmt.Sprintf(`echo x >%q`, filepath.Join(escape, "guardrail-missing"))
+	redirect := `echo x >` + bashFixturePath(filepath.Join(escape, "guardrail-missing"))
 	if v := evalBash(t, redirect); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.redirect" {
 		t.Errorf("%q -> %+v, want ask/P1.redirect", redirect, v)
 	}
@@ -1206,11 +1208,11 @@ func TestSystemTempRootsHandleOverlapAliasesAndInvalidRoots(t *testing.T) {
 		if err := os.Mkdir(tmpdir, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		t.Setenv("TMPDIR", tmpdir)
-		if v := evalBash(t, fmt.Sprintf(`rm -rf %q`, tmpdir)); v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
+		setSystemTempRoot(t, tmpdir)
+		if v := evalBash(t, `rm -rf `+bashFixturePath(tmpdir)); v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
 			t.Fatalf("overlapping temp root equality -> %+v, want deny/P1.rm-rf", v)
 		}
-		if v := evalBash(t, fmt.Sprintf(`rm -rf %q`, filepath.Join(tmpdir, "child"))); v != nil {
+		if v := evalBash(t, `rm -rf `+bashFixturePath(filepath.Join(tmpdir, "child"))); v != nil {
 			t.Fatalf("overlapping temp descendant -> %+v, want allow", v)
 		}
 	})
@@ -1222,8 +1224,8 @@ func TestSystemTempRootsHandleOverlapAliasesAndInvalidRoots(t *testing.T) {
 		if err := os.Symlink(physical, alias); err != nil {
 			t.Skipf("create symlink: %v", err)
 		}
-		t.Setenv("TMPDIR", alias)
-		command := fmt.Sprintf(`rm -rf %q`, filepath.Join(alias, "guardrail-missing"))
+		setSystemTempRoot(t, alias)
+		command := `rm -rf ` + bashFixturePath(filepath.Join(alias, "guardrail-missing"))
 		if v := evalBash(t, command); v != nil {
 			t.Fatalf("symlinked TMPDIR descendant -> %+v, want allow", v)
 		}
@@ -1239,7 +1241,7 @@ func TestSystemTempRootsHandleOverlapAliasesAndInvalidRoots(t *testing.T) {
 		if err := os.Symlink(volumeRoot, alias); err != nil {
 			t.Skipf("create filesystem-root symlink: %v", err)
 		}
-		t.Setenv("TMPDIR", alias)
+		setSystemTempRoot(t, alias)
 		roots := systemTempRoots()
 		found := false
 		for _, root := range roots {
@@ -1266,7 +1268,7 @@ func TestSystemTempRootsHandleOverlapAliasesAndInvalidRoots(t *testing.T) {
 		{"prefix lookalike", "/tmpish", "/tmpish/agent-guardrails-missing"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			t.Setenv("TMPDIR", test.tmpdir)
+			setSystemTempRoot(t, test.tmpdir)
 			command := fmt.Sprintf(`rm -rf %q`, test.target)
 			if v := evalBash(t, command); v == nil || v.Decision != policy.Deny || v.RuleID != "P1.rm-rf" {
 				t.Fatalf("invalid temp root %q -> %+v, want deny/P1.rm-rf", test.tmpdir, v)
@@ -1276,8 +1278,8 @@ func TestSystemTempRootsHandleOverlapAliasesAndInvalidRoots(t *testing.T) {
 }
 
 func TestClaudeScratchpadRedirectUsesSystemTempAuthorizationOnEveryPlane(t *testing.T) {
-	path := filepath.Join("/tmp", "claude-1000", "session", "scratchpad", "out.txt")
-	command := fmt.Sprintf(`echo x >%q`, path)
+	path := filepath.Join(os.TempDir(), "claude-1000", "session", "scratchpad", "out.txt")
+	command := `echo x >` + bashFixturePath(path)
 	for _, plane := range []string{"claude", "opencode", "antigravity"} {
 		tc := ToolCall{Plane: plane, Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
 		if v := checkBash(tc, bashPol()); v != nil {
@@ -1488,8 +1490,8 @@ func TestFindScopedDeleteRejectsRootsContainingRepository(t *testing.T) {
 // Mutation caught: treating strict temp roots as ordinary safe roots permits deleting the temp root itself.
 func TestFindScopedDeleteRejectsTempRootEquality(t *testing.T) {
 	scratch := t.TempDir()
-	t.Setenv("TMPDIR", scratch)
-	command := fmt.Sprintf(`find %q -delete`, scratch)
+	setSystemTempRoot(t, scratch)
+	command := `find ` + bashFixturePath(scratch) + ` -delete`
 	tc := ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}
 	v := checkBash(tc, bashPol())
 	if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
@@ -1565,10 +1567,11 @@ func TestFindScopedDeleteAllowsBoundedLiteralWriteChain(t *testing.T) {
 
 // Mutation caught: considering statements after find retroactively blocks a safely scoped deletion.
 func TestFindScopedDeleteAllowsTrailingStatements(t *testing.T) {
+	root := posixHostPath(filepath.Join(os.TempDir(), "guard-check"))
 	commands := []string{
-		`mkdir -p /tmp/guard-check/t && echo hi > /tmp/guard-check/t/a.txt && find /tmp/guard-check/t -delete && rm -rf /tmp/guard-check && echo cleaned`,
-		`mkdir -p /tmp/guard-check/t && find /tmp/guard-check/t -delete && echo done`,
-		`mkdir -p /tmp/guard-check/t && find /tmp/guard-check/t -delete && bash -c 'echo done'`,
+		fmt.Sprintf(`mkdir -p %s/t && echo hi > %s/t/a.txt && find %s/t -delete && rm -rf %s && echo cleaned`, root, root, root, root),
+		fmt.Sprintf(`mkdir -p %s/t && find %s/t -delete && echo done`, root, root),
+		fmt.Sprintf(`mkdir -p %s/t && find %s/t -delete && bash -c 'echo done'`, root, root),
 	}
 	for _, command := range commands {
 		if v := evalBash(t, command); v != nil {
@@ -1579,10 +1582,11 @@ func TestFindScopedDeleteAllowsTrailingStatements(t *testing.T) {
 
 // Mutation caught: treating an explicit list separator as an uncertainty boundary loses prior bounded-write facts.
 func TestFindScopedDeleteAllowsBoundedSemicolonList(t *testing.T) {
+	root := posixHostPath(filepath.Join(os.TempDir(), "guard-check"))
 	commands := []string{
-		`mkdir -p /tmp/guard-check/t; find /tmp/guard-check/t -delete`,
-		`mkdir -p /tmp/guard-check/t; echo hi > /tmp/guard-check/t/a; find /tmp/guard-check/t -delete`,
-		`mkdir -p /tmp/guard-check/t && touch /tmp/guard-check/t/a; find /tmp/guard-check/t -delete`,
+		fmt.Sprintf(`mkdir -p %s/t; find %s/t -delete`, root, root),
+		fmt.Sprintf(`mkdir -p %s/t; echo hi > %s/t/a; find %s/t -delete`, root, root, root),
+		fmt.Sprintf(`mkdir -p %s/t && touch %s/t/a; find %s/t -delete`, root, root, root),
 	}
 	for _, command := range commands {
 		if v := evalBash(t, command); v != nil {
@@ -1592,7 +1596,8 @@ func TestFindScopedDeleteAllowsBoundedSemicolonList(t *testing.T) {
 }
 
 func TestFindScopedDeletePreservesTrailingVerdict(t *testing.T) {
-	command := `mkdir -p /tmp/guard-check/t && find /tmp/guard-check/t -delete && chmod 777 /tmp/guard-check/t`
+	root := posixHostPath(filepath.Join(os.TempDir(), "guard-check"))
+	command := fmt.Sprintf(`mkdir -p %s/t && find %s/t -delete && chmod 777 %s/t`, root, root, root)
 	v := evalBash(t, command)
 	if v == nil || v.Decision != policy.Ask || v.RuleID != "P1.chmod" {
 		t.Fatalf("%q -> %+v, want ask/P1.chmod", command, v)
@@ -1797,8 +1802,8 @@ func TestFindWriteChainRejectsUncoupledTargetsAndAmbiguousFinds(t *testing.T) {
 func TestFindWriteChainRejectsUnsafeRootAndTargetPaths(t *testing.T) {
 	t.Run("temp root equality", func(t *testing.T) {
 		root := t.TempDir()
-		t.Setenv("TMPDIR", root)
-		requireFindDeleteAsk(t, fmt.Sprintf(`touch %q && find %q -delete`, filepath.Join(root, "a"), root))
+		setSystemTempRoot(t, root)
+		requireFindDeleteAsk(t, fmt.Sprintf(`touch %s && find %s -delete`, bashFixturePath(filepath.Join(root, "a")), bashFixturePath(root)))
 	})
 
 	t.Run("repository overlap", func(t *testing.T) {
@@ -1990,8 +1995,8 @@ func TestFindScopedDeleteRejectsDynamicAndForeignWrappers(t *testing.T) {
 
 func TestFindScopedDeleteRejectsFilesystemRootRepository(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "target")
-	command := fmt.Sprintf(`find %q -delete`, target)
-	tc := ToolCall{Tool: "Bash", Command: command, CWD: "/", RepoRoot: "/"}
+	command := `find ` + bashFixturePath(target) + ` -delete`
+	tc := hostFrameFixture(ToolCall{Tool: "Bash", Command: command, CWD: "/", RepoRoot: "/"})
 	if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P1.find-delete" {
 		t.Fatalf("filesystem-root repository %q -> %+v, want ask/P1.find-delete", command, v)
 	}

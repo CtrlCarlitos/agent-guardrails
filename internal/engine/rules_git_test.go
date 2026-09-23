@@ -656,9 +656,9 @@ func TestGitConfigSystemTempRootEqualityAsksAcrossOverlappingRoots(t *testing.T)
 	tempRoot := filepath.Join(base, "root.git")
 	initGitRepository(t, toolRepo, false)
 	initGitRepository(t, tempRoot, true)
-	t.Setenv("TMPDIR", tempRoot)
+	setSystemTempRoot(t, tempRoot)
 
-	command := fmt.Sprintf(`git --git-dir %q config user.email x@y.com`, tempRoot)
+	command := fmt.Sprintf(`git --git-dir %s config user.email x@y.com`, bashFixturePath(tempRoot))
 	tc := ToolCall{Tool: "Bash", Command: command, CWD: toolRepo, RepoRoot: toolRepo}
 	if v := checkBash(tc, bashPol()); v == nil || v.Decision != policy.Ask || v.RuleID != "P2.git-config-write" {
 		t.Fatalf("system-temp root equality -> %+v, want ask/P2.git-config-write", v)

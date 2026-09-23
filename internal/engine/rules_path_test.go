@@ -1963,7 +1963,7 @@ func nf17NonTempHome(t *testing.T) string {
 // Mutation caught: omitting Base temp roots from native file-tool authorization makes scratch writes ask.
 func TestNF17FileToolsAuthorizeStrictSystemTempDescendants(t *testing.T) {
 	tmpdir := t.TempDir()
-	t.Setenv("TMPDIR", tmpdir)
+	setSystemTempRoot(t, tmpdir)
 	target := filepath.Join(tmpdir, "session", "scratchpad", "note.md")
 	for _, plane := range []string{"claude", "opencode", "antigravity", ""} {
 		for _, tool := range []string{"Write", "Edit", "MultiEdit"} {
@@ -1980,10 +1980,11 @@ func TestNF17FileToolsAuthorizeStrictSystemTempDescendants(t *testing.T) {
 // Mutation caught: treating temp roots as ordinary prefix roots authorizes equality, traversal, and symlink escapes.
 func TestNF17FileToolTempAuthorizationKeepsStrictPhysicalBoundary(t *testing.T) {
 	tmpdir := t.TempDir()
-	t.Setenv("TMPDIR", tmpdir)
+	setSystemTempRoot(t, tmpdir)
 	// A fixed number of parents can still land inside /tmp when TMPDIR is
 	// nested. Construct a genuine escape regardless of fixture depth.
-	escapeSuffix, err := filepath.Rel(tmpdir, "/etc/nf17-note.md")
+	escapeTarget := filepath.Join(filepath.VolumeName(tmpdir)+string(filepath.Separator), "etc", "nf17-note.md")
+	escapeSuffix, err := filepath.Rel(tmpdir, escapeTarget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2489,7 +2490,7 @@ func TestNF17ReviewClaudeMemoryRejectsSymlinksWithinHomeSuffix(t *testing.T) {
 // Mutation caught: checking non-strict roots first allows a protected strict root through an overlapping repo or safe root.
 func TestNF17ReviewStrictRootEqualityPrecedesOverlappingNonStrictRoots(t *testing.T) {
 	tmpdir := t.TempDir()
-	t.Setenv("TMPDIR", tmpdir)
+	setSystemTempRoot(t, tmpdir)
 	home := nf17NonTempHome(t)
 	nf17SetHome(t, home)
 	memoryRoot := filepath.Join(home, ".claude", "projects", "project-key", "memory")
@@ -2506,7 +2507,7 @@ func TestNF17ReviewStrictRootEqualityPrecedesOverlappingNonStrictRoots(t *testin
 		ruleID   string
 	}{
 		{"temp root equals repo", ToolCall{Plane: "opencode", Tool: "Write", Paths: []string{tmpdir}, CWD: tmpdir, RepoRoot: tmpdir}, pathPol(), policy.Ask, "P5.out-of-repo"},
-		{"temp root inside safe root", ToolCall{Plane: "opencode", Tool: "Bash", Command: "printf x > " + tmpdir, CWD: "/repo", RepoRoot: "/repo"}, safeTemp, policy.Ask, "P1.redirect"},
+		{"temp root inside safe root", ToolCall{Plane: "opencode", Tool: "Bash", Command: "printf x > " + bashFixturePath(tmpdir), CWD: "/repo", RepoRoot: "/repo"}, safeTemp, policy.Ask, "P1.redirect"},
 		{"memory root inside repo", ToolCall{Plane: "claude", Tool: "Write", Paths: []string{memoryRoot}, CWD: home, RepoRoot: home}, pathPol(), policy.Ask, "P5.out-of-repo"},
 		{"memory root inside safe root redirect", ToolCall{Plane: "claude", Tool: "Bash", Command: "printf x > " + memoryRoot, CWD: "/repo", RepoRoot: "/repo"}, safeHome, policy.Ask, "P1.redirect"},
 		{"memory root inside safe root rm", ToolCall{Plane: "claude", Tool: "Bash", Command: "rm -rf " + memoryRoot, CWD: "/repo", RepoRoot: "/repo"}, safeHome, policy.Deny, "P1.rm-rf"},
@@ -2527,7 +2528,7 @@ func TestNF17ReviewStrictPhysicalEqualityPrecedesRepositoryAlias(t *testing.T) {
 		t.Skip("symlink creation is privileged on Windows")
 	}
 	strictRoot := t.TempDir()
-	t.Setenv("TMPDIR", strictRoot)
+	setSystemTempRoot(t, strictRoot)
 	alias, err := os.MkdirTemp(".", ".nf17-temp-alias-")
 	if err != nil {
 		t.Fatal(err)
@@ -2554,7 +2555,7 @@ func TestNF17ReviewStrictPhysicalEqualityPrecedesRepositoryAlias(t *testing.T) {
 // Mutation caught: rejecting an overlapping strict root wholesale also rejects its approved strict descendants.
 func TestNF17ReviewOverlappingStrictRootDescendantsRemainAuthorized(t *testing.T) {
 	tmpdir := t.TempDir()
-	t.Setenv("TMPDIR", tmpdir)
+	setSystemTempRoot(t, tmpdir)
 	home := nf17NonTempHome(t)
 	nf17SetHome(t, home)
 	memoryRoot := filepath.Join(home, ".claude", "projects", "project-key", "memory")

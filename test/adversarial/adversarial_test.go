@@ -47,6 +47,7 @@ type entry struct {
 	RewriteLogicalRepoPaths   bool             `json:"rewrite_logical_repo_paths,omitempty"`
 	RewriteActualHomePaths    bool             `json:"rewrite_actual_home_paths,omitempty"`
 	RewriteWindowsNativePaths bool             `json:"rewrite_windows_native_paths,omitempty"`
+	RewriteWindowsTempPaths   bool             `json:"rewrite_windows_temp_paths,omitempty"`
 }
 
 type fixtureSymlink struct {
@@ -144,6 +145,7 @@ func TestAdversarialCorpus(t *testing.T) {
 				t.Fatal(err)
 			}
 			callEntry = materializeWindowsNativePaths(t, callEntry, runtime.GOOS)
+			callEntry = rewriteWindowsTempPaths(callEntry, runtime.GOOS, os.TempDir())
 			var actualHome string
 			if callEntry.RewriteActualHomePaths {
 				workingDirectory, err := os.Getwd()
@@ -251,6 +253,34 @@ func TestAdversarialCorpus(t *testing.T) {
 				t.Fatalf("got %s, want %s (exit=%d stdout=%s stderr=%s)", got, e.Want, code, stdout.String(), stderr.String())
 			}
 		})
+	}
+}
+
+func rewriteWindowsTempPaths(e entry, goos, tempRoot string) entry {
+	if goos != "windows" || !e.RewriteWindowsTempPaths {
+		return e
+	}
+	normalized := strings.ReplaceAll(tempRoot, `\`, "/")
+	if len(normalized) < 2 || normalized[1] != ':' {
+		return e
+	}
+	posixTemp := "/" + strings.ToLower(normalized[:1]) + "/" + strings.TrimPrefix(normalized[2:], "/")
+	e.Command = strings.ReplaceAll(e.Command, "/tmp/", strings.TrimSuffix(posixTemp, "/")+"/")
+	return e
+}
+
+func TestRewriteWindowsTempPathsIsExplicitAndHostDerived(t *testing.T) {
+	original := entry{Command: `find /tmp/target -delete`}
+	if got := rewriteWindowsTempPaths(original, "windows", `D:\scratch`); got.Command != original.Command {
+		t.Fatalf("implicit rewrite changed command to %q", got.Command)
+	}
+	enabled := original
+	enabled.RewriteWindowsTempPaths = true
+	if got := rewriteWindowsTempPaths(enabled, "windows", `D:\scratch`); got.Command != `find /d/scratch/target -delete` {
+		t.Fatalf("Windows temp rewrite = %q, want host-derived MSYS path", got.Command)
+	}
+	if got := rewriteWindowsTempPaths(enabled, "linux", "/tmp"); got.Command != original.Command {
+		t.Fatalf("POSIX host changed command to %q", got.Command)
 	}
 }
 
