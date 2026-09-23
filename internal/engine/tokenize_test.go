@@ -141,6 +141,7 @@ func TestNormalizeResolvesQuotedPriorScalarLiteralAssignments(t *testing.T) {
 // Mutation caught: rejecting every top-level ParamExp leaves safe embedded parameters unresolved and triggers P3.
 func TestNF5bResolvesPlainParametersEmbeddedInUnquotedWords(t *testing.T) {
 	tmp := t.TempDir()
+	shellTmp := posixHostPath(tmp)
 	if err := os.MkdirAll(filepath.Join(tmp, "tlp"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -154,9 +155,9 @@ func TestNF5bResolvesPlainParametersEmbeddedInUnquotedWords(t *testing.T) {
 		command string
 		want    string
 	}{
-		{fmt.Sprintf(`S=%q; bash $S/run.sh`, tmp), filepath.Join(tmp, "run.sh")},
-		{fmt.Sprintf(`SP=%q; bash $SP/tlp/x`, tmp), filepath.Join(tmp, "tlp", "x")},
-		{fmt.Sprintf(`S=%q; bash ${S}/run.sh`, tmp), filepath.Join(tmp, "run.sh")},
+		{fmt.Sprintf(`S=%q; bash $S/run.sh`, shellTmp), shellJoinedFixturePath(shellTmp, "run.sh")},
+		{fmt.Sprintf(`SP=%q; bash $SP/tlp/x`, shellTmp), shellJoinedFixturePath(shellTmp, "tlp", "x")},
+		{fmt.Sprintf(`S=%q; bash ${S}/run.sh`, shellTmp), shellJoinedFixturePath(shellTmp, "run.sh")},
 	} {
 		got, err := Normalize(test.command, "/repo")
 		if err != nil {
@@ -1191,12 +1192,12 @@ func TestNF19SafeLoopBoundCDPATHRemainsConcrete(t *testing.T) {
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	command := fmt.Sprintf(`CDPATH=; for CDPATH in %q; do cd target; rm -rf "$PWD/guardrail-test"; done`, searchRoot)
+	command := fmt.Sprintf(`CDPATH=; for CDPATH in %q; do cd target; rm -rf "$PWD/guardrail-test"; done`, posixHostPath(searchRoot))
 	got, err := Normalize(command, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"rm", "-rf", filepath.Join(target, "guardrail-test")}
+	want := []string{"rm", "-rf", shellJoinedFixturePath(posixHostPath(target), "guardrail-test")}
 	if last := got[len(got)-1]; !reflect.DeepEqual(last.Argv, want) || last.Unresolved {
 		t.Fatalf("Normalize(%q) last = %+v, want concrete %q", command, last, want)
 	}
@@ -1355,12 +1356,12 @@ func TestNF19SpecialVariablePrefixRestorationRemainsConcrete(t *testing.T) {
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	command := fmt.Sprintf(`CDPATH=%q; noop(){ :; }; CDPATH=/ noop; cd target; rm -rf "$PWD/guardrail-test"`, searchRoot)
+	command := fmt.Sprintf(`CDPATH=%q; noop(){ :; }; CDPATH=/ noop; cd target; rm -rf "$PWD/guardrail-test"`, posixHostPath(searchRoot))
 	got, err := Normalize(command, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"rm", "-rf", filepath.Join(target, "guardrail-test")}
+	want := []string{"rm", "-rf", shellJoinedFixturePath(posixHostPath(target), "guardrail-test")}
 	if last := got[len(got)-1]; !reflect.DeepEqual(last.Argv, want) || last.Unresolved {
 		t.Fatalf("Normalize(%q) last = %+v, want restored CDPATH command %q", command, last, want)
 	}
@@ -1461,7 +1462,7 @@ func TestNF19ResolvesSeededPWDAndHOME(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"git", "add", filepath.Join(repo, "quoted"), filepath.Join(repo, "plain"), filepath.Join(home, "quoted"), filepath.Join(home, "plain")}
+	want := []string{"git", "add", shellJoinedFixturePath(repo, "quoted"), shellJoinedFixturePath(repo, "plain"), shellJoinedFixturePath(home, "quoted"), shellJoinedFixturePath(home, "plain")}
 	if len(got) != 1 || !reflect.DeepEqual(got[0].Argv, want) || got[0].Unresolved {
 		t.Fatalf("Normalize(%q) = %+v, want seeded paths %q", command, got, want)
 	}
@@ -1509,7 +1510,7 @@ func TestNF19PWDAndHOMEStateChangesRemainFailClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"git", "add", filepath.Join(subdir, "x")}
+	want := []string{"git", "add", shellJoinedFixturePath(subdir, "x")}
 	if last := got[len(got)-1]; !reflect.DeepEqual(last.Argv, want) || last.Unresolved {
 		t.Fatalf("successful cd last = %+v, want updated PWD command %q", last, want)
 	}
@@ -1518,7 +1519,7 @@ func TestNF19PWDAndHOMEStateChangesRemainFailClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want = []string{"git", "add", filepath.Join(repo, "x")}
+	want = []string{"git", "add", shellJoinedFixturePath(repo, "x")}
 	if last := got[len(got)-1]; !reflect.DeepEqual(last.Argv, want) || last.Unresolved {
 		t.Fatalf("failed cd last = %+v, want prior PWD command %q", last, want)
 	}
