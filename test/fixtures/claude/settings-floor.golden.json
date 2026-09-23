@@ -36,6 +36,30 @@
         "id": "guardrail-claude-session-start",
         "matcher": "startup|clear|compact"
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "/usr/local/bin/guardrail hook claude",
+            "timeout": 600,
+            "type": "command"
+          }
+        ],
+        "id": "guardrail-claude-stop"
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "command": "/usr/local/bin/guardrail hook claude",
+            "timeout": 600,
+            "type": "command"
+          }
+        ],
+        "id": "guardrail-claude-subagent-stop"
+      }
     ]
   },
   "permissions": {
