@@ -401,15 +401,21 @@ exit $code
 	}
 
 	function Case-HandoffPropagatesSetupExitCode {
-		# The real binary's setup, with stdin piped rather than a console,
-		# refuses with exit 2; the script must exit with setup's code, not its
-		# own. Sandboxed roots and a piped stdin keep it off real state.
+		# The real binary's `setup --state disabled`, with stdin piped rather
+		# than a console, refuses with exit 2; the script must exit with
+		# setup's code, not its own. Disable is the probe because a bare
+		# `setup` on a machine with no enrolled operator now arms the planes
+		# and exits 0 (ADR-0030). Sandboxed roots and a piped stdin keep it
+		# off real state. The binary is placed first with -NoSetup so the
+		# disable run finds one and hands off.
 		$savedPath = Save-UserPath
 		$dest = Fresh
 		$sbHome = Fresh
 		$exe = Join-Path $dest 'guardrail.exe'
 		try {
-			InSandbox $sbHome { RunNoConsole -Version $Version -Dest $dest -BaseUrl (Join-Path $tmp 'releases') }
+			InSandbox $sbHome { Run -Version $Version -Dest $dest -BaseUrl (Join-Path $tmp 'releases') -NoSetup }
+			if (-not (WantRc 0)) { return $false }
+			InSandbox $sbHome { RunNoConsole -Version $Version -State disabled -Dest $dest -BaseUrl (Join-Path $tmp 'releases') }
 			if (-not (WantRc 2)) { return $false }
 			if (-not (Has err 'requires an interactive local terminal')) { return $false }
 			return (Reports $exe $Version)
