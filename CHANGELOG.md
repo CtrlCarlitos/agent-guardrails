@@ -4,6 +4,18 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Tests & CI Portability
+- **Test: `TestSetupReenablesOnHandlerDrift` asserts the generator's hook
+  spelling, not the raw path.** On Windows `HookCommand` writes the binary
+  quoted with forward slashes so the hook survives a POSIX shell (#149); the
+  test looked for the JSON-escaped backslash path and failed on every Windows
+  host while CI's Windows filter never ran it. It now compares against
+  `genconfig.HookCommand`, and `TestWindowsSetupReenableWritesTheCrossShellSpelling`
+  runs the same re-merge on the Windows CI slice and pins that every hook a
+  setup re-enable writes there is quoted and backslash-free.
+
 ## v0.23.2-dev (2026-09-24)
 
 ### Grants & Approvals
