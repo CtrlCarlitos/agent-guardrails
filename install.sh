@@ -212,11 +212,13 @@ find_sha_tool() {
 	die 2 "no SHA-256 tool found (need sha256sum, gsha256sum or shasum)"
 }
 
+# sha_check <file>: verify the checksum lines in <file> (relative to the cwd).
+# A file, not stdin: a BSD-compatible sha256sum may not read `-c -`.
 sha_check() {
 	if [ "$sha_tool" = shasum ]; then
-		shasum -a 256 -c -
+		shasum -a 256 -c "$1"
 	else
-		"$sha_tool" -c -
+		"$sha_tool" -c "$1"
 	fi
 }
 
@@ -233,7 +235,8 @@ fetch() {
 verify() {
 	line=$(grep " $asset\$" "$tmp/SHA256SUMS") ||
 		die 1 "CHECKSUM MISMATCH: SHA256SUMS for $version has no entry for $asset; nothing installed"
-	(cd "$tmp" && printf '%s\n' "$line" | sha_check) >/dev/null 2>&1 ||
+	printf '%s\n' "$line" >"$tmp/SHA256SUMS.one" || die 1 "cannot write $tmp/SHA256SUMS.one"
+	(cd "$tmp" && sha_check SHA256SUMS.one) >/dev/null 2>&1 ||
 		die 1 "CHECKSUM MISMATCH: $asset does not match SHA256SUMS for $version; nothing installed"
 }
 
@@ -280,11 +283,21 @@ handoff() {
 	exec "$dest/guardrail" setup
 }
 
+# xdg_root <value> <default>: the XDG base directory to use. The XDG spec
+# says a relative path is invalid and must be ignored; honouring one would
+# point the removals below at the current directory.
+xdg_root() {
+	case $1 in
+	/*) printf '%s\n' "$1" ;;
+	*) printf '%s\n' "$2" ;;
+	esac
+}
+
 # purge: remove every directory guardrail keeps state, config or data in.
 purge() {
-	for root in "${XDG_STATE_HOME:-$HOME/.local/state}/guardrail" \
-		"${XDG_CONFIG_HOME:-$HOME/.config}/guardrail" \
-		"${XDG_DATA_HOME:-$HOME/.local/share}/guardrail"; do
+	for root in "$(xdg_root "${XDG_STATE_HOME:-}" "$HOME/.local/state")/guardrail" \
+		"$(xdg_root "${XDG_CONFIG_HOME:-}" "$HOME/.config")/guardrail" \
+		"$(xdg_root "${XDG_DATA_HOME:-}" "$HOME/.local/share")/guardrail"; do
 		[ -e "$root" ] || continue
 		rm -rf "$root" || die 1 "cannot remove $root"
 		say "removed $root"
@@ -302,7 +315,7 @@ uninstall() {
 				die 1 "uninstall aborted: planes are still registered"
 		fi
 		rm -f "$dest/guardrail" || die 1 "cannot remove $dest/guardrail"
-		plugin=${XDG_DATA_HOME:-$HOME/.local/share}/guardrail/guardrail.js
+		plugin=$(xdg_root "${XDG_DATA_HOME:-}" "$HOME/.local/share")/guardrail/guardrail.js
 		rm -f "$plugin" || die 1 "cannot remove $plugin"
 		say "guardrail removed from $dest"
 	fi

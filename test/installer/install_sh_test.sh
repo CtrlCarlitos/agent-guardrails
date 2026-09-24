@@ -215,6 +215,27 @@ case_uninstall_purge_removes_state_roots() {
   [ -d "$home/.local/share" ] && [ -d "$home/xdg-config" ] || { echo "  a parent of a guardrail root was removed"; return 1; }
 }
 
+case_purge_ignores_relative_xdg() {
+  # A relative XDG_STATE_HOME is invalid per the XDG spec; honouring it would
+  # make --purge remove ./guardrail in whatever directory the caller is in.
+  local dest home cwd prev rc_saved
+  dest="$(fresh)"
+  home="$(fresh)"
+  cwd="$(fresh)"
+  fake_guardrail "$dest" "$VERSION"
+  marker "$cwd/guardrail"
+  marker "$home/.local/state/guardrail"
+  prev="$PWD"
+  cd "$cwd"
+  HOME="$home" XDG_STATE_HOME=. run --uninstall --purge --dest "$dest" --no-setup
+  rc_saved=$rc
+  cd "$prev"
+  rc=$rc_saved
+  want_rc 0 || return 1
+  [ -f "$cwd/guardrail/marker" ] || { echo "  $cwd/guardrail was removed (relative XDG_STATE_HOME honoured)"; return 1; }
+  absent "$home/.local/state/guardrail"
+}
+
 case_uninstall_nothing_installed_is_ok() {
   local dest home
   dest="$(fresh)"
@@ -286,6 +307,7 @@ check existing-below-floor-bootstraps            case_existing_below_floor_boots
 check unsupported-arch-exits-2                   case_unsupported_arch_exits_2
 check uninstall-removes-binary-and-plugin        case_uninstall_removes_binary_and_plugin
 check uninstall-purge-removes-state-roots        case_uninstall_purge_removes_state_roots
+check purge-ignores-relative-xdg                 case_purge_ignores_relative_xdg
 check uninstall-nothing-installed-is-ok          case_uninstall_nothing_installed_is_ok
 check purge-without-uninstall-exits-2            case_purge_without_uninstall_exits_2
 check state-with-uninstall-exits-2               case_state_with_uninstall_exits_2
