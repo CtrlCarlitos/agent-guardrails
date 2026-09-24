@@ -81,10 +81,12 @@ re-merges when any of these holds:
 
 1. the plane is not registered;
 2. its permissions floor drifted;
-3. its registered handlers differ from what this binary generates — the
-   on-disk `guardrail-*` hook groups, the codex wrapper and the opencode plugin
-   entry compared against a fresh generation for this binary, ignoring keys
-   the host serializer strips.
+3. its registered handlers differ from what this binary generates — every
+   owned hook group compared whole (event, matcher, and each handler's type,
+   command, `commandWindows` and timeout), not just its command strings, plus
+   the codex wrapper file and the opencode plugin entry and file, against a
+   fresh generation for this binary, ignoring keys the host serializer strips
+   (`id`).
 
 Planes that already match print `already enabled` and do not prompt; the rest
 go through one approval. Then `doctor --coverage antigravity` when `agy` is on

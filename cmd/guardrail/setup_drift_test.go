@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
@@ -184,5 +185,75 @@ func TestHandlerDriftErrorsOnUnparseableSettings(t *testing.T) {
 	writePlaneSettings(t, path, "{not json")
 	if _, err := planeHandlerDrift("claude"); err == nil {
 		t.Fatal("unparseable claude settings produced no error")
+	}
+}
+
+// mutateFirstOwnedGroup rewrites the plane's settings after applying mutate
+// to the first hook group that planeHandlerDrift treats as Guardrail-owned.
+func mutateFirstOwnedGroup(t *testing.T, plane string, mutate func(group map[string]any)) {
+	t.Helper()
+	path, err := planeConfigPath(plane)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := genconfig.ReadJSONObject(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, owned := "hooks", claimedBy("guardrail-", "hook "+plane)
+	switch plane {
+	case "antigravity":
+		key = "guardrail"
+	case "codex":
+		owned = claimedBy("guardrail-codex-", "")
+	}
+	events, _ := doc[key].(map[string]any)
+	names := make([]string, 0, len(events))
+	for name := range events {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		groups, _ := events[name].([]any)
+		for _, g := range groups {
+			if m, ok := g.(map[string]any); ok && owned(m) {
+				mutate(m)
+				raw, err := json.MarshalIndent(doc, "", "  ")
+				if err != nil {
+					t.Fatal(err)
+				}
+				writePlaneSettings(t, path, string(raw))
+				return
+			}
+		}
+	}
+	t.Fatalf("%s: no owned hook group to mutate", plane)
+}
+
+var groupPlanes = []string{"claude", "antigravity", "codex"}
+
+func TestHandlerDriftTrueWhenMatcherChanged(t *testing.T) {
+	for _, plane := range groupPlanes {
+		t.Run(plane, func(t *testing.T) {
+			driftSandbox(t)
+			enableForDrift(t, plane)
+			mutateFirstOwnedGroup(t, plane, func(g map[string]any) { g["matcher"] = "SomethingElse" })
+			assertDrift(t, plane, true)
+		})
+	}
+}
+
+func TestHandlerDriftTrueWhenTimeoutChanged(t *testing.T) {
+	for _, plane := range groupPlanes {
+		t.Run(plane, func(t *testing.T) {
+			driftSandbox(t)
+			enableForDrift(t, plane)
+			mutateFirstOwnedGroup(t, plane, func(g map[string]any) {
+				handlers, _ := g["hooks"].([]any)
+				h, _ := handlers[0].(map[string]any)
+				h["timeout"] = 9999
+			})
+			assertDrift(t, plane, true)
+		})
 	}
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -49,15 +50,15 @@ func planeHandlerDrift(plane string) (drifted bool, err error) {
 		}
 		want := genconfig.ClaudeConfig(base, binary)
 		owned := claimedBy("guardrail-", "hook claude")
-		return !slices.Equal(ownedHookCommands(doc["hooks"], owned, "command"), ownedHookCommands(want["hooks"], owned, "command")), nil
+		return !slices.Equal(ownedHookGroups(doc["hooks"], owned), ownedHookGroups(want["hooks"], owned)), nil
 	case "antigravity":
 		want := genconfig.AntigravityConfig(binary)
 		owned := claimedBy("guardrail-", "hook antigravity")
-		return !slices.Equal(ownedHookCommands(doc["guardrail"], owned, "command"), ownedHookCommands(want["guardrail"], owned, "command")), nil
+		return !slices.Equal(ownedHookGroups(doc["guardrail"], owned), ownedHookGroups(want["guardrail"], owned)), nil
 	case "codex":
 		want := genconfig.CodexConfigFor(path, binary)
 		owned := claimedBy("guardrail-codex-", "")
-		if !slices.Equal(ownedHookCommands(doc["hooks"], owned, "command", "commandWindows"), ownedHookCommands(want["hooks"], owned, "command", "commandWindows")) {
+		if !slices.Equal(ownedHookGroups(doc["hooks"], owned), ownedHookGroups(want["hooks"], owned)) {
 			return true, nil
 		}
 		return fileDiffers(filepath.Join(filepath.Dir(path), "guardrail-hook.cmd"), genconfig.CodexWrapperContent(binary))
@@ -113,28 +114,50 @@ func claimedBy(idPrefix, marker string) func(group map[string]any) bool {
 	}
 }
 
-// ownedHookCommands collects, as a sorted multiset, the named command fields
-// of every handler inside owned hook groups of an event → groups container.
-// Non-array values in the container (antigravity's "enabled") are skipped.
-func ownedHookCommands(container any, owned func(map[string]any) bool, fields ...string) []string {
-	events, _ := container.(map[string]any)
+// ownedHookGroups projects every owned hook group of an event → groups
+// container to a sorted list of canonical JSON strings: the event name, the
+// matcher, and each handler's type, command, commandWindows and timeout, in
+// handler order. The group id is dropped (Claude Code strips it), as are any
+// other keys a host may add. Non-array values in the container
+// (antigravity's "enabled") are skipped. The container is round-tripped
+// through JSON first so generated values (ints, typed slices) compare equal
+// to the same values read back from disk.
+func ownedHookGroups(container any, owned func(map[string]any) bool) []string {
+	raw, err := json.Marshal(container)
+	if err != nil {
+		return nil
+	}
+	var events map[string]any
+	if json.Unmarshal(raw, &events) != nil {
+		return nil
+	}
 	var out []string
-	for _, ev := range events {
+	for event, ev := range events {
 		groups, _ := ev.([]any)
-		for _, raw := range groups {
-			group, ok := raw.(map[string]any)
+		for _, rawGroup := range groups {
+			group, ok := rawGroup.(map[string]any)
 			if !ok || !owned(group) {
 				continue
 			}
-			handlers, _ := group["hooks"].([]any)
-			for _, rawHandler := range handlers {
+			projected := map[string]any{"event": event, "matcher": group["matcher"]}
+			var handlers []any
+			rawHandlers, _ := group["hooks"].([]any)
+			for _, rawHandler := range rawHandlers {
 				h, _ := rawHandler.(map[string]any)
-				for _, field := range fields {
-					if command, ok := h[field].(string); ok {
-						out = append(out, field+"\x00"+command)
+				kept := map[string]any{}
+				for _, field := range []string{"type", "command", "commandWindows", "timeout"} {
+					if v, ok := h[field]; ok {
+						kept[field] = v
 					}
 				}
+				handlers = append(handlers, kept)
 			}
+			projected["hooks"] = handlers
+			line, err := json.Marshal(projected)
+			if err != nil {
+				continue
+			}
+			out = append(out, string(line))
 		}
 	}
 	slices.Sort(out)
