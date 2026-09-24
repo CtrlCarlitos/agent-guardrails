@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -73,6 +74,41 @@ func requireOperatorEnrolled(rerun string, stderr io.Writer) bool {
 	}
 	fmt.Fprintf(stderr, "guardrail: no operator authenticator is enrolled; run 'guardrail operator enroll' from a real terminal, then '%s'\n", rerun)
 	return false
+}
+
+// bootstrapPlanes arms the planes without an approval (ADR-0030): the
+// first-install case, where no operator authenticator exists yet so no
+// ceremony can begin. It runs the same in-process merge the approved
+// plane-enable action runs, then writes one audit record with transport
+// "bootstrap". Enable only — the approval-less path can only tighten. A
+// failed audit write is reported on stderr but does not fail the run: the
+// registration is the safety-relevant outcome.
+func bootstrapPlanes(cmd string, planes []string, stdout, stderr io.Writer) error {
+	for _, plane := range planes {
+		if err := enablePlaneIntegration(plane); err != nil {
+			return fmt.Errorf("%s: %w", plane, err)
+		}
+	}
+	for _, plane := range planes {
+		fmt.Fprintf(stdout, "%s enabled (bootstrap: no operator enrolled)\n", plane)
+	}
+	if err := writeBootstrapAudit(planes); err != nil {
+		fmt.Fprintf(stderr, "guardrail: %s: bootstrap audit record not written: %v\n", cmd, err)
+	}
+	return nil
+}
+
+// printBootstrapInstruction ends a bootstrap run with the one-time
+// enrollment instruction and the host-specific steps that no approval
+// ceremony would otherwise have prompted for.
+func printBootstrapInstruction(cmd string, planes []string, stdout io.Writer) {
+	fmt.Fprintf(stdout, "%s: planes armed without an approval because no operator authenticator is enrolled.\n", cmd)
+	fmt.Fprintf(stdout, "%s: run 'guardrail operator enroll' from a real terminal to take control; every later plane change needs your passkey.\n", cmd)
+	if slices.Contains(planes, "codex") {
+		fmt.Fprintf(stdout, "%s: for Codex, run /hooks inside Codex to review and trust the generated hooks; restart the agents you wired.\n", cmd)
+		return
+	}
+	fmt.Fprintf(stdout, "%s: restart the agents you wired.\n", cmd)
 }
 
 func planeConfigPath(plane string) (string, error) {
@@ -258,7 +294,10 @@ func cmdPlaneLifecycle(args []string, action, outcome string, terminal bool, std
 	if !ok {
 		return 2
 	}
-	if !terminal {
+	// With no operator enrolled, enable is a bootstrap (ADR-0030): it hosts
+	// no ceremony, so it needs no terminal. Disable always does.
+	bootstrap := action == "plane-enable" && !operatorEnrolled()
+	if !terminal && !bootstrap {
 		fmt.Fprintf(stderr, "guardrail: plane %s requires an interactive local terminal\n", verb)
 		return 2
 	}
@@ -301,6 +340,14 @@ func cmdPlaneLifecycle(args []string, action, outcome string, terminal bool, std
 		}
 	}
 	if len(batch) == 0 {
+		return 0
+	}
+	if bootstrap {
+		if err := bootstrapPlanes("plane enable", batch, stdout, stderr); err != nil {
+			fmt.Fprintf(stderr, "guardrail: %v\n", err)
+			return 1
+		}
+		printBootstrapInstruction("plane enable", batch, stdout)
 		return 0
 	}
 	if !requireOperatorEnrolled("guardrail plane "+verb+" "+strings.Join(args, " "), stderr) {

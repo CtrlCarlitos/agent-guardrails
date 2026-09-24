@@ -9,8 +9,9 @@
 # Exit codes: 2 usage / unsupported platform; 1 download, checksum, install
 # or post-install version failure, or an uninstall that could not disable
 # the planes or remove a file; otherwise the exit code of `guardrail setup`
-# (0 with -NoSetup, and after an uninstall; 3 when no operator authenticator
-# is enrolled yet: run `guardrail operator enroll`, then `guardrail setup`).
+# (0 with -NoSetup, and after an uninstall; a first install with no enrolled
+# operator arms the planes and exits 0; 3 when -State disabled needs an
+# approval no enrolled operator can give).
 # PowerShell itself rejects unknown or malformed parameters (exit 1 when run
 # with -File).
 #
@@ -459,17 +460,20 @@ function Remove-StateRoots {
 }
 
 # Test-SetupSupported: whether <dest>\guardrail.exe has the `setup`
-# subcommand. Probed with stdin piped, not the console, so a binary that has
-# it refuses before touching anything (exit 2, "requires an interactive local
+# subcommand. Probed as `setup --state disabled` with stdin piped, not the
+# console: disabling always needs a terminal, so a binary that has `setup`
+# refuses before touching anything (exit 2, "requires an interactive local
 # terminal"), while one that predates it exits 2 with "unknown subcommand".
-# Probing first keeps the real run's output streaming to the console.
+# A bare `setup` would not do: with no operator enrolled it arms the planes
+# (ADR-0030), and a probe must never have side effects. Probing first keeps
+# the real run's output streaming to the console.
 function Test-SetupSupported {
 	$text = ''
 	$code = 0
 	try {
 		$ErrorActionPreference = 'Continue'
 		$PSNativeCommandUseErrorActionPreference = $false
-		$text = (@('' | & $script:Exe setup 2>&1) | ForEach-Object { [string]$_ }) -join "`n"
+		$text = (@('' | & $script:Exe setup --state disabled 2>&1) | ForEach-Object { [string]$_ }) -join "`n"
 		$code = $LASTEXITCODE
 	} catch {
 		return $true

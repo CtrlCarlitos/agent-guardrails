@@ -4,6 +4,10 @@
 
 Accepted (operator, 2026-09-23). Design:
 `docs/superpowers/specs/2026-09-23-installer-design.md`. Closes #317.
+Amended by ADR-0030 (2026-09-24): a first install with no enrolled operator
+arms the planes without an approval or a terminal; the enrolled-operator and
+terminal requirements below hold once a passkey exists, and for every
+loosening action always.
 
 ## Context
 
