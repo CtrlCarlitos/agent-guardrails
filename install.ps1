@@ -3,11 +3,13 @@
 #
 #   install.ps1 -Version <tag> [-State enabled|disabled] [-Dest <dir>]
 #               [-BaseUrl <url-or-dir>] [-NoSetup]
+#   install.ps1 -Uninstall [-Purge] [-Dest <dir>] [-NoSetup]
 #   install.ps1 -Help
 #
 # Exit codes: 2 usage / unsupported platform; 1 download, checksum, install
-# or post-install version failure; otherwise the exit code of
-# `guardrail setup` (0 with -NoSetup). PowerShell itself rejects unknown or
+# or post-install version failure, or an uninstall that could not disable
+# the planes or remove a file; otherwise the exit code of `guardrail setup`
+# (0 with -NoSetup, and after an uninstall). PowerShell itself rejects unknown or
 # malformed parameters (exit 1 when run with -File).
 #
 # Dot-sourcing (`. .\install.ps1`) only defines the helper functions; the
@@ -19,10 +21,14 @@ param(
 	[string]$Dest,
 	[string]$BaseUrl,
 	[switch]$NoSetup,
+	[switch]$Uninstall,
+	[switch]$Purge,
 	[switch]$Help
 )
 
 $ErrorActionPreference = 'Stop'
+# -State has a default, so only $PSBoundParameters says whether it was passed.
+$script:StateGiven = $PSBoundParameters.ContainsKey('State')
 
 # Oldest release whose `guardrail update` is the sanctioned replacement path.
 # A fixed historical constant, not a pin.
@@ -34,6 +40,7 @@ $script:Exe = ''
 $script:Installed = ''
 $script:Tmp = ''
 $script:BaseIsHttp = $false
+$script:DisableCode = 1
 
 function Say([string]$Message) { Write-Host "install: $Message" }
 
@@ -56,6 +63,7 @@ function Show-Usage {
 Usage:
   install.ps1 -Version <tag> [-State enabled|disabled] [-Dest <dir>]
               [-BaseUrl <url-or-dir>] [-NoSetup]
+  install.ps1 -Uninstall [-Purge] [-Dest <dir>] [-NoSetup]
   install.ps1 -Help
 
   -Version <tag>     Exact release tag, e.g. v0.23.0-dev (required; 'latest' is not supported).
@@ -65,6 +73,11 @@ Usage:
                      laid out as <base>\<tag>\<asset>
                      (default: https://github.com/CtrlCarlitos/agent-guardrails/releases/download).
   -NoSetup           Stop once the binary is installed and verified; do not run `guardrail setup`.
+                     With -Uninstall: do not run `guardrail setup --state disabled` first.
+  -Uninstall         Disable every plane (`guardrail setup --state disabled`), then remove
+                     guardrail.exe, the plugin file guardrail.js, the user PATH entry and
+                     the Defender exclusion.
+  -Purge             With -Uninstall: also remove guardrail's state, config and data directories.
 '@
 }
 
@@ -125,6 +138,40 @@ function Test-PathListHas([string]$List, [string]$Dir) {
 	return $false
 }
 
+# Remove-PathListEntry <list> <dir>: the ';'-separated PATH without the
+# entries equal to <dir> (ignoring a trailing backslash on either side); every
+# other entry, empty ones included, is kept byte for byte.
+function Remove-PathListEntry([string]$List, [string]$Dir) {
+	$want = $Dir.TrimEnd('\')
+	$kept = @()
+	foreach ($entry in ($List -split ';')) {
+		if ($entry -and ($entry.TrimEnd('\') -eq $want)) { continue }
+		$kept += $entry
+	}
+	return ($kept -join ';')
+}
+
+# Get-PluginDir <userprofile>: where `guardrail setup` writes guardrail.js
+# (the binary's planePluginDir), or '' when USERPROFILE is unset.
+function Get-PluginDir([string]$UserProfile) {
+	if (-not $UserProfile) { return '' }
+	return (Join-Path (Join-Path (Join-Path $UserProfile '.local') 'share') 'guardrail')
+}
+
+# Get-PurgeDirs <userprofile> <localappdata> <appdata>: every directory
+# guardrail keeps state, config or data in; roots whose variable is unset are
+# left out.
+function Get-PurgeDirs([string]$UserProfile, [string]$LocalAppData, [string]$AppData) {
+	$dirs = @()
+	if ($LocalAppData) { $dirs += (Join-Path $LocalAppData 'guardrail') }
+	if ($AppData) { $dirs += (Join-Path $AppData 'guardrail') }
+	if ($UserProfile) {
+		$dirs += (Join-Path (Join-Path (Join-Path $UserProfile '.local') 'state') 'guardrail')
+		$dirs += (Get-PluginDir $UserProfile)
+	}
+	return $dirs
+}
+
 # --- steps --------------------------------------------------------------------
 
 function Resolve-Arguments {
@@ -132,16 +179,23 @@ function Resolve-Arguments {
 		Show-Usage
 		exit 0
 	}
-	if (-not $Version) {
+	if ($Purge -and -not $Uninstall) { Die 2 '-Purge only works with -Uninstall' }
+	if ($script:StateGiven -and $Uninstall) { Die 2 '-State cannot be combined with -Uninstall' }
+	# -Uninstall needs no release; a -Version given anyway must still be valid.
+	if (-not $Version -and -not $Uninstall) {
 		Die 2 "-Version is required: pass an exact release tag such as v0.23.0-dev ('latest' is not supported)"
 	}
-	if (-not (Test-ValidVersion $Version)) {
+	if ($Version -and -not (Test-ValidVersion $Version)) {
 		Die 2 "-Version must be an exact release tag such as v0.23.0-dev, got '$Version' ('latest' is not supported)"
 	}
 
 	if (-not $Dest) {
 		if (-not $env:USERPROFILE) { Die 2 'USERPROFILE is not set; pass -Dest <dir>' }
 		$script:Dest = Join-Path (Join-Path $env:USERPROFILE '.local') 'bin'
+	}
+	# The plugin file and two of the state roots live under USERPROFILE.
+	if ($Uninstall -and -not $env:USERPROFILE) {
+		Die 2 'USERPROFILE is not set; -Uninstall needs it to find the plugin and state directories'
 	}
 	# Absolute, so the PATH entry and the Defender exclusion name a real place.
 	$script:Dest = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($script:Dest).TrimEnd('\')
@@ -334,6 +388,99 @@ function Add-DefenderExclusion {
 	}
 }
 
+# Remove-FromPath: drop the User Path entry equal to <dest>, leaving every
+# other entry, and the value's kind, as they were.
+function Remove-FromPath {
+	try {
+		$key = Get-Item -LiteralPath 'HKCU:\Environment'
+		if (-not ($key.GetValueNames() -contains 'Path')) { return }
+		$userPath = [string]$key.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+		if (-not (Test-PathListHas $userPath $script:Dest)) { return }
+		$kind = $key.GetValueKind('Path').ToString()
+		$newPath = Remove-PathListEntry $userPath $script:Dest
+		New-ItemProperty -LiteralPath 'HKCU:\Environment' -Name 'Path' -Value $newPath -PropertyType $kind -Force | Out-Null
+		# Broadcast WM_SETTINGCHANGE, as Add-ToPath does.
+		[Environment]::SetEnvironmentVariable('GUARDRAIL_INSTALL_PATH_NOTIFY', '1', 'User')
+		[Environment]::SetEnvironmentVariable('GUARDRAIL_INSTALL_PATH_NOTIFY', $null, 'User')
+		Say "removed $($script:Dest) from your user PATH"
+	} catch {
+		[Console]::Error.WriteLine("install: warning: could not remove $($script:Dest) from your user PATH; remove it yourself")
+	}
+}
+
+# Remove-DefenderExclusion: undo Add-DefenderExclusion. Needs an elevated
+# shell; otherwise print the command and carry on.
+function Remove-DefenderExclusion {
+	try {
+		Remove-MpPreference -ExclusionPath $script:Exe
+	} catch {
+		[Console]::Error.WriteLine('install: warning: could not remove the Defender exclusion (needs an elevated shell); if one exists, run:')
+		[Console]::Error.WriteLine("Remove-MpPreference -ExclusionPath `"$($script:Exe)`"")
+	}
+}
+
+# Remove-StateRoots: -Purge; remove every directory guardrail keeps state,
+# config or data in.
+function Remove-StateRoots {
+	foreach ($root in (Get-PurgeDirs $env:USERPROFILE $env:LOCALAPPDATA $env:APPDATA)) {
+		if (-not (Test-Path -LiteralPath $root)) { continue }
+		try {
+			Remove-Item -LiteralPath $root -Recurse -Force
+		} catch {
+			Die 1 "cannot remove $root"
+		}
+		Say "removed $root"
+	}
+}
+
+# Invoke-DisablePlanes: run `guardrail setup --state disabled` and leave its
+# exit code in $script:DisableCode. Its own function so the relaxed error
+# preference a native call needs stays out of the removals that follow; the
+# code goes through a variable, not the output stream, so setup's own output
+# is never captured.
+function Invoke-DisablePlanes {
+	$script:DisableCode = 1
+	# Called bare, not piped: setup needs the console as its stdin and stdout.
+	try {
+		$ErrorActionPreference = 'Continue'
+		$PSNativeCommandUseErrorActionPreference = $false
+		& $script:Exe setup --state disabled
+		$script:DisableCode = $LASTEXITCODE
+	} catch {
+		$script:DisableCode = 1
+	}
+}
+
+# Uninstall-Guardrail: disable every plane, then remove the binary, the plugin
+# file, the PATH entry and the Defender exclusion (and, with -Purge, every
+# state root). Never downloads anything.
+function Uninstall-Guardrail {
+	if (-not (Test-Path -LiteralPath $script:Exe -PathType Leaf)) {
+		Say "nothing installed at $($script:Dest)"
+	} else {
+		if (-not $NoSetup) {
+			Invoke-DisablePlanes
+			if ($script:DisableCode -ne 0) { Die 1 'uninstall aborted: planes are still registered' }
+		}
+		try {
+			Remove-Item -LiteralPath $script:Exe -Force
+		} catch {
+			Die 1 "cannot remove $($script:Exe)"
+		}
+		$plugin = Join-Path (Get-PluginDir $env:USERPROFILE) 'guardrail.js'
+		try {
+			if (Test-Path -LiteralPath $plugin) { Remove-Item -LiteralPath $plugin -Force }
+		} catch {
+			Die 1 "cannot remove $plugin"
+		}
+		Remove-FromPath
+		Remove-DefenderExclusion
+		Say "guardrail removed from $($script:Dest)"
+	}
+	if ($Purge) { Remove-StateRoots }
+	exit 0
+}
+
 function Invoke-Handoff {
 	Cleanup
 	if ($NoSetup) {
@@ -360,6 +507,7 @@ function Invoke-Main {
 	try {
 		Resolve-Arguments
 		Resolve-Platform
+		if ($Uninstall) { Uninstall-Guardrail }
 		Get-InstalledVersion
 
 		if ($State -eq 'disabled') {

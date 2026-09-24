@@ -16,6 +16,13 @@ VERSION="${VERSION:-v0.0.0-ci}"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
+# Never touch the real user's state: HOME points into the temp dir and the
+# XDG_* roots are unset, so install.sh falls back to $HOME/... unless a case
+# sets one. The uninstall cases also pass a fresh HOME of their own.
+export HOME="$tmp/home"
+mkdir -p "$HOME"
+unset XDG_DATA_HOME XDG_STATE_HOME XDG_CONFIG_HOME
+
 # --- staging ----------------------------------------------------------------
 stage() { # $1 = releases root; copies the six assets (+ SHA256SUMS unless $2 = nosums)
   mkdir -p "$1/$VERSION"
@@ -66,7 +73,7 @@ is_empty() { [ -z "$(ls -A "$1")" ] || { echo "  $1 not empty:"; ls -A "$1"; ret
 absent() { [ ! -e "$1" ] || { echo "  $1 exists"; return 1; }; }
 mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 
-fake_guardrail() { # $1 = dest, $2 = version the fake reports
+fake_guardrail() { # $1 = dest, $2 = version the fake reports, $3 = setup's exit code (default 0)
   mkdir -p "$1"
   cat >"$1/guardrail" <<'FAKE'
 #!/bin/sh
@@ -74,13 +81,15 @@ d="$(dirname "$0")"
 case "$1" in
   version) echo "guardrail $(cat "$d/.fake-version")" ;;
   update) echo "$*" >>"$d/update.log"; echo "$2" >"$d/.fake-version" ;;
-  setup) exit 0 ;;
+  setup) echo "$*" >>"$d/setup.log"; exit "$(cat "$d/.fake-setup-rc")" ;;
   *) exit 2 ;;
 esac
 FAKE
   chmod 0755 "$1/guardrail"
   echo "$2" >"$1/.fake-version"
+  echo "${3:-0}" >"$1/.fake-setup-rc"
 }
+marker() { mkdir -p "$1" && echo marker >"$1/marker"; } # $1 = dir
 
 # --- cases ------------------------------------------------------------------
 boot_dest=""
@@ -168,6 +177,92 @@ FAKE
   absent "$dest"
 }
 
+case_uninstall_removes_binary_and_plugin() {
+  local dest home
+  dest="$(fresh)"
+  home="$(fresh)"
+  run --version "$VERSION" --dest "$dest" --base-url "$tmp/releases" --no-setup
+  want_rc 0 || return 1
+  # XDG_DATA_HOME set (the plugin dir); XDG_STATE_HOME unset (the $HOME fallback).
+  mkdir -p "$home/xdg-data/guardrail"
+  echo '// fake plugin' >"$home/xdg-data/guardrail/guardrail.js"
+  marker "$home/.local/state/guardrail"
+  HOME="$home" XDG_DATA_HOME="$home/xdg-data" run --uninstall --dest "$dest" --no-setup
+  want_rc 0 || return 1
+  has out "install: guardrail removed from $dest" || return 1
+  absent "$dest/guardrail" || return 1
+  absent "$home/xdg-data/guardrail/guardrail.js" || return 1
+  [ -f "$home/.local/state/guardrail/marker" ] || { echo "  state dir was removed without --purge"; return 1; }
+}
+
+case_uninstall_purge_removes_state_roots() {
+  local dest home r
+  dest="$(fresh)"
+  home="$(fresh)"
+  fake_guardrail "$dest" "$VERSION"
+  # XDG_CONFIG_HOME set; state and data fall back to $HOME.
+  marker "$home/.local/state/guardrail"
+  marker "$home/xdg-config/guardrail"
+  marker "$home/.local/share/guardrail"
+  HOME="$home" XDG_CONFIG_HOME="$home/xdg-config" run --uninstall --purge --dest "$dest" --no-setup
+  want_rc 0 || return 1
+  absent "$dest/guardrail" || return 1
+  for r in "$home/.local/state/guardrail" "$home/xdg-config/guardrail" "$home/.local/share/guardrail"; do
+    absent "$r" || return 1
+    has out "install: removed $r" || return 1
+  done
+  # only the guardrail roots, never their parents
+  [ -d "$home/.local/share" ] && [ -d "$home/xdg-config" ] || { echo "  a parent of a guardrail root was removed"; return 1; }
+}
+
+case_uninstall_nothing_installed_is_ok() {
+  local dest home
+  dest="$(fresh)"
+  home="$(fresh)"
+  HOME="$home" run --uninstall --dest "$dest" --no-setup
+  want_rc 0 || return 1
+  has out "nothing installed at $dest" || return 1
+  is_empty "$dest"
+}
+
+case_purge_without_uninstall_exits_2() {
+  local dest home
+  dest="$(fresh)"
+  home="$(fresh)"
+  marker "$home/.local/state/guardrail"
+  HOME="$home" run --purge --version "$VERSION" --dest "$dest" --base-url "$tmp/releases" --no-setup
+  want_rc 2 || return 1
+  has err "--purge only works with --uninstall" || return 1
+  is_empty "$dest" || return 1
+  [ -f "$home/.local/state/guardrail/marker" ] || { echo "  state dir was removed"; return 1; }
+}
+
+case_state_with_uninstall_exits_2() {
+  local dest home
+  dest="$(fresh)"
+  home="$(fresh)"
+  fake_guardrail "$dest" "$VERSION"
+  HOME="$home" run --uninstall --state disabled --dest "$dest" --no-setup
+  want_rc 2 || return 1
+  has err "--state cannot be combined with --uninstall" || return 1
+  [ -x "$dest/guardrail" ] || { echo "  $dest/guardrail was removed"; return 1; }
+}
+
+case_uninstall_aborts_when_disable_fails() {
+  local dest home
+  dest="$(fresh)"
+  home="$(fresh)"
+  fake_guardrail "$dest" "$VERSION" 1
+  mkdir -p "$home/.local/share/guardrail"
+  echo '// fake plugin' >"$home/.local/share/guardrail/guardrail.js"
+  HOME="$home" run --uninstall --purge --dest "$dest"
+  want_rc 1 || return 1
+  has err "install: uninstall aborted: planes are still registered" || return 1
+  grep -qx "setup --state disabled" "$dest/setup.log" 2>/dev/null || { echo "  setup.log lacks 'setup --state disabled'"; dump; return 1; }
+  [ -x "$dest/guardrail" ] || { echo "  $dest/guardrail was removed"; return 1; }
+  [ -f "$home/.local/share/guardrail/guardrail.js" ] || { echo "  plugin or data root was removed"; return 1; }
+}
+
 fails=0
 check() { # $1 = case label, $2 = function
   if "$2"; then echo "PASS: $1"; else echo "FAIL: $1"; fails=$((fails + 1)); fi
@@ -182,6 +277,12 @@ check disabled-with-no-binary-is-noop            case_disabled_with_no_binary_is
 check existing-at-or-above-floor-uses-self-update case_existing_at_or_above_floor_uses_self_update
 check existing-below-floor-bootstraps            case_existing_below_floor_bootstraps
 check unsupported-arch-exits-2                   case_unsupported_arch_exits_2
+check uninstall-removes-binary-and-plugin        case_uninstall_removes_binary_and_plugin
+check uninstall-purge-removes-state-roots        case_uninstall_purge_removes_state_roots
+check uninstall-nothing-installed-is-ok          case_uninstall_nothing_installed_is_ok
+check purge-without-uninstall-exits-2            case_purge_without_uninstall_exits_2
+check state-with-uninstall-exits-2               case_state_with_uninstall_exits_2
+check uninstall-aborts-when-disable-fails        case_uninstall_aborts_when_disable_fails
 
 if command -v shellcheck >/dev/null 2>&1; then
   if shellcheck -s sh "$INSTALL_SH"; then echo "PASS: shellcheck"; else echo "FAIL: shellcheck"; fails=$((fails + 1)); fi

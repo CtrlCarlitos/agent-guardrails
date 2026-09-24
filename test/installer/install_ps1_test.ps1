@@ -42,7 +42,7 @@ function Case-ParsesUnderWindowsPowerShellSyntax {
 		if ($text.Contains($needle)) { Write-Host "  contains PowerShell 7-only syntax: $needle"; $ok = $false }
 	}
 	foreach ($t in $tokens) {
-		if (@('QuestionMark', 'QuestionQuestion', 'QuestionQuestionEquals', 'QuestionDot', 'QuestionLBracket') -contains $t.Kind.ToString()) {
+		if (@('QuestionMark', 'QuestionQuestion', 'QuestionQuestionEquals', 'QuestionDot', 'QuestionLBracket', 'AndAnd', 'OrOr') -contains $t.Kind.ToString()) {
 			Write-Host "  PowerShell 7-only operator '$($t.Text)' at line $($t.Extent.StartLineNumber)"
 			$ok = $false
 		}
@@ -56,7 +56,12 @@ $labels = @(
 	'latest-is-rejected',
 	'tampered-checksum-refuses',
 	'missing-sums-refuses',
-	'disabled-with-no-binary-is-noop'
+	'disabled-with-no-binary-is-noop',
+	'uninstall-removes-binary-and-plugin',
+	'uninstall-purge-removes-state-roots',
+	'uninstall-nothing-installed-is-ok',
+	'purge-without-uninstall-exits-2',
+	'state-with-uninstall-exits-2'
 )
 
 if (-not $onWindows) {
@@ -181,14 +186,58 @@ exit $code
 		}
 		return $false
 	}
+	function Marker([string]$Dir) {
+		New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+		Set-Content -LiteralPath (Join-Path $Dir 'marker') -Value 'marker'
+	}
+	function IsFile([string]$Path) {
+		if (Test-Path -LiteralPath $Path -PathType Leaf) { return $true }
+		Write-Host "  $Path missing"; return $false
+	}
+
+	# Save-UserPath / Restore-UserPath: install.ps1 writes the real User Path
+	# in HKCU; every case that installs puts it back exactly as it was.
+	function Save-UserPath {
+		$envKey = Get-Item -LiteralPath 'HKCU:\Environment'
+		$saved = @{ Had = ($envKey.GetValueNames() -contains 'Path'); Value = ''; Kind = 'ExpandString' }
+		if ($saved.Had) {
+			$saved.Value = $envKey.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+			$saved.Kind = $envKey.GetValueKind('Path').ToString()
+		}
+		return $saved
+	}
+	function Restore-UserPath($Saved) {
+		if ($Saved.Had) {
+			New-ItemProperty -LiteralPath 'HKCU:\Environment' -Name 'Path' -Value $Saved.Value -PropertyType $Saved.Kind -Force | Out-Null
+		} else {
+			Remove-ItemProperty -LiteralPath 'HKCU:\Environment' -Name 'Path' -ErrorAction SilentlyContinue
+		}
+	}
+	# Remove-HarnessExclusion: an elevated run makes install.ps1 add a Defender
+	# exclusion for the harness's temp guardrail.exe; take it out again.
+	function Remove-HarnessExclusion([string]$Exe) {
+		try { Remove-MpPreference -ExclusionPath $Exe -ErrorAction SilentlyContinue } catch { $null = $_ }
+	}
+
+	# InSandbox <home> <block>: run <block> with USERPROFILE, LOCALAPPDATA and
+	# APPDATA pointing into <home>, so no uninstall case touches real state.
+	function InSandbox([string]$SandboxHome, [scriptblock]$Block) {
+		$saved = @{ USERPROFILE = $env:USERPROFILE; LOCALAPPDATA = $env:LOCALAPPDATA; APPDATA = $env:APPDATA }
+		try {
+			$env:USERPROFILE = $SandboxHome
+			$env:LOCALAPPDATA = Join-Path (Join-Path $SandboxHome 'AppData') 'Local'
+			$env:APPDATA = Join-Path (Join-Path $SandboxHome 'AppData') 'Roaming'
+			& $Block
+		} finally {
+			$env:USERPROFILE = $saved.USERPROFILE
+			$env:LOCALAPPDATA = $saved.LOCALAPPDATA
+			$env:APPDATA = $saved.APPDATA
+		}
+	}
 
 	# --- cases ---------------------------------------------------------------
 	function Case-BootstrapInstallsAndVerifies {
-		$envKey = Get-Item -LiteralPath 'HKCU:\Environment'
-		$hadPath = $envKey.GetValueNames() -contains 'Path'
-		$priorPath = $envKey.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
-		$priorKind = 'ExpandString'
-		if ($hadPath) { $priorKind = $envKey.GetValueKind('Path').ToString() }
+		$savedPath = Save-UserPath
 		try {
 			$script:bootDest = Fresh
 			Run -Version $Version -Dest $script:bootDest -BaseUrl (Join-Path $tmp 'releases') -NoSetup
@@ -204,11 +253,8 @@ exit $code
 			}
 			return $true
 		} finally {
-			if ($hadPath) {
-				New-ItemProperty -LiteralPath 'HKCU:\Environment' -Name 'Path' -Value $priorPath -PropertyType $priorKind -Force | Out-Null
-			} else {
-				Remove-ItemProperty -LiteralPath 'HKCU:\Environment' -Name 'Path' -ErrorAction SilentlyContinue
-			}
+			Restore-UserPath $savedPath
+			if ($script:bootDest) { Remove-HarnessExclusion (Join-Path $script:bootDest 'guardrail.exe') }
 		}
 	}
 
@@ -253,12 +299,98 @@ exit $code
 		return (IsEmpty $dest)
 	}
 
+	function Case-UninstallRemovesBinaryAndPlugin {
+		$savedPath = Save-UserPath
+		$dest = Fresh
+		$sbHome = Fresh
+		$exe = Join-Path $dest 'guardrail.exe'
+		try {
+			Run -Version $Version -Dest $dest -BaseUrl (Join-Path $tmp 'releases') -NoSetup
+			if (-not (WantRc 0)) { return $false }
+			$pluginDir = Join-Path (Join-Path (Join-Path $sbHome '.local') 'share') 'guardrail'
+			New-Item -ItemType Directory -Force -Path $pluginDir | Out-Null
+			Set-Content -LiteralPath (Join-Path $pluginDir 'guardrail.js') -Value '// fake plugin'
+			$stateDir = Join-Path (Join-Path (Join-Path $sbHome 'AppData') 'Local') 'guardrail'
+			Marker $stateDir
+			InSandbox $sbHome { Run -Uninstall -Dest $dest -NoSetup }
+			if (-not (WantRc 0)) { return $false }
+			if (-not (Has out "install: guardrail removed from $dest")) { return $false }
+			if (-not (Absent $exe)) { return $false }
+			if (-not (Absent (Join-Path $pluginDir 'guardrail.js'))) { return $false }
+			if (-not (IsFile (Join-Path $stateDir 'marker'))) { return $false }
+			$userPath = (Get-Item -LiteralPath 'HKCU:\Environment').GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+			if (PathHas $userPath $dest) { Write-Host "  User PATH still has $($dest): $userPath"; return $false }
+			return $true
+		} finally {
+			Restore-UserPath $savedPath
+			Remove-HarnessExclusion $exe
+		}
+	}
+
+	function Case-UninstallPurgeRemovesStateRoots {
+		$dest = Fresh
+		$sbHome = Fresh
+		$roots = @(
+			(Join-Path (Join-Path (Join-Path $sbHome 'AppData') 'Local') 'guardrail'),
+			(Join-Path (Join-Path (Join-Path $sbHome 'AppData') 'Roaming') 'guardrail'),
+			(Join-Path (Join-Path (Join-Path $sbHome '.local') 'state') 'guardrail'),
+			(Join-Path (Join-Path (Join-Path $sbHome '.local') 'share') 'guardrail')
+		)
+		foreach ($r in $roots) { Marker $r }
+		InSandbox $sbHome { Run -Uninstall -Purge -Dest $dest -NoSetup }
+		if (-not (WantRc 0)) { return $false }
+		foreach ($r in $roots) {
+			if (-not (Absent $r)) { return $false }
+			if (-not (Has out "install: removed $r")) { return $false }
+		}
+		# only the guardrail roots, never their parents
+		if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $sbHome '.local') 'share') -PathType Container)) {
+			Write-Host '  a parent of a guardrail root was removed'; return $false
+		}
+		return $true
+	}
+
+	function Case-UninstallNothingInstalledIsOk {
+		$dest = Fresh
+		$sbHome = Fresh
+		InSandbox $sbHome { Run -Uninstall -Dest $dest -NoSetup }
+		if (-not (WantRc 0)) { return $false }
+		if (-not (Has out "nothing installed at $dest")) { return $false }
+		return (IsEmpty $dest)
+	}
+
+	function Case-PurgeWithoutUninstallExits2 {
+		$dest = Fresh
+		$sbHome = Fresh
+		$stateDir = Join-Path (Join-Path (Join-Path $sbHome 'AppData') 'Local') 'guardrail'
+		Marker $stateDir
+		InSandbox $sbHome { Run -Purge -Version $Version -Dest $dest -BaseUrl (Join-Path $tmp 'releases') -NoSetup }
+		if (-not (WantRc 2)) { return $false }
+		if (-not (Has err '-Purge only works with -Uninstall')) { return $false }
+		if (-not (IsEmpty $dest)) { return $false }
+		return (IsFile (Join-Path $stateDir 'marker'))
+	}
+
+	function Case-StateWithUninstallExits2 {
+		$dest = Fresh
+		$sbHome = Fresh
+		InSandbox $sbHome { Run -Uninstall -State disabled -Dest $dest -NoSetup }
+		if (-not (WantRc 2)) { return $false }
+		if (-not (Has err '-State cannot be combined with -Uninstall')) { return $false }
+		return (IsEmpty $dest)
+	}
+
 	Check 'bootstrap-installs-and-verifies' { Case-BootstrapInstallsAndVerifies }
 	Check 'already-at-version-skips-download' { Case-AlreadyAtVersionSkipsDownload }
 	Check 'latest-is-rejected' { Case-LatestIsRejected }
 	Check 'tampered-checksum-refuses' { Case-TamperedChecksumRefuses }
 	Check 'missing-sums-refuses' { Case-MissingSumsRefuses }
 	Check 'disabled-with-no-binary-is-noop' { Case-DisabledWithNoBinaryIsNoop }
+	Check 'uninstall-removes-binary-and-plugin' { Case-UninstallRemovesBinaryAndPlugin }
+	Check 'uninstall-purge-removes-state-roots' { Case-UninstallPurgeRemovesStateRoots }
+	Check 'uninstall-nothing-installed-is-ok' { Case-UninstallNothingInstalledIsOk }
+	Check 'purge-without-uninstall-exits-2' { Case-PurgeWithoutUninstallExits2 }
+	Check 'state-with-uninstall-exits-2' { Case-StateWithUninstallExits2 }
 	Check 'parses-under-windows-powershell-syntax' { Case-ParsesUnderWindowsPowerShellSyntax }
 } finally {
 	Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue

@@ -4,11 +4,13 @@
 #
 #   install.sh --version <tag> [--state enabled|disabled] [--dest <dir>]
 #              [--base-url <url-or-dir>] [--no-setup]
+#   install.sh --uninstall [--purge] [--dest <dir>] [--no-setup]
 #   install.sh --help
 #
 # Exit codes: 2 usage / unsupported platform / missing tool; 1 download,
-# checksum, install or post-install version failure; otherwise the exit code
-# of `guardrail setup` (0 with --no-setup).
+# checksum, install or post-install version failure, or an uninstall that
+# could not disable the planes or remove a file; otherwise the exit code of
+# `guardrail setup` (0 with --no-setup, and after an uninstall).
 set -eu
 
 # Oldest release whose `guardrail update` is the sanctioned replacement path.
@@ -18,9 +20,12 @@ DEFAULT_BASE_URL=https://github.com/CtrlCarlitos/agent-guardrails/releases/downl
 
 version=""
 state=enabled
+state_given=0
 dest=""
 base_url=$DEFAULT_BASE_URL
 run_setup=1
+uninstall=0
+purge=0
 asset=""
 installed=""
 tmp=""
@@ -49,6 +54,7 @@ usage() {
 Usage:
   install.sh --version <tag> [--state enabled|disabled] [--dest <dir>]
              [--base-url <url-or-dir>] [--no-setup]
+  install.sh --uninstall [--purge] [--dest <dir>] [--no-setup]
   install.sh --help
 
   --version <tag>     Exact release tag, e.g. v0.23.0-dev (required; 'latest' is not supported).
@@ -58,6 +64,10 @@ Usage:
                       laid out as <base>/<tag>/<asset>
                       (default: https://github.com/CtrlCarlitos/agent-guardrails/releases/download).
   --no-setup          Stop once the binary is installed and verified; do not run `guardrail setup`.
+                      With --uninstall: do not run `guardrail setup --state disabled` first.
+  --uninstall         Disable every plane (`guardrail setup --state disabled`), then remove
+                      the binary and the plugin file guardrail.js.
+  --purge             With --uninstall: also remove guardrail's state, config and data directories.
 USAGE
 }
 
@@ -94,7 +104,10 @@ parse_args() {
 			[ $# -ge 2 ] || die 2 "$1 needs a value (see --help)"
 			case $1 in
 			--version) version=$2 ;;
-			--state) state=$2 ;;
+			--state)
+				state=$2
+				state_given=1
+				;;
 			--dest) dest=$2 ;;
 			--base-url) base_url=$2 ;;
 			esac
@@ -102,6 +115,14 @@ parse_args() {
 			;;
 		--no-setup)
 			run_setup=0
+			shift
+			;;
+		--uninstall)
+			uninstall=1
+			shift
+			;;
+		--purge)
+			purge=1
 			shift
 			;;
 		-h | --help)
@@ -112,8 +133,17 @@ parse_args() {
 		esac
 	done
 
-	[ -n "$version" ] || die 2 "--version is required: pass an exact release tag such as v0.23.0-dev ('latest' is not supported)"
-	valid_version "$version" || die 2 "--version must be an exact release tag such as v0.23.0-dev, got '$version' ('latest' is not supported)"
+	if [ "$purge" -eq 1 ] && [ "$uninstall" -eq 0 ]; then
+		die 2 "--purge only works with --uninstall"
+	fi
+	if [ "$state_given" -eq 1 ] && [ "$uninstall" -eq 1 ]; then
+		die 2 "--state cannot be combined with --uninstall"
+	fi
+
+	# --uninstall needs no release; a --version given anyway must still be valid.
+	[ -n "$version" ] || [ "$uninstall" -eq 1 ] ||
+		die 2 "--version is required: pass an exact release tag such as v0.23.0-dev ('latest' is not supported)"
+	[ -z "$version" ] || valid_version "$version" || die 2 "--version must be an exact release tag such as v0.23.0-dev, got '$version' ('latest' is not supported)"
 
 	case $state in
 	enabled | disabled) ;;
@@ -123,6 +153,10 @@ parse_args() {
 	if [ -z "$dest" ]; then
 		[ -n "${HOME:-}" ] || die 2 "HOME is not set; pass --dest <dir>"
 		dest=$HOME/.local/bin
+	fi
+	# The plugin file and the state roots live under $HOME (or XDG_*).
+	if [ "$uninstall" -eq 1 ] && [ -z "${HOME:-}" ]; then
+		die 2 "HOME is not set; --uninstall needs it to find the plugin and state directories"
 	fi
 
 	case $base_url in
@@ -246,8 +280,43 @@ handoff() {
 	exec "$dest/guardrail" setup
 }
 
+# purge: remove every directory guardrail keeps state, config or data in.
+purge() {
+	for root in "${XDG_STATE_HOME:-$HOME/.local/state}/guardrail" \
+		"${XDG_CONFIG_HOME:-$HOME/.config}/guardrail" \
+		"${XDG_DATA_HOME:-$HOME/.local/share}/guardrail"; do
+		[ -e "$root" ] || continue
+		rm -rf "$root" || die 1 "cannot remove $root"
+		say "removed $root"
+	done
+}
+
+# uninstall: disable every plane, then remove the binary and the plugin file
+# (and, with --purge, every state root). Never downloads anything.
+uninstall() {
+	if [ ! -e "$dest/guardrail" ]; then
+		say "nothing installed at $dest"
+	else
+		if [ "$run_setup" -eq 1 ]; then
+			"$dest/guardrail" setup --state disabled ||
+				die 1 "uninstall aborted: planes are still registered"
+		fi
+		rm -f "$dest/guardrail" || die 1 "cannot remove $dest/guardrail"
+		plugin=${XDG_DATA_HOME:-$HOME/.local/share}/guardrail/guardrail.js
+		rm -f "$plugin" || die 1 "cannot remove $plugin"
+		say "guardrail removed from $dest"
+	fi
+	if [ "$purge" -eq 1 ]; then
+		purge
+	fi
+	exit 0
+}
+
 main() {
 	parse_args "$@"
+	if [ "$uninstall" -eq 1 ]; then
+		uninstall
+	fi
 	resolve_platform
 	probe_installed
 

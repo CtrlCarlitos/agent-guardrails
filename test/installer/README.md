@@ -28,10 +28,38 @@ In a temp directory, removed on exit:
 - `empty/`: an empty directory, used as `--base-url` where a case must
   prove that no download happens.
 
-Every case passes `--base-url <one of the above> --dest <fresh dir>
---no-setup` and checks both the exit code and what is on disk afterwards.
-The self-update cases put a small fake `guardrail` script in `--dest` that
-reports a seeded version and logs `update` calls.
+Every install case passes `--base-url <one of the above> --dest <fresh
+dir> --no-setup` and checks both the exit code and what is on disk
+afterwards. The self-update cases put a small fake `guardrail` script in
+`--dest` that reports a seeded version and logs `update` calls.
+
+## Uninstall cases
+
+The harness exports `HOME=<tmp>/home` and unsets `XDG_DATA_HOME`,
+`XDG_STATE_HOME` and `XDG_CONFIG_HOME` before any case runs, and each
+uninstall case also passes a fresh `HOME` of its own (setting one `XDG_*`
+root where it tests that branch). The plugin file and every state root
+therefore live in the temp directory, never in yours.
+
+- `uninstall-removes-binary-and-plugin`: installs, drops a fake
+  `guardrail.js` in the plugin dir (`$XDG_DATA_HOME/guardrail`), runs
+  `--uninstall --no-setup`; the binary and the plugin are gone, the state
+  dir (`$HOME/.local/state/guardrail`, with a marker file) is still there.
+- `uninstall-purge-removes-state-roots`: pre-creates
+  `$HOME/.local/state/guardrail`, `$XDG_CONFIG_HOME/guardrail` and
+  `$HOME/.local/share/guardrail` with markers, runs `--uninstall --purge
+  --no-setup`; every root is gone, with an `install: removed <path>` line
+  each, and their parents are kept.
+- `uninstall-nothing-installed-is-ok`: an empty `--dest`; exit 0 and
+  `nothing installed at <dest>`.
+- `purge-without-uninstall-exits-2` and `state-with-uninstall-exits-2`:
+  exit 2, nothing installed and nothing removed.
+- `uninstall-aborts-when-disable-fails`: the fake `guardrail` answers
+  `setup` with exit 1 (its setup exit code is read from `.fake-setup-rc`
+  beside it; `fake_guardrail`'s third argument sets it). Without
+  `--no-setup`, `--uninstall --purge` must log `setup --state disabled`,
+  exit 1 with `uninstall aborted: planes are still registered`, and leave
+  the binary and the plugin in place.
 
 It prints `PASS:` / `FAIL:` per case and exits 1 on any `FAIL:`. The
 `shellcheck` case prints `SKIP:` when `shellcheck` is not installed; CI
@@ -62,14 +90,34 @@ On Windows it stages the same four directories as above and runs every
 case: `bootstrap-installs-and-verifies`,
 `already-at-version-skips-download`, `latest-is-rejected`,
 `tampered-checksum-refuses`, `missing-sums-refuses`,
-`disabled-with-no-binary-is-noop` and
+`disabled-with-no-binary-is-noop`, the uninstall cases
+`uninstall-removes-binary-and-plugin`,
+`uninstall-purge-removes-state-roots`, `uninstall-nothing-installed-is-ok`,
+`purge-without-uninstall-exits-2` and `state-with-uninstall-exits-2`, and
 `parses-under-windows-powershell-syntax`. Each case runs `install.ps1`
 in a child `pwsh` with `-BaseUrl <staged dir> -Dest <fresh dir>
 -NoSetup`. The bootstrap case also checks that the install directory was
 added to the script's process `PATH` and to the User `Path` in the
 registry, and restores your User `Path` to its prior value afterwards.
 Cases pass in an elevated or non-elevated shell: when the Defender
-exclusion cannot be added, `install.ps1` prints a warning and carries on.
+exclusion cannot be added or removed, `install.ps1` prints a warning and
+carries on. An elevated run does add one exclusion, for the harness's
+temp `guardrail.exe`; the bootstrap and uninstall cases remove it again
+(`Remove-MpPreference`) when they finish.
+
+The uninstall cases run the child `pwsh` with `USERPROFILE`,
+`LOCALAPPDATA` and `APPDATA` pointed into a fresh directory under the
+harness temp dir, and restore them afterwards. The state roots they
+create and expect `-Purge` to remove are `%LOCALAPPDATA%\guardrail`,
+`%APPDATA%\guardrail`, `%USERPROFILE%\.local\state\guardrail` and
+`%USERPROFILE%\.local\share\guardrail`; the plugin file is
+`%USERPROFILE%\.local\share\guardrail\guardrail.js`. The
+`uninstall-removes-binary-and-plugin` case installs for real, so it also
+checks that `-Uninstall` took `<dest>` out of the User `Path`, and
+restores your User `Path` afterwards either way.
+`uninstall-aborts-when-disable-fails` is Unix only: faking a
+`guardrail.exe` whose `setup` fails runs into the same limit as the
+self-update branch below.
 
 Under `pwsh` on Linux or macOS only
 `parses-under-windows-powershell-syntax` runs; every other case prints
@@ -77,7 +125,8 @@ Under `pwsh` on Linux or macOS only
 with `[System.Management.Automation.Language.Parser]::ParseFile`, fails
 on any parse error, and also fails on PowerShell 7-only syntax that the
 pwsh parser accepts but Windows PowerShell 5.1 does not: a literal `??`,
-`?.` or `-Parallel` anywhere in the script, or a ternary `? :`.
+`?.` or `-Parallel` anywhere in the script, a ternary `? :`, or a
+pipeline chain `&&` / `||`.
 
 ## Not covered here
 
