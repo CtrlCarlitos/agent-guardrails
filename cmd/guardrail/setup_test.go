@@ -18,6 +18,7 @@ func TestSetupRequiresInteractiveTerminal(t *testing.T) {
 	testenv.SetHome(t, home)
 	testenv.SetConfig(t, t.TempDir())
 	testenv.SetState(t, t.TempDir())
+	stubOperatorEnrolled(t, true) // the bootstrap path (ADR-0030) is the one exception
 
 	var out, errb strings.Builder
 	// run() derives terminal from *os.File stdin; a strings.Reader is not one.

@@ -314,7 +314,7 @@ func printDoctor(stdout, stderr io.Writer) int {
 
 	fmt.Fprintf(stdout, "audit log: %s\n", safetext.SingleLine(audit.DefaultPath(merged.Slots.AuditLog)))
 	enrolled, _ := defaultOperatorAuthStore().Enrolled()
-	fmt.Fprintln(stdout, operatorApprovalStatus(enrolled))
+	fmt.Fprintln(stdout, operatorApprovalStatus(enrolled, anyPlaneRegistered()))
 
 	fmt.Fprintf(stdout, "claude settings: %s\n", safetext.SingleLine(claudeSettingsLine()))
 	fmt.Fprintf(stdout, "opencode settings: %s\n", safetext.SingleLine(planeStatusState("opencode")))
@@ -369,11 +369,27 @@ func printDoctor(stdout, stderr io.Writer) int {
 // operatorApprovalStatus reports the credential-store state. ADR-0021 step
 // (d) lifted the Windows gate: the platform no longer forces the disabled
 // string; enrollment is the truth on every OS.
-func operatorApprovalStatus(enrolled bool) string {
+func operatorApprovalStatus(enrolled, armed bool) string {
 	if enrolled {
 		return "operator approvals: WebAuthn"
 	}
+	if armed {
+		// Registered planes with no passkey: the first-install bootstrap
+		// (ADR-0030) armed them; nothing loosens until enrollment.
+		return "operator approvals: disabled (no authenticator enrolled; planes armed by bootstrap; run guardrail operator enroll)"
+	}
 	return "operator approvals: disabled (no authenticator enrolled; run guardrail operator enroll)"
+}
+
+// anyPlaneRegistered reports whether any supported plane carries Guardrail's
+// integration, whichever path registered it.
+func anyPlaneRegistered() bool {
+	for _, plane := range supportedPlanes {
+		if planeIntegrationRegistered(plane) {
+			return true
+		}
+	}
+	return false
 }
 
 // claudeRegisteredPrefix and claudeCannotSpawnMarker label the two states the

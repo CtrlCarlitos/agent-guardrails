@@ -58,7 +58,7 @@ usage: guardrail <command> [arguments]
   setup [flags]                     install-time reconcile: enable planes, verify, selftest (operator approval)
       --state enabled|disabled     desired plane state (default enabled)
       --planes <list>              comma-separated subset (default: every detected plane)
-      exit 3 = no operator authenticator enrolled; run guardrail operator enroll (plane enable|disable and recover too)
+      no operator enrolled: enable arms without approval (ADR-0030); --state disabled: exit 3 (plane disable, recover too)
   fetch <URL>                       fetch normalized text through Guardrail
   update <version>                  self-update to an exact checksum-verified release
   recover <repair>                  repair Guardrail-protected machinery (operator approval)

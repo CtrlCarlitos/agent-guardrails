@@ -86,10 +86,10 @@ func TestDoctorBasics(t *testing.T) {
 // fail-closed special case is gone, and the credential store's lock works
 // via LockFileEx (#175/#195).
 func TestOperatorApprovalStatusReportsEnrollmentOnEveryOS(t *testing.T) {
-	if got := operatorApprovalStatus(true); got != "operator approvals: WebAuthn" {
+	if got := operatorApprovalStatus(true, false); got != "operator approvals: WebAuthn" {
 		t.Fatalf("enrolled status = %q", got)
 	}
-	if got := operatorApprovalStatus(false); got != "operator approvals: disabled (no authenticator enrolled; run guardrail operator enroll)" {
+	if got := operatorApprovalStatus(false, false); got != "operator approvals: disabled (no authenticator enrolled; run guardrail operator enroll)" {
 		t.Fatalf("unenrolled status = %q", got)
 	}
 }

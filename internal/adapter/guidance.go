@@ -66,7 +66,7 @@ func askApprovalPath(v policy.Verdict) string {
 // denial must tell the model how to keep working; a bare "not allowed"
 // manufactures a stuck agent.
 func denyNextStep(v policy.Verdict) string {
-	if v.RuleID == "P5.self-config" && v.Reason == engine.NightMentionReason {
+	if v.RuleID == "P5.self-config" && (v.Reason == engine.NightMentionReason || v.Reason == engine.SelfControlMentionReason) {
 		return "Only a mention was seen, but interpreter input cannot be inspected. Put this content in the file with the Write or Edit tool instead of a shell literal, then continue."
 	}
 	switch v.RuleID {

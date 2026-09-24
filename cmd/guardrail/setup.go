@@ -38,7 +38,11 @@ func init() {
 // selftests. It parses arguments, refuses non-terminal and staging paths,
 // prints the registered path, then hands off to setupReconcile.
 func cmdSetup(args []string, terminal bool, stdout, stderr io.Writer) int {
-	if !terminal {
+	// With no operator enrolled, an enable is a bootstrap (ADR-0030): it
+	// hosts no approval ceremony, so it needs no terminal. Every other run
+	// keeps the gate — disable always, and enable once a passkey exists.
+	bootstrap := !setupWantsDisable(args) && !operatorEnrolled()
+	if !terminal && !bootstrap {
 		fmt.Fprintln(stderr, "guardrail: setup requires an interactive local terminal (run it from your shell, not from an agent or CI)")
 		return 2
 	}
@@ -132,17 +136,26 @@ func setupEnable(planes []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "%s: %s\n", plane, reason)
 		batch = append(batch, plane)
 	}
+	bootstrap := len(batch) > 0 && !operatorEnrolled()
 	if len(batch) > 0 {
-		if !requireOperatorEnrolled("guardrail setup", stderr) {
-			return exitNotEnrolled
-		}
-		setupStopApprovalDaemon()
-		if !planesViaApproval(batch, "plane-enable", "enabled", stdout, stderr) {
-			return 1
+		if bootstrap {
+			// First install: no passkey exists, so arm without an approval
+			// (ADR-0030). Enable only; everything that loosens still needs
+			// an enrolled operator.
+			if err := bootstrapPlanes("setup", batch, stdout, stderr); err != nil {
+				fmt.Fprintf(stderr, "guardrail: setup: %v\n", err)
+				return 1
+			}
+		} else {
+			setupStopApprovalDaemon()
+			if !planesViaApproval(batch, "plane-enable", "enabled", stdout, stderr) {
+				return 1
+			}
 		}
 		// Approval says the daemon ran the merge, not that this binary's
 		// shape landed: verify convergence with the same rule that chose
-		// the batch.
+		// the batch. The bootstrap merged in-process; the same check keeps
+		// both paths honest.
 		for _, plane := range batch {
 			reason, err := setupEnableReason(plane)
 			if err != nil {
@@ -159,7 +172,22 @@ func setupEnable(planes []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	setupPrintStatus(planes, stdout)
+	if bootstrap {
+		printBootstrapInstruction("setup", batch, stdout)
+	}
 	return 0
+}
+
+// setupWantsDisable reports whether argv asks for --state disabled. It is
+// consulted before the full parse, only to decide the terminal gate; the
+// parse below still validates every flag.
+func setupWantsDisable(args []string) bool {
+	for i, arg := range args {
+		if arg == "--state=disabled" || arg == "--state" && i+1 < len(args) && args[i+1] == "disabled" {
+			return true
+		}
+	}
+	return false
 }
 
 // setupEnableReason says why an installed plane needs (re-)enabling, or ""

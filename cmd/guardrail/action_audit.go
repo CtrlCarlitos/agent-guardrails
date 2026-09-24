@@ -59,6 +59,23 @@ func actionAuditRecord(r approval.Request, decision string) audit.Record {
 	return audit.Record{Plane: r.Plane, Tool: "guardrail", Event: "operator-action", Decision: decision, OperatorAction: r.Action, RequestID: r.ID, Transport: r.Transport, CredentialFingerprint: r.CredentialFingerprint}
 }
 
+// writeBootstrapAudit records a first-install registration made without an
+// approval (ADR-0030): an operator action with transport "bootstrap", no
+// request and no credential, so it is distinguishable from an approved one.
+// No journal: the merge is idempotent and the next setup re-checks it.
+func writeBootstrapAudit(planes []string) error {
+	rec := audit.Record{
+		Plane:          "operator",
+		Tool:           "guardrail",
+		Event:          "operator-action",
+		Decision:       "completed",
+		OperatorAction: "plane-enable",
+		Transport:      "bootstrap",
+		Reason:         "bootstrap: no operator enrolled; planes " + strings.Join(planes, ","),
+	}
+	return writeActionAudit(rec, audit.DefaultPath(""))
+}
+
 // startActionAudit records durable audit intent before a persistent action mutates.
 // A recovered mutation is completed without applying its idempotent state change again.
 func startActionAudit(r approval.Request) (bool, error) {
