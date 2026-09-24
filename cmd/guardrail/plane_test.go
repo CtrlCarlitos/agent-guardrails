@@ -10,7 +10,6 @@ import (
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
-	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
@@ -283,6 +282,8 @@ func stubPlaneTransport(t *testing.T, statuses []string) func() {
 	guardTestHome(t)
 	origSubmit := submitPlaneRequest
 	origQuery := queryPlaneStatus
+	origShutdown := setupShutdownDaemon
+	setupShutdownDaemon = func(string) error { return nil }
 	var current approval.Request
 	submitPlaneRequest = func(request approval.Request) (approval.Request, error) {
 		current = request
@@ -304,6 +305,7 @@ func stubPlaneTransport(t *testing.T, statuses []string) func() {
 	return func() {
 		submitPlaneRequest = origSubmit
 		queryPlaneStatus = origQuery
+		setupShutdownDaemon = origShutdown
 	}
 }
 
@@ -489,7 +491,7 @@ func TestPlaneEnableAllBatchesOneApprovalAndSkipsSatisfied(t *testing.T) {
 	testenv.SetConfig(t, cfg)
 	testenv.SetState(t, t.TempDir())
 	// claude already enabled (hooks + current floor); antigravity needs enabling; opencode not detected.
-	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), claudeEnabledSettings(t))
+	reconcilePlanes(t, home, "claude")
 	origInstalled := planeInstalled
 	planeInstalled = func(plane string) bool { return plane != "opencode" }
 	defer func() { planeInstalled = origInstalled }()
@@ -527,15 +529,7 @@ func TestPlaneEnableAllSteadyStatePromptsNobody(t *testing.T) {
 	testenv.SetHome(t, home)
 	testenv.SetConfig(t, cfg)
 	testenv.SetState(t, t.TempDir())
-	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), claudeEnabledSettings(t))
-	writePlaneSettings(t, filepath.Join(cfg, "opencode", "opencode.json"), `{"plugin":["/x/guardrail.js"]}`)
-	writePlaneSettings(t, filepath.Join(home, ".gemini", "config", "hooks.json"), `{"guardrail":{"enabled":true}}`)
-	if err := genconfig.WriteCodexRules(filepath.Join(home, ".codex", "hooks.json")); err != nil {
-		t.Fatal(err)
-	}
-	if err := genconfig.MergePlaneInto(filepath.Join(home, ".codex", "hooks.json"), "codex", genconfig.CodexConfig("guardrail")); err != nil {
-		t.Fatal(err)
-	}
+	reconcilePlanes(t, home, supportedPlanes...)
 	origInstalled := planeInstalled
 	planeInstalled = func(string) bool { return true }
 	defer func() { planeInstalled = origInstalled }()
@@ -716,23 +710,19 @@ func TestPlaneEnableHealsAntigravityUnmarkedAndDisabled(t *testing.T) {
 	}
 }
 
-// claudeEnabledSettings is a settings.json in the fully reconciled state:
-// owned hook groups plus the current permissions floor.
-func claudeEnabledSettings(t *testing.T) string {
+// reconcilePlanes puts each plane in the fully reconciled state for a
+// sandboxed binary path: exactly what enable writes (owned hook groups that
+// match this binary, the current permissions floor, wrapper and plugin), so
+// the one reconcile rule (setupEnableReason) reports nothing to do. The data
+// root is pinned under home so the opencode plugin never lands outside it.
+func reconcilePlanes(t *testing.T, home string, planes ...string) {
 	t.Helper()
-	base, err := policy.LoadBase()
-	if err != nil {
-		t.Fatal(err)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	t.Setenv("CODEX_HOME", "")
+	useInstalledExecutable(t, filepath.Join(home, "bin", "guardrail"))
+	for _, plane := range planes {
+		enableForDrift(t, plane)
 	}
-	frag := genconfig.ClaudeConfig(base, "guardrail")
-	raw, err := json.Marshal(map[string]any{
-		"hooks":       map[string]any{"PreToolUse": []any{map[string]any{"id": "guardrail-claude-pre", "matcher": "Bash", "hooks": []any{}}}},
-		"permissions": frag["permissions"],
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(raw)
 }
 
 // A registered hook with a stale permissions floor is drift, not "already
@@ -776,7 +766,7 @@ func TestPlaneEnableClaudeSkipsWhenHooksAndFloorAreCurrent(t *testing.T) {
 	testenv.SetHome(t, home)
 	testenv.SetConfig(t, t.TempDir())
 	testenv.SetState(t, t.TempDir())
-	writePlaneSettings(t, filepath.Join(home, ".claude", "settings.json"), claudeEnabledSettings(t))
+	reconcilePlanes(t, home, "claude")
 	origInstalled := planeInstalled
 	planeInstalled = func(string) bool { return true }
 	defer func() { planeInstalled = origInstalled }()
@@ -820,4 +810,30 @@ func TestClaudeSteadyStateSurvivesIdStripping(t *testing.T) {
 	if planeIntegrationRegistered("claude") {
 		t.Fatal("claude with a true unmarked duplicate counts as registered; drift missed")
 	}
+}
+
+// plane enable and setup share one reconcile rule: a registered plane whose
+// handlers were written for another binary re-enables instead of reporting
+// "already enabled".
+func TestPlaneEnableReenablesOnHandlerDrift(t *testing.T) {
+	_, b := driftSandbox(t)
+	enableForDrift(t, "claude")
+	useInstalledExecutable(t, b)
+	origInstalled := planeInstalled
+	planeInstalled = func(string) bool { return true }
+	defer func() { planeInstalled = origInstalled }()
+	useTransport(t, []string{"approved"})
+	seen := countSubmits(t)
+
+	var out, errb strings.Builder
+	if code := runPlaneTerminal(t, []string{"plane", "enable", "claude"}, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d, stdout %q, stderr %q", code, out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), "claude: registered handlers differ from this binary; re-enabling\n") {
+		t.Fatalf("stdout missing handler-drift line: %q", out.String())
+	}
+	if len(*seen) != 1 || (*seen)[0].Parameters["planes"] != "claude" {
+		t.Fatalf("submitted = %+v, want one claude enable", *seen)
+	}
+	assertDrift(t, "claude", false)
 }

@@ -30,7 +30,10 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: dist/guardrail_*
+          subject-path: |
+            dist/guardrail_*
+            dist/install.sh
+            dist/install.ps1
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -41,4 +44,4 @@ jobs:
             --title "$TAG" \
             --generate-notes \
             --verify-tag \
-            dist/guardrail_* dist/SHA256SUMS
+            dist/guardrail_* dist/install.sh dist/install.ps1 dist/SHA256SUMS

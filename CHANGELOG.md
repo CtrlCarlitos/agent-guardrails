@@ -4,6 +4,65 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Installation
+- **Feature (ADR-0029): `install.sh`, the installer for Linux, macOS and WSL.**
+  POSIX `sh`. `sh install.sh --version <tag>` resolves the asset for this
+  OS/arch, downloads it with the tag's `SHA256SUMS`, verifies it
+  (`sha256sum`, `gsha256sum` or `shasum -a 256`) and installs it to
+  `~/.local/bin/guardrail`; any failure leaves the destination untouched.
+  An existing binary at or above the `v0.19.2-dev` self-update floor is moved
+  with `guardrail update <tag>` instead, and one already at the tag is left
+  alone. It then runs `guardrail setup` and exits with its code. Flags:
+  `--version` (exact tag, required except with `--uninstall`; `latest` exits 2), `--state
+  enabled|disabled`, `--dest`, `--base-url` (URL, `file://` or a directory),
+  `--no-setup`, `--uninstall`, `--purge`, `--help`.
+- **Feature (ADR-0029): `install.ps1`, the Windows twin.** Windows PowerShell
+  5.1 and PowerShell 7, same flags spelled `-Version`, `-State`, … . Adds
+  `Unblock-File`, the user-PATH entry, and a Microsoft Defender exclusion for
+  the exact `guardrail.exe` path (#146); without elevation it prints the
+  `Add-MpPreference` command and continues. `-Uninstall` also removes the
+  exclusion, and the PATH entry only when the install directory is empty
+  afterwards (it is shared with other tools); a `guardrail.exe` still in use
+  is renamed to `guardrail.exe.old`; `-Purge` removes all three Windows state roots
+  plus `%USERPROFILE%\.local\share\guardrail`.
+- **Feature (ADR-0029): `guardrail setup [--state enabled|disabled] [--planes
+  <list>]`, the post-install reconcile.** Re-registers every detected plane
+  that is not registered, whose permissions floor drifted, or whose
+  registered handlers differ from what this binary generates; consistent
+  planes print `already enabled`. One approval for the batch, then
+  `doctor --coverage antigravity` (when `agy` is on PATH) and `selftest`, then
+  a per-plane status line. `--state disabled` disables every registered plane.
+  Needs an interactive terminal (exit 2 otherwise) and refuses to register the
+  updater's staging or `.old` path.
+- **Fix (#317): a binary swap no longer leaves stale handlers registered.**
+  `plane enable` skipped any already-registered plane unless its floor had
+  drifted, so an upgrade that changed the hook command shape kept the old
+  handlers. `setup` and `plane enable` now share one reconcile rule: they
+  compare every owned hook group (event, matcher, handler command and
+  timeout) against this binary's and re-merge on any difference. `setup`
+  restarts the approval daemon first, so the merge runs in this binary, and
+  checks afterwards that the plane converged. Run it after `guardrail
+  update` (the installer does).
+- **Release: the installers are release assets.** `scripts/build-dist.sh`
+  copies `install.sh` and `install.ps1` into `dist/` and lists them in
+  `SHA256SUMS`; `release.yml` uploads them and includes them in the build
+  provenance attestation.
+- **Release: `SHA256SUMS` is normalized to text-mode lines.** Tools that emit
+  `<hash> *<file>` (binary mode) are rewritten to `<hash>  <file>`, so every
+  line has one shape whichever OS built `dist/`.
+- **CI: new `installer` job on ubuntu, macos and windows.** Builds `dist/` and
+  runs the `test/installer/` harnesses against it with `--base-url`, no network:
+  clean install, already-at-version, tampered and missing checksums,
+  `latest` rejected, self-update above and bootstrap below the floor,
+  uninstall and purge; `shellcheck -s sh install.sh` on ubuntu; `install.ps1`
+  under both PowerShell 7 and Windows PowerShell 5.1.
+- **Docs.** README Install is now download → verify → run the installer;
+  OPERATIONS.md gains "Install, update, disable, uninstall"; ADR-0029 records
+  the contract with the dotfiles. The README's four `gen-config --merge` lines
+  are gone.
+
 ## v0.23.0-dev (2026-09-23)
 
 ### Engine Enforcement & Policy

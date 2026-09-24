@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Cross-compile the guardrail binary for every supported platform into dist/
-# and emit dist/SHA256SUMS. Used by `make dist` and by .github/workflows/release.yml.
+# Cross-compile the guardrail binary for every supported platform into dist/,
+# copy install.sh and install.ps1 beside them, and emit dist/SHA256SUMS over
+# all eight assets. Used by `make dist` and by .github/workflows/release.yml.
 set -euo pipefail
 
 GO="${GO:-go}"
@@ -22,6 +23,20 @@ for t in $targets; do
     -o "$OUT/$name" ./cmd/guardrail
 done
 
-( cd "$OUT" && sha256sum guardrail_* > SHA256SUMS )
+cp install.sh install.ps1 "$OUT/"
+
+# sha256sum on Linux and Git Bash; macOS runners only ship shasum.
+if command -v sha256sum >/dev/null 2>&1; then
+  sha=(sha256sum)
+elif command -v shasum >/dev/null 2>&1; then
+  sha=(shasum -a 256)
+else
+  echo "build-dist: need sha256sum or shasum" >&2; exit 1
+fi
+# Git Bash's sha256sum on Windows CI defaults to binary mode outside a tty
+# and prints "hash *name"; normalize that to "hash  name" (two spaces) like
+# every other tool/OS combo, so install.ps1's checksum-line parsing and the
+# test harness's tamper logic (which matches on the trailing " name") agree.
+( cd "$OUT" && "${sha[@]}" guardrail_* install.sh install.ps1 | sed 's/ \*/  /' > SHA256SUMS )
 echo "---"
 cat "$OUT/SHA256SUMS"
