@@ -274,13 +274,16 @@ verify_installed() {
 }
 
 # setup_supported: whether <dest>/guardrail has the `setup` subcommand.
-# Probed with stdin not a terminal, so a binary that has it refuses before
+# Probed as `setup --state disabled` with stdin not a terminal: disabling
+# always needs a terminal, so a binary that has `setup` refuses before
 # touching anything (exit 2, "requires an interactive local terminal"),
-# while one that predates it exits 2 with "unknown subcommand". Probing
-# first keeps the real run's output streaming and lets the hand-off exec.
+# while one that predates it exits 2 with "unknown subcommand". A bare
+# `setup` would not do: with no operator enrolled it arms the planes
+# (ADR-0030), and a probe must never have side effects. Probing first keeps
+# the real run's output streaming and lets the hand-off exec.
 setup_supported() {
 	probe_rc=0
-	probe_err=$("$dest/guardrail" setup </dev/null 2>&1 >/dev/null) || probe_rc=$?
+	probe_err=$("$dest/guardrail" setup --state disabled </dev/null 2>&1 >/dev/null) || probe_rc=$?
 	if [ "$probe_rc" -eq 2 ]; then
 		case $probe_err in *"unknown subcommand"*) return 1 ;; esac
 	fi

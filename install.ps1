@@ -460,17 +460,20 @@ function Remove-StateRoots {
 }
 
 # Test-SetupSupported: whether <dest>\guardrail.exe has the `setup`
-# subcommand. Probed with stdin piped, not the console, so a binary that has
-# it refuses before touching anything (exit 2, "requires an interactive local
+# subcommand. Probed as `setup --state disabled` with stdin piped, not the
+# console: disabling always needs a terminal, so a binary that has `setup`
+# refuses before touching anything (exit 2, "requires an interactive local
 # terminal"), while one that predates it exits 2 with "unknown subcommand".
-# Probing first keeps the real run's output streaming to the console.
+# A bare `setup` would not do: with no operator enrolled it arms the planes
+# (ADR-0030), and a probe must never have side effects. Probing first keeps
+# the real run's output streaming to the console.
 function Test-SetupSupported {
 	$text = ''
 	$code = 0
 	try {
 		$ErrorActionPreference = 'Continue'
 		$PSNativeCommandUseErrorActionPreference = $false
-		$text = (@('' | & $script:Exe setup 2>&1) | ForEach-Object { [string]$_ }) -join "`n"
+		$text = (@('' | & $script:Exe setup --state disabled 2>&1) | ForEach-Object { [string]$_ }) -join "`n"
 		$code = $LASTEXITCODE
 	} catch {
 		return $true
