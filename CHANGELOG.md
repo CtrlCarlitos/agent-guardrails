@@ -7,6 +7,20 @@ explicitly in **Breaking** notes.
 ## Unreleased
 
 ### Grants & Approvals
+- **Feature (#326, ADR-0030): a first install arms the planes before the
+  operator enrolls.** With no operator authenticator enrolled there is nothing
+  to approve against, so `guardrail setup` and `guardrail plane enable`
+  register the hooks and the permissions floor **without an approval and
+  without a terminal**, run the coverage gate and `selftest`, write one
+  `operator-action` audit record with `transport: bootstrap`, and end with the
+  one-time instruction to `guardrail operator enroll`. The installer therefore
+  arms a fresh machine in one unattended run (`chezmoi apply` included), and
+  `--no-setup` becomes optional. **The approval-less path can only tighten:**
+  `setup --state disabled`, `plane disable`, `recover`, grants, waivers and
+  credential management keep exit 3 until a passkey exists, so a deleted
+  `authenticators.json` unlocks more guarding and nothing else. No marker, no
+  elevation check: the rule is "not enrolled, and the action is enable".
+  `doctor` reports `planes armed by bootstrap` until enrollment.
 - **Fix (#326): a machine with no enrolled operator now says so instead of
   "approval daemon unavailable".** `approval.Submit` propagates the daemon's
   reply error; `ErrDaemonUnavailable` now means exactly that (nothing answered
@@ -14,7 +28,7 @@ explicitly in **Breaking** notes.
   respawns a daemon that is live but refused the request. The daemon replies
   `no operator authenticator is enrolled` (`approval.ErrNotEnrolled`, raised by
   the credential store's `BeginAssertion`) when no ceremony can begin.
-- **Fix (#326): `setup`, `plane enable|disable` and `recover` preflight
+- **Fix (#326): `setup --state disabled`, `plane disable` and `recover` preflight
   enrollment.** When something needs an approval and no authenticator is
   enrolled they stop before submitting, print `run 'guardrail operator enroll'
   … then '<the command to re-run>'`, and exit **3** — distinct from 1
@@ -25,6 +39,18 @@ explicitly in **Breaking** notes.
 - **Change (#326): `doctor` names the reason.** `operator approvals: disabled
   (no authenticator enrolled; run guardrail operator enroll)` replaces the bare
   `disabled`, which read like a setting.
+
+### Engine Enforcement & Policy
+- **Change (ADR-0030): a mediated session cannot invoke guardrail's own
+  lifecycle commands.** `P5.self-config`, which already denied the
+  after-hours posture switch from a session (directly and through opaque
+  interpreter input, ADR-0012), now also denies `guardrail setup`,
+  `plane enable|disable`, `operator …` and `recover …`. With the bootstrap no
+  longer needing a terminal, this is what keeps an armed plane from
+  re-arming, disarming or re-enrolling itself, or registering a different
+  binary's hooks. Read-only subcommands (`plane status`, `doctor`,
+  `selftest`, `audit`, `version`) stay allowed. The adapters give the same
+  "put it in a file" guidance for an opaque mention as they already did.
 
 ## v0.23.1-dev (2026-09-23)
 

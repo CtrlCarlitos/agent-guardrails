@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -30,31 +29,6 @@ func refuseSubmits(t *testing.T) {
 }
 
 const wantEnrollHint = "no operator authenticator is enrolled; run 'guardrail operator enroll'"
-
-func TestSetupWithoutEnrollmentExitsNeedsEnrollment(t *testing.T) {
-	driftSandbox(t)
-	useInstalledPlanes(t, "claude")
-	stubOperatorEnrolled(t, false)
-	refuseSubmits(t)
-	calls := stubSetupGates(t, false, 0, 0)
-
-	code, out, errb := runSetup(t)
-	if code != exitNotEnrolled {
-		t.Fatalf("exit = %d, want %d; stdout=%q stderr=%q", code, exitNotEnrolled, out, errb)
-	}
-	if !strings.Contains(errb, wantEnrollHint) || !strings.Contains(errb, "then 'guardrail setup'") {
-		t.Fatalf("stderr lacks the enrollment instruction:\n%s", errb)
-	}
-	if strings.Contains(errb, "approval daemon unavailable") {
-		t.Fatalf("stderr still blames the daemon:\n%s", errb)
-	}
-	if calls.selftest != 0 || calls.doctor != 0 {
-		t.Fatalf("gates ran (%+v) although nothing was registered", *calls)
-	}
-	if planeIntegrationRegistered("claude") {
-		t.Fatal("claude was registered without an approval")
-	}
-}
 
 // A machine that has nothing to (re)register needs no approval, so it needs
 // no enrollment either: unattended re-runs of the installer stay exit 0.
@@ -121,27 +95,6 @@ func TestSetupPrintsDaemonReasonVerbatim(t *testing.T) {
 	}
 	if strings.Contains(errb, "approval daemon unavailable") {
 		t.Fatalf("stderr rewrote the daemon's reason:\n%s", errb)
-	}
-}
-
-func TestPlaneEnableWithoutEnrollmentExitsNeedsEnrollment(t *testing.T) {
-	home := t.TempDir()
-	testenv.SetHome(t, home)
-	testenv.SetConfig(t, filepath.Join(home, ".config"))
-	testenv.SetState(t, t.TempDir())
-	stubOperatorEnrolled(t, false)
-	refuseSubmits(t)
-
-	var out, errb strings.Builder
-	code := runPlaneTerminal(t, []string{"plane", "enable", "claude"}, &out, &errb)
-	if code != exitNotEnrolled {
-		t.Fatalf("exit = %d, want %d; stdout=%q stderr=%q", code, exitNotEnrolled, out.String(), errb.String())
-	}
-	if !strings.Contains(errb.String(), wantEnrollHint) || !strings.Contains(errb.String(), "then 'guardrail plane enable claude'") {
-		t.Fatalf("stderr lacks the enrollment instruction:\n%s", errb.String())
-	}
-	if _, err := os.Stat(filepath.Join(home, ".claude", "settings.json")); err == nil {
-		t.Fatal("plane enable wrote settings without an approval")
 	}
 }
 

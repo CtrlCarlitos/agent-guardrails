@@ -37,11 +37,15 @@ remove-authenticator <fingerprint>` requires a verified enrolled authenticator
 and refuses to remove the final credential. Credential fingerprints are
 privacy-safe audit identifiers, not credential IDs or authenticator labels.
 
-Until a credential is enrolled, `guardrail setup`, `guardrail plane
-enable|disable` and `guardrail recover` stop with exit 3 and print this
-instruction instead of opening a ceremony; commands with nothing to approve
-still exit 0. `guardrail doctor` reports `operator approvals: disabled (no
-authenticator enrolled; run guardrail operator enroll)` until then.
+Until a credential is enrolled there is nothing to approve against, so the
+first install arms the planes without a ceremony (ADR-0030): `guardrail
+setup` and `guardrail plane enable` register the hooks and the permissions
+floor, audit it with `transport: bootstrap`, and print this instruction. That
+path can only tighten: `setup --state disabled`, `plane disable` and
+`recover` stop with exit 3 until you enroll. `guardrail doctor` reports
+`operator approvals: disabled (no authenticator enrolled; planes armed by
+bootstrap; run guardrail operator enroll)` until then. A mediated session
+cannot run any of these lifecycle commands itself (`P5.self-config`).
 
 If every authenticator is lost, run `guardrail operator recover-reset` from a
 trusted local terminal and type `RESET`. It removes only public credential

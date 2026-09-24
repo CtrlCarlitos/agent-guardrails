@@ -46,7 +46,7 @@ The same engine inspects native editor tools and MCP servers before their calls 
 
 There is one binary. Releases ship it for Linux, macOS and Windows (amd64 + arm64), plus an installer script for each OS family and a `SHA256SUMS` file covering all of them. Download the installer for the tag you want, check it against that tag's `SHA256SUMS`, and run it.
 
-First install on a machine with no enrolled operator yet? Add `--no-setup` (`-NoSetup`) to the command below, then run `guardrail operator enroll` and `guardrail setup` (full steps below). Without the flag the binary is still installed; `guardrail setup` then stops with exit 3 and prints those two commands instead of registering anything.
+First install on a machine with no enrolled operator yet? Run the command below as is: with no passkey to approve against, the installer arms every detected host on its own and then tells you to enroll one (`guardrail operator enroll`, full steps below). From then on every plane change needs your passkey. Add `--no-setup` (`-NoSetup`) only if you want to run `guardrail setup` yourself.
 
 Linux, macOS and WSL:
 
@@ -92,11 +92,11 @@ What the installer does:
 
 On Unix, make sure `~/.local/bin` is on your PATH (keep it in your shell profile).
 
-Some actions are the operator's alone — registering a host, granting web-host access, night mode. These require a passkey; enroll once. On a machine with no enrolled operator yet, add `--no-setup` (`-NoSetup`) to the first install (without it, `setup` exits 3 with the same instruction and registers nothing), then:
+Some actions are the operator's alone — registering a host, granting web-host access, night mode. These require a passkey; enroll once. The first install arms the hosts without one (there is nothing to approve against yet, and only *enabling* is ever allowed that way); enrolling is what puts every later change behind your passkey:
 
 ```sh
 guardrail operator enroll     # prints a localhost URL; open it and complete the passkey prompt
-guardrail setup               # registers every detected host with one approval, then runs selftest
+guardrail setup               # later runs: re-registers drifted hosts under one approval, then runs selftest
 ```
 
 Restart the agents you wired. **For Codex, run `/hooks` inside Codex to review and trust the generated hooks** — registered hooks alone are not executed by the runtime.

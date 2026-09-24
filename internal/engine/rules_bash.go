@@ -147,7 +147,7 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 		takeSimple(checkCmdDiskDestroyer(s))
 		takeSimple(checkDiskDestroyers(s))
 		takeSimple(checkDestinationWrites(s, tc, pol))
-		takeSimple(checkNightControlInvocation(s, tc.Command))
+		takeSimple(checkSelfControlInvocation(s, tc.Command))
 		takeSimple(checkGit(s))
 		takeSimple(checkGitSafety(s, tc))
 		takeSimple(checkDocker(s, tc.Command))
@@ -195,45 +195,81 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 
 // NightMentionReason marks a P5.self-config verdict raised because opaque
 // interpreter input mentioned the night control; the adapters key their
-// guidance on it.
-const NightMentionReason = "interpreter input mentions guardrail night control; Guardrail cannot tell a mention from an invocation"
+// guidance on it. SelfControlMentionReason is the same signal for the
+// lifecycle subcommands (ADR-0030).
+const (
+	NightMentionReason       = "interpreter input mentions guardrail night control; Guardrail cannot tell a mention from an invocation"
+	SelfControlMentionReason = "interpreter input mentions a guardrail lifecycle command; Guardrail cannot tell a mention from an invocation"
+)
 
-func checkNightControlInvocation(s Simple, command string) *policy.Verdict {
-	direct := len(s.Argv) >= 2 && strings.EqualFold(s.Argv[1], "night") &&
-		(head(s.Argv) == "guardrail" || s.wordUnresolved(0) && mentionsExecutable(s.Argv[0], "guardrail"))
-	if direct && readOnlyNightStatus(s.Argv) {
-		// The exact status query changes nothing; only on/off are operator
-		// actions. Any extra word keeps the deny — status is not a prefix.
-		direct = false
+// selfControlSubcommands are the guardrail subcommands a mediated session
+// may never invoke: each changes the guarded plane's own posture. `night`
+// was the original (ADR-0012); ADR-0030 added the lifecycle set when the
+// first-install bootstrap stopped requiring a terminal for `setup` and
+// `plane enable`, so a session cannot re-arm, disarm or re-enrol itself.
+// Read-only forms (`night status`, `plane status`) stay allowed.
+var selfControlSubcommands = []string{"night", "setup", "plane", "operator", "recover"}
+
+func checkSelfControlInvocation(s Simple, command string) *policy.Verdict {
+	var subcommand string
+	if len(s.Argv) >= 2 && (head(s.Argv) == "guardrail" || s.wordUnresolved(0) && mentionsExecutable(s.Argv[0], "guardrail")) {
+		for _, candidate := range selfControlSubcommands {
+			if strings.EqualFold(s.Argv[1], candidate) {
+				subcommand = candidate
+			}
+		}
 	}
-	var opaque bool
+	if subcommand != "" && readOnlyStatusQuery(s.Argv) {
+		// The exact status query changes nothing; only the mutating forms
+		// are operator actions. Any extra word keeps the deny — status is
+		// not a prefix.
+		subcommand = ""
+	}
+	var opaque string
 	if len(s.Argv) >= 1 && isOpaqueExecutor(head(s.Argv)) {
-		opaque = mentionsCommand([]string{command}, "guardrail", "night")
+		for _, candidate := range selfControlSubcommands {
+			if mentionsCommand([]string{command}, "guardrail", candidate) {
+				opaque = candidate
+				break
+			}
+		}
 	}
-	if direct {
+	if subcommand == "night" {
 		return &policy.Verdict{
 			Decision: policy.Deny,
 			RuleID:   "P5.self-config",
 			Reason:   "the guarded plane cannot change its own night-mode posture",
 		}
 	}
-	if opaque {
-		// Interpreter input is opaque (ADR-0012): a usage string and an
-		// os.system call look the same. Same rule, but the reason says what was
-		// seen so the guidance can point at the editor tool for the former.
+	if subcommand != "" {
 		return &policy.Verdict{
 			Decision: policy.Deny,
 			RuleID:   "P5.self-config",
-			Reason:   NightMentionReason,
+			Reason:   "the guarded plane cannot change its own guardrail posture (" + subcommand + ")",
+		}
+	}
+	if opaque != "" {
+		// Interpreter input is opaque (ADR-0012): a usage string and an
+		// os.system call look the same. Same rule, but the reason says what was
+		// seen so the guidance can point at the editor tool for the former.
+		reason := SelfControlMentionReason
+		if opaque == "night" {
+			reason = NightMentionReason
+		}
+		return &policy.Verdict{
+			Decision: policy.Deny,
+			RuleID:   "P5.self-config",
+			Reason:   reason,
 		}
 	}
 	return nil
 }
 
-// readOnlyNightStatus matches exactly `<guardrail> night status` and nothing
-// longer: the head is already known to be guardrail when this is consulted.
-func readOnlyNightStatus(argv []string) bool {
-	return len(argv) == 3 && strings.EqualFold(argv[1], "night") && strings.EqualFold(argv[2], "status")
+// readOnlyStatusQuery matches exactly `<guardrail> night status` or
+// `<guardrail> plane status` and nothing longer: the head is already known
+// to be guardrail when this is consulted.
+func readOnlyStatusQuery(argv []string) bool {
+	return len(argv) == 3 && (strings.EqualFold(argv[1], "night") || strings.EqualFold(argv[1], "plane")) && strings.EqualFold(argv[2], "status")
 }
 
 func mentionsExecutable(value, executable string) bool {
