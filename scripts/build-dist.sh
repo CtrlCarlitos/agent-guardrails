@@ -33,6 +33,10 @@ elif command -v shasum >/dev/null 2>&1; then
 else
   echo "build-dist: need sha256sum or shasum" >&2; exit 1
 fi
-( cd "$OUT" && "${sha[@]}" guardrail_* install.sh install.ps1 > SHA256SUMS )
+# Git Bash's sha256sum on Windows CI defaults to binary mode outside a tty
+# and prints "hash *name"; normalize that to "hash  name" (two spaces) like
+# every other tool/OS combo, so install.ps1's checksum-line parsing and the
+# test harness's tamper logic (which matches on the trailing " name") agree.
+( cd "$OUT" && "${sha[@]}" guardrail_* install.sh install.ps1 | sed 's/ \*/  /' > SHA256SUMS )
 echo "---"
 cat "$OUT/SHA256SUMS"
