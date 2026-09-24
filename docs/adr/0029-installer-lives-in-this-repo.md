@@ -134,6 +134,11 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version vX.Y.Z-dev -Stat
   <pin> --state <enabled|disabled>`. The update floor, the version comparator,
   the four `gen-config` calls, the Defender block and the direct `doctor` calls
   leave the dotfiles; their contract tests are rewritten to the new contract.
+- Any caller that downloads `install.ps1` under Windows PowerShell 5.1 must set
+  `[Net.ServicePointManager]::SecurityProtocol` to include `Tls12` before the
+  request, the same way `install.ps1` itself does before fetching its own
+  release assets — Windows PowerShell 5.1 may default to TLS 1.0/1.1, which
+  GitHub refuses. The dotfiles caller needs the same line.
 - A binary swap is followed by `setup`. `guardrail update` alone still leaves
   handlers as registered; the installer runs both, and OPERATIONS.md says to
   run `setup` after a bare `update`.

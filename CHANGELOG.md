@@ -15,7 +15,7 @@ explicitly in **Breaking** notes.
   An existing binary at or above the `v0.19.2-dev` self-update floor is moved
   with `guardrail update <tag>` instead, and one already at the tag is left
   alone. It then runs `guardrail setup` and exits with its code. Flags:
-  `--version` (exact tag, required; `latest` exits 2), `--state
+  `--version` (exact tag, required except with `--uninstall`; `latest` exits 2), `--state
   enabled|disabled`, `--dest`, `--base-url` (URL, `file://` or a directory),
   `--no-setup`, `--uninstall`, `--purge`, `--help`.
 - **Feature (ADR-0029): `install.ps1`, the Windows twin.** Windows PowerShell

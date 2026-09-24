@@ -46,6 +46,8 @@ The same engine inspects native editor tools and MCP servers before their calls 
 
 There is one binary. Releases ship it for Linux, macOS and Windows (amd64 + arm64), plus an installer script for each OS family and a `SHA256SUMS` file covering all of them. Download the installer for the tag you want, check it against that tag's `SHA256SUMS`, and run it.
 
+First install on a machine with no enrolled operator yet? Add `--no-setup` (`-NoSetup`) to the command below, then run `guardrail operator enroll` and `guardrail setup` (full steps below).
+
 Linux, macOS and WSL:
 
 ```sh
@@ -66,6 +68,7 @@ Linux, macOS and WSL:
 Windows (Windows PowerShell 5.1 or PowerShell 7):
 
 ```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12  # Windows PowerShell 5.1 may default to TLS 1.0/1.1
 $ver = 'v0.23.0-dev'   # the release you want
 $url = "https://github.com/CtrlCarlitos/agent-guardrails/releases/download/$ver"
 Set-Location (New-Item -ItemType Directory -Force -Path (Join-Path $env:TEMP "guardrail-$ver"))
@@ -82,9 +85,9 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version $ver
 
 What the installer does:
 
-1. Picks the binary for your OS and architecture, downloads it with `SHA256SUMS` and verifies it; any failure leaves nothing installed. If an older guardrail is already there, it uses `guardrail update` instead.
+1. Picks the binary for your OS and architecture, downloads it with `SHA256SUMS` and verifies it; any failure leaves nothing installed. If an older guardrail is already there at or above `v0.19.2-dev`, it uses `guardrail update` instead; anything older is replaced by a fresh checksum-verified download.
 2. Places it at `~/.local/bin/guardrail` (`%USERPROFILE%\.local\bin\guardrail.exe` on Windows; `--dest` / `-Dest` to change) and checks that it reports the tag you asked for.
-3. On Windows: runs `Unblock-File`, adds that directory to your user PATH, and adds a Microsoft Defender exclusion for that exact file (never a folder). Without an elevated shell it prints the `Add-MpPreference` command for you to run instead.
+3. On Windows: a freshly placed binary gets `Unblock-File` and a user PATH entry for that directory; every run checks for (and adds if missing) a Microsoft Defender exclusion for that exact file (never a folder). Without an elevated shell it prints the `Add-MpPreference` command for you to run instead.
 4. Runs `guardrail setup`, which registers guardrail with every agent host it detects and then runs `selftest`. Registering a host is an operator action, so this step asks for your passkey.
 
 On Unix, make sure `~/.local/bin` is on your PATH (keep it in your shell profile).

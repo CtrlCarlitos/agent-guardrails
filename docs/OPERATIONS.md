@@ -241,7 +241,7 @@ removes files.
 
 **Disable.** `--state disabled` never downloads. If a binary exists it runs
 `guardrail setup --state disabled` — `plane disable` for every registered
-plane under one approval, then `plane status`; with no binary it prints
+plane under one approval, then a per-plane status line; with no binary it prints
 `nothing to do` and exits 0. Running `guardrail setup --state disabled`
 directly does the same.
 
