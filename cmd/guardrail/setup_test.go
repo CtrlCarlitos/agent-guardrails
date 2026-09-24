@@ -1,11 +1,14 @@
 package main
 
 import (
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
@@ -140,6 +143,7 @@ func TestSetupPrintsRegisteredPathFirst(t *testing.T) {
 	}()
 	installedExecutable = func() (string, error) { return path, nil }
 	planeInstalled = func(string) bool { return false }
+	stubSetupGates(t, false, 0, 0)
 
 	var out, errb strings.Builder
 	code := cmdSetup(nil, true, &out, &errb)
@@ -160,5 +164,301 @@ func TestUsageMentionsSetup(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "setup [flags]") {
 		t.Fatalf("usage does not mention setup [flags]:\n%s", out.String())
+	}
+}
+
+// gateCalls records how often the setup gate seams ran.
+type gateCalls struct {
+	doctor   int
+	selftest int
+}
+
+// stubSetupGates replaces the three setup seams so no test ever runs the
+// real doctor or selftest; agy reports presence, the gates return the codes.
+func stubSetupGates(t *testing.T, agy bool, doctorCode, selftestCode int) *gateCalls {
+	t.Helper()
+	calls := &gateCalls{}
+	origAgy, origDoctor, origSelftest := setupAgyPresent, setupDoctorCoverage, setupSelftest
+	t.Cleanup(func() {
+		setupAgyPresent, setupDoctorCoverage, setupSelftest = origAgy, origDoctor, origSelftest
+	})
+	setupAgyPresent = func() bool { return agy }
+	setupDoctorCoverage = func(stdout, stderr io.Writer) int { calls.doctor++; return doctorCode }
+	setupSelftest = func(stdout, stderr io.Writer) int { calls.selftest++; return selftestCode }
+	return calls
+}
+
+// useInstalledPlanes makes planeInstalled report exactly the given planes.
+func useInstalledPlanes(t *testing.T, planes ...string) {
+	t.Helper()
+	orig := planeInstalled
+	t.Cleanup(func() { planeInstalled = orig })
+	set := map[string]bool{}
+	for _, p := range planes {
+		set[p] = true
+	}
+	planeInstalled = func(plane string) bool { return set[plane] }
+}
+
+// useTransport installs stubPlaneTransport with the given statuses and
+// restores it on cleanup.
+func useTransport(t *testing.T, statuses []string) {
+	t.Helper()
+	t.Cleanup(stubPlaneTransport(t, statuses))
+}
+
+// countSubmits wraps the (stubbed) submitPlaneRequest to record every request.
+func countSubmits(t *testing.T) *[]approval.Request {
+	t.Helper()
+	var seen []approval.Request
+	inner := submitPlaneRequest
+	t.Cleanup(func() { submitPlaneRequest = inner })
+	submitPlaneRequest = func(r approval.Request) (approval.Request, error) {
+		seen = append(seen, r)
+		return inner(r)
+	}
+	return &seen
+}
+
+func runSetup(t *testing.T, args ...string) (int, string, string) {
+	t.Helper()
+	var out, errb strings.Builder
+	code := cmdSetup(args, true, &out, &errb)
+	return code, out.String(), errb.String()
+}
+
+func stdoutLines(s string) []string {
+	return strings.Split(strings.TrimRight(s, "\n"), "\n")
+}
+
+func indexOfLine(lines []string, pred func(string) bool) int {
+	for i, l := range lines {
+		if pred(l) {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestSetupEnablesUnregisteredPlanes(t *testing.T) {
+	driftSandbox(t)
+	useInstalledPlanes(t, "claude")
+	useTransport(t, []string{"approved"})
+	calls := stubSetupGates(t, false, 0, 0)
+
+	code, out, errb := runSetup(t)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", code, out, errb)
+	}
+	lines := stdoutLines(out)
+	reason := indexOfLine(lines, func(l string) bool { return l == "claude: not registered; enabling" })
+	prompt := indexOfLine(lines, func(l string) bool {
+		return strings.HasSuffix(l, "approval required; open http://localhost:39169/approve")
+	})
+	enabled := indexOfLine(lines, func(l string) bool { return l == "claude enabled" })
+	if reason < 0 || prompt <= reason || enabled <= prompt {
+		t.Fatalf("want reason, prompt, enabled in order; got indexes %d,%d,%d in:\n%s", reason, prompt, enabled, out)
+	}
+	if !planeIntegrationRegistered("claude") {
+		t.Fatal("claude not registered on disk after setup")
+	}
+	if calls.selftest != 1 {
+		t.Fatalf("selftest calls = %d, want 1", calls.selftest)
+	}
+	if calls.doctor != 0 {
+		t.Fatalf("doctor coverage calls = %d, want 0 (agy absent)", calls.doctor)
+	}
+}
+
+func TestSetupSkipsConsistentPlanes(t *testing.T) {
+	driftSandbox(t)
+	enableForDrift(t, "claude")
+	useInstalledPlanes(t, "claude")
+	useTransport(t, nil)
+	stubSetupGates(t, false, 0, 0)
+
+	code, out, errb := runSetup(t)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", code, out, errb)
+	}
+	if !strings.Contains(out, "claude: already enabled\n") {
+		t.Fatalf("stdout missing already-enabled line:\n%s", out)
+	}
+	if strings.Contains(out, "approval required") {
+		t.Fatalf("consistent plane prompted for approval:\n%s", out)
+	}
+}
+
+func TestSetupReenablesOnHandlerDrift(t *testing.T) {
+	a, b := driftSandbox(t)
+	enableForDrift(t, "claude")
+	useInstalledExecutable(t, b)
+	useInstalledPlanes(t, "claude")
+	useTransport(t, []string{"approved"})
+	stubSetupGates(t, false, 0, 0)
+
+	code, out, errb := runSetup(t)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", code, out, errb)
+	}
+	if !strings.Contains(out, "claude: registered handlers differ from this binary; re-enabling\n") {
+		t.Fatalf("stdout missing handler-drift line:\n%s", out)
+	}
+	if !strings.Contains(out, "approval required") {
+		t.Fatalf("handler drift did not prompt:\n%s", out)
+	}
+	path, err := planeConfigPath("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := readPlaneJSON(t, path)
+	quote := func(p string) string { raw, _ := json.Marshal(p); return strings.Trim(string(raw), `"`) }
+	if !strings.Contains(settings, quote(b)) {
+		t.Fatalf("settings do not reference %s:\n%s", b, settings)
+	}
+	if strings.Contains(settings, quote(a)) {
+		t.Fatalf("settings still reference %s:\n%s", a, settings)
+	}
+}
+
+func TestSetupOneApprovalForTheBatch(t *testing.T) {
+	driftSandbox(t)
+	useInstalledPlanes(t, "claude", "antigravity")
+	useTransport(t, []string{"approved"})
+	seen := countSubmits(t)
+	stubSetupGates(t, false, 0, 0)
+
+	code, out, errb := runSetup(t)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", code, out, errb)
+	}
+	if len(*seen) != 1 {
+		t.Fatalf("submitPlaneRequest calls = %d, want 1", len(*seen))
+	}
+	req := (*seen)[0]
+	if req.Action != "plane-enable" {
+		t.Fatalf("action = %q, want plane-enable", req.Action)
+	}
+	if got := req.Parameters["planes"]; got != "claude,antigravity" {
+		t.Fatalf("planes = %q, want claude,antigravity", got)
+	}
+}
+
+func TestSetupDeniedApprovalFails(t *testing.T) {
+	driftSandbox(t)
+	useInstalledPlanes(t, "claude")
+	useTransport(t, []string{"denied"})
+	calls := stubSetupGates(t, false, 0, 0)
+
+	code, out, errb := runSetup(t)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; stdout=%q stderr=%q", code, out, errb)
+	}
+	if calls.selftest != 0 {
+		t.Fatalf("selftest calls = %d, want 0 after denial", calls.selftest)
+	}
+}
+
+func TestSetupRunsAntigravityGateWhenAgyPresent(t *testing.T) {
+	driftSandbox(t)
+	useInstalledPlanes(t)
+	useTransport(t, nil)
+	calls := stubSetupGates(t, true, 0, 0)
+
+	code, out, errb := runSetup(t)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", code, out, errb)
+	}
+	if calls.doctor != 1 {
+		t.Fatalf("doctor coverage calls = %d, want 1", calls.doctor)
+	}
+}
+
+func TestSetupFailsWhenAntigravityGateFails(t *testing.T) {
+	driftSandbox(t)
+	useInstalledPlanes(t)
+	useTransport(t, nil)
+	calls := stubSetupGates(t, true, 1, 0)
+
+	code, out, errb := runSetup(t)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; stdout=%q stderr=%q", code, out, errb)
+	}
+	if !strings.Contains(errb, "doctor --coverage antigravity failed (exit 1)") {
+		t.Fatalf("stderr = %q, want coverage gate failure", errb)
+	}
+	if calls.selftest != 0 {
+		t.Fatalf("selftest calls = %d, want 0 after gate failure", calls.selftest)
+	}
+}
+
+func TestSetupFailsWhenSelftestFails(t *testing.T) {
+	driftSandbox(t)
+	useInstalledPlanes(t)
+	useTransport(t, nil)
+	stubSetupGates(t, false, 0, 1)
+
+	code, out, errb := runSetup(t)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; stdout=%q stderr=%q", code, out, errb)
+	}
+	if !strings.Contains(errb, "selftest failed on this binary") {
+		t.Fatalf("stderr = %q, want selftest failure", errb)
+	}
+}
+
+func TestSetupHonoursPlanesSubset(t *testing.T) {
+	driftSandbox(t)
+	useInstalledPlanes(t, supportedPlanes...)
+	useTransport(t, []string{"approved"})
+	stubSetupGates(t, false, 0, 0)
+
+	code, out, errb := runSetup(t, "--planes", "opencode")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", code, out, errb)
+	}
+	lines := stdoutLines(out)
+	marker := indexOfLine(lines, func(l string) bool { return l == "setup: plane status" })
+	if marker < 0 {
+		t.Fatalf("no plane status marker:\n%s", out)
+	}
+	var reasons []string
+	for _, l := range lines[:marker] {
+		if strings.HasSuffix(l, "; enabling") || strings.HasSuffix(l, "; re-enabling") ||
+			strings.HasSuffix(l, ": already enabled") || strings.HasSuffix(l, ": not detected") {
+			reasons = append(reasons, l)
+		}
+		if strings.HasPrefix(l, "claude:") {
+			t.Fatalf("claude line before status marker with --planes opencode: %q", l)
+		}
+	}
+	if len(reasons) != 1 || !strings.HasPrefix(reasons[0], "opencode:") {
+		t.Fatalf("reason lines = %q, want exactly one opencode line", reasons)
+	}
+}
+
+func TestSetupPrintsPlaneStatusLast(t *testing.T) {
+	driftSandbox(t)
+	useInstalledPlanes(t, "claude")
+	useTransport(t, []string{"approved"})
+	stubSetupGates(t, false, 0, 0)
+
+	code, out, errb := runSetup(t)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", code, out, errb)
+	}
+	want := []string{"setup: plane status"}
+	for _, plane := range supportedPlanes {
+		want = append(want, plane+": "+planeStatusState(plane))
+	}
+	lines := stdoutLines(out)
+	if len(lines) < len(want) {
+		t.Fatalf("stdout too short:\n%s", out)
+	}
+	tail := lines[len(lines)-len(want):]
+	for i := range want {
+		if tail[i] != want[i] {
+			t.Fatalf("status tail line %d = %q, want %q; stdout:\n%s", i, tail[i], want[i], out)
+		}
 	}
 }
