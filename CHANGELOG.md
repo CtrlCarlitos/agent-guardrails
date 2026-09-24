@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.2-dev (2026-09-24)
 
 ### Grants & Approvals
 - **Feature (#326, ADR-0030): a first install arms the planes before the
