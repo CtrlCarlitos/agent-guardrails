@@ -237,20 +237,30 @@ func cmdPlaneLifecycle(args []string, action, outcome string, terminal bool, std
 	}
 
 	// Reconciliation: a plane already in the desired state never prompts.
-	// For enable, the desired state is the registered hook AND the current
-	// permissions floor: a released floor entry that has not been merged is
-	// drift, and the merge that lands it is idempotent.
+	// For enable, the desired state is setup's reconcile rule
+	// (setupEnableReason): registered, the current permissions floor, and
+	// handlers that match this binary. Every re-merge is idempotent.
 	var batch []string
 	for _, plane := range targets {
-		registered := planeIntegrationRegistered(plane)
-		if action == "plane-enable" && registered {
-			if missing := planeFloorDrift(plane); missing > 0 {
-				fmt.Fprintf(stdout, "%s: permissions floor drifted (%d entries missing); re-enabling\n", plane, missing)
-				batch = append(batch, plane)
+		if action == "plane-enable" {
+			reason, err := setupEnableReason(plane)
+			if err != nil {
+				fmt.Fprintf(stderr, "guardrail: %s: %v\n", plane, err)
+				return 1
+			}
+			if reason == "" {
+				fmt.Fprintf(stdout, "%s: already %s\n", plane, outcome)
 				continue
 			}
+			// An unregistered plane is the ordinary case and needs no
+			// explanation; a registered one says why it re-enables.
+			if planeIntegrationRegistered(plane) {
+				fmt.Fprintf(stdout, "%s: %s\n", plane, reason)
+			}
+			batch = append(batch, plane)
+			continue
 		}
-		if registered == (action == "plane-enable") {
+		if !planeIntegrationRegistered(plane) {
 			fmt.Fprintf(stdout, "%s: already %s\n", plane, outcome)
 			continue
 		}

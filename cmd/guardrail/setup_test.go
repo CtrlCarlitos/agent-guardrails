@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
@@ -622,5 +623,52 @@ func TestSetupDisableShutsDownDaemonAfterSuccess(t *testing.T) {
 	}
 	if len(events) != 2 || events[0] != "submit" || events[1] != "shutdown" {
 		t.Fatalf("events = %q, want [submit shutdown]", events)
+	}
+}
+
+func TestSetupReenablesOnFloorDrift(t *testing.T) {
+	driftSandbox(t)
+	enableForDrift(t, "claude")
+	useInstalledPlanes(t, "claude")
+	useTransport(t, []string{"approved"})
+	stubSetupGates(t, false, 0, 0)
+
+	path, err := planeConfigPath("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := genconfig.ReadJSONObject(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	perms, _ := doc["permissions"].(map[string]any)
+	deny, _ := perms["deny"].([]any)
+	if len(deny) == 0 {
+		t.Fatal("enable wrote no permissions.deny entries")
+	}
+	removed, _ := deny[0].(string)
+	perms["deny"] = deny[1:]
+	raw, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writePlaneSettings(t, path, string(raw))
+
+	code, out, errb := runSetup(t)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", code, out, errb)
+	}
+	if !strings.Contains(out, "claude: permissions floor drifted (1 entries missing); re-enabling\n") {
+		t.Fatalf("stdout missing floor-drift line:\n%s", out)
+	}
+	if !strings.Contains(out, "approval required") {
+		t.Fatalf("floor drift did not prompt:\n%s", out)
+	}
+	if missing := planeFloorDrift("claude"); missing != 0 {
+		t.Fatalf("floor still missing %d entries after setup", missing)
+	}
+	quoted, _ := json.Marshal(removed)
+	if !strings.Contains(readPlaneJSON(t, path), string(quoted)) {
+		t.Fatalf("deny entry %s not restored", quoted)
 	}
 }

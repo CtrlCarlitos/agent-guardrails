@@ -271,11 +271,32 @@ verify_installed() {
 		die 1 "$dest/guardrail did not report guardrail $version (got '$got')"
 }
 
+# setup_supported: whether <dest>/guardrail has the `setup` subcommand.
+# Probed with stdin not a terminal, so a binary that has it refuses before
+# touching anything (exit 2, "requires an interactive local terminal"),
+# while one that predates it exits 2 with "unknown subcommand". Probing
+# first keeps the real run's output streaming and lets the hand-off exec.
+setup_supported() {
+	probe_rc=0
+	probe_err=$("$dest/guardrail" setup </dev/null 2>&1 >/dev/null) || probe_rc=$?
+	if [ "$probe_rc" -eq 2 ]; then
+		case $probe_err in *"unknown subcommand"*) return 1 ;; esac
+	fi
+	return 0
+}
+
+old_binary_hint="this guardrail predates 'setup'; re-run the installer with --version <a release that has it>"
+
 handoff() {
 	cleanup
 	if [ "$run_setup" -eq 0 ]; then
 		say "guardrail $version installed at $dest/guardrail (setup skipped)"
 		exit 0
+	fi
+	if ! setup_supported; then
+		[ "$state" = disabled ] || die 1 "$old_binary_hint"
+		say "this guardrail predates 'setup'; running guardrail plane disable --all"
+		exec "$dest/guardrail" plane disable --all
 	fi
 	if [ "$state" = disabled ]; then
 		exec "$dest/guardrail" setup --state disabled
@@ -311,8 +332,14 @@ uninstall() {
 		say "nothing installed at $dest"
 	else
 		if [ "$run_setup" -eq 1 ]; then
-			"$dest/guardrail" setup --state disabled ||
-				die 1 "uninstall aborted: planes are still registered"
+			if setup_supported; then
+				"$dest/guardrail" setup --state disabled ||
+					die 1 "uninstall aborted: planes are still registered"
+			else
+				say "this guardrail predates 'setup'; running guardrail plane disable --all"
+				"$dest/guardrail" plane disable --all ||
+					die 1 "uninstall aborted: planes are still registered"
+			fi
 		fi
 		rm -f "$dest/guardrail" || die 1 "cannot remove $dest/guardrail"
 		# What `guardrail update` and bootstrap leave beside the binary.

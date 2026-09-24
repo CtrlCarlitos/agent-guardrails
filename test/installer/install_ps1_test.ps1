@@ -62,7 +62,8 @@ $labels = @(
 	'uninstall-purge-removes-state-roots',
 	'uninstall-nothing-installed-is-ok',
 	'purge-without-uninstall-exits-2',
-	'state-with-uninstall-exits-2'
+	'state-with-uninstall-exits-2',
+	'handoff-propagates-setup-exit-code'
 )
 
 if (-not $onWindows) {
@@ -143,6 +144,18 @@ exit $code
 		$e = Join-Path $tmp "err.$($script:n)"
 		$ErrorActionPreference = 'Continue'
 		& $pwshExe -NoProfile -ExecutionPolicy Bypass -File $runner $InstallPs1 @args 1> $o 2> $e
+		$script:rc = $LASTEXITCODE
+		$script:out = [System.IO.File]::ReadAllText($o)
+		$script:err = [System.IO.File]::ReadAllText($e)
+	}
+	# RunNoConsole: Run, but with stdin piped instead of inherited, so no
+	# `guardrail setup` it reaches can see a console.
+	function RunNoConsole {
+		$script:n++
+		$o = Join-Path $tmp "out.$($script:n)"
+		$e = Join-Path $tmp "err.$($script:n)"
+		$ErrorActionPreference = 'Continue'
+		'' | & $pwshExe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $runner $InstallPs1 @args 1> $o 2> $e
 		$script:rc = $LASTEXITCODE
 		$script:out = [System.IO.File]::ReadAllText($o)
 		$script:err = [System.IO.File]::ReadAllText($e)
@@ -387,6 +400,25 @@ exit $code
 		return (IsEmpty $dest)
 	}
 
+	function Case-HandoffPropagatesSetupExitCode {
+		# The real binary's setup, with stdin piped rather than a console,
+		# refuses with exit 2; the script must exit with setup's code, not its
+		# own. Sandboxed roots and a piped stdin keep it off real state.
+		$savedPath = Save-UserPath
+		$dest = Fresh
+		$sbHome = Fresh
+		$exe = Join-Path $dest 'guardrail.exe'
+		try {
+			InSandbox $sbHome { RunNoConsole -Version $Version -Dest $dest -BaseUrl (Join-Path $tmp 'releases') }
+			if (-not (WantRc 2)) { return $false }
+			if (-not (Has err 'requires an interactive local terminal')) { return $false }
+			return (Reports $exe $Version)
+		} finally {
+			Restore-UserPath $savedPath
+			Remove-HarnessExclusion $exe
+		}
+	}
+
 	function Case-PurgeWithoutUninstallExits2 {
 		$dest = Fresh
 		$sbHome = Fresh
@@ -420,6 +452,7 @@ exit $code
 	Check 'uninstall-nothing-installed-is-ok' { Case-UninstallNothingInstalledIsOk }
 	Check 'purge-without-uninstall-exits-2' { Case-PurgeWithoutUninstallExits2 }
 	Check 'state-with-uninstall-exits-2' { Case-StateWithUninstallExits2 }
+	Check 'handoff-propagates-setup-exit-code' { Case-HandoffPropagatesSetupExitCode }
 	Check 'parses-under-windows-powershell-syntax' { Case-ParsesUnderWindowsPowerShellSyntax }
 } finally {
 	Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue

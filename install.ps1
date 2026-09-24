@@ -456,18 +456,45 @@ function Remove-StateRoots {
 	}
 }
 
-# Invoke-DisablePlanes: run `guardrail setup --state disabled` and leave its
+# Test-SetupSupported: whether <dest>\guardrail.exe has the `setup`
+# subcommand. Probed with stdin piped, not the console, so a binary that has
+# it refuses before touching anything (exit 2, "requires an interactive local
+# terminal"), while one that predates it exits 2 with "unknown subcommand".
+# Probing first keeps the real run's output streaming to the console.
+function Test-SetupSupported {
+	$text = ''
+	$code = 0
+	try {
+		$ErrorActionPreference = 'Continue'
+		$PSNativeCommandUseErrorActionPreference = $false
+		$text = (@('' | & $script:Exe setup 2>&1) | ForEach-Object { [string]$_ }) -join "`n"
+		$code = $LASTEXITCODE
+	} catch {
+		return $true
+	}
+	return -not (($code -eq 2) -and $text.Contains('unknown subcommand'))
+}
+
+$OldBinaryHint = "this guardrail predates 'setup'; re-run the installer with -Version <a release that has it>"
+
+# Invoke-DisablePlanes: run `guardrail setup --state disabled` (or, on a
+# binary that predates setup, `guardrail plane disable --all`) and leave its
 # exit code in $script:DisableCode. Its own function so the relaxed error
 # preference a native call needs stays out of the removals that follow; the
 # code goes through a variable, not the output stream, so setup's own output
 # is never captured.
 function Invoke-DisablePlanes {
 	$script:DisableCode = 1
+	$disableArgs = @('setup', '--state', 'disabled')
+	if (-not (Test-SetupSupported)) {
+		Say "this guardrail predates 'setup'; running guardrail plane disable --all"
+		$disableArgs = @('plane', 'disable', '--all')
+	}
 	# Called bare, not piped: setup needs the console as its stdin and stdout.
 	try {
 		$ErrorActionPreference = 'Continue'
 		$PSNativeCommandUseErrorActionPreference = $false
-		& $script:Exe setup --state disabled
+		& $script:Exe @disableArgs
 		$script:DisableCode = $LASTEXITCODE
 	} catch {
 		$script:DisableCode = 1
@@ -547,6 +574,11 @@ function Invoke-Handoff {
 	}
 	$setupArgs = @('setup')
 	if ($State -eq 'disabled') { $setupArgs = @('setup', '--state', 'disabled') }
+	if (-not (Test-SetupSupported)) {
+		if ($State -ne 'disabled') { Die 1 $OldBinaryHint }
+		Say "this guardrail predates 'setup'; running guardrail plane disable --all"
+		$setupArgs = @('plane', 'disable', '--all')
+	}
 	$code = 1
 	# Called bare, not piped: setup needs the console as its stdin and stdout.
 	try {

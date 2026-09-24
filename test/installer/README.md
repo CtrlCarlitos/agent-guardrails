@@ -42,14 +42,20 @@ root where it tests that branch). The plugin file and every state root
 therefore live in the temp directory, never in yours.
 
 - `uninstall-removes-binary-and-plugin`: installs, drops a fake
-  `guardrail.js` in the plugin dir (`$XDG_DATA_HOME/guardrail`), runs
-  `--uninstall --no-setup`; the binary and the plugin are gone, the state
-  dir (`$HOME/.local/state/guardrail`, with a marker file) is still there.
+  `guardrail.js` in the plugin dir (`$XDG_DATA_HOME/guardrail`) and the
+  updater's `guardrail.old` / `.guardrail-update` leftovers in `--dest`,
+  runs `--uninstall --no-setup`; the binary, the leftovers and the plugin
+  are gone, the state dir (`$HOME/.local/state/guardrail`, with a marker
+  file) is still there.
 - `uninstall-purge-removes-state-roots`: pre-creates
   `$HOME/.local/state/guardrail`, `$XDG_CONFIG_HOME/guardrail` and
   `$HOME/.local/share/guardrail` with markers, runs `--uninstall --purge
   --no-setup`; every root is gone, with an `install: removed <path>` line
   each, and their parents are kept.
+- `purge-ignores-relative-xdg`: runs `--uninstall --purge` from a scratch
+  directory holding a `guardrail` dir, with `XDG_STATE_HOME=.`; the
+  relative root is ignored, so the scratch `guardrail` survives and
+  `$HOME/.local/state/guardrail` is removed instead.
 - `uninstall-nothing-installed-is-ok`: an empty `--dest`; exit 0 and
   `nothing installed at <dest>`.
 - `purge-without-uninstall-exits-2` and `state-with-uninstall-exits-2`:
@@ -60,6 +66,27 @@ therefore live in the temp directory, never in yours.
   `--no-setup`, `--uninstall --purge` must log `setup --state disabled`,
   exit 1 with `uninstall aborted: planes are still registered`, and leave
   the binary and the plugin in place.
+
+## Hand-off cases
+
+These run without `--no-setup` against the fake `guardrail`, so the
+script really hands off. Before the hand-off (and before the uninstall's
+disable step) the script probes `guardrail setup` with stdin from
+`/dev/null`: a binary that has `setup` refuses with exit 2 and
+`requires an interactive local terminal`; one that predates it exits 2
+with `unknown subcommand`. A `fake_guardrail` third argument of `old`
+makes the fake answer the second way; its `plane` calls go to
+`update.log`.
+
+- `handoff-propagates-setup-exit-code`: the fake's `setup` exits 3; the
+  script exits 3.
+- `disabled-falls-back-on-old-binary`: `--state disabled` against an old
+  fake runs `plane disable --all` instead and exits 0.
+- `uninstall-falls-back-on-old-binary`: `--uninstall` against an old fake
+  disables with `plane disable --all`, then removes the binary.
+- `enabled-refuses-old-binary`: `--state enabled` against an old fake
+  exits 1 with `this guardrail predates 'setup'; re-run the installer
+  with --version <a release that has it>`.
 
 `sums-cover-the-scripts` checks that `$DIST/SHA256SUMS` has a line for
 `install.sh` and one for `install.ps1`: `scripts/build-dist.sh` ships both
@@ -96,8 +123,10 @@ case: `bootstrap-installs-and-verifies`,
 `tampered-checksum-refuses`, `missing-sums-refuses`,
 `disabled-with-no-binary-is-noop`, the uninstall cases
 `uninstall-removes-binary-and-plugin`,
+`uninstall-keeps-path-when-dest-shared`,
 `uninstall-purge-removes-state-roots`, `uninstall-nothing-installed-is-ok`,
-`purge-without-uninstall-exits-2` and `state-with-uninstall-exits-2`, and
+`purge-without-uninstall-exits-2` and `state-with-uninstall-exits-2`,
+`handoff-propagates-setup-exit-code`, and
 `parses-under-windows-powershell-syntax`. Each case runs `install.ps1`
 in a child `pwsh` with `-BaseUrl <staged dir> -Dest <fresh dir>
 -NoSetup`. The bootstrap case also checks that the install directory was
@@ -117,8 +146,15 @@ create and expect `-Purge` to remove are `%LOCALAPPDATA%\guardrail`,
 `%USERPROFILE%\.local\share\guardrail`; the plugin file is
 `%USERPROFILE%\.local\share\guardrail\guardrail.js`. The
 `uninstall-removes-binary-and-plugin` case installs for real, so it also
-checks that `-Uninstall` took `<dest>` out of the User `Path`, and
-restores your User `Path` afterwards either way.
+checks that `-Uninstall` took `<dest>` out of the User `Path` and removed
+the now-empty `<dest>`, and restores your User `Path` afterwards either
+way. `uninstall-keeps-path-when-dest-shared` drops a foreign file in
+`<dest>` first: the entry and the file must both survive, with
+`install: leaving <dest> on PATH (other tools live there)`.
+`handoff-propagates-setup-exit-code` installs the real binary without
+`-NoSetup`, with the child's stdin piped instead of a console: the real
+`setup` refuses with exit 2 and `requires an interactive local terminal`,
+and the script must exit 2 too.
 `uninstall-aborts-when-disable-fails` is Unix only: faking a
 `guardrail.exe` whose `setup` fails runs into the same limit as the
 self-update branch below.

@@ -74,6 +74,8 @@ absent() { [ ! -e "$1" ] || { echo "  $1 exists"; return 1; }; }
 mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 
 fake_guardrail() { # $1 = dest, $2 = version the fake reports, $3 = setup's exit code (default 0)
+  # A setup exit code of "old" makes the fake predate `setup`: it answers the
+  # way an older release does (exit 2, unknown subcommand).
   mkdir -p "$1"
   cat >"$1/guardrail" <<'FAKE'
 #!/bin/sh
@@ -81,7 +83,12 @@ d="$(dirname "$0")"
 case "$1" in
   version) echo "guardrail $(cat "$d/.fake-version")" ;;
   update) echo "$*" >>"$d/update.log"; echo "$2" >"$d/.fake-version" ;;
-  setup) echo "$*" >>"$d/setup.log"; exit "$(cat "$d/.fake-setup-rc")" ;;
+  setup)
+    if [ "$(cat "$d/.fake-setup-rc")" = old ]; then
+      echo 'guardrail: unknown subcommand "setup"' >&2; exit 2
+    fi
+    echo "$*" >>"$d/setup.log"; exit "$(cat "$d/.fake-setup-rc")" ;;
+  plane) echo "$*" >>"$d/update.log" ;;
   *) exit 2 ;;
 esac
 FAKE
@@ -288,6 +295,46 @@ case_uninstall_aborts_when_disable_fails() {
   [ -f "$home/.local/share/guardrail/guardrail.js" ] || { echo "  plugin or data root was removed"; return 1; }
 }
 
+case_handoff_propagates_setup_exit_code() {
+  local dest
+  dest="$(fresh)"
+  fake_guardrail "$dest" "$VERSION" 3
+  run --version "$VERSION" --dest "$dest" --base-url "$tmp/empty"
+  want_rc 3 || return 1
+  grep -qx "setup" "$dest/setup.log" 2>/dev/null || { echo "  setup.log lacks 'setup'"; dump; return 1; }
+}
+
+case_disabled_falls_back_on_old_binary() {
+  local dest
+  dest="$(fresh)"
+  fake_guardrail "$dest" "$VERSION" old
+  run --version "$VERSION" --state disabled --dest "$dest" --base-url "$tmp/empty"
+  want_rc 0 || return 1
+  has out "predates 'setup'" || return 1
+  grep -qx "plane disable --all" "$dest/update.log" 2>/dev/null || { echo "  update.log lacks 'plane disable --all'"; dump; return 1; }
+}
+
+case_uninstall_falls_back_on_old_binary() {
+  local dest home
+  dest="$(fresh)"
+  home="$(fresh)"
+  fake_guardrail "$dest" "$VERSION" old
+  HOME="$home" run --uninstall --dest "$dest"
+  want_rc 0 || return 1
+  grep -qx "plane disable --all" "$dest/update.log" 2>/dev/null || { echo "  update.log lacks 'plane disable --all'"; dump; return 1; }
+  absent "$dest/guardrail"
+}
+
+case_enabled_refuses_old_binary() {
+  local dest
+  dest="$(fresh)"
+  fake_guardrail "$dest" "$VERSION" old
+  run --version "$VERSION" --dest "$dest" --base-url "$tmp/empty"
+  want_rc 1 || return 1
+  has err "install: this guardrail predates 'setup'; re-run the installer with --version <a release that has it>" || return 1
+  absent "$dest/update.log"
+}
+
 case_sums_cover_the_scripts() {
   # A release must checksum the install scripts it ships, not only the binaries.
   local got
@@ -316,6 +363,10 @@ check uninstall-nothing-installed-is-ok          case_uninstall_nothing_installe
 check purge-without-uninstall-exits-2            case_purge_without_uninstall_exits_2
 check state-with-uninstall-exits-2               case_state_with_uninstall_exits_2
 check uninstall-aborts-when-disable-fails        case_uninstall_aborts_when_disable_fails
+check handoff-propagates-setup-exit-code        case_handoff_propagates_setup_exit_code
+check disabled-falls-back-on-old-binary         case_disabled_falls_back_on_old_binary
+check uninstall-falls-back-on-old-binary        case_uninstall_falls_back_on_old_binary
+check enabled-refuses-old-binary                case_enabled_refuses_old_binary
 check sums-cover-the-scripts                     case_sums_cover_the_scripts
 
 if command -v shellcheck >/dev/null 2>&1; then
