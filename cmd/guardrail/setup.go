@@ -6,6 +6,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 )
 
 // Setup gate seams, overridable in tests so no test runs the real doctor or
@@ -16,6 +19,11 @@ var (
 	setupAgyPresent     = func() bool { _, err := exec.LookPath("agy"); return err == nil }
 	setupDoctorCoverage func(stdout, stderr io.Writer) int
 	setupSelftest       func(stdout, stderr io.Writer) int
+	// setupShutdownDaemon stops a running approval daemon. The daemon applies
+	// approved plane actions in its own process, and it was spawned from
+	// whichever binary first needed it — possibly one this install replaced.
+	// Same function update uses; a not-running error is expected and ignored.
+	setupShutdownDaemon = approval.ShutdownDaemon
 )
 
 func init() {
@@ -124,8 +132,25 @@ func setupEnable(planes []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "%s: %s\n", plane, reason)
 		batch = append(batch, plane)
 	}
-	if len(batch) > 0 && !planesViaApproval(batch, "plane-enable", "enabled", stdout, stderr) {
-		return 1
+	if len(batch) > 0 {
+		setupStopApprovalDaemon()
+		if !planesViaApproval(batch, "plane-enable", "enabled", stdout, stderr) {
+			return 1
+		}
+		// Approval says the daemon ran the merge, not that this binary's
+		// shape landed: verify convergence with the same rule that chose
+		// the batch.
+		for _, plane := range batch {
+			reason, err := setupEnableReason(plane)
+			if err != nil {
+				fmt.Fprintf(stderr, "guardrail: setup: %s: %v\n", plane, err)
+				return 1
+			}
+			if reason != "" {
+				fmt.Fprintf(stderr, "guardrail: setup: %s: still differs after approval — the approval daemon may be running another binary; run guardrail setup again\n", plane)
+				return 1
+			}
+		}
 	}
 	if code := setupGates(stdout, stderr); code != 0 {
 		return code
@@ -173,8 +198,29 @@ func setupDisable(planes []string, stdout, stderr io.Writer) int {
 	if len(batch) > 0 && !planesViaApproval(batch, "plane-disable", "disabled", stdout, stderr) {
 		return 1
 	}
+	// Nothing left needs the daemon; stopping it releases this binary so an
+	// uninstall can delete it (Windows cannot delete a running image).
+	setupStopApprovalDaemon()
 	setupPrintStatus(planes, stdout)
 	return 0
+}
+
+// setupStopApprovalDaemon asks a running approval daemon to exit and waits
+// briefly until it stops answering, so the next submit spawns a daemon from
+// this binary instead of reaching the one that is closing. The daemon closes
+// asynchronously after acknowledging shutdown.
+func setupStopApprovalDaemon() {
+	socket := approval.DefaultSocketPath()
+	if err := setupShutdownDaemon(socket); err != nil {
+		return
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := approval.ListPending(socket); err != nil {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // setupGates runs the antigravity coverage gate (when agy is on PATH) and

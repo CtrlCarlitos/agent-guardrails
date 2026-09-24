@@ -283,6 +283,8 @@ func stubPlaneTransport(t *testing.T, statuses []string) func() {
 	guardTestHome(t)
 	origSubmit := submitPlaneRequest
 	origQuery := queryPlaneStatus
+	origShutdown := setupShutdownDaemon
+	setupShutdownDaemon = func(string) error { return nil }
 	var current approval.Request
 	submitPlaneRequest = func(request approval.Request) (approval.Request, error) {
 		current = request
@@ -304,6 +306,7 @@ func stubPlaneTransport(t *testing.T, statuses []string) func() {
 	return func() {
 		submitPlaneRequest = origSubmit
 		queryPlaneStatus = origQuery
+		setupShutdownDaemon = origShutdown
 	}
 }
 

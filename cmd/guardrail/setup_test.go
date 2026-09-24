@@ -533,3 +533,94 @@ func TestSetupPrintsPlaneStatusLast(t *testing.T) {
 		}
 	}
 }
+
+// recordShutdowns replaces the daemon-shutdown seam and appends "shutdown" to
+// events on each call; wrapping submitPlaneRequest appends "submit", so a
+// test can assert the order.
+func recordShutdowns(t *testing.T, events *[]string) {
+	t.Helper()
+	origShutdown := setupShutdownDaemon
+	origSubmit := submitPlaneRequest
+	t.Cleanup(func() {
+		setupShutdownDaemon = origShutdown
+		submitPlaneRequest = origSubmit
+	})
+	setupShutdownDaemon = func(string) error {
+		*events = append(*events, "shutdown")
+		return nil
+	}
+	inner := submitPlaneRequest
+	submitPlaneRequest = func(r approval.Request) (approval.Request, error) {
+		*events = append(*events, "submit")
+		return inner(r)
+	}
+}
+
+func TestSetupFailsWhenApprovedMergeDidNotConverge(t *testing.T) {
+	driftSandbox(t)
+	useInstalledPlanes(t, "claude")
+	calls := stubSetupGates(t, false, 0, 0)
+
+	// An approval daemon running another binary: it reports approved but
+	// never writes this binary's handlers.
+	origSubmit, origQuery := submitPlaneRequest, queryPlaneStatus
+	t.Cleanup(func() { submitPlaneRequest, queryPlaneStatus = origSubmit, origQuery })
+	submitPlaneRequest = func(r approval.Request) (approval.Request, error) {
+		return approval.Request{ID: "stub-request", Status: "pending", ApprovalURL: "http://localhost:39169/approve"}, nil
+	}
+	queryPlaneStatus = func(socket, id string) (approval.Request, error) {
+		return approval.Request{Status: "approved"}, nil
+	}
+	var events []string
+	recordShutdowns(t, &events)
+
+	code, out, errb := runSetup(t)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; stdout=%q stderr=%q", code, out, errb)
+	}
+	const want = "guardrail: setup: claude: still differs after approval — the approval daemon may be running another binary; run guardrail setup again"
+	if !strings.Contains(errb, want) {
+		t.Fatalf("stderr = %q, want %q", errb, want)
+	}
+	if len(events) != 2 || events[0] != "shutdown" || events[1] != "submit" {
+		t.Fatalf("events = %q, want [shutdown submit]", events)
+	}
+	if calls.selftest != 0 {
+		t.Fatalf("selftest calls = %d, want 0 after non-convergence", calls.selftest)
+	}
+}
+
+func TestSetupShutsDownDaemonOnceBeforeSubmit(t *testing.T) {
+	driftSandbox(t)
+	useInstalledPlanes(t, "claude", "antigravity")
+	useTransport(t, []string{"approved"})
+	stubSetupGates(t, false, 0, 0)
+	var events []string
+	recordShutdowns(t, &events)
+
+	code, out, errb := runSetup(t)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", code, out, errb)
+	}
+	if len(events) != 2 || events[0] != "shutdown" || events[1] != "submit" {
+		t.Fatalf("events = %q, want [shutdown submit]", events)
+	}
+}
+
+func TestSetupDisableShutsDownDaemonAfterSuccess(t *testing.T) {
+	driftSandbox(t)
+	enableForDrift(t, "claude")
+	useInstalledPlanes(t, "claude")
+	useTransport(t, []string{"approved"})
+	stubSetupGates(t, false, 0, 0)
+	var events []string
+	recordShutdowns(t, &events)
+
+	code, out, errb := runSetup(t, "--state", "disabled")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", code, out, errb)
+	}
+	if len(events) != 2 || events[0] != "submit" || events[1] != "shutdown" {
+		t.Fatalf("events = %q, want [submit shutdown]", events)
+	}
+}
