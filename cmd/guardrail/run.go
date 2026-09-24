@@ -55,6 +55,9 @@ usage: guardrail <command> [arguments]
   plane enable <plane>|--all        (re)register Guardrail integration (operator approval)
   plane disable <plane>|--all       remove Guardrail integration (operator approval)
       plane: claude | opencode | antigravity | codex
+  setup [flags]                     install-time reconcile: enable planes, verify, selftest (operator approval)
+      --state enabled|disabled     desired plane state (default enabled)
+      --planes <list>              comma-separated subset (default: every detected plane)
   fetch <URL>                       fetch normalized text through Guardrail
   update <version>                  self-update to an exact checksum-verified release
   recover <repair>                  repair Guardrail-protected machinery (operator approval)
@@ -100,6 +103,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "plane":
 		file, terminal := stdin.(*os.File)
 		return cmdPlane(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdout, stderr)
+	case "setup":
+		file, terminal := stdin.(*os.File)
+		return cmdSetup(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdout, stderr)
 	case "update":
 		return cmdUpdate(args[1:], stdout, stderr)
 	case "recover":

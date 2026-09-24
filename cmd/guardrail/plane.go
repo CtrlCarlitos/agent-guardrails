@@ -27,7 +27,10 @@ func init() {
 var (
 	submitPlaneRequest = approval.SubmitOnDemand
 	queryPlaneStatus   = approval.QueryStatus
-	planeInstalled     = func(plane string) bool {
+	// installedExecutable resolves the running binary's path; overridable in
+	// tests. setup uses the same seam for the path it prints and refuses.
+	installedExecutable = os.Executable
+	planeInstalled      = func(plane string) bool {
 		if path, err := planeConfigPath(plane); err == nil {
 			if _, err := os.Stat(path); err == nil {
 				return true
@@ -129,7 +132,7 @@ func planePluginDir() (string, error) {
 }
 
 func enablePlaneIntegration(plane string) error {
-	binary, err := os.Executable()
+	binary, err := installedExecutable()
 	if err != nil {
 		return err
 	}
