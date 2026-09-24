@@ -172,6 +172,22 @@ function Get-PurgeDirs([string]$UserProfile, [string]$LocalAppData, [string]$App
 	return $dirs
 }
 
+# Invoke-WithRetry <action>: run <action> up to three times, waiting 250, then
+# 500 ms between attempts, and rethrow the last failure. A scanner or indexer
+# can briefly hold a freshly written or just-exited binary (the #205 flake
+# class `guardrail update` retries the same way).
+function Invoke-WithRetry([scriptblock]$Action) {
+	for ($attempt = 1; $attempt -le 3; $attempt++) {
+		try {
+			& $Action
+			return
+		} catch {
+			if ($attempt -eq 3) { throw }
+			Start-Sleep -Milliseconds (250 * $attempt)
+		}
+	}
+}
+
 # --- steps --------------------------------------------------------------------
 
 function Resolve-Arguments {
@@ -343,10 +359,15 @@ function Install-Bootstrap {
 	try {
 		Copy-Item -LiteralPath (Join-Path $script:Tmp $script:Asset) -Destination $staged -Force
 		Unblock-File -LiteralPath $staged
-		Move-Item -LiteralPath $staged -Destination $script:Exe -Force
 	} catch {
 		Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue
 		Die 1 "failed to install $($script:Exe)"
+	}
+	try {
+		Invoke-WithRetry { Move-Item -LiteralPath $staged -Destination $script:Exe -Force }
+	} catch {
+		Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue
+		Die 1 "failed to install $($script:Exe): it may be in use (a running guardrail, such as the approval daemon, which exits after 10 idle minutes); stop it or reboot, then re-run"
 	}
 	Cleanup
 	Add-ToPath
@@ -389,7 +410,9 @@ function Add-DefenderExclusion {
 }
 
 # Remove-FromPath: drop the User Path entry equal to <dest>, leaving every
-# other entry, and the value's kind, as they were.
+# other entry, and the value's kind, as they were. Only called once <dest> is
+# empty: %USERPROFILE%\.local\bin is shared with other tools (Claude Code, uv,
+# pipx), so the entry may not be ours to remove.
 function Remove-FromPath {
 	try {
 		$key = Get-Item -LiteralPath 'HKCU:\Environment'
@@ -451,6 +474,36 @@ function Invoke-DisablePlanes {
 	}
 }
 
+# Remove-GuardrailExe: delete <dest>\guardrail.exe, retrying briefly. Windows
+# cannot delete a running image (the approval daemon, say), but it can rename
+# one, so a delete that keeps failing renames the binary aside instead.
+function Remove-GuardrailExe {
+	try {
+		Invoke-WithRetry { Remove-Item -LiteralPath $script:Exe -Force }
+		return
+	} catch {
+		$null = $_
+	}
+	$aside = "$($script:Exe).old"
+	try {
+		if (Test-Path -LiteralPath $aside) { Remove-Item -LiteralPath $aside -Force }
+		Rename-Item -LiteralPath $script:Exe -NewName 'guardrail.exe.old' -Force
+	} catch {
+		Die 1 "cannot remove $($script:Exe)"
+	}
+	Say "guardrail.exe is in use; renamed to guardrail.exe.old $([char]0x2014) delete it after the next reboot"
+}
+
+# Remove-DestLeftovers: sweep what `guardrail update` and this script leave
+# beside the binary (a superseded guardrail.exe.old, an update or install
+# staging file). A leftover still in use stays; it never fails the uninstall.
+function Remove-DestLeftovers {
+	foreach ($name in @('guardrail.exe.old', '.guardrail-update', '.guardrail.install.exe')) {
+		$p = Join-Path $script:Dest $name
+		if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }
+	}
+}
+
 # Uninstall-Guardrail: disable every plane, then remove the binary, the plugin
 # file, the PATH entry and the Defender exclusion (and, with -Purge, every
 # state root). Never downloads anything.
@@ -462,18 +515,23 @@ function Uninstall-Guardrail {
 			Invoke-DisablePlanes
 			if ($script:DisableCode -ne 0) { Die 1 'uninstall aborted: planes are still registered' }
 		}
-		try {
-			Remove-Item -LiteralPath $script:Exe -Force
-		} catch {
-			Die 1 "cannot remove $($script:Exe)"
-		}
+		Remove-GuardrailExe
 		$plugin = Join-Path (Get-PluginDir $env:USERPROFILE) 'guardrail.js'
 		try {
 			if (Test-Path -LiteralPath $plugin) { Remove-Item -LiteralPath $plugin -Force }
 		} catch {
 			Die 1 "cannot remove $plugin"
 		}
-		Remove-FromPath
+		Remove-DestLeftovers
+		# The PATH entry goes only with the directory: anything still in <dest>
+		# (another tool, or a guardrail.exe.old in use) keeps it.
+		$left = @(Get-ChildItem -LiteralPath $script:Dest -Force -ErrorAction SilentlyContinue)
+		if ($left.Count -eq 0) {
+			Remove-FromPath
+			Remove-Item -LiteralPath $script:Dest -Force -ErrorAction SilentlyContinue
+		} else {
+			Say "leaving $($script:Dest) on PATH (other tools live there)"
+		}
 		Remove-DefenderExclusion
 		Say "guardrail removed from $($script:Dest)"
 	}

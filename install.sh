@@ -315,6 +315,9 @@ uninstall() {
 				die 1 "uninstall aborted: planes are still registered"
 		fi
 		rm -f "$dest/guardrail" || die 1 "cannot remove $dest/guardrail"
+		# What `guardrail update` and bootstrap leave beside the binary.
+		rm -f "$dest/guardrail.old" "$dest/.guardrail-update" "$dest/.guardrail.install" ||
+			die 1 "cannot remove the update leftovers in $dest"
 		plugin=$(xdg_root "${XDG_DATA_HOME:-}" "$HOME/.local/share")/guardrail/guardrail.js
 		rm -f "$plugin" || die 1 "cannot remove $plugin"
 		say "guardrail removed from $dest"

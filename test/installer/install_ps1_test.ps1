@@ -58,6 +58,7 @@ $labels = @(
 	'missing-sums-refuses',
 	'disabled-with-no-binary-is-noop',
 	'uninstall-removes-binary-and-plugin',
+	'uninstall-keeps-path-when-dest-shared',
 	'uninstall-purge-removes-state-roots',
 	'uninstall-nothing-installed-is-ok',
 	'purge-without-uninstall-exits-2',
@@ -320,6 +321,33 @@ exit $code
 			if (-not (IsFile (Join-Path $stateDir 'marker'))) { return $false }
 			$userPath = (Get-Item -LiteralPath 'HKCU:\Environment').GetValue('Path', '', 'DoNotExpandEnvironmentNames')
 			if (PathHas $userPath $dest) { Write-Host "  User PATH still has $($dest): $userPath"; return $false }
+			# dest held only guardrail, so it goes with its PATH entry
+			return (Absent $dest)
+		} finally {
+			Restore-UserPath $savedPath
+			Remove-HarnessExclusion $exe
+		}
+	}
+
+	function Case-UninstallKeepsPathWhenDestShared {
+		# %USERPROFILE%\.local\bin is shared (Claude Code, uv, pipx): the PATH
+		# entry is not the installer's to remove while other tools live there.
+		$savedPath = Save-UserPath
+		$dest = Fresh
+		$sbHome = Fresh
+		$exe = Join-Path $dest 'guardrail.exe'
+		$foreign = Join-Path $dest 'other-tool.exe'
+		try {
+			Run -Version $Version -Dest $dest -BaseUrl (Join-Path $tmp 'releases') -NoSetup
+			if (-not (WantRc 0)) { return $false }
+			Set-Content -LiteralPath $foreign -Value 'not guardrail'
+			InSandbox $sbHome { Run -Uninstall -Dest $dest -NoSetup }
+			if (-not (WantRc 0)) { return $false }
+			if (-not (Has out "install: leaving $dest on PATH (other tools live there)")) { return $false }
+			if (-not (Absent $exe)) { return $false }
+			if (-not (IsFile $foreign)) { return $false }
+			$userPath = (Get-Item -LiteralPath 'HKCU:\Environment').GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+			if (-not (PathHas $userPath $dest)) { Write-Host "  User PATH lost $($dest): $userPath"; return $false }
 			return $true
 		} finally {
 			Restore-UserPath $savedPath
@@ -387,6 +415,7 @@ exit $code
 	Check 'missing-sums-refuses' { Case-MissingSumsRefuses }
 	Check 'disabled-with-no-binary-is-noop' { Case-DisabledWithNoBinaryIsNoop }
 	Check 'uninstall-removes-binary-and-plugin' { Case-UninstallRemovesBinaryAndPlugin }
+	Check 'uninstall-keeps-path-when-dest-shared' { Case-UninstallKeepsPathWhenDestShared }
 	Check 'uninstall-purge-removes-state-roots' { Case-UninstallPurgeRemovesStateRoots }
 	Check 'uninstall-nothing-installed-is-ok' { Case-UninstallNothingInstalledIsOk }
 	Check 'purge-without-uninstall-exits-2' { Case-PurgeWithoutUninstallExits2 }

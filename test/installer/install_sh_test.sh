@@ -187,10 +187,14 @@ case_uninstall_removes_binary_and_plugin() {
   mkdir -p "$home/xdg-data/guardrail"
   echo '// fake plugin' >"$home/xdg-data/guardrail/guardrail.js"
   marker "$home/.local/state/guardrail"
+  echo superseded >"$dest/guardrail.old"
+  echo staged >"$dest/.guardrail-update"
   HOME="$home" XDG_DATA_HOME="$home/xdg-data" run --uninstall --dest "$dest" --no-setup
   want_rc 0 || return 1
   has out "install: guardrail removed from $dest" || return 1
   absent "$dest/guardrail" || return 1
+  absent "$dest/guardrail.old" || return 1
+  absent "$dest/.guardrail-update" || return 1
   absent "$home/xdg-data/guardrail/guardrail.js" || return 1
   [ -f "$home/.local/state/guardrail/marker" ] || { echo "  state dir was removed without --purge"; return 1; }
 }
