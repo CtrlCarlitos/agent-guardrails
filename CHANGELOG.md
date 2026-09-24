@@ -23,7 +23,9 @@ explicitly in **Breaking** notes.
   `Unblock-File`, the user-PATH entry, and a Microsoft Defender exclusion for
   the exact `guardrail.exe` path (#146); without elevation it prints the
   `Add-MpPreference` command and continues. `-Uninstall` also removes the
-  PATH entry and the exclusion; `-Purge` removes all three Windows state roots
+  exclusion, and the PATH entry only when the install directory is empty
+  afterwards (it is shared with other tools); a `guardrail.exe` still in use
+  is renamed to `guardrail.exe.old`; `-Purge` removes all three Windows state roots
   plus `%USERPROFILE%\.local\share\guardrail`.
 - **Feature (ADR-0029): `guardrail setup [--state enabled|disabled] [--planes
   <list>]`, the post-install reconcile.** Re-registers every detected plane
@@ -37,9 +39,12 @@ explicitly in **Breaking** notes.
 - **Fix (#317): a binary swap no longer leaves stale handlers registered.**
   `plane enable` skipped any already-registered plane unless its floor had
   drifted, so an upgrade that changed the hook command shape kept the old
-  handlers. `setup` compares the registered handlers against this binary's
-  and re-merges on any difference; run it after `guardrail update` (the
-  installer does).
+  handlers. `setup` and `plane enable` now share one reconcile rule: they
+  compare every owned hook group (event, matcher, handler command and
+  timeout) against this binary's and re-merge on any difference. `setup`
+  restarts the approval daemon first, so the merge runs in this binary, and
+  checks afterwards that the plane converged. Run it after `guardrail
+  update` (the installer does).
 - **Release: the installers are release assets.** `scripts/build-dist.sh`
   copies `install.sh` and `install.ps1` into `dist/` and lists them in
   `SHA256SUMS`; `release.yml` uploads them and includes them in the build

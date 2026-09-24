@@ -105,7 +105,7 @@ From then on, `guardrail update <version>` replaces the binary (checksum-verifie
 
 **Turning it off.** Re-run the installer with `--state disabled` (`-State disabled`), or run `guardrail setup --state disabled`: every registered host is unregistered with one approval and the binary stays in place. Nothing is downloaded.
 
-**Removing it.** Run the installer with `--uninstall` (`-Uninstall`): it disables every host first, then removes the binary and the opencode plugin file (and on Windows the PATH entry and the Defender exclusion). Add `--purge` (`-Purge`) to delete guardrail's state, config and data directories as well. [docs/OPERATIONS.md](./docs/OPERATIONS.md#install-update-disable-uninstall) lists exactly what each one removes.
+**Removing it.** Run the installer with `--uninstall` (`-Uninstall`): it disables every host first, then removes the binary and the opencode plugin file (and on Windows the Defender exclusion, plus the PATH entry when nothing else is left in that directory). Add `--purge` (`-Purge`) to delete guardrail's state, config and data directories as well. [docs/OPERATIONS.md](./docs/OPERATIONS.md#install-update-disable-uninstall) lists exactly what each one removes.
 
 ## What it protects
 

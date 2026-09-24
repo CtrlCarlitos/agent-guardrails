@@ -96,8 +96,9 @@ running binary. `setup --state disabled` runs `plane disable` for every
 registered plane under one approval, and nothing else.
 
 `--uninstall` disables first (operator approval, like any disable), then
-removes the binary, the opencode plugin file, and on Windows the PATH entry
-and Defender exclusion it added. `--purge` also removes every state, config and
+removes the binary, the opencode plugin file, and on Windows the Defender
+exclusion it added and the PATH entry when `<dest>` is left empty (the
+default `%USERPROFILE%\.local\bin` is shared with other tools). `--purge` also removes every state, config and
 data root, including all three Windows state roots. Plane settings files are
 changed only by `plane disable`, from the ownership manifest (ADR-0028).
 

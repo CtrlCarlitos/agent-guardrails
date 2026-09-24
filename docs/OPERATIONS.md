@@ -247,13 +247,20 @@ directly does the same.
 
 **Uninstall.** `--uninstall` runs `guardrail setup --state disabled` first; if
 that fails the uninstall stops with `planes are still registered` and removes
-nothing. Then it removes the binary and the opencode plugin file
+nothing. (A binary older than `setup` is disabled with `guardrail plane
+disable --all` instead.) Then it removes the binary, the updater's
+`guardrail.old` / `.guardrail-update` leftovers, and the opencode plugin file
 (`${XDG_DATA_HOME:-~/.local/share}/guardrail/guardrail.js`,
-`%USERPROFILE%\.local\share\guardrail\guardrail.js`), and on Windows the user
-PATH entry and the Defender exclusion (the latter needs an elevated shell;
-otherwise it prints the `Remove-MpPreference` command). Plane settings files
+`%USERPROFILE%\.local\share\guardrail\guardrail.js`). On Windows it also
+removes the Defender exclusion (this needs an elevated shell; otherwise
+it prints the `Remove-MpPreference` command) and the user PATH entry, but only
+when `<dest>` is empty afterwards: `%USERPROFILE%\.local\bin` is shared with
+other tools, so otherwise it prints `leaving <dest> on PATH (other tools live
+there)`. A `guardrail.exe` still held by a running process is renamed to
+`guardrail.exe.old` for you to delete after a reboot. Plane settings files
 are only changed by `plane disable`, which restores them from the ownership
-manifest. State and operator config are kept.
+manifest. State and operator config are kept. A relative `XDG_*_HOME` is
+ignored (the XDG spec calls it invalid); the `~/...` default is used.
 
 **Purge.** `--uninstall --purge` also deletes every directory guardrail keeps
 state, config or data in:
