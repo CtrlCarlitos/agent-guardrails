@@ -565,6 +565,7 @@ func TestSetupFailsWhenApprovedMergeDidNotConverge(t *testing.T) {
 	// An approval daemon running another binary: it reports approved but
 	// never writes this binary's handlers.
 	origSubmit, origQuery := submitPlaneRequest, queryPlaneStatus
+	stubOperatorEnrolled(t, true)
 	t.Cleanup(func() { submitPlaneRequest, queryPlaneStatus = origSubmit, origQuery })
 	submitPlaneRequest = func(r approval.Request) (approval.Request, error) {
 		return approval.Request{ID: "stub-request", Status: "pending", ApprovalURL: "http://localhost:39169/approve"}, nil

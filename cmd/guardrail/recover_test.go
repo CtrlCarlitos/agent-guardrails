@@ -120,6 +120,7 @@ func TestRecoverClaudeSettingsHappyPath(t *testing.T) {
 	var submitted []approval.Request
 	var current approval.Request
 	origSubmit, origQuery := submitPlaneRequest, queryPlaneStatus
+	stubOperatorEnrolled(t, true)
 	submitPlaneRequest = func(request approval.Request) (approval.Request, error) {
 		current = request
 		submitted = append(submitted, request)

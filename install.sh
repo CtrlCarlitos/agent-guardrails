@@ -10,7 +10,9 @@
 # Exit codes: 2 usage / unsupported platform / missing tool; 1 download,
 # checksum, install or post-install version failure, or an uninstall that
 # could not disable the planes or remove a file; otherwise the exit code of
-# `guardrail setup` (0 with --no-setup, and after an uninstall).
+# `guardrail setup` (0 with --no-setup, and after an uninstall; 3 when no
+# operator authenticator is enrolled yet: run `guardrail operator enroll`,
+# then `guardrail setup`).
 set -eu
 
 # Oldest release whose `guardrail update` is the sanctioned replacement path.

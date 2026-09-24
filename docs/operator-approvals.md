@@ -37,6 +37,12 @@ remove-authenticator <fingerprint>` requires a verified enrolled authenticator
 and refuses to remove the final credential. Credential fingerprints are
 privacy-safe audit identifiers, not credential IDs or authenticator labels.
 
+Until a credential is enrolled, `guardrail setup`, `guardrail plane
+enable|disable` and `guardrail recover` stop with exit 3 and print this
+instruction instead of opening a ceremony; commands with nothing to approve
+still exit 0. `guardrail doctor` reports `operator approvals: disabled (no
+authenticator enrolled; run guardrail operator enroll)` until then.
+
 If every authenticator is lost, run `guardrail operator recover-reset` from a
 trusted local terminal and type `RESET`. It removes only public credential
 records, writes a recovery audit record, and disables approvals until a new

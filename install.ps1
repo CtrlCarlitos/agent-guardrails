@@ -9,8 +9,10 @@
 # Exit codes: 2 usage / unsupported platform; 1 download, checksum, install
 # or post-install version failure, or an uninstall that could not disable
 # the planes or remove a file; otherwise the exit code of `guardrail setup`
-# (0 with -NoSetup, and after an uninstall). PowerShell itself rejects unknown or
-# malformed parameters (exit 1 when run with -File).
+# (0 with -NoSetup, and after an uninstall; 3 when no operator authenticator
+# is enrolled yet: run `guardrail operator enroll`, then `guardrail setup`).
+# PowerShell itself rejects unknown or malformed parameters (exit 1 when run
+# with -File).
 #
 # Dot-sourcing (`. .\install.ps1`) only defines the helper functions; the
 # test harness uses that to exercise them without installing anything.

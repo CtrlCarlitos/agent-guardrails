@@ -46,7 +46,7 @@ The same engine inspects native editor tools and MCP servers before their calls 
 
 There is one binary. Releases ship it for Linux, macOS and Windows (amd64 + arm64), plus an installer script for each OS family and a `SHA256SUMS` file covering all of them. Download the installer for the tag you want, check it against that tag's `SHA256SUMS`, and run it.
 
-First install on a machine with no enrolled operator yet? Add `--no-setup` (`-NoSetup`) to the command below, then run `guardrail operator enroll` and `guardrail setup` (full steps below).
+First install on a machine with no enrolled operator yet? Add `--no-setup` (`-NoSetup`) to the command below, then run `guardrail operator enroll` and `guardrail setup` (full steps below). Without the flag the binary is still installed; `guardrail setup` then stops with exit 3 and prints those two commands instead of registering anything.
 
 Linux, macOS and WSL:
 
@@ -92,7 +92,7 @@ What the installer does:
 
 On Unix, make sure `~/.local/bin` is on your PATH (keep it in your shell profile).
 
-Some actions are the operator's alone — registering a host, granting web-host access, night mode. These require a passkey; enroll once. On a machine with no enrolled operator yet, add `--no-setup` (`-NoSetup`) to the first install, then:
+Some actions are the operator's alone — registering a host, granting web-host access, night mode. These require a passkey; enroll once. On a machine with no enrolled operator yet, add `--no-setup` (`-NoSetup`) to the first install (without it, `setup` exits 3 with the same instruction and registers nothing), then:
 
 ```sh
 guardrail operator enroll     # prints a localhost URL; open it and complete the passkey prompt

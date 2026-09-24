@@ -90,6 +90,9 @@ func cmdRecover(args []string, terminal bool, stdout, stderr io.Writer) int {
 		return 2
 	}
 	repair := args[0]
+	if !requireOperatorEnrolled("guardrail recover "+repair, stderr) {
+		return exitNotEnrolled
+	}
 
 	cwd, _ := os.Getwd()
 	created, err := submitPlaneRequest(approval.Request{

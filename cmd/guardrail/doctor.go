@@ -373,7 +373,7 @@ func operatorApprovalStatus(enrolled bool) string {
 	if enrolled {
 		return "operator approvals: WebAuthn"
 	}
-	return "operator approvals: disabled"
+	return "operator approvals: disabled (no authenticator enrolled; run guardrail operator enroll)"
 }
 
 // claudeRegisteredPrefix and claudeCannotSpawnMarker label the two states the

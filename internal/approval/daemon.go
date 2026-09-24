@@ -43,14 +43,41 @@ type Daemon struct {
 
 func DefaultSocketPath() string { return defaultPrivateEndpoint() }
 
-// SubmitOnDemand starts the user-level daemon if no authenticated socket is live.
+var (
+	// ErrDaemonUnavailable means exactly that: no daemon answered on the
+	// socket and none could be spawned. A daemon that answered with an
+	// error is reported with that error instead (#326).
+	ErrDaemonUnavailable = errors.New("approval daemon unavailable")
+	// ErrNotEnrolled is the daemon's reply when no operator authenticator
+	// is enrolled, so no approval ceremony can begin. The credential store
+	// wraps it; the daemon and the terminal recognise it with errors.Is.
+	ErrNotEnrolled = errors.New("no operator authenticator is enrolled")
+)
+
+// replyError maps a daemon's reply string back to an error. Known sentinels
+// round-trip so callers can branch on them; anything else is propagated as
+// the daemon said it.
+func replyError(message string) error {
+	if message == ErrNotEnrolled.Error() {
+		return ErrNotEnrolled
+	}
+	return errors.New(message)
+}
+
+// SubmitOnDemand starts the user-level daemon if no authenticated socket is
+// live. A daemon that is live but refuses the request is not restarted: its
+// reason comes back unchanged.
 func SubmitOnDemand(request Request) (Request, error) {
 	if err := persistentApprovalError(); err != nil {
 		return Request{}, err
 	}
 	socket := DefaultSocketPath()
-	if r, err := Submit(socket, request); err == nil {
+	r, err := Submit(socket, request)
+	if err == nil {
 		return r, nil
+	}
+	if !errors.Is(err, ErrDaemonUnavailable) {
+		return Request{}, err
 	}
 	if flag.Lookup("test.v") != nil {
 		// Test binaries cannot re-exec their CLI daemon entrypoint. Lifecycle and
@@ -65,12 +92,16 @@ func SubmitOnDemand(request Request) (Request, error) {
 	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if r, err := Submit(socket, request); err == nil {
+		r, err := Submit(socket, request)
+		if err == nil {
 			return r, nil
+		}
+		if !errors.Is(err, ErrDaemonUnavailable) {
+			return Request{}, err
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	return Request{}, errors.New("approval daemon unavailable")
+	return Request{}, ErrDaemonUnavailable
 }
 
 func RunDefaultDaemon(authStore AssertionStore, openURL func(string) error) error {
@@ -164,9 +195,14 @@ func (d *Daemon) handle(conn net.Conn) {
 				}
 			}
 		}
-		if err != nil {
+		switch {
+		case errors.Is(err, ErrNotEnrolled):
+			// Name the real reason: the terminal turns it into the
+			// enrollment instruction instead of debugging the daemon.
+			reply.Error = ErrNotEnrolled.Error()
+		case err != nil:
 			reply.Error = "approval request unavailable"
-		} else {
+		default:
 			reply.Request = requestStatus(r)
 		}
 	case "status":
@@ -255,11 +291,16 @@ func (d *Daemon) stopWhenIdle() {
 	}
 }
 
+// Submit sends one request to a live daemon. A transport failure is
+// ErrDaemonUnavailable; a daemon that answered with an error is reported
+// with that error, never rewritten as unavailable (#326).
 func Submit(socket string, request Request) (Request, error) {
 	var reply daemonReply
-	err := send(socket, daemonMessage{Operation: "submit", Request: request}, &reply)
-	if err != nil || reply.Error != "" {
-		return Request{}, errors.New("approval daemon unavailable")
+	if err := send(socket, daemonMessage{Operation: "submit", Request: request}, &reply); err != nil {
+		return Request{}, ErrDaemonUnavailable
+	}
+	if reply.Error != "" {
+		return Request{}, replyError(reply.Error)
 	}
 	return reply.Request, nil
 }

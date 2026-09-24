@@ -193,6 +193,11 @@ func (s *Store) BeginAssertion(request approval.Request, origin string) (Ceremon
 	if !time.Now().Before(request.ExpiresAt) {
 		return Ceremony{}, errors.New("approval request expired")
 	}
+	// An absent credential set is the one failure the operator can fix by
+	// themselves; name it so the daemon and the terminal can say so (#326).
+	if enrolled, err := s.hasCredentials(); err == nil && !enrolled {
+		return Ceremony{}, fmt.Errorf("begin assertion: %w", approval.ErrNotEnrolled)
+	}
 	generation, err := s.generation()
 	if err != nil {
 		return Ceremony{}, err

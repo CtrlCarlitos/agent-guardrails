@@ -48,6 +48,33 @@ var (
 // supportedPlanes are ordered for stable --all reporting.
 var supportedPlanes = []string{"claude", "opencode", "antigravity", "codex"}
 
+// exitNotEnrolled is the exit code for "no operator authenticator is
+// enrolled": nothing that needs an approval can succeed until `guardrail
+// operator enroll` has run. Distinct from 1 (denied, expired, failed) and 2
+// (usage, no terminal) so an installer or a dotfiles run can tell "needs
+// enrollment" apart from a failure (#326).
+const exitNotEnrolled = 3
+
+// operatorEnrolled reports whether an approval ceremony could begin at all.
+// Overridable in tests. A store that cannot be inspected reports true: the
+// daemon then names that failure itself rather than this preflight guessing.
+var operatorEnrolled = func() bool {
+	enrolled, err := defaultOperatorAuthStore().Enrolled()
+	return err != nil || enrolled
+}
+
+// requireOperatorEnrolled prints the one-time enrollment instruction and
+// reports false when no approval ceremony can begin. Commands call it only
+// once they know they have something to approve, so a steady-state run
+// (nothing to register or remove) never demands enrollment and stays exit 0.
+func requireOperatorEnrolled(rerun string, stderr io.Writer) bool {
+	if operatorEnrolled() {
+		return true
+	}
+	fmt.Fprintf(stderr, "guardrail: no operator authenticator is enrolled; run 'guardrail operator enroll' from a real terminal, then '%s'\n", rerun)
+	return false
+}
+
 func planeConfigPath(plane string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -275,6 +302,9 @@ func cmdPlaneLifecycle(args []string, action, outcome string, terminal bool, std
 	}
 	if len(batch) == 0 {
 		return 0
+	}
+	if !requireOperatorEnrolled("guardrail plane "+verb+" "+strings.Join(args, " "), stderr) {
+		return exitNotEnrolled
 	}
 	if !planesViaApproval(batch, action, outcome, stdout, stderr) {
 		return 1
