@@ -127,10 +127,7 @@ func TestSetupRefusesStagingPath(t *testing.T) {
 }
 
 func TestSetupPrintsRegisteredPathFirst(t *testing.T) {
-	testenv.SetHome(t, t.TempDir())
-	testenv.SetConfig(t, t.TempDir())
-	testenv.SetState(t, t.TempDir())
-	guardTestHome(t)
+	driftSandbox(t)
 
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "bin", "guardrail")
@@ -434,6 +431,80 @@ func TestSetupHonoursPlanesSubset(t *testing.T) {
 	}
 	if len(reasons) != 1 || !strings.HasPrefix(reasons[0], "opencode:") {
 		t.Fatalf("reason lines = %q, want exactly one opencode line", reasons)
+	}
+}
+
+func TestSetupDisableRemovesRegisteredPlanes(t *testing.T) {
+	driftSandbox(t)
+	enableForDrift(t, "claude")
+	enableForDrift(t, "antigravity")
+	useInstalledPlanes(t, "claude", "antigravity")
+	useTransport(t, []string{"approved"})
+	seen := countSubmits(t)
+	calls := stubSetupGates(t, false, 0, 0)
+
+	code, out, errb := runSetup(t, "--state", "disabled")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", code, out, errb)
+	}
+	if planeIntegrationRegistered("claude") {
+		t.Fatal("claude still registered after disable")
+	}
+	if planeIntegrationRegistered("antigravity") {
+		t.Fatal("antigravity still registered after disable")
+	}
+	if calls.selftest != 0 {
+		t.Fatalf("selftest calls = %d, want 0", calls.selftest)
+	}
+	if len(*seen) != 1 {
+		t.Fatalf("submitPlaneRequest calls = %d, want 1", len(*seen))
+	}
+	req := (*seen)[0]
+	if req.Action != "plane-disable" {
+		t.Fatalf("action = %q, want plane-disable", req.Action)
+	}
+	if got := req.Parameters["planes"]; got != "claude,antigravity" {
+		t.Fatalf("planes = %q, want claude,antigravity", got)
+	}
+}
+
+func TestSetupDisableIsNoOpWhenNothingRegistered(t *testing.T) {
+	driftSandbox(t)
+	useInstalledPlanes(t, "claude")
+	useTransport(t, nil)
+	calls := stubSetupGates(t, false, 0, 0)
+
+	code, out, errb := runSetup(t, "--state", "disabled")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", code, out, errb)
+	}
+	if !strings.Contains(out, "claude: already disabled\n") {
+		t.Fatalf("stdout missing already-disabled line:\n%s", out)
+	}
+	if strings.Contains(out, "approval required") {
+		t.Fatalf("no-op disable prompted for approval:\n%s", out)
+	}
+	if calls.selftest != 0 {
+		t.Fatalf("selftest calls = %d, want 0", calls.selftest)
+	}
+}
+
+func TestSetupDisableDeniedFails(t *testing.T) {
+	driftSandbox(t)
+	enableForDrift(t, "claude")
+	useInstalledPlanes(t, "claude")
+	useTransport(t, []string{"denied"})
+	calls := stubSetupGates(t, false, 0, 0)
+
+	code, out, errb := runSetup(t, "--state", "disabled")
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; stdout=%q stderr=%q", code, out, errb)
+	}
+	if !planeIntegrationRegistered("claude") {
+		t.Fatal("claude no longer registered after denied disable")
+	}
+	if calls.selftest != 0 {
+		t.Fatalf("selftest calls = %d, want 0", calls.selftest)
 	}
 }
 

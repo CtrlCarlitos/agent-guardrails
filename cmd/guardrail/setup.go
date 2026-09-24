@@ -95,18 +95,12 @@ func cmdSetup(args []string, terminal bool, stdout, stderr io.Writer) int {
 	return setupReconcile(planes, state, stdout, stderr)
 }
 
-// setupReconcile dispatches on the requested state. Only enabled is built
-// here; disabled keeps the skeleton's detection-only behaviour until Task 4.
+// setupReconcile dispatches on the requested state.
 func setupReconcile(planes []string, state string, stdout, stderr io.Writer) int {
 	if state == "enabled" {
 		return setupEnable(planes, stdout, stderr)
 	}
-	for _, plane := range planes {
-		if !planeInstalled(plane) {
-			fmt.Fprintf(stdout, "%s: not detected\n", plane)
-		}
-	}
-	return 0
+	return setupDisable(planes, stdout, stderr)
 }
 
 // setupEnable reconciles every detected target plane against this binary,
@@ -158,6 +152,29 @@ func setupEnableReason(plane string) (string, error) {
 		return "registered handlers differ from this binary; re-enabling", nil
 	}
 	return "", nil
+}
+
+// setupDisable removes every registered target plane's integration, approves
+// the whole batch once, and skips the coverage and selftest gates entirely:
+// disabling this binary's hooks is not a reason to verify them.
+func setupDisable(planes []string, stdout, stderr io.Writer) int {
+	var batch []string
+	for _, plane := range planes {
+		switch {
+		case planeInstalled(plane) && planeIntegrationRegistered(plane):
+			fmt.Fprintf(stdout, "%s: registered; disabling\n", plane)
+			batch = append(batch, plane)
+		case planeInstalled(plane):
+			fmt.Fprintf(stdout, "%s: already disabled\n", plane)
+		default:
+			fmt.Fprintf(stdout, "%s: not detected\n", plane)
+		}
+	}
+	if len(batch) > 0 && !planesViaApproval(batch, "plane-disable", "disabled", stdout, stderr) {
+		return 1
+	}
+	setupPrintStatus(planes, stdout)
+	return 0
 }
 
 // setupGates runs the antigravity coverage gate (when agy is on PATH) and
