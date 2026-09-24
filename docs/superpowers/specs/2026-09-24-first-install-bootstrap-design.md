@@ -170,9 +170,15 @@ generalises to `checkSelfControlInvocation`: the direct match accepts
 allowed exactly as `night status` does today: `plane status`, and every
 subcommand not listed. Reasons name the subcommand.
 
-**Installers** — no change to `install.sh` / `install.ps1` beyond their
-header comment and the final message: the handoff already exits with
-`setup`'s code, which is now 0 on a fresh machine.
+**Installers** — the handoff already exits with `setup`'s code, which is
+now 0 on a fresh machine. One real change: both scripts probe whether the
+binary has `setup` by running it with stdin piped and reading the exit-2
+refusal. A bare piped `setup` would now *bootstrap* on an unenrolled
+machine, so the probe becomes `setup --state disabled`, which keeps the
+terminal gate in every enrollment state and touches nothing. A capability
+probe must never have side effects. The `install.ps1` harness case that
+relied on the old refusal places the binary with `-NoSetup` first, then
+runs `-State disabled` without a console.
 
 ## Error handling
 
@@ -214,8 +220,11 @@ plan; the important ones:
   them, and the `.exe` / absolute-path spellings → deny `P5.self-config`;
   `guardrail plane status`, `guardrail doctor`, `guardrail selftest`,
   `guardrail audit` → allow.
-- installer harnesses: unchanged; `handoff-propagates-setup-exit-code`
-  still passes because the fake `guardrail` decides the code.
+- installer harnesses: `install_sh_test.sh` unchanged (its handoff case
+  uses a fake `guardrail` that decides the code); `install_ps1_test.ps1`'s
+  `handoff-propagates-setup-exit-code` installs with `-NoSetup`, then runs
+  `-State disabled` without a console and expects exit 2. Both harnesses
+  and shellcheck green locally (Windows pwsh, WSL) and in CI.
 
 ## Out of scope
 

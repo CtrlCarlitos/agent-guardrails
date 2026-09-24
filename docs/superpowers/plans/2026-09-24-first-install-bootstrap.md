@@ -69,6 +69,10 @@
 
 - [ ] README: the "first install" sentences become "The installer arms every detected host on its own the first time; enroll a passkey afterwards to take control" and the enroll block loses the `--no-setup` requirement. OPERATIONS: setup paragraph (bootstrap, exit table), `--no-setup` paragraph (now optional), runbook row for the doctor line. operator-approvals: the paragraph from #327 gains the bootstrap sentence. ADR-0029: status line notes amendment by ADR-0030. Installer headers: exit 3 wording narrows to `--state disabled`. CHANGELOG `Unreleased`: one entry under Grants & Approvals, one under Engine Enforcement & Policy for Task 6.
 
+## Task 7b — installer probes (found by CI)
+
+- [x] `install.sh` `setup_supported` and `install.ps1` `Test-SetupSupported` probe with `setup --state disabled` instead of a bare `setup`: the bare form now bootstraps on an unenrolled machine, and a probe must never have side effects. `install_ps1_test.ps1` `Case-HandoffPropagatesSetupExitCode` installs with `-NoSetup` first, then runs `-State disabled` without a console (exit 2 propagated).
+
 ## Task 8 — verification
 
 - [ ] `gofmt -l`, `go vet ./...`, `go test ./...` on Windows; full suite on Linux via WSL (recipe in memory); installer harness `test/installer/install_sh_test.sh` on WSL if `dist/` is available, else rely on CI's installer job.
