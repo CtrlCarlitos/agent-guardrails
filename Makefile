@@ -19,6 +19,12 @@ fmt:
 check: test vet adversarial
 	@test -z "$$($(GO) run cmd/gofmt -l . 2>/dev/null || gofmt -l .)" || { echo "gofmt needed:"; gofmt -l .; exit 1; }
 
+# `make check` runs the install.sh harness on Linux only; the CI installer
+# job covers macOS and Windows.
+ifeq ($(shell uname -s),Linux)
+check: installer-test
+endif
+
 adversarial:
 	$(GO) test ./test/adversarial/ -v
 

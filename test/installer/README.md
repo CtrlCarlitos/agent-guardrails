@@ -61,6 +61,10 @@ therefore live in the temp directory, never in yours.
   exit 1 with `uninstall aborted: planes are still registered`, and leave
   the binary and the plugin in place.
 
+`sums-cover-the-scripts` checks that `$DIST/SHA256SUMS` has a line for
+`install.sh` and one for `install.ps1`: `scripts/build-dist.sh` ships both
+scripts as release assets and checksums them with the binaries.
+
 It prints `PASS:` / `FAIL:` per case and exits 1 on any `FAIL:`. The
 `shellcheck` case prints `SKIP:` when `shellcheck` is not installed; CI
 has it.
@@ -127,6 +131,16 @@ on any parse error, and also fails on PowerShell 7-only syntax that the
 pwsh parser accepts but Windows PowerShell 5.1 does not: a literal `??`,
 `?.` or `-Parallel` anywhere in the script, a ternary `? :`, or a
 pipeline chain `&&` / `||`.
+
+## In CI
+
+The `installer` job in `.github/workflows/ci.yml` runs on ubuntu, macOS
+and Windows. Each leg builds `dist/` with `VERSION=v0.0.0-ci
+./scripts/build-dist.sh` and installs from it, so no network or published
+release is involved. Ubuntu and macOS run `install_sh_test.sh` (ubuntu
+also runs `shellcheck -s sh install.sh`); Windows runs
+`install_ps1_test.ps1` twice, under `pwsh` and under Windows PowerShell
+5.1, and both must pass.
 
 ## Not covered here
 

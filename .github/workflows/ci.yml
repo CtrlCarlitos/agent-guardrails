@@ -117,6 +117,53 @@ jobs:
             echo "These files need gofmt:"; echo "$unformatted"; exit 1
           fi
 
+  installer:
+    # Runs the install.sh / install.ps1 harnesses against a dist/ built in this
+    # job: the scripts install from that local directory via --base-url /
+    # -BaseUrl, so no network access or published release is needed.
+    needs: []
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: build dist
+        shell: bash
+        env:
+          VERSION: v0.0.0-ci
+        run: ./scripts/build-dist.sh
+      - name: shellcheck install.sh
+        if: matrix.os == 'ubuntu-latest'
+        run: shellcheck -s sh install.sh
+      - name: install.sh harness
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        env:
+          DIST: dist
+          VERSION: v0.0.0-ci
+        run: bash test/installer/install_sh_test.sh
+      - name: install.ps1 harness (pwsh)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        env:
+          DIST: dist
+          VERSION: v0.0.0-ci
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File test/installer/install_ps1_test.ps1
+      - name: install.ps1 harness (Windows PowerShell 5.1)
+        # install.ps1 must run under the PowerShell every Windows box ships.
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        env:
+          DIST: dist
+          VERSION: v0.0.0-ci
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File test/installer/install_ps1_test.ps1
+
   windows-portability:
     # Full-suite Windows visibility while the portability sweep is still
     # converging. The suite step retains its failure outcome for the warning

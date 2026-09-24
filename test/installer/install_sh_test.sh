@@ -263,6 +263,13 @@ case_uninstall_aborts_when_disable_fails() {
   [ -f "$home/.local/share/guardrail/guardrail.js" ] || { echo "  plugin or data root was removed"; return 1; }
 }
 
+case_sums_cover_the_scripts() {
+  # A release must checksum the install scripts it ships, not only the binaries.
+  local got
+  got="$(grep -cE ' install\.(sh|ps1)$' "$DIST/SHA256SUMS" || true)"
+  [ "$got" -eq 2 ] || { echo "  $DIST/SHA256SUMS has $got install.sh/install.ps1 lines, want 2"; return 1; }
+}
+
 fails=0
 check() { # $1 = case label, $2 = function
   if "$2"; then echo "PASS: $1"; else echo "FAIL: $1"; fails=$((fails + 1)); fi
@@ -283,6 +290,7 @@ check uninstall-nothing-installed-is-ok          case_uninstall_nothing_installe
 check purge-without-uninstall-exits-2            case_purge_without_uninstall_exits_2
 check state-with-uninstall-exits-2               case_state_with_uninstall_exits_2
 check uninstall-aborts-when-disable-fails        case_uninstall_aborts_when_disable_fails
+check sums-cover-the-scripts                     case_sums_cover_the_scripts
 
 if command -v shellcheck >/dev/null 2>&1; then
   if shellcheck -s sh "$INSTALL_SH"; then echo "PASS: shellcheck"; else echo "FAIL: shellcheck"; fails=$((fails + 1)); fi
