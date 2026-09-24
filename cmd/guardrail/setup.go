@@ -133,6 +133,9 @@ func setupEnable(planes []string, stdout, stderr io.Writer) int {
 		batch = append(batch, plane)
 	}
 	if len(batch) > 0 {
+		if !requireOperatorEnrolled("guardrail setup", stderr) {
+			return exitNotEnrolled
+		}
 		setupStopApprovalDaemon()
 		if !planesViaApproval(batch, "plane-enable", "enabled", stdout, stderr) {
 			return 1
@@ -195,8 +198,13 @@ func setupDisable(planes []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "%s: not detected\n", plane)
 		}
 	}
-	if len(batch) > 0 && !planesViaApproval(batch, "plane-disable", "disabled", stdout, stderr) {
-		return 1
+	if len(batch) > 0 {
+		if !requireOperatorEnrolled("guardrail setup --state disabled", stderr) {
+			return exitNotEnrolled
+		}
+		if !planesViaApproval(batch, "plane-disable", "disabled", stdout, stderr) {
+			return 1
+		}
 	}
 	// Nothing left needs the daemon; stopping it releases this binary so an
 	// uninstall can delete it (Windows cannot delete a running image).

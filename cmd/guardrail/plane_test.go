@@ -284,6 +284,9 @@ func stubPlaneTransport(t *testing.T, statuses []string) func() {
 	origQuery := queryPlaneStatus
 	origShutdown := setupShutdownDaemon
 	setupShutdownDaemon = func(string) error { return nil }
+	// The stubbed daemon stands in for an enrolled operator; the preflight
+	// must see one too, or the command stops before the transport (#326).
+	stubOperatorEnrolled(t, true)
 	var current approval.Request
 	submitPlaneRequest = func(request approval.Request) (approval.Request, error) {
 		current = request
@@ -498,6 +501,7 @@ func TestPlaneEnableAllBatchesOneApprovalAndSkipsSatisfied(t *testing.T) {
 
 	var submitted []approval.Request
 	origSubmit, origQuery := submitPlaneRequest, queryPlaneStatus
+	stubOperatorEnrolled(t, true)
 	submitPlaneRequest = func(request approval.Request) (approval.Request, error) {
 		submitted = append(submitted, request)
 		return approval.Request{ID: "stub-request", Status: "pending", ApprovalURL: "http://localhost:39169/approve"}, nil
@@ -584,6 +588,7 @@ func TestPlaneEnableAllHealsUnmarkedLegacyClaudeEntries(t *testing.T) {
 	var submitted []approval.Request
 	var current approval.Request
 	origSubmit, origQuery := submitPlaneRequest, queryPlaneStatus
+	stubOperatorEnrolled(t, true)
 	submitPlaneRequest = func(request approval.Request) (approval.Request, error) {
 		current = request
 		submitted = append(submitted, request)
@@ -670,6 +675,7 @@ func TestPlaneEnableHealsAntigravityUnmarkedAndDisabled(t *testing.T) {
 	var submitted []approval.Request
 	var current approval.Request
 	origSubmit, origQuery := submitPlaneRequest, queryPlaneStatus
+	stubOperatorEnrolled(t, true)
 	submitPlaneRequest = func(request approval.Request) (approval.Request, error) {
 		current = request
 		submitted = append(submitted, request)
@@ -740,6 +746,7 @@ func TestPlaneEnableClaudeReMergesWhenFloorDrifted(t *testing.T) {
 
 	var submitted []approval.Request
 	origSubmit, origQuery := submitPlaneRequest, queryPlaneStatus
+	stubOperatorEnrolled(t, true)
 	submitPlaneRequest = func(request approval.Request) (approval.Request, error) {
 		submitted = append(submitted, request)
 		return approval.Request{ID: "stub-request", Status: "pending", ApprovalURL: "http://localhost:39169/approve"}, nil

@@ -4,6 +4,28 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Grants & Approvals
+- **Fix (#326): a machine with no enrolled operator now says so instead of
+  "approval daemon unavailable".** `approval.Submit` propagates the daemon's
+  reply error; `ErrDaemonUnavailable` now means exactly that (nothing answered
+  on the socket and none could be spawned), and `SubmitOnDemand` no longer
+  respawns a daemon that is live but refused the request. The daemon replies
+  `no operator authenticator is enrolled` (`approval.ErrNotEnrolled`, raised by
+  the credential store's `BeginAssertion`) when no ceremony can begin.
+- **Fix (#326): `setup`, `plane enable|disable` and `recover` preflight
+  enrollment.** When something needs an approval and no authenticator is
+  enrolled they stop before submitting, print `run 'guardrail operator enroll'
+  … then '<the command to re-run>'`, and exit **3** — distinct from 1
+  (denied/expired/failed) and 2 (usage/no terminal) so installers and dotfiles
+  runs can tell "needs enrollment" from a failure. A run with nothing to
+  register or remove never needs enrollment and stays exit 0. `install.sh` and
+  `install.ps1` pass the code through.
+- **Change (#326): `doctor` names the reason.** `operator approvals: disabled
+  (no authenticator enrolled; run guardrail operator enroll)` replaces the bare
+  `disabled`, which read like a setting.
+
 ## v0.23.1-dev (2026-09-23)
 
 ### Installation

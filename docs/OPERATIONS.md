@@ -48,6 +48,7 @@ like from the outside for four days: `registered`, green, enforcing nothing.
 | You see | Run | Why |
 |---|---|---|
 | Agent says it was blocked and you don't know why | `guardrail audit` then `grep '"decision":"deny"' ~/.local/state/guardrail/audit.jsonl \| grep -v selftest \| tail -5` | Every verdict is a JSONL record with `rule_id` and `reason`. Selftest writes deny probes to the same log on every update — filter them out or you will be reading the last selftest. |
+| `no operator authenticator is enrolled` from `setup`, `plane enable\|disable` or `recover` (exit 3); doctor: `operator approvals: disabled (no authenticator enrolled; …)` | `guardrail operator enroll` from a real terminal, then re-run the command it named | No passkey is enrolled, so no approval ceremony can start. The daemon is fine; nothing was changed. `approval daemon unavailable` now means exactly that: nothing answered on the socket and none could be spawned (#326). |
 | doctor: `N unmarked guardrail-like hook entries in settings.json` | `guardrail plane enable claude` | Legacy pre-marker hook groups; enable absorbs them (ADR-0004). Passkey. |
 | doctor: `guardrail hook registered but CANNOT SPAWN` | `guardrail plane enable claude`, or `guardrail gen-config claude --merge <settings.json> --binary <path>` where plane commands are gated | The registered command cannot be spawned by a shell — an unquoted path with a backslash or a space. Nothing is being enforced while it reads this. Re-merging rewrites it (#149). |
 | doctor: `guardrail hook registered but NEVER OBSERVED FIRING` | `guardrail selftest --evidence claude` | Registered, spawnable, not yet exercised. Expected on a fresh enrolment or a freshly built binary; clears itself once a real session is mediated. Exit 1 until two pre-hook records from one real session exist. If it persists across real sessions, the hook is not being invoked — treat as #149's shape. |
@@ -227,7 +228,13 @@ antigravity` when `agy` is on PATH and `selftest`; either failing is a
 non-zero exit. It ends with one status line per plane. `setup` refuses to run
 without an interactive terminal (exit 2) and refuses to register the
 updater's staging or `.old` path (exit 2); it prints the path it registers
-before asking. It never downloads, never touches PATH or Defender.
+before asking. When a plane needs an approval but no operator authenticator
+is enrolled, it stops before submitting anything, prints `run 'guardrail
+operator enroll' … then 'guardrail setup'`, and exits **3** (#326); a run
+with nothing to register or remove never needs enrollment and exits 0.
+`plane enable|disable` and `recover` exit 3 the same way. Installers pass the
+code through, so a dotfiles run can treat 3 as "enroll, then re-run" rather
+than a failed install. It never downloads, never touches PATH or Defender.
 
 `guardrail update <tag>` on its own replaces the binary and runs `doctor` and
 `selftest` on it, but leaves the registered handlers as they were. Follow it
