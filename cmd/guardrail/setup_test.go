@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -311,12 +312,78 @@ func TestSetupReenablesOnHandlerDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	settings := readPlaneJSON(t, path)
-	quote := func(p string) string { raw, _ := json.Marshal(p); return strings.Trim(string(raw), `"`) }
-	if !strings.Contains(settings, quote(b)) {
-		t.Fatalf("settings do not reference %s:\n%s", b, settings)
+	// Compare against the command the generator writes, not the raw path:
+	// on Windows HookCommand spells the binary quoted with forward slashes
+	// so the hook survives a POSIX shell (#149), and the JSON-escaped
+	// backslash form this test used to look for never appears there.
+	quoted := func(binary string) string {
+		raw, _ := json.Marshal(genconfig.HookCommand(binary, "hook", "claude"))
+		return strings.Trim(string(raw), `"`)
 	}
-	if strings.Contains(settings, quote(a)) {
+	if !strings.Contains(settings, quoted(b)) {
+		t.Fatalf("settings do not reference %s (as %s):\n%s", b, quoted(b), settings)
+	}
+	if strings.Contains(settings, quoted(a)) {
 		t.Fatalf("settings still reference %s:\n%s", a, settings)
+	}
+}
+
+// TestWindowsSetupReenableWritesTheCrossShellSpelling runs the same re-merge
+// on the Windows CI slice (its name is the filter, see ci.yml) and pins the
+// property the portable test cannot see on POSIX: every guardrail hook a
+// setup re-enable writes on Windows is quoted and free of backslashes, so a
+// binary swap can never register the unspawnable spelling #149 measured.
+func TestWindowsSetupReenableWritesTheCrossShellSpelling(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the sandbox paths are only Windows-shaped on Windows")
+	}
+	_, b := driftSandbox(t)
+	enableForDrift(t, "claude")
+	useInstalledExecutable(t, b)
+	useInstalledPlanes(t, "claude")
+	useTransport(t, []string{"approved"})
+	stubSetupGates(t, false, 0, 0)
+
+	if code, out, errb := runSetup(t); code != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", code, out, errb)
+	}
+	path, err := planeConfigPath("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := genconfig.ReadJSONObject(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var commands []string
+	var walk func(node any)
+	walk = func(node any) {
+		switch v := node.(type) {
+		case map[string]any:
+			if c, ok := v["command"].(string); ok && strings.Contains(c, "hook claude") {
+				commands = append(commands, c)
+			}
+			for _, child := range v {
+				walk(child)
+			}
+		case []any:
+			for _, child := range v {
+				walk(child)
+			}
+		}
+	}
+	walk(doc["hooks"])
+	if len(commands) == 0 {
+		t.Fatalf("no guardrail hook commands in %s", path)
+	}
+	want := genconfig.HookCommand(b, "hook", "claude")
+	for _, c := range commands {
+		if c != want {
+			t.Errorf("hook command = %q, want %q", c, want)
+		}
+		if strings.Contains(c, `\`) || !strings.HasPrefix(c, `"`) {
+			t.Errorf("hook command %q is not the cross-shell spelling (quoted, forward slashes)", c)
+		}
 	}
 }
 
