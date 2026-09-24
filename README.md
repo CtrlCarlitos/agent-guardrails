@@ -44,61 +44,65 @@ The same engine inspects native editor tools and MCP servers before their calls 
 
 ## Install
 
-There is one binary. Releases ship it for Linux, macOS and Windows (amd64 + arm64) with a `SHA256SUMS` file.
+There is one binary. Releases ship it for Linux, macOS and Windows (amd64 + arm64), plus an installer script for each OS family and a `SHA256SUMS` file covering all of them. Download the installer for the tag you want, check it against that tag's `SHA256SUMS`, and run it.
 
-Pick the asset for your machine (`uname -m` shows the architecture), then download, verify, and install:
-
-| Machine | Asset |
-|---|---|
-| Linux / WSL, x86-64 | `guardrail_linux_amd64` |
-| Linux / WSL, ARM64 | `guardrail_linux_arm64` |
-| macOS, Intel | `guardrail_darwin_amd64` |
-| macOS, Apple Silicon | `guardrail_darwin_arm64` |
+Linux, macOS and WSL:
 
 ```sh
 (
   set -eu
-  ver=v0.21.0-dev
-  asset=guardrail_linux_amd64   # change for your platform
+  ver=v0.23.0-dev   # the release you want
   url="https://github.com/CtrlCarlitos/agent-guardrails/releases/download/$ver"
   tmp="$(mktemp -d)"; cd "$tmp"
 
-  curl -fL -o "$asset" "$url/$asset"
+  curl -fL -o install.sh "$url/install.sh"
   curl -fL -o SHA256SUMS "$url/SHA256SUMS"
-  grep " $asset\$" SHA256SUMS | { sha256sum -c - 2>/dev/null || shasum -a 256 -c - ; }
+  grep " install.sh\$" SHA256SUMS | { sha256sum -c - 2>/dev/null || shasum -a 256 -c - ; }
 
-  mkdir -p ~/.local/bin
-  install -m 0755 "$asset" ~/.local/bin/guardrail
+  sh install.sh --version "$ver"
 )
-export PATH="$HOME/.local/bin:$PATH"   # keep this in your shell profile
-guardrail version
 ```
 
-Wire it into each agent host you use (idempotent; re-run any time):
+Windows (Windows PowerShell 5.1 or PowerShell 7):
 
-```sh
-guardrail gen-config claude      --merge ~/.claude/settings.json          --binary ~/.local/bin/guardrail
-guardrail gen-config opencode    --merge ~/.config/opencode/opencode.json --binary ~/.local/bin/guardrail
-guardrail gen-config antigravity --merge ~/.gemini/config/hooks.json      --binary ~/.local/bin/guardrail
-guardrail gen-config codex       --merge ~/.codex/hooks.json              --binary ~/.local/bin/guardrail
+```powershell
+$ver = 'v0.23.0-dev'   # the release you want
+$url = "https://github.com/CtrlCarlitos/agent-guardrails/releases/download/$ver"
+Set-Location (New-Item -ItemType Directory -Force -Path (Join-Path $env:TEMP "guardrail-$ver"))
 
-# Prove it
-guardrail selftest
-guardrail doctor
+Invoke-WebRequest -UseBasicParsing -Uri "$url/install.ps1" -OutFile install.ps1
+Invoke-WebRequest -UseBasicParsing -Uri "$url/SHA256SUMS" -OutFile SHA256SUMS
+$want = ((Select-String -Path SHA256SUMS -Pattern ' install\.ps1$').Line -split '\s+')[0]
+if ((Get-FileHash -Algorithm SHA256 install.ps1).Hash -ne $want) { throw 'install.ps1 does not match SHA256SUMS' }
+
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version $ver
 ```
 
-From then on, `guardrail update <version>` replaces the binary (checksum-verified) and runs `doctor` and `selftest` on the new release, calling out loudly if any probe fails. To go back, run `guardrail update <previous-version>`.
+`v0.23.0-dev` is an example; use the tag of the release you are installing (the operator bumps it here at each release). `latest` is refused on purpose: you always install an exact, checksummed tag. Run the downloaded file as shown rather than piping it into a shell or evaluating it in-process — the scripts `exit` on failure, which would close an interactive PowerShell session, and they hand your terminal to `guardrail setup` for a passkey approval.
 
-Some actions are the operator's alone — registering a host with `plane enable`, granting web-host access, night mode. These require a passkey; enroll once:
+What the installer does:
+
+1. Picks the binary for your OS and architecture, downloads it with `SHA256SUMS` and verifies it; any failure leaves nothing installed. If an older guardrail is already there, it uses `guardrail update` instead.
+2. Places it at `~/.local/bin/guardrail` (`%USERPROFILE%\.local\bin\guardrail.exe` on Windows; `--dest` / `-Dest` to change) and checks that it reports the tag you asked for.
+3. On Windows: runs `Unblock-File`, adds that directory to your user PATH, and adds a Microsoft Defender exclusion for that exact file (never a folder). Without an elevated shell it prints the `Add-MpPreference` command for you to run instead.
+4. Runs `guardrail setup`, which registers guardrail with every agent host it detects and then runs `selftest`. Registering a host is an operator action, so this step asks for your passkey.
+
+On Unix, make sure `~/.local/bin` is on your PATH (keep it in your shell profile).
+
+Some actions are the operator's alone — registering a host, granting web-host access, night mode. These require a passkey; enroll once. On a machine with no enrolled operator yet, add `--no-setup` (`-NoSetup`) to the first install, then:
 
 ```sh
 guardrail operator enroll     # prints a localhost URL; open it and complete the passkey prompt
-guardrail plane enable --all  # registers every detected host with one approval
+guardrail setup               # registers every detected host with one approval, then runs selftest
 ```
 
 Restart the agents you wired. **For Codex, run `/hooks` inside Codex to review and trust the generated hooks** — registered hooks alone are not executed by the runtime.
 
-Unix, WSL and macOS today. Windows runs the engine fine but keeps operator actions fail-closed until the [Windows broker](./docs/adr/0021-windows-approval-broker.md) lands.
+From then on, `guardrail update <version>` replaces the binary (checksum-verified) and runs `doctor` and `selftest` on the new release, calling out loudly if any probe fails; then run `guardrail setup` to reconcile the registered handlers with the new binary. Re-running the installer with the new version does both. To go back, do the same with the previous version.
+
+**Turning it off.** Re-run the installer with `--state disabled` (`-State disabled`), or run `guardrail setup --state disabled`: every registered host is unregistered with one approval and the binary stays in place. Nothing is downloaded.
+
+**Removing it.** Run the installer with `--uninstall` (`-Uninstall`): it disables every host first, then removes the binary and the opencode plugin file (and on Windows the PATH entry and the Defender exclusion). Add `--purge` (`-Purge`) to delete guardrail's state, config and data directories as well. [docs/OPERATIONS.md](./docs/OPERATIONS.md#install-update-disable-uninstall) lists exactly what each one removes.
 
 ## What it protects
 
@@ -175,7 +179,7 @@ go build -trimpath -ldflags '-X main.version=v0.21.0-dev' \
   -o ~/.local/bin/guardrail ./cmd/guardrail
 ```
 
-Then add `~/.local/bin` to your PATH (as above) and follow enrollment and plane enablement.
+Then add `~/.local/bin` to your PATH, enroll once (as above), and run `guardrail setup` to register the hosts.
 
 </details>
 

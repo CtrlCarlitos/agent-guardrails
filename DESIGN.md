@@ -108,19 +108,23 @@ research, see the dotfiles repo's research notes):
 - CI runs the test matrix, then on a version tag cross-compiles
   Linux/macOS/Windows × amd64/arm64 → GitHub Releases (goreleaser or a `go build`
   matrix + `gh release upload`). **Release only when the matrix is green.**
-- Dotfiles installer: a new gated, idempotent function in
-  `run_onchange_install_packages.sh.tmpl` (+ `.ps1.tmpl` inline), plus the
-  `~/scripts/update_ai_tools.sh` twin. Fetches the **pinned** release asset →
-  `~/.local/bin/guardrail`, verifies checksum + `guardrail version`; `Unblock-File`
-  sweep on Windows. Version pinned in the installer template like
-  `ANTIGRAVITY_VERSION`; bump = a dotfiles commit → `chezmoi apply` → `run_onchange`
-  re-fires. `run_onchange` no-ops when the installed version already matches.
+- Installer (ADR-0029): `install.sh` (POSIX `sh`; Linux, macOS, WSL) and
+  `install.ps1` (Windows PowerShell 5.1 / 7) ship as release assets listed in
+  `SHA256SUMS`. Given an exact `--version <tag>`, they download and verify the
+  asset (or run `guardrail update <tag>` over an existing binary at or above the
+  self-update floor) → `~/.local/bin/guardrail`, verify `guardrail version`, and
+  on Windows add `Unblock-File`, the user PATH entry and the exact-file Defender
+  exclusion. `--state disabled`, `--uninstall` and `--purge` cover the way back.
 - No on-machine compilation. No Go or Docker dependency on guard machines. Container
   build (`docker run --rm -v $PWD:/src -w /src golang:1.23 go build ./...`) is a
   contributor convenience only.
-- Per-plane wiring: `jq`-merge the hook/plugin registration + the generated
-  declarative floor into `~/.claude/settings.json`, `~/.config/opencode/opencode.json`,
-  `~/.gemini/config/hooks.json` (created if absent). All three planes guarded globally.
+- Per-plane wiring: the scripts end by running `guardrail setup`, which registers
+  every detected plane under one operator approval, re-merging any plane whose
+  registered handlers differ from what the running binary generates, then runs
+  the coverage gate and `selftest`. The dotfiles are only a caller: they fetch the
+  **pinned** tag's script, verify it against that tag's `SHA256SUMS`, and run it
+  with `--version <pin> --state <enabled|disabled>`; the pin stays a dotfiles
+  commit.
 - `guardrail sync` (run inside a repo): regenerate that repo's project-level plane
   configs from Base + Overlay, for projects that want Overlay rules mirrored into the
   Declarative floor too. Most projects don't need it — the Engine enforces Overlays at

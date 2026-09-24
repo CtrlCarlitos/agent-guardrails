@@ -59,6 +59,7 @@ like from the outside for four days: `registered`, green, enforcing nothing.
 | settings.json / opencode.json / hooks.json corrupt or hand-edited | `guardrail recover claude-settings` (or `opencode-config`, `antigravity-hooks`) | Repairs Guardrail-protected machinery from a known-good shape. Passkey. Never edit these files by hand — sessions are P5-denied from doing so and so should you be. |
 | An agent is waiting on an approval you never saw | `guardrail approvals list` then `guardrail approvals approve <id>` | Lists `<id>  <action>  expires <time>`; `approve` re-opens the ceremony and waits. `no approval daemon is running` means nothing is pending. |
 | Approval page never opened / daemon looks stuck | `guardrail approvals list`; if that hangs, kill the `guardrail approvals daemon` process — the next request re-spawns it from the installed binary | The daemon is spawned on demand and shut down by every `update`, so it can never outlive a release |
+| `registered handlers differ from this binary` (printed by `setup`), or a plane still runs the previous release's hook command after `guardrail update` | `guardrail setup` | `update` swaps the binary but leaves registered handlers alone; `setup` compares each plane's registered hooks (and the codex wrapper / opencode plugin entry) with what this binary generates and re-merges any that differ, under one approval (#317). Seeing the line during `setup` means it is fixing it. |
 | `guardrail update` says `release assets may still be publishing; retry in a minute` | wait 60 s, run it again | You raced the release uploader; nothing was changed |
 | `update` printed `selftest failed on the new binary` | `guardrail selftest` (read the FAILED lines) then `guardrail update <previous version>` | The new release drifted on a probe. Roll back with the same command; it is checksum-verified either way |
 | Agent needs a website | agent runs `guardrail egress grant --scope repo --host a.example.com,b.example.com` inside its session → you approve with passkey; or you run the same at a terminal (immediate, no passkey) | Grants live in `~/.config/guardrail/waivers.toml` plus the repo's `guardrail.toml`; **both** must agree. Native WebFetch is always denied; `guardrail fetch <url>` is the sanctioned path |
@@ -176,6 +177,99 @@ must stay scoped to the exact file (#146), and never hand-copy a new binary
 over the installed one except as a deliberate terminal recovery (#146) —
 `guardrail update` is the only sanctioned replacement.
 
+## Install, update, disable, uninstall
+
+Installation is this repo's job ([ADR-0029](./adr/0029-installer-lives-in-this-repo.md)).
+Every release ships `install.sh` (Linux, macOS, WSL; POSIX `sh`) and
+`install.ps1` (Windows PowerShell 5.1 and PowerShell 7) next to the binaries,
+listed in the same `SHA256SUMS`. Fetch the script for the exact tag, verify it
+against that tag's `SHA256SUMS` (the README shows both OS blocks), then run the
+file. Do not pipe the scripts into a shell or evaluate them in-process: they
+`exit` on failure and hand the terminal to `guardrail setup` for a passkey
+approval.
+
+| Task | Unix | Windows |
+|---|---|---|
+| Install, or move to another tag | `sh install.sh --version <tag>` | `powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version <tag>` |
+| Disable every plane, keep the binary | `sh install.sh --version <tag> --state disabled` | `… install.ps1 -Version <tag> -State disabled` |
+| Uninstall | `sh install.sh --uninstall` | `… install.ps1 -Uninstall` |
+| Uninstall and delete all state | `sh install.sh --uninstall --purge` | `… install.ps1 -Uninstall -Purge` |
+
+`--version` takes an exact tag (`latest` is refused, exit 2) and is required
+except with `--uninstall`. `--dest <dir>` (`-Dest`) changes the install
+directory from `~/.local/bin` (`%USERPROFILE%\.local\bin`); pass the same
+`--dest` to `--uninstall`. `--base-url <url-or-dir>` (`-BaseUrl`) points at
+another release base — an `http(s)` URL, a `file://` URL or a directory laid
+out as `<base>/<tag>/<asset>`; CI uses it to install from `dist/`.
+`--help` (`-Help`) prints the usage.
+
+**Install / update.** With no guardrail at the destination, or one older than
+`v0.19.2-dev`, the script downloads the asset and `SHA256SUMS`, verifies, and
+places the binary; a mismatch exits 1 and leaves the destination untouched.
+With one at or above that floor already installed it runs
+`guardrail update <tag>` — the sanctioned replacement path (#146) — and it
+replaces nothing if the installed binary already reports the tag. Either way it
+then checks that `guardrail version` prints `guardrail <tag>`. On Windows a
+fresh placement also runs `Unblock-File` and appends the destination to the
+user PATH if absent, and every run ensures a Defender exclusion for the exact
+`guardrail.exe` path (never a directory or a process name, #146); without an
+elevated shell it prints the `Add-MpPreference` command and carries on. Last, it runs `guardrail setup`
+and exits with setup's code.
+
+**`guardrail setup`** is the reconcile step, and the thing to run after any
+binary swap. For every detected plane (or `--planes claude,codex`), it
+re-registers the plane when any of these hold: not registered; permissions
+floor drifted; **registered handlers differ from what this binary generates**
+(the hook command, the codex wrapper or the opencode plugin entry, #317).
+Planes already consistent print `already enabled` and do not prompt; the rest
+go through one approval together. It then runs `doctor --coverage
+antigravity` when `agy` is on PATH and `selftest`; either failing is a
+non-zero exit. It ends with one status line per plane. `setup` refuses to run
+without an interactive terminal (exit 2) and refuses to register the
+updater's staging or `.old` path (exit 2); it prints the path it registers
+before asking. It never downloads, never touches PATH or Defender.
+
+`guardrail update <tag>` on its own replaces the binary and runs `doctor` and
+`selftest` on it, but leaves the registered handlers as they were. Follow it
+with `guardrail setup`, or re-run the installer, which does both.
+
+**`--no-setup` (`-NoSetup`)** stops once the binary is in place and verified,
+exit 0. Use it for the first install on a machine with no enrolled operator
+(`guardrail operator enroll`, then `guardrail setup`), in CI, or when you want
+to run `setup` yourself. With `--uninstall` it skips the disable step and only
+removes files.
+
+**Disable.** `--state disabled` never downloads. If a binary exists it runs
+`guardrail setup --state disabled` — `plane disable` for every registered
+plane under one approval, then `plane status`; with no binary it prints
+`nothing to do` and exits 0. Running `guardrail setup --state disabled`
+directly does the same.
+
+**Uninstall.** `--uninstall` runs `guardrail setup --state disabled` first; if
+that fails the uninstall stops with `planes are still registered` and removes
+nothing. Then it removes the binary and the opencode plugin file
+(`${XDG_DATA_HOME:-~/.local/share}/guardrail/guardrail.js`,
+`%USERPROFILE%\.local\share\guardrail\guardrail.js`), and on Windows the user
+PATH entry and the Defender exclusion (the latter needs an elevated shell;
+otherwise it prints the `Remove-MpPreference` command). Plane settings files
+are only changed by `plane disable`, which restores them from the ownership
+manifest. State and operator config are kept.
+
+**Purge.** `--uninstall --purge` also deletes every directory guardrail keeps
+state, config or data in:
+
+| Unix | Windows |
+|---|---|
+| `${XDG_STATE_HOME:-~/.local/state}/guardrail` | `%LOCALAPPDATA%\guardrail` |
+| `${XDG_CONFIG_HOME:-~/.config}/guardrail` | `%APPDATA%\guardrail` |
+| `${XDG_DATA_HOME:-~/.local/share}/guardrail` | `%USERPROFILE%\.local\state\guardrail` |
+| | `%USERPROFILE%\.local\share\guardrail` |
+
+That includes the audit log, the operator's enrolled passkeys, grants and
+waivers — a later install starts from `guardrail operator enroll`. Windows
+has three state roots, not one (see the note under
+[Where things live](#where-things-live)); purge knows all of them.
+
 ## What a healthy update looks like
 
 Captured from v0.20.26 → v0.20.27. Probe counts grow with each release; the two
@@ -209,17 +303,25 @@ next Claude session's posture has **no** selftest line and **no** coverage line.
 If the doctor header still names the *old* release, the updater predates #58:
 run `guardrail selftest` once by hand.
 
+`update` does not touch the registered handlers. Run `guardrail setup` after it
+(or re-run the installer, which does both): it re-registers any plane whose
+handlers differ from what the new binary generates and prints `already
+enabled` for the rest.
+
 ## Where things live
 
 | What | Path |
 |---|---|
 | Binary | `~/.local/bin/guardrail` |
+| Installers | `install.sh`, `install.ps1` — release assets next to the binaries, listed in the release's `SHA256SUMS`; source at the repo root |
 | Operator config (grants, waivers, night marker) | `~/.config/guardrail/` — `waivers.toml`, `night.toml` |
 | Audit log (rotates at 20 MB, 3 segments) | `~/.local/state/guardrail/audit.jsonl` |
 | Session state, coverage cache, selftest marker | `~/.local/state/guardrail/{sessions,coverage,selftest-passed}` |
 | Approval broker socket (on demand; dies with `update`) | `~/.local/state/guardrail/approval/broker.sock` |
 | Repo overlay | `<repo>/guardrail.toml` — requests; only operator config grants |
 | Claude hooks + floor | `~/.claude/settings.json` (owned groups carry `id: guardrail-*`) |
+| Ownership manifests (what guardrail wrote into each plane's settings, and the prior values; `plane disable` restores from them) | `~/.local/state/guardrail/manifests/<plane>.json` |
+| opencode plugin | `~/.local/share/guardrail/guardrail.js` |
 
 Everything under `~/.config/guardrail` and `~/.local/state/guardrail` is
 operator-owned: sessions are denied from editing or deleting it, on purpose.
@@ -229,7 +331,13 @@ re-prove a release, delete the marker yourself.
 On Windows the paths differ: binary `~\.local\bin\guardrail.exe`, audit log
 `%LOCALAPPDATA%\guardrail\audit.jsonl`, operator config `%APPDATA%\guardrail\`,
 and the approval broker's private endpoint is a per-user named pipe rather
-than a socket (ADR-0021 step a).
+than a socket (ADR-0021 step a). Windows state is split across three roots, not
+one: `%LOCALAPPDATA%\guardrail` (audit, sessions, manifests),
+`%APPDATA%\guardrail` (operator config) and
+`%USERPROFILE%\.local\state\guardrail` (enrolled operator credentials), plus
+the plugin under `%USERPROFILE%\.local\share\guardrail`. `install.ps1
+-Uninstall -Purge` removes all four ([Install, update, disable,
+uninstall](#install-update-disable-uninstall)).
 
 ## Escalate when
 

@@ -14,10 +14,12 @@ Windows host, not just CI runners.
 
 - Repo: `CtrlCarlitos/agent-guardrails`, main at **v0.20.26-dev**. Four
   planes live on Linux/macOS: claude, opencode, antigravity, codex.
-- On Windows today: `gen-config --merge` works (floor wiring only). Anything
-  approval-gated returns exit 2: `operator *`, `plane enable|disable`,
-  `recover`, egress grants, approvals. See `cmdOperator` / `cmdPlaneLifecycle`
-  / `cmdRecover` for the exact gates.
+- On Windows at the time of this handover, `gen-config --merge` worked (floor
+  wiring only) and anything approval-gated returned exit 2: `operator *`,
+  `plane enable|disable`, `recover`, egress grants, approvals. **Corrected
+  2026-09-23:** ADR-0021 step (d) lifted those gates (#207); `plane`,
+  `operator`, `recover` and approvals run on Windows, and `install.ps1` +
+  `guardrail setup` wire the planes there (ADR-0029).
 - CI runs `windows-latest` for **build + vet + a name-filtered slice of the
   suite** (`-run 'Windows|BOM|ReadJSONObject'`), and builds all Windows
   release assets. It does **not** run the full unit suite there, and an
@@ -32,9 +34,12 @@ Windows host, not just CI runners.
 
 ## Known Windows facts (verified this cycle — trust these)
 
-1. `guardrail update` **fails at its final rename** on Windows: you cannot
-   `os.Rename` over the running executable. Fix needs design (staged restart,
-   PID hold, or rename-old-then-move). Needs a real-machine repro.
+1. `guardrail update` works on Windows. You cannot `os.Rename` over the
+   running executable, so the updater renames the running image aside to
+   `guardrail.exe.old` first, then moves the new one in (ADR-0021 step (d),
+   #205, with a bounded retry in #208). CI runs
+   `TestUpdateHappyPathReplacesBinary` on `windows-latest` as a mandatory step.
+   (This item said the update failed at its final rename until 2026-09-23.)
 2. `opencode.json` must stay BOM-less; the dotfiles PowerShell installer
    writes with `UTF8Encoding($false)` for this reason.
 3. ADR-0021 verified: the enrollment lock is already `gofrs/flock`
@@ -122,8 +127,9 @@ Take a baseline of the full run before you start and diff against it after;
 new failures are yours, the rest are the floor. A Linux second opinion is
 cheap if WSL is present (`go` under `/usr/local/go/bin`, repo readable at
 `/mnt/c/...`) and covers the ubuntu leg before you push. Install the release
-binary (`guardrail update` is broken on Windows by design until (d);
-use the dotfiles ps1 installer or the release asset directly). Then:
+binary with `install.ps1` (README "Install"; ADR-0029) — later releases
+arrive through `guardrail update <tag>` followed by `guardrail setup`, or by
+re-running the installer. Then:
 `guardrail doctor`, `guardrail selftest`, `guardrail plane status`.
 
 ## Suggested skills for the next session
