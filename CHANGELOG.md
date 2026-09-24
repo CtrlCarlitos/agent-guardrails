@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.1-dev (2026-09-23)
 
 ### Installation
 - **Feature (ADR-0029): `install.sh`, the installer for Linux, macOS and WSL.**
