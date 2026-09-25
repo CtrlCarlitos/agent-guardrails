@@ -59,3 +59,15 @@ func TestWindowsAntigravityHookCommandSpawnsThroughCmdWithGoQuoteEscaping(t *tes
 		t.Fatalf("cmd /C %s: %v\n%s", command, err, out)
 	}
 }
+
+// An 8.3 short path (`RUNNER~1`, `JOHNDO~1`) is what a Windows profile with a
+// long or spaced name resolves to, and the natural way to reach a binary whose
+// long path needs quotes. A `~` after the drive letter is never a word start,
+// so neither cmd.exe nor a POSIX shell expands it: it must stay bare.
+func TestWindowsAntigravityHookCommandLeavesAShortNameTildeBare(t *testing.T) {
+	got := preCommand(t, `C:\Users\RUNNER~1\AppData\Local\Temp\guardrail.exe`)
+	want := `C:/Users/RUNNER~1/AppData/Local/Temp/guardrail.exe hook antigravity pre`
+	if got != want {
+		t.Fatalf("antigravity pre command = %q, want %q", got, want)
+	}
+}

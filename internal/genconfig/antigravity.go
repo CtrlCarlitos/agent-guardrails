@@ -28,13 +28,15 @@ func antigravityHookCommand(binary string, args ...string) string {
 }
 
 // bareWindowsWord reports whether a forward-slash Windows path reaches either
-// shell untouched: the drive colon, then only what shellSafeWord admits.
+// shell untouched: the drive colon, then only what shellSafeWord admits, plus
+// `~`. A shell expands `~` only at the start of a word, and this word starts
+// with a drive letter or `/`, so an 8.3 short name (`RUNNER~1`) is literal.
 func bareWindowsWord(p string) bool {
 	rest := p
 	if len(p) >= 2 && p[1] == ':' && isASCIILetter(p[0]) {
 		rest = p[2:]
 	}
-	return rest != "" && shellSafeWord("x"+rest)
+	return rest != "" && shellSafeWord("x"+strings.ReplaceAll(rest, "~", "x"))
 }
 
 // AntigravityConfig emits the proven named-wrapper shape from takumi-dream's
