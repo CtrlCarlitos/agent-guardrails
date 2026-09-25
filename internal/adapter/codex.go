@@ -149,7 +149,11 @@ func EmitCodex(v policy.Verdict, event string, tc engine.ToolCall, stdout, stder
 	if v.Decision == policy.Allow {
 		if event == "pre" && tc.Capability == policy.CapabilityCommand {
 			if runtime.GOOS == "windows" {
-				fmt.Fprintln(stderr, "guardrail: cannot prove the Windows command shell; refusing to emit a POSIX updatedInput rewrite and failing closed")
+				reason := "guardrail: cannot prove the Windows command shell; refusing to emit a POSIX updatedInput rewrite and failing closed"
+				fmt.Fprintln(stderr, reason)
+				if codexStructuredWindowsEnabled() {
+					return emitCodexBlock("pre", reason, stdout)
+				}
 				return 2
 			}
 			cwd, err := filepath.EvalSymlinks(tc.CWD)
@@ -183,20 +187,28 @@ func EmitCodex(v policy.Verdict, event string, tc engine.ToolCall, stdout, stder
 		reason = fmt.Sprintf("Operator action pending: %s; request %s; open %s. Wait for completion before continuing this action.", v.OperatorAction, v.RequestID, v.ApprovalURL)
 	}
 	fmt.Fprintln(stderr, "guardrail: policy denial: "+reason)
-	if runtime.GOOS == "windows" && os.Getenv("GUARDRAIL_CODEX_STRUCTURED_WINDOWS") == "1" {
-		var payload map[string]any
-		switch event {
-		case "pre":
-			payload = map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}
-		case "post":
-			payload = map[string]any{"decision": "block", "reason": reason}
-		default:
-			return 2
-		}
-		if err := json.NewEncoder(stdout).Encode(payload); err != nil {
-			return 2
-		}
-		return 0
+	if codexStructuredWindowsEnabled() {
+		return emitCodexBlock(event, reason, stdout)
 	}
 	return 2 // Native blocking status; never emit unsupported permissionDecision: ask.
+}
+
+func codexStructuredWindowsEnabled() bool {
+	return runtime.GOOS == "windows" && os.Getenv("GUARDRAIL_CODEX_STRUCTURED_WINDOWS") == "1"
+}
+
+func emitCodexBlock(event, reason string, stdout io.Writer) int {
+	var payload map[string]any
+	switch event {
+	case "pre":
+		payload = map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}
+	case "post":
+		payload = map[string]any{"decision": "block", "reason": reason}
+	default:
+		return 2
+	}
+	if err := json.NewEncoder(stdout).Encode(payload); err != nil {
+		return 2
+	}
+	return 0
 }

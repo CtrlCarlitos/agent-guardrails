@@ -9,4 +9,6 @@ stdin. The evaluator therefore inherits Codex's original JSON bytes instead
 of receiving the UTF-8 byte-order mark that Windows PowerShell adds at a
 native pipeline boundary. For configured Windows launchers, the evaluator returns Codex's
 documented event-specific blocking JSON with exit 0 for policy decisions.
-Transport and handler failures remain nonzero and fail closed.
+That includes the fail-closed refusal to rewrite an allowed command when Codex
+does not identify the Windows runtime shell. Transport, malformed-payload and
+other handler failures remain nonzero and fail closed.

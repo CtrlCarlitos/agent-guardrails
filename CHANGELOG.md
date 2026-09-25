@@ -13,7 +13,8 @@ explicitly in **Breaking** notes.
   PowerShell or `cmd.exe`. The launcher leaves Codex's stdin inherited instead
   of piping it through Windows PowerShell, which preserves the JSON input
   without a UTF-8 byte-order mark. The evaluator returns documented
-  event-specific JSON for Windows policy blocks, avoiding PowerShell's
+  event-specific JSON for Windows policy blocks—including the fail-closed
+  refusal when Codex does not identify its command shell—avoiding PowerShell's
   conversion of a nested exit 2 into exit 1. Installed hooks retain the owned,
   inspectable batch wrapper.
 
