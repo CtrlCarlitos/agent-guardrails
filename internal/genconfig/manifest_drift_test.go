@@ -68,8 +68,8 @@ func TestDriftReportsEntriesMissingFromSettings(t *testing.T) {
 	if len(report.Missing) == 0 {
 		t.Fatalf("a removed floor entry was not reported missing: %+v", report)
 	}
-	if got := DriftLine("opencode", report); !strings.Contains(got, "missing from settings") {
-		t.Errorf("the line does not name the condition: %q", got)
+	if got := DriftLine("opencode", report); !strings.Contains(got, "missing from settings") || !strings.Contains(got, "ownership drifted") {
+		t.Errorf("the line does not name the ownership condition: %q", got)
 	}
 }
 
