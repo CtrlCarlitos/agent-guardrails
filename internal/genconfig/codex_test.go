@@ -53,6 +53,11 @@ func TestCodexMergeRemoveAndDrift(t *testing.T) {
 		t.Fatal("missing Windows command accepted")
 	}
 	handler["commandWindows"] = windowsCommand
+	handler["commandWindows"] = windowsCommand.(string) + " & if errorlevel 2 (exit /b 2)"
+	if CodexHooksRegistered(doc) {
+		t.Fatal("stale CMD-specific Windows suffix accepted")
+	}
+	handler["commandWindows"] = windowsCommand
 	delete(hooks, "PreToolUse")
 	if CodexHooksRegistered(doc) {
 		t.Fatal("missing pre accepted")
@@ -159,14 +164,15 @@ func TestCodexWrapperOwnershipAndExecution(t *testing.T) {
 	group := hooksMap["PreToolUse"].([]any)[0].(map[string]any)
 	handler := group["hooks"].([]any)[0].(map[string]any)
 	cmdWin := handler["commandWindows"].(string)
-	if strings.Contains(cmdWin, "-EncodedCommand") {
-		t.Fatalf("commandWindows contains -EncodedCommand: %s", cmdWin)
+	if !strings.Contains(cmdWin, "-EncodedCommand") {
+		t.Fatalf("commandWindows does not contain -EncodedCommand: %s", cmdWin)
 	}
-	if !strings.Contains(cmdWin, "guardrail-hook.cmd") {
-		t.Fatalf("commandWindows does not reference wrapper: %s", cmdWin)
+	windowsScript := decodePowerShellForTest(t, cmdWin)
+	if !strings.Contains(windowsScript, "guardrail-hook.cmd") {
+		t.Fatalf("encoded commandWindows does not reference wrapper: %s", windowsScript)
 	}
-	if !strings.Contains(cmdWin, "--handler-id guardrail-codex-PreToolUse") || !strings.Contains(cmdWin, "--handler-hash sha256:") {
-		t.Fatalf("commandWindows does not carry inspectable diagnostic identity: %s", cmdWin)
+	if !strings.Contains(windowsScript, "--handler-id 'guardrail-codex-PreToolUse'") || !strings.Contains(windowsScript, "--handler-hash 'sha256:") {
+		t.Fatalf("encoded commandWindows does not carry inspectable diagnostic identity: %s", windowsScript)
 	}
 	// Verify CodexHooksRegistered accepts it
 	doc := map[string]any{"hooks": hooksMap}
@@ -175,7 +181,101 @@ func TestCodexWrapperOwnershipAndExecution(t *testing.T) {
 	}
 }
 
-func TestCodexInstalledWindowsCommandHasNoEmbeddedQuotes(t *testing.T) {
+func TestWindowsCodexInstalledCommandRunsUnderPowerShell(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("PowerShell command handlers execute only on Windows")
+	}
+	pwsh, err := exec.LookPath("pwsh.exe")
+	if err != nil {
+		t.Skip("pwsh.exe is required to exercise Codex's configured Windows shell")
+	}
+	dir := filepath.Join(t.TempDir(), "codex hooks")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hooksPath := filepath.Join(dir, "hooks.json")
+	binary := filepath.Join(dir, "guardrail.cmd")
+	if err := os.WriteFile(binary, []byte("@findstr /c:\"session_id\" >nul || exit /b 9\r\n@exit /b %GUARDRAIL_TEST_EXIT%\r\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteCodexWrapper(hooksPath, binary); err != nil {
+		t.Fatal(err)
+	}
+
+	frag := CodexConfigFor(hooksPath, binary)
+	hooks := frag["hooks"].(map[string]any)
+	group := hooks["PreToolUse"].([]any)[0].(map[string]any)
+	command := group["hooks"].([]any)[0].(map[string]any)["commandWindows"].(string)
+	for _, test := range []struct {
+		name      string
+		exit      string
+		wantBlock bool
+	}{
+		{name: "evaluator allows", exit: "0"},
+		{name: "policy denies", exit: "2", wantBlock: true},
+		{name: "evaluator crashes", exit: "7", wantBlock: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cmd := exec.Command(pwsh, "-NoProfile", "-NonInteractive", "-Command", command)
+			cmd.Env = append(os.Environ(), "GUARDRAIL_TEST_EXIT="+test.exit)
+			cmd.Stdin = strings.NewReader(`{"session_id":"fixture","hook_event_name":"PreToolUse"}`)
+			var stdout strings.Builder
+			var stderr strings.Builder
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+			_ = cmd.Run()
+			if got := cmd.ProcessState.ExitCode(); got != 0 {
+				t.Fatalf("exit = %d, want 0; stdout: %s; stderr: %s; command: %s", got, stdout.String(), stderr.String(), command)
+			}
+			if got := strings.Contains(stdout.String(), `"permissionDecision":"deny"`); got != test.wantBlock {
+				t.Fatalf("blocking JSON = %t, want %t; stdout: %s; stderr: %s", got, test.wantBlock, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func TestWindowsCodexInstalledBlocksUseEventSpecificJSON(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("PowerShell command handlers execute only on Windows")
+	}
+	pwsh, err := exec.LookPath("pwsh.exe")
+	if err != nil {
+		t.Skip("pwsh.exe is required to exercise Codex's configured Windows shell")
+	}
+	dir := t.TempDir()
+	hooksPath := filepath.Join(dir, "hooks.json")
+	binary := filepath.Join(dir, "guardrail.cmd")
+	if err := os.WriteFile(binary, []byte("@exit /b 2\r\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteCodexWrapper(hooksPath, binary); err != nil {
+		t.Fatal(err)
+	}
+	hooks := CodexConfigFor(hooksPath, binary)["hooks"].(map[string]any)
+	for _, test := range []struct {
+		event string
+		want  string
+	}{
+		{event: "PreToolUse", want: `"permissionDecision":"deny"`},
+		{event: "PostToolUse", want: `"decision":"block"`},
+		{event: "SessionStart", want: `"continue":false`},
+	} {
+		t.Run(test.event, func(t *testing.T) {
+			group := hooks[test.event].([]any)[0].(map[string]any)
+			command := group["hooks"].([]any)[0].(map[string]any)["commandWindows"].(string)
+			cmd := exec.Command(pwsh, "-NoProfile", "-NonInteractive", "-Command", command)
+			cmd.Stdin = strings.NewReader(`{"session_id":"fixture","hook_event_name":"` + test.event + `"}`)
+			var stdout, stderr strings.Builder
+			cmd.Stdout, cmd.Stderr = &stdout, &stderr
+			_ = cmd.Run()
+			if got := cmd.ProcessState.ExitCode(); got != 0 || !strings.Contains(stdout.String(), test.want) {
+				t.Fatalf("exit=%d stdout=%q stderr=%q, want structured %s block", got, stdout.String(), stderr.String(), test.event)
+			}
+		})
+	}
+}
+
+func TestWindowsCodexInstalledCommandHasNoEmbeddedQuotes(t *testing.T) {
 	hooksPath := filepath.Join("safe", "codex", "hooks.json")
 	frag := CodexConfigFor(hooksPath, filepath.Join("safe", "bin", "guardrail.exe"))
 	hooks := frag["hooks"].(map[string]any)
@@ -190,7 +290,7 @@ func TestCodexInstalledWindowsCommandHasNoEmbeddedQuotes(t *testing.T) {
 	}
 }
 
-func TestCodexInstalledWindowsCommandEncodesUnsafeWrapperPath(t *testing.T) {
+func TestWindowsCodexInstalledCommandEncodesUnsafeWrapperPath(t *testing.T) {
 	hooksPath := filepath.Join("path with spaces", "codex", "hooks.json")
 	frag := CodexConfigFor(hooksPath, filepath.Join("path with spaces", "bin", "guardrail.exe"))
 	hooks := frag["hooks"].(map[string]any)
@@ -235,7 +335,7 @@ func TestCodexMissingBinaryBlocksAndQuotedPathCannotExecute(t *testing.T) {
 	}
 }
 
-func TestCodexWindowsCommandRunsAndFailsClosed(t *testing.T) {
+func TestCodexWindowsCommandRunsAndReturnsStructuredBlocks(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows command handlers execute through cmd.exe")
 	}
@@ -258,33 +358,40 @@ func TestCodexWindowsCommandRunsAndFailsClosed(t *testing.T) {
 	}
 
 	for _, test := range []struct {
-		name     string
-		exit     string
-		wantExit int
-		wantErr  string
+		name      string
+		exit      string
+		wantBlock string
 	}{
-		{name: "evaluator allows", exit: "0", wantExit: 0},
-		{name: "policy denies without transport noise", exit: "2", wantExit: 2},
-		{name: "evaluator crashes", exit: "7", wantExit: 2, wantErr: "guardrail: handler failure: evaluator exited with code 7"},
+		{name: "evaluator allows", exit: "0"},
+		{name: "policy denies without transport noise", exit: "2", wantBlock: `"permissionDecision":"deny"`},
+		{name: "evaluator crashes", exit: "7", wantBlock: "guardrail: handler failure: evaluator exited with code 7"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			if _, err := os.Stat(binary); err != nil {
+				t.Fatalf("fixture binary before invocation: %v", err)
+			}
 			cmd := exec.Command(os.Getenv("ComSpec"), "/d", "/s", "/c", command)
 			cmd.Env = append(os.Environ(), "GUARDRAIL_TEST_EXIT="+test.exit)
-			cmd.Stdin = strings.NewReader(`{"session_id":"fixture"}`)
+			cmd.Stdin = strings.NewReader(`{"session_id":"fixture","hook_event_name":"PreToolUse"}`)
+			var stdout strings.Builder
 			var stderr strings.Builder
+			cmd.Stdout = &stdout
 			cmd.Stderr = &stderr
 			_ = cmd.Run()
-			if got := cmd.ProcessState.ExitCode(); got != test.wantExit {
-				t.Fatalf("exit = %d, want %d; command: %s", got, test.wantExit, command)
+			if got := cmd.ProcessState.ExitCode(); got != 0 {
+				t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q; command: %s", got, stdout.String(), stderr.String(), command)
 			}
-			if got := stderr.String(); !strings.Contains(got, test.wantErr) || strings.Contains(got, "evaluator unavailable or blocked") {
-				t.Fatalf("stderr = %q, want %q and no conflated fallback", got, test.wantErr)
+			if got := stdout.String(); (test.wantBlock == "" && got != "") || (test.wantBlock != "" && !strings.Contains(got, test.wantBlock)) || strings.Contains(got, "evaluator unavailable or blocked") {
+				t.Fatalf("stdout = %q, want block %q and no conflated fallback; stderr=%q", got, test.wantBlock, stderr.String())
+			}
+			if _, err := os.Stat(binary); err != nil {
+				t.Fatalf("fixture binary after invocation: %v", err)
 			}
 		})
 	}
 }
 
-func TestCodexWindowsMissingBinaryIsTransportFailure(t *testing.T) {
+func TestCodexWindowsMissingBinaryReturnsStructuredTransportBlock(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows command handlers execute through cmd.exe")
 	}
@@ -292,14 +399,17 @@ func TestCodexWindowsMissingBinaryIsTransportFailure(t *testing.T) {
 	group := hooks["PreToolUse"].([]any)[0].(map[string]any)
 	command := group["hooks"].([]any)[0].(map[string]any)["commandWindows"].(string)
 	cmd := exec.Command(os.Getenv("ComSpec"), "/d", "/s", "/c", command)
+	cmd.Stdin = strings.NewReader(`{"session_id":"fixture","hook_event_name":"PreToolUse"}`)
+	var stdout strings.Builder
 	var stderr strings.Builder
+	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	_ = cmd.Run()
-	if got := cmd.ProcessState.ExitCode(); got != 2 {
-		t.Fatalf("exit = %d, want 2", got)
+	if got := cmd.ProcessState.ExitCode(); got != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", got, stdout.String(), stderr.String())
 	}
-	if got := stderr.String(); !strings.Contains(got, "guardrail: transport failure: configured handler executable is unavailable") || strings.Contains(got, "handler failure") {
-		t.Fatalf("stderr = %q, want transport failure only", got)
+	if got := stdout.String(); !strings.Contains(got, "guardrail: transport failure: configured handler executable is unavailable") || strings.Contains(got, "handler failure") || !strings.Contains(got, `"permissionDecision":"deny"`) {
+		t.Fatalf("stdout = %q, want structured transport failure only; stderr=%q", got, stderr.String())
 	}
 }
 
