@@ -4,6 +4,17 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Installation
+- **Fix (#323): a later Windows uninstall now removes rename-aside leftovers.**
+  When `guardrail.exe` is already gone but the install directory contains an
+  owned `guardrail.exe.old`, update staging file or install staging file,
+  `install.ps1 -Uninstall` sweeps those remnants, removes an empty destination
+  from the user PATH and drops the stale Defender exclusion before reporting
+  that nothing is installed. A destination that was genuinely empty remains
+  untouched, and a shared destination keeps its PATH entry.
+
 ## v0.23.3-dev (2026-09-24)
 
 ### Installation

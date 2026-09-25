@@ -368,6 +368,29 @@ exit $code
 		}
 	}
 
+	function Case-UninstallSweepsOldOnlyDest {
+		$savedPath = Save-UserPath
+		$dest = Fresh
+		$sbHome = Fresh
+		$exe = Join-Path $dest 'guardrail.exe'
+		$old = "$exe.old"
+		try {
+			Run -Version $Version -Dest $dest -BaseUrl (Join-Path $tmp 'releases') -NoSetup
+			if (-not (WantRc 0)) { return $false }
+			Move-Item -LiteralPath $exe -Destination $old
+			InSandbox $sbHome { Run -Uninstall -Dest $dest -NoSetup }
+			if (-not (WantRc 0)) { return $false }
+			if (-not (Has out "install: nothing installed at $dest")) { return $false }
+			if (-not (Absent $old)) { return $false }
+			$userPath = (Get-Item -LiteralPath 'HKCU:\Environment').GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+			if (PathHas $userPath $dest) { Write-Host "  User PATH still has $($dest): $userPath"; return $false }
+			return (Absent $dest)
+		} finally {
+			Restore-UserPath $savedPath
+			Remove-HarnessExclusion $exe
+		}
+	}
+
 	function Case-UninstallPurgeRemovesStateRoots {
 		$dest = Fresh
 		$sbHome = Fresh
@@ -454,6 +477,7 @@ exit $code
 	Check 'disabled-with-no-binary-is-noop' { Case-DisabledWithNoBinaryIsNoop }
 	Check 'uninstall-removes-binary-and-plugin' { Case-UninstallRemovesBinaryAndPlugin }
 	Check 'uninstall-keeps-path-when-dest-shared' { Case-UninstallKeepsPathWhenDestShared }
+	Check 'uninstall-sweeps-old-only-dest' { Case-UninstallSweepsOldOnlyDest }
 	Check 'uninstall-purge-removes-state-roots' { Case-UninstallPurgeRemovesStateRoots }
 	Check 'uninstall-nothing-installed-is-ok' { Case-UninstallNothingInstalledIsOk }
 	Check 'purge-without-uninstall-exits-2' { Case-PurgeWithoutUninstallExits2 }
