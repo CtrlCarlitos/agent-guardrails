@@ -7,13 +7,13 @@ explicitly in **Breaking** notes.
 ## Unreleased
 
 ### Hooks
-- **Fix (#342): Codex Windows hook commands no longer die in `cmd.exe` before
-  reaching Guardrail.** Installed commands now keep their outer
-  `commandWindows` spelling free of embedded quotes, working around the current
-  Codex Windows runner bug (openai/codex#38168). A cmd-safe wrapper path is
-  emitted bare; paths containing spaces or other shell-sensitive characters
-  use an encoded PowerShell launcher that still invokes the owned, inspectable
-  batch wrapper.
+- **Fix (#342): Codex Windows hook commands no longer die in the configured
+  shell before reaching Guardrail.** `commandWindows` is now a quote-free,
+  encoded PowerShell launcher, so it parses correctly whether Codex is using
+  PowerShell or `cmd.exe`. The launcher translates blocking evaluator results
+  into Codex's documented event-specific JSON decisions, avoiding
+  PowerShell's conversion of a nested exit 2 into exit 1. Installed hooks still
+  invoke the owned, inspectable batch wrapper.
 
 ### Installation
 - **Fix (#324): unattended Windows installs can explicitly defer a disable.**
