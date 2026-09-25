@@ -175,6 +175,42 @@ func TestCodexWrapperOwnershipAndExecution(t *testing.T) {
 	}
 }
 
+func TestCodexInstalledWindowsCommandHasNoEmbeddedQuotes(t *testing.T) {
+	hooksPath := filepath.Join("safe", "codex", "hooks.json")
+	frag := CodexConfigFor(hooksPath, filepath.Join("safe", "bin", "guardrail.exe"))
+	hooks := frag["hooks"].(map[string]any)
+
+	for _, event := range []string{"PreToolUse", "PostToolUse", "SessionStart"} {
+		group := hooks[event].([]any)[0].(map[string]any)
+		handler := group["hooks"].([]any)[0].(map[string]any)
+		command := handler["commandWindows"].(string)
+		if strings.Contains(command, `"`) {
+			t.Fatalf("%s commandWindows contains an embedded quote that Codex misparses on Windows: %s", event, command)
+		}
+	}
+}
+
+func TestCodexInstalledWindowsCommandEncodesUnsafeWrapperPath(t *testing.T) {
+	hooksPath := filepath.Join("path with spaces", "codex", "hooks.json")
+	frag := CodexConfigFor(hooksPath, filepath.Join("path with spaces", "bin", "guardrail.exe"))
+	hooks := frag["hooks"].(map[string]any)
+	group := hooks["PreToolUse"].([]any)[0].(map[string]any)
+	handler := group["hooks"].([]any)[0].(map[string]any)
+	command := handler["commandWindows"].(string)
+
+	if strings.Contains(command, `"`) {
+		t.Fatalf("commandWindows exposes an embedded quote to Codex: %s", command)
+	}
+	script := decodePowerShellForTest(t, command)
+	wrapperPath := filepath.Join(filepath.Dir(hooksPath), "guardrail-hook.cmd")
+	if !strings.Contains(script, "$wrapperPath = '"+wrapperPath+"'") || !strings.Contains(script, "& $wrapperPath --handler-id 'guardrail-codex-PreToolUse'") {
+		t.Fatalf("encoded command does not invoke the owned wrapper: %s", script)
+	}
+	if !CodexHooksRegistered(map[string]any{"hooks": hooks}) {
+		t.Fatal("CodexHooksRegistered rejected encoded wrapper hook")
+	}
+}
+
 func TestCodexMissingBinaryBlocksAndQuotedPathCannotExecute(t *testing.T) {
 	sh, err := exec.LookPath("sh")
 	if err != nil {
