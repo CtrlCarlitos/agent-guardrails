@@ -71,6 +71,7 @@ func ParseCodex(r io.Reader) (engine.ToolCall, error) {
 	tc.Tool, tc.Capability = spec.Tool, spec.Capability
 	if tc.Tool == "web.run" {
 		tc.Capability, tc.URL = codexWebCapability(input)
+		tc.NativeWebResearch = codexResearchInput(input)
 	}
 	stringField := func(key string) (string, error) {
 		var value string

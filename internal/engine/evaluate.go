@@ -15,6 +15,9 @@ func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 				Reason: "guardrail hit an internal error; failing closed to ask"}
 		}
 	}()
+	if pol.WebResearchOff && tc.NativeWebResearch {
+		return policy.Verdict{Decision: policy.Allow, RuleID: "web-research-enforcement-off", Reason: "native web-research enforcement is off by operator policy; outbound data and destinations are not enforced"}
+	}
 	if tc.Capability == policy.CapabilityUnknown {
 		v := policy.Verdict{AuditKind: "unknown-native-tool"}
 		if tc.Plane == "codex" || pol.UnknownToolPosture == policy.UnknownDeny {

@@ -34,8 +34,9 @@ type RepoGrant struct {
 // OperatorConfig is machine-scoped authorization living outside any repo.
 // Grants are keyed by absolute repo path and never transfer between repos.
 type OperatorConfig struct {
-	GlobalWebHosts []string
-	Repos          map[string]RepoGrant
+	GlobalWebHosts         []string
+	WebResearchEnforcement string // empty is legacy/strict; only explicit "off" relaxes native research
+	Repos                  map[string]RepoGrant
 }
 
 func OperatorConfigPath() string {
@@ -94,12 +95,18 @@ func LoadOperatorConfig() (*OperatorConfig, error) {
 	}
 
 	var global struct {
+		WebResearch struct {
+			Enforcement string `toml:"enforcement"`
+		} `toml:"web_research"`
 		WebHosts struct {
 			Global []string `toml:"global"`
 		} `toml:"web_hosts"`
 	}
 	if err := toml.Unmarshal(raw, &global); err != nil {
 		return emptyOperatorConfig(), fmt.Errorf("parsing operator config %s: %w", path, err)
+	}
+	if mode := global.WebResearch.Enforcement; mode != "" && mode != "on" && mode != "off" {
+		return emptyOperatorConfig(), fmt.Errorf("invalid web_research.enforcement; want on or off")
 	}
 	for _, host := range global.WebHosts.Global {
 		if err := ValidateWebHost(host); err != nil {
@@ -111,6 +118,7 @@ func LoadOperatorConfig() (*OperatorConfig, error) {
 		return emptyOperatorConfig(), fmt.Errorf("parsing operator config %s: %w", path, err)
 	}
 	delete(repos, "web_hosts")
+	delete(repos, "web_research")
 	normalized := make(map[string]RepoGrant, len(repos))
 	rawPaths := make(map[string]string, len(repos))
 	for repo, grant := range repos {
@@ -129,7 +137,7 @@ func LoadOperatorConfig() (*OperatorConfig, error) {
 		rawPaths[cleaned] = repo
 		normalized[cleaned] = grant
 	}
-	return &OperatorConfig{GlobalWebHosts: global.WebHosts.Global, Repos: normalized}, nil
+	return &OperatorConfig{GlobalWebHosts: global.WebHosts.Global, WebResearchEnforcement: global.WebResearch.Enforcement, Repos: normalized}, nil
 }
 
 func (o *OperatorConfig) grant(repoRoot string) (RepoGrant, bool) {

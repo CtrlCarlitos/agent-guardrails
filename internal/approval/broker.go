@@ -75,6 +75,9 @@ type Request struct {
 // the exact plane batch for lifecycle actions and the exact host batch for
 // egress actions, empty otherwise.
 func (r Request) Summary() string {
+	if r.Action == "web-research-set" {
+		return "native web-research enforcement: " + r.Parameters["enforcement"] + " (machine-wide; off does not enforce outbound data or destinations)"
+	}
 	if r.Action == "plane-enable" || r.Action == "plane-disable" {
 		if list := r.Parameters["planes"]; list != "" {
 			return "planes: " + list
@@ -316,7 +319,7 @@ func validateRequest(r Request) error {
 	if r.Host != "" && policy.ValidateWebHost(r.Host) != nil {
 		return ErrMalformed
 	}
-	if r.Action != "" && r.Action != "night-on" && r.Action != "night-off" && r.Action != "web-host-grant" && r.Action != "web-host-revoke" && r.Action != "plane-enable" && r.Action != "plane-disable" && r.Action != "recover" {
+	if r.Action != "" && r.Action != "night-on" && r.Action != "night-off" && r.Action != "web-host-grant" && r.Action != "web-host-revoke" && r.Action != "plane-enable" && r.Action != "plane-disable" && r.Action != "recover" && r.Action != "web-research-set" {
 		return ErrMalformed
 	}
 	if r.Action == "night-on" && (len(r.Parameters) != 1 || r.Parameters["until"] == "") {
@@ -329,6 +332,9 @@ func validateRequest(r Request) error {
 		return ErrMalformed
 	}
 	if r.Action == "recover" && !validRecoverRepair(r.Parameters) {
+		return ErrMalformed
+	}
+	if r.Action == "web-research-set" && (r.Plane != "operator" || r.Scope != GlobalScope || r.Host != "" || len(r.Parameters) != 1 || (r.Parameters["enforcement"] != "on" && r.Parameters["enforcement"] != "off")) {
 		return ErrMalformed
 	}
 	return nil
@@ -398,6 +404,9 @@ func canonicalNightExpiry(until string, now time.Time) (string, error) {
 
 func durable(r Request) session.ApprovalRequest {
 	params := make(map[string]string)
+	if r.Action == "web-research-set" {
+		params["enforcement"] = r.Parameters["enforcement"]
+	}
 	if r.Action == "night-on" {
 		if expiresAt := r.Parameters["expires_at"]; expiresAt != "" {
 			params["expires_at"] = expiresAt

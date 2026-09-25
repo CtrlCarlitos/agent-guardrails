@@ -208,7 +208,7 @@ const (
 // first-install bootstrap stopped requiring a terminal for `setup` and
 // `plane enable`, so a session cannot re-arm, disarm or re-enrol itself.
 // Read-only forms (`night status`, `plane status`) stay allowed.
-var selfControlSubcommands = []string{"night", "setup", "plane", "operator", "recover"}
+var selfControlSubcommands = []string{"night", "setup", "plane", "operator", "recover", "web-research"}
 
 func checkSelfControlInvocation(s Simple, command string) *policy.Verdict {
 	var subcommand string
@@ -269,7 +269,7 @@ func checkSelfControlInvocation(s Simple, command string) *policy.Verdict {
 // `<guardrail> plane status` and nothing longer: the head is already known
 // to be guardrail when this is consulted.
 func readOnlyStatusQuery(argv []string) bool {
-	return len(argv) == 3 && (strings.EqualFold(argv[1], "night") || strings.EqualFold(argv[1], "plane")) && strings.EqualFold(argv[2], "status")
+	return len(argv) == 3 && (strings.EqualFold(argv[1], "night") || strings.EqualFold(argv[1], "plane") || strings.EqualFold(argv[1], "web-research")) && strings.EqualFold(argv[2], "status")
 }
 
 func mentionsExecutable(value, executable string) bool {

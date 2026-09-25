@@ -36,6 +36,7 @@ usage: guardrail <command> [arguments]
       --until HH:MM | --for 8h      optional window (default 8h)
   night off                         restore normal enforcement
   night status                      print night-mode state
+  web-research on|off|status         operator-controlled native research enforcement
   egress grant|revoke               authorize (or withdraw) web hosts for guardrail fetch
       --scope repo|global --host a.example.com,b.example.com
   operator <subcommand>                 manage operator authenticators
@@ -86,6 +87,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "night":
 		file, terminal := stdin.(*os.File)
 		return cmdNight(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdout, stderr)
+	case "web-research":
+		file, terminal := stdin.(*os.File)
+		return cmdWebResearch(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdout, stderr)
 	case "egress":
 		file, terminal := stdin.(*os.File)
 		cwd, _ := os.Getwd()
