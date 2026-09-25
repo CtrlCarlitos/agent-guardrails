@@ -1,5 +1,46 @@
 # Smoke test
 
+## Codex execution-context investigation (Windows and WSL/Linux)
+
+```sh
+python -B -m unittest discover -s test/smoke -p 'test_codex_*.py'
+python -B test/smoke/codex_execution_contract.py --require-context
+python -B test/smoke/codex_execution_contract.py --require-context --code-mode
+```
+
+Use `python3` in WSL/Linux if `python` is unavailable. Run native Codex and
+Python inside each OS; invoking a Windows executable from WSL is not a Linux
+comparison. Record the Codex versions: results from different versions do not
+isolate OS differences.
+
+This is an **observer-only contract investigation**, not an enforcement test.
+It uses an isolated local Responses fixture, read-only sandbox, disposable
+Codex configuration, and trusted fixture hooks that record their inputs. The
+only supplied commands are fixed `echo` and `pwd` calls. No model service,
+credentials, user hook edits, or Guardrail binary are involved. The generated
+hook definitions alone use a one-invocation trust override.
+
+The same command text is requested in the session directory and in a directory
+containing spaces and Unicode, with default and explicit shell requests.
+Requested shell overrides are **not** assumed to be honored. Reports retain
+the advertised tool schemas, raw hook inputs and tool outputs for review. A
+command mentioned in a rejection is not counted as executed; a separate output
+marker is required. Neither successful dispatch nor execution proves that the
+hook knows the executor's shell, arguments or effective directory.
+
+Exit codes: **0** complete observations (not enforcement readiness), **1**
+incomplete dispatch/execution or runtime failure, **2** complete observations
+but `--require-context` cannot establish a reviewed host-owned execution
+contract, **77** missing Codex. The current context gate deliberately remains
+unverified even if unfamiliar metadata appears: a new schema needs review,
+not heuristic promotion. `report.json` records `probe_exit` because a calling
+shell may remap nonzero exit codes. Temporary evidence is retained at the
+printed artifact directory.
+
+See [execution-contract findings](../../docs/research/2026-09-25-codex-execution-contract.md).
+
+## Claude live smoke test
+
 `make smoke` runs `claude_smoke.sh`: it generates a throwaway Claude `settings.json`
 with `guardrail gen-config claude --merge`, then runs a real `claude -p` session
 against one destructive prompt (expected: blocked) and one benign prompt (expected:

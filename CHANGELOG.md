@@ -6,6 +6,12 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Tests
+- Add a read-only Codex execution-contract probe for native Windows and
+  WSL/Linux. It records shell/directory requests, actual hook payloads and
+  execution evidence separately, including code-mode calls. A successful
+  observation never claims Guardrail enforcement or trusted shell metadata.
+
 ### Hooks
 - **Fix (#342): Codex Windows hook commands no longer die in the configured
   shell before reaching Guardrail.** `commandWindows` is now a quote-free,
