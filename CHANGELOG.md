@@ -13,6 +13,10 @@ explicitly in **Breaking** notes.
   observation never claims Guardrail enforcement or trusted shell metadata.
 
 ### Hooks
+- **Fix (#349, partial): Codex post-tool policy feedback now states that the
+  tool already ran.** It no longer presents an after-the-fact finding as a
+  prevented action or pending approval. Policy decisions and blocking feedback
+  are unchanged; actionable pre-execution approval remains separate work.
 - **Fix (#342): Codex Windows hook commands no longer die in the configured
   shell before reaching Guardrail.** `commandWindows` is now a quote-free,
   encoded PowerShell launcher, so it parses correctly whether Codex is using
