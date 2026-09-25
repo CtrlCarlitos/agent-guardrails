@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.3-dev (2026-09-24)
 
 ### Installation
 - **Fix (#334): Antigravity coverage follows its effective MCP configuration.**
