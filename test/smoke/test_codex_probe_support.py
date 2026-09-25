@@ -18,16 +18,20 @@ class CodexProbeSupportTests(unittest.TestCase):
     def test_windows_wrapper_is_cmd_and_uses_current_interpreter(self):
         with self.temporary_directory(prefix="guardrail probe % path ") as raw:
             root = Path(raw)
+            # Exercise Windows launcher generation on either host. A Linux
+            # sys.executable can legitimately be named python3; that is not
+            # evidence that the generator hard-coded a fallback interpreter.
+            interpreter = Path(r"C:\Python Current\python.exe")
             wrapper = support.write_guardrail_wrapper(
                 root,
                 Path(r"C:\Program Files\Guardrail\guardrail.exe"),
                 root / "hooks.jsonl",
                 windows=True,
-                python_executable=Path(sys.executable),
+                python_executable=interpreter,
             )
             self.assertEqual(wrapper.suffix, ".cmd")
             command = wrapper.read_text(encoding="utf-8")
-            self.assertIn(f'"{str(Path(sys.executable)).replace("%", "%%")}"', command)
+            self.assertIn(f'"{str(interpreter).replace("%", "%%")}"', command)
             self.assertIn("%*", command)
             self.assertNotIn("python3", command)
             self.assertTrue(wrapper.with_suffix(".py").is_file())
