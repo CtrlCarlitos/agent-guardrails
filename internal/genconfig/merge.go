@@ -19,15 +19,27 @@ import (
 // intentional, as settings files may carry secrets; callers wanting 0644 can
 // chmod after.
 func MergeInto(path string, frag Fragment) error {
-	return mergeInto(path, "", frag)
+	return mergeInto(path, "", frag, false)
 }
 
 // MergePlaneInto merges a generated plane fragment and applies exact migrations
 // for obsolete guardrail-owned settings from earlier releases.
 func MergePlaneInto(path, plane string, frag Fragment) error {
+	return mergePlaneInto(path, plane, frag, false)
+}
+
+// ReconcilePlaneInto performs the same settings merge as MergePlaneInto and
+// additionally reconciles an existing ownership manifest. It is reserved for
+// the operator-requested repair of manifest Missing/Stale drift: exact current
+// generated entries are adopted, and records for absent entries are retired.
+func ReconcilePlaneInto(path, plane string, frag Fragment) error {
+	return mergePlaneInto(path, plane, frag, true)
+}
+
+func mergePlaneInto(path, plane string, frag Fragment, reconcileOwnership bool) error {
 	switch plane {
 	case "claude", "opencode", "antigravity", "codex":
-		return mergeInto(path, plane, frag)
+		return mergeInto(path, plane, frag, reconcileOwnership)
 	default:
 		return fmt.Errorf("unsupported plane %q", plane)
 	}
@@ -245,7 +257,7 @@ func clearManifest(plane string) error {
 	return nil
 }
 
-func mergeInto(path, plane string, frag Fragment) error {
+func mergeInto(path, plane string, frag Fragment, reconcileOwnership bool) error {
 	existing, err := ReadJSONObject(path)
 	if os.IsNotExist(err) {
 		existing = map[string]any{}
@@ -277,7 +289,7 @@ func mergeInto(path, plane string, frag Fragment) error {
 		deepMerge(existing, frag)
 	}
 
-	recordOwnership(plane, path, before, existing)
+	recordOwnership(plane, path, before, existing, reconcileOwnership)
 
 	out, err := json.MarshalIndent(existing, "", "  ")
 	if err != nil {

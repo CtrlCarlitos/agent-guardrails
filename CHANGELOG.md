@@ -6,6 +6,17 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Installation
+- **Fix (#335): the ownership-drift reconcile hint now converges.** `setup`
+  and `plane enable` include manifest `Missing` and `Stale` entries in their
+  shared re-enable rule, and carry that exact repair intent through the
+  approval daemon. The approved merge retires records for entries no longer
+  present and adopts exact current generated entries that predate the manifest,
+  while an ordinary merge still never claims an identical operator-owned rule.
+  Doctor now calls a missing manifest entry ownership drift rather than floor
+  drift: Codex has no declarative floor, and Claude's current floor can be
+  complete while an older recorded hook entry is absent.
+
 ### Tests & CI Portability
 - **Test: `TestSetupReenablesOnHandlerDrift` asserts the generator's hook
   spelling, not the raw path.** On Windows `HookCommand` writes the binary

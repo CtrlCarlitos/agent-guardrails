@@ -741,3 +741,79 @@ func TestSetupReenablesOnFloorDrift(t *testing.T) {
 		t.Fatalf("deny entry %s not restored", quoted)
 	}
 }
+
+func TestSetupReenablesAndRewritesOwnershipManifestDrift(t *testing.T) {
+	driftSandbox(t)
+	enableForDrift(t, "claude")
+	useInstalledPlanes(t, "claude")
+	useTransport(t, []string{"approved"})
+	stubSetupGates(t, false, 0, 0)
+
+	manifestDir, err := genconfig.ManifestDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(manifestDir, "claude.json")
+	raw, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest genconfig.Manifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	kept := manifest.Entries[:0]
+	removedPermission := false
+	for _, entry := range manifest.Entries {
+		if !removedPermission && entry.Kind == "permission" {
+			removedPermission = true
+			continue // present in settings but no longer claimed: stale
+		}
+		kept = append(kept, entry)
+	}
+	if !removedPermission {
+		t.Fatal("fresh claude manifest contains no permission entry")
+	}
+	manifest.Entries = append(kept, genconfig.ManifestEntry{
+		Kind:  "hook",
+		Path:  []string{"hooks", "RetiredEvent"},
+		Value: map[string]any{"id": "guardrail-claude-retired"},
+	}) // recorded but absent from settings: missing
+	raw, err = json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, append(raw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	settingsPath, err := planeConfigPath("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := genconfig.DriftFor("claude", settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Missing) != 1 || len(report.Stale) != 1 {
+		t.Fatalf("seeded drift = %+v, want 1 missing and 1 stale", report)
+	}
+	if missing := planeFloorDrift("claude"); missing != 0 {
+		t.Fatalf("current declarative floor drift = %d, want 0", missing)
+	}
+
+	code, out, errb := runSetup(t)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", code, out, errb)
+	}
+	if !strings.Contains(out, "claude: ownership manifest drifted (1 missing, 1 stale); re-enabling\n") {
+		t.Fatalf("stdout missing ownership-drift line:\n%s", out)
+	}
+	report, err = genconfig.DriftFor("claude", settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Clean() {
+		t.Fatalf("ownership manifest still drifted after setup: %+v", report)
+	}
+}

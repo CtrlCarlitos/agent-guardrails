@@ -85,7 +85,12 @@ func requireOperatorEnrolled(rerun string, stderr io.Writer) bool {
 // registration is the safety-relevant outcome.
 func bootstrapPlanes(cmd string, planes []string, stdout, stderr io.Writer) error {
 	for _, plane := range planes {
-		if err := enablePlaneIntegration(plane); err != nil {
+		report, err := planeOwnershipDrift(plane)
+		if err != nil {
+			return fmt.Errorf("%s: %w", plane, err)
+		}
+		reconcile := planeIntegrationRegistered(plane) || len(report.Missing) > 0 || len(report.Stale) > 0
+		if err := enablePlaneIntegrationMode(plane, reconcile); err != nil {
 			return fmt.Errorf("%s: %w", plane, err)
 		}
 	}
@@ -154,6 +159,18 @@ func executePlaneApproval(r approval.Request) error {
 	if len(planes) == 0 {
 		return fmt.Errorf("invalid approved plane action")
 	}
+	reconcile := map[string]bool{}
+	if raw := r.Parameters["reconcile_ownership"]; raw != "" {
+		if r.Action != "plane-enable" {
+			return fmt.Errorf("invalid approved plane action")
+		}
+		for _, plane := range strings.Split(raw, ",") {
+			if !slices.Contains(planes, plane) {
+				return fmt.Errorf("invalid approved plane action")
+			}
+			reconcile[plane] = true
+		}
+	}
 	alreadyCompleted, err := startActionAudit(r)
 	if err != nil {
 		return err
@@ -163,7 +180,7 @@ func executePlaneApproval(r approval.Request) error {
 	}
 	if r.Action == "plane-enable" {
 		for _, plane := range planes {
-			if err := enablePlaneIntegration(plane); err != nil {
+			if err := enablePlaneIntegrationMode(plane, reconcile[plane]); err != nil {
 				return err
 			}
 		}
@@ -195,6 +212,10 @@ func planePluginDir() (string, error) {
 }
 
 func enablePlaneIntegration(plane string) error {
+	return enablePlaneIntegrationMode(plane, false)
+}
+
+func enablePlaneIntegrationMode(plane string, reconcileOwnership bool) error {
 	binary, err := installedExecutable()
 	if err != nil {
 		return err
@@ -206,6 +227,10 @@ func enablePlaneIntegration(plane string) error {
 	if err != nil {
 		return err
 	}
+	merge := genconfig.MergePlaneInto
+	if reconcileOwnership {
+		merge = genconfig.ReconcilePlaneInto
+	}
 	switch plane {
 	case "codex":
 		if err := genconfig.WriteCodexRules(path); err != nil {
@@ -214,13 +239,13 @@ func enablePlaneIntegration(plane string) error {
 		if err := genconfig.WriteCodexWrapper(path, binary); err != nil {
 			return err
 		}
-		return genconfig.MergePlaneInto(path, plane, genconfig.CodexConfigFor(path, binary))
+		return merge(path, plane, genconfig.CodexConfigFor(path, binary))
 	case "claude":
 		base, err := policy.LoadBase()
 		if err != nil {
 			return err
 		}
-		return genconfig.MergePlaneInto(path, plane, genconfig.ClaudeConfig(base, binary))
+		return merge(path, plane, genconfig.ClaudeConfig(base, binary))
 	case "opencode":
 		base, err := policy.LoadBase()
 		if err != nil {
@@ -240,9 +265,9 @@ func enablePlaneIntegration(plane string) error {
 		if abs, err := filepath.Abs(pluginPath); err == nil {
 			pluginPath = abs
 		}
-		return genconfig.MergePlaneInto(path, plane, genconfig.OpencodeConfig(base, pluginPath))
+		return merge(path, plane, genconfig.OpencodeConfig(base, pluginPath))
 	case "antigravity":
-		return genconfig.MergePlaneInto(path, plane, genconfig.AntigravityConfig(binary))
+		return merge(path, plane, genconfig.AntigravityConfig(binary))
 	default:
 		return fmt.Errorf("unsupported plane %q", plane)
 	}
@@ -370,6 +395,27 @@ func actionSuffix(action string) string {
 // single WebAuthn ceremony covers every plane.
 func planesViaApproval(planes []string, action, outcome string, stdout, stderr io.Writer) bool {
 	cwd, _ := os.Getwd()
+	parameters := map[string]string{"planes": strings.Join(planes, ",")}
+	if action == "plane-enable" {
+		var reconcile []string
+		for _, plane := range planes {
+			report, err := planeOwnershipDrift(plane)
+			if err != nil {
+				fmt.Fprintf(stderr, "guardrail: %s: reading ownership drift: %v\n", plane, err)
+				return false
+			}
+			// Any re-enable of a registered plane may replace owned hook
+			// entries, making the old manifest records missing as part of this
+			// merge. Manifest drift already present needs the same mode even if
+			// registration itself is damaged.
+			if planeIntegrationRegistered(plane) || len(report.Missing) > 0 || len(report.Stale) > 0 {
+				reconcile = append(reconcile, plane)
+			}
+		}
+		if len(reconcile) > 0 {
+			parameters["reconcile_ownership"] = strings.Join(reconcile, ",")
+		}
+	}
 	request := approval.Request{
 		Plane:      "operator",
 		SessionID:  "terminal",
@@ -377,7 +423,7 @@ func planesViaApproval(planes []string, action, outcome string, stdout, stderr i
 		Scope:      approval.GlobalScope,
 		Reason:     "operator terminal plane " + actionSuffix(action),
 		Action:     action,
-		Parameters: map[string]string{"planes": strings.Join(planes, ",")},
+		Parameters: parameters,
 	}
 	created, err := submitPlaneRequest(request)
 	if err != nil {

@@ -152,6 +152,8 @@ func TestExecutePlaneApprovalRejectsInvalidRequests(t *testing.T) {
 		{Action: "plane-enable", Parameters: map[string]string{"planes": "unsupported-plane"}},
 		{Action: "plane-disable", Parameters: map[string]string{"planes": "unsupported-plane"}},
 		{Action: "plane-disable", Parameters: map[string]string{"planes": ""}},
+		{Action: "plane-enable", Parameters: map[string]string{"planes": "claude", "reconcile_ownership": "codex"}},
+		{Action: "plane-disable", Parameters: map[string]string{"planes": "claude", "reconcile_ownership": "claude"}},
 		{Action: "night-on", Parameters: map[string]string{"planes": "claude"}},
 		{Action: "web-host-grant", Parameters: map[string]string{"planes": "claude"}},
 	}

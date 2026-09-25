@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
 )
 
 // Setup gate seams, overridable in tests so no test runs the real doctor or
@@ -200,6 +201,20 @@ func setupEnableReason(plane string) (string, error) {
 	if missing := planeFloorDrift(plane); missing > 0 {
 		return fmt.Sprintf("permissions floor drifted (%d entries missing); re-enabling", missing), nil
 	}
+	report, err := planeOwnershipDrift(plane)
+	if err != nil {
+		return "", err
+	}
+	if len(report.Missing) > 0 || len(report.Stale) > 0 {
+		var conditions []string
+		if n := len(report.Missing); n > 0 {
+			conditions = append(conditions, fmt.Sprintf("%d missing", n))
+		}
+		if n := len(report.Stale); n > 0 {
+			conditions = append(conditions, fmt.Sprintf("%d stale", n))
+		}
+		return fmt.Sprintf("ownership manifest drifted (%s); re-enabling", strings.Join(conditions, ", ")), nil
+	}
 	drifted, err := planeHandlerDrift(plane)
 	if err != nil {
 		return "", err
@@ -208,6 +223,14 @@ func setupEnableReason(plane string) (string, error) {
 		return "registered handlers differ from this binary; re-enabling", nil
 	}
 	return "", nil
+}
+
+func planeOwnershipDrift(plane string) (genconfig.DriftReport, error) {
+	path, err := planeConfigPath(plane)
+	if err != nil {
+		return genconfig.DriftReport{}, err
+	}
+	return genconfig.DriftFor(plane, path)
 }
 
 // setupDisable removes every registered target plane's integration, approves

@@ -177,13 +177,39 @@ func snapshot(doc map[string]any) map[string]any {
 // record of everything the first merge wrote. The entries would still be in
 // the settings file with nothing left that knows they are guardrail's, which
 // is the exact condition the manifest exists to end.
-func recordOwnership(plane, target string, before, after map[string]any) {
+func recordOwnership(plane, target string, before, after map[string]any, reconcile bool) {
 	if plane == "" {
 		return
 	}
 	fresh := ownershipEntries(before, after, nil)
 	if existing, _ := LoadManifest(plane); existing != nil && sameTarget(existing.Target, target) {
-		fresh = mergeOwnership(existing.Entries, fresh)
+		if reconcile {
+			// Drop recorded entries that no longer exist, while retaining
+			// operator-edited entries so removal still leaves them alone.
+			// Without pruning, replaced hook groups remain "missing" forever.
+			live := make([]ManifestEntry, 0, len(existing.Entries))
+			for _, entry := range existing.Entries {
+				if _, present := currentValue(after, entry); present {
+					live = append(live, entry)
+				}
+			}
+			fresh = mergeOwnership(live, fresh)
+		} else {
+			fresh = mergeOwnership(existing.Entries, fresh)
+		}
+	}
+
+	// Only the explicit reconciliation mode adopts exact current generated
+	// entries that predate the manifest. A normal merge must not claim an
+	// identical operator-owned rule that Guardrail never changed.
+	if fragment, ok := fallbackFragment(plane); reconcile && ok {
+		for _, entry := range ownershipEntries(map[string]any{}, fragment, nil) {
+			current, present := currentValue(after, entry)
+			if !present || jsonKey(current) != jsonKey(entry.Value) {
+				continue
+			}
+			fresh = mergeOwnership(fresh, []ManifestEntry{entry})
+		}
 	}
 	_ = saveManifest(Manifest{
 		Version:   manifestVersion,
