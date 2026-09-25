@@ -182,6 +182,13 @@ func TestWindowsCodexConfiguredLauncherUsesStructuredDenials(t *testing.T) {
 			}
 		})
 	}
+
+	var out, errb bytes.Buffer
+	tc := engine.ToolCall{Capability: policy.CapabilityCommand, Command: "Write-Output fixture", CWD: t.TempDir()}
+	code := EmitCodex(policy.Verdict{Decision: policy.Allow}, "pre", tc, &out, &errb)
+	if code != 0 || !strings.Contains(out.String(), `"permissionDecision":"deny"`) || !strings.Contains(out.String(), "cannot prove the Windows command shell") {
+		t.Fatalf("configured Windows shell block: code=%d stdout=%q stderr=%q", code, out.String(), errb.String())
+	}
 }
 
 func TestCodexAllowedShellGuardsActualDirectory(t *testing.T) {
