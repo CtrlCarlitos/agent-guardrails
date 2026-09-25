@@ -2,7 +2,7 @@
 # hand off to `guardrail setup`. Windows PowerShell 5.1 and PowerShell 7.
 #
 #   install.ps1 -Version <tag> [-State enabled|disabled] [-Dest <dir>]
-#               [-BaseUrl <url-or-dir>] [-NoSetup]
+#               [-BaseUrl <url-or-dir>] [-NoSetup] [-SetupIfInteractive]
 #   install.ps1 -Uninstall [-Purge] [-Dest <dir>] [-NoSetup]
 #   install.ps1 -Help
 #
@@ -24,6 +24,7 @@ param(
 	[string]$Dest,
 	[string]$BaseUrl,
 	[switch]$NoSetup,
+	[switch]$SetupIfInteractive,
 	[switch]$Uninstall,
 	[switch]$Purge,
 	[switch]$Help
@@ -65,7 +66,7 @@ function Show-Usage {
 	Write-Host @'
 Usage:
   install.ps1 -Version <tag> [-State enabled|disabled] [-Dest <dir>]
-              [-BaseUrl <url-or-dir>] [-NoSetup]
+              [-BaseUrl <url-or-dir>] [-NoSetup] [-SetupIfInteractive]
   install.ps1 -Uninstall [-Purge] [-Dest <dir>] [-NoSetup]
   install.ps1 -Help
 
@@ -77,6 +78,9 @@ Usage:
                      (default: https://github.com/CtrlCarlitos/agent-guardrails/releases/download).
   -NoSetup           Stop once the binary is installed and verified; do not run `guardrail setup`.
                      With -Uninstall: do not run `guardrail setup --state disabled` first.
+  -SetupIfInteractive
+                     With -State disabled, install or update the binary but skip setup and exit 0
+                     when stdin is not an interactive console. Prints the command needed to finish.
   -Uninstall         Disable every plane (`guardrail setup --state disabled`), then remove
                      guardrail.exe, the plugin file guardrail.js, the user PATH entry and
                      the Defender exclusion.
@@ -199,6 +203,9 @@ function Resolve-Arguments {
 		exit 0
 	}
 	if ($Purge -and -not $Uninstall) { Die 2 '-Purge only works with -Uninstall' }
+	if ($SetupIfInteractive -and $Uninstall) { Die 2 '-SetupIfInteractive cannot be combined with -Uninstall' }
+	if ($SetupIfInteractive -and $NoSetup) { Die 2 '-SetupIfInteractive cannot be combined with -NoSetup' }
+	if ($SetupIfInteractive -and $State -ne 'disabled') { Die 2 '-SetupIfInteractive requires -State disabled' }
 	if ($script:StateGiven -and $Uninstall) { Die 2 '-State cannot be combined with -Uninstall' }
 	# -Uninstall needs no release; a -Version given anyway must still be valid.
 	if (-not $Version -and -not $Uninstall) {
@@ -481,6 +488,13 @@ function Test-SetupSupported {
 	return -not (($code -eq 2) -and $text.Contains('unknown subcommand'))
 }
 
+# Test-InteractiveInput: whether a child process inherits terminal stdin.
+# If the host cannot answer, treat it as non-interactive: this opt-in path
+# only skips a state change and must never guess that approval is possible.
+function Test-InteractiveInput {
+	try { return -not [Console]::IsInputRedirected } catch { return $false }
+}
+
 $OldBinaryHint = "this guardrail predates 'setup'; re-run the installer with -Version <a release that has it>"
 
 # Invoke-DisablePlanes: run `guardrail setup --state disabled` (or, on a
@@ -596,6 +610,10 @@ function Invoke-Handoff {
 		Say "guardrail $Version installed at $($script:Exe) (setup skipped)"
 		exit 0
 	}
+	if ($State -eq 'disabled' -and $SetupIfInteractive -and -not (Test-InteractiveInput)) {
+		Say 'setup --state disabled skipped (no interactive local terminal); run guardrail setup --state disabled from an interactive shell'
+		exit 0
+	}
 	$setupArgs = @('setup')
 	if ($State -eq 'disabled') { $setupArgs = @('setup', '--state', 'disabled') }
 	if (-not (Test-SetupSupported)) {
@@ -624,7 +642,7 @@ function Invoke-Main {
 		if ($Uninstall) { Uninstall-Guardrail }
 		Get-InstalledVersion
 
-		if ($State -eq 'disabled') {
+		if ($State -eq 'disabled' -and -not $SetupIfInteractive) {
 			# No download ever happens when disabling.
 			if (-not (Test-Path -LiteralPath $script:Exe -PathType Leaf)) {
 				Say "no guardrail at $($script:Exe); nothing to do"

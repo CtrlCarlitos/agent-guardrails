@@ -126,7 +126,8 @@ case: `bootstrap-installs-and-verifies`,
 `uninstall-keeps-path-when-dest-shared`,
 `uninstall-purge-removes-state-roots`, `uninstall-nothing-installed-is-ok`,
 `purge-without-uninstall-exits-2` and `state-with-uninstall-exits-2`,
-`handoff-propagates-setup-exit-code`, and
+`handoff-propagates-setup-exit-code`,
+`noninteractive-disable-can-skip-setup`, and
 `parses-under-windows-powershell-syntax`. Each case runs `install.ps1`
 in a child `pwsh` with `-BaseUrl <staged dir> -Dest <fresh dir>
 -NoSetup`. The bootstrap case also checks that the install directory was
@@ -155,6 +156,10 @@ way. `uninstall-keeps-path-when-dest-shared` drops a foreign file in
 `-NoSetup`, with the child's stdin piped instead of a console: the real
 `setup` refuses with exit 2 and `requires an interactive local terminal`,
 and the script must exit 2 too.
+`noninteractive-disable-can-skip-setup` starts without a binary and passes
+`-State disabled -SetupIfInteractive` with the same redirected stdin. The
+binary must install, setup must be deferred with an actionable message, and
+the installer must exit 0.
 `uninstall-aborts-when-disable-fails` is Unix only: faking a
 `guardrail.exe` whose `setup` fails runs into the same limit as the
 self-update branch below.

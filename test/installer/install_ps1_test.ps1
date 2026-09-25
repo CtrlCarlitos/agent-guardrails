@@ -63,7 +63,8 @@ $labels = @(
 	'uninstall-nothing-installed-is-ok',
 	'purge-without-uninstall-exits-2',
 	'state-with-uninstall-exits-2',
-	'handoff-propagates-setup-exit-code'
+	'handoff-propagates-setup-exit-code',
+	'noninteractive-disable-can-skip-setup'
 )
 
 if (-not $onWindows) {
@@ -448,6 +449,26 @@ exit $code
 		}
 	}
 
+	function Case-NoninteractiveDisableCanSkipSetup {
+		# An unattended caller can opt into installing the binary while leaving
+		# the plane state unchanged instead of turning the terminal refusal into
+		# a failed run. The ordinary path above must keep propagating exit 2.
+		$savedPath = Save-UserPath
+		$dest = Fresh
+		$sbHome = Fresh
+		$exe = Join-Path $dest 'guardrail.exe'
+		try {
+			InSandbox $sbHome { RunNoConsole -Version $Version -State disabled -Dest $dest -BaseUrl (Join-Path $tmp 'releases') -SetupIfInteractive }
+			if (-not (WantRc 0)) { return $false }
+			if (-not (Has out 'setup --state disabled skipped (no interactive local terminal)')) { return $false }
+			if (-not (Has out 'run guardrail setup --state disabled from an interactive shell')) { return $false }
+			return (Reports $exe $Version)
+		} finally {
+			Restore-UserPath $savedPath
+			Remove-HarnessExclusion $exe
+		}
+	}
+
 	function Case-PurgeWithoutUninstallExits2 {
 		$dest = Fresh
 		$sbHome = Fresh
@@ -483,6 +504,7 @@ exit $code
 	Check 'purge-without-uninstall-exits-2' { Case-PurgeWithoutUninstallExits2 }
 	Check 'state-with-uninstall-exits-2' { Case-StateWithUninstallExits2 }
 	Check 'handoff-propagates-setup-exit-code' { Case-HandoffPropagatesSetupExitCode }
+	Check 'noninteractive-disable-can-skip-setup' { Case-NoninteractiveDisableCanSkipSetup }
 	Check 'parses-under-windows-powershell-syntax' { Case-ParsesUnderWindowsPowerShellSyntax }
 } finally {
 	Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue

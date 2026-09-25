@@ -7,6 +7,12 @@ explicitly in **Breaking** notes.
 ## Unreleased
 
 ### Installation
+- **Fix (#324): unattended Windows installs can explicitly defer a disable.**
+  `install.ps1 -State disabled -SetupIfInteractive` now installs or updates
+  the requested binary but, when stdin is redirected, leaves the current plane
+  state unchanged, exits successfully and prints the interactive
+  `guardrail setup --state disabled` command needed to finish. Without the new
+  switch, the terminal refusal and exit code 2 remain unchanged.
 - **Fix (#323): a later Windows uninstall now removes rename-aside leftovers.**
   When `guardrail.exe` is already gone but the install directory contains an
   owned `guardrail.exe.old`, update staging file or install staging file,
