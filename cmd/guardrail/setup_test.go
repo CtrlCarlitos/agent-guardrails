@@ -458,6 +458,27 @@ func TestSetupFailsWhenAntigravityGateFails(t *testing.T) {
 	}
 }
 
+func TestSetupWarnsWhenAntigravityGateFailsAfterEnable(t *testing.T) {
+	driftSandbox(t)
+	useInstalledPlanes(t, "claude")
+	useTransport(t, []string{"approved"})
+	calls := stubSetupGates(t, true, 1, 0)
+
+	code, out, errb := runSetup(t)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 after plane was enabled; stdout=%q stderr=%q", code, out, errb)
+	}
+	if !strings.Contains(errb, "coverage remains unknown") || !strings.Contains(errb, "guardrail doctor --coverage antigravity") {
+		t.Fatalf("stderr = %q, want coverage warning and doctor hint", errb)
+	}
+	if !strings.Contains(out, "claude enabled") || !strings.Contains(out, "setup: plane status") {
+		t.Fatalf("stdout missing enabled/status evidence:\n%s", out)
+	}
+	if calls.selftest != 1 {
+		t.Fatalf("selftest calls = %d, want 1 after coverage warning", calls.selftest)
+	}
+}
+
 func TestSetupFailsWhenSelftestFails(t *testing.T) {
 	driftSandbox(t)
 	useInstalledPlanes(t)

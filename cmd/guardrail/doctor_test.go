@@ -733,6 +733,40 @@ func TestDoctorCoverageAntigravityFullCoverageExitsZero(t *testing.T) {
 	}
 }
 
+func TestDoctorCoverageAntigravityDefaultMergesPluginBundles(t *testing.T) {
+	home := t.TempDir()
+	testenv.SetHome(t, home)
+	testenv.SetState(t, filepath.Join(home, "state"))
+	testenv.SetConfig(t, filepath.Join(home, "config"))
+	t.Setenv("GUARDRAIL_CONFIG", "")
+
+	pluginDir := filepath.Join(home, ".gemini", "config", "plugins", "dotfiles-mcp")
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pluginPath := filepath.Join(pluginDir, "mcp_config.json")
+	if err := os.WriteFile(pluginPath, []byte(`{"mcpServers":{"serena":{"tools":["find_symbol"]}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	code := run([]string{"doctor", "--coverage", "antigravity", "--schemas", t.TempDir()}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("doctor exit = %d, want 0; stderr %q", code, errb.String())
+	}
+	s := out.String()
+	globalPath := filepath.Join(home, ".gemini", "config", "mcp_config.json")
+	for _, want := range []string{
+		"antigravity coverage: Antigravity (" + globalPath + ", " + pluginPath + ")",
+		"configured MCP servers: serena",
+		"declared MCP tools: 1 (1 in registry, 0 uncontracted)",
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("doctor output missing %q:\n%s", want, s)
+		}
+	}
+}
+
 func TestDoctorCoverageRejectsBadArguments(t *testing.T) {
 	for _, args := range [][]string{
 		{"doctor", "--coverage"},

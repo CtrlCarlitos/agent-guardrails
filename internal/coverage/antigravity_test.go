@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/planecontract"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 func TestScanAntigravityFindsToolsAndFlagsUncontracted(t *testing.T) {
@@ -166,6 +167,86 @@ func TestScanAntigravityMissingConfig(t *testing.T) {
 	_, err := ScanAntigravity("/nonexistent/mcp_config.json", "/nonexistent/mcp", planecontract.MatchMCPTool)
 	if err == nil {
 		t.Fatal("expected error for nonexistent config path")
+	}
+}
+
+func TestScanAntigravityEmptyConfigIsNoServers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "mcp_config.json")
+	if err := os.WriteFile(configPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	inv, err := ScanAntigravity(configPath, filepath.Join(dir, "mcp"), planecontract.MatchMCPTool)
+	if err != nil {
+		t.Fatalf("empty config: %v", err)
+	}
+	if len(inv.Servers) != 0 || len(inv.Runtime) != 0 {
+		t.Fatalf("empty config inventory = %+v, want no servers or tools", inv)
+	}
+}
+
+func TestScanAntigravityDefaultConfigsAllowAbsentPrimary(t *testing.T) {
+	home := t.TempDir()
+	testenv.SetHome(t, home)
+
+	paths, err := AntigravityConfigPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv, err := ScanAntigravityConfigs(paths, filepath.Join(home, "schemas"), planecontract.MatchMCPTool)
+	if err != nil {
+		t.Fatalf("absent default configs: %v", err)
+	}
+	if len(inv.Servers) != 0 || len(inv.Runtime) != 0 {
+		t.Fatalf("absent default inventory = %+v, want no servers or tools", inv)
+	}
+}
+
+func TestScanAntigravityDefaultConfigsMergePluginBundles(t *testing.T) {
+	home := t.TempDir()
+	testenv.SetHome(t, home)
+	configDir := filepath.Join(home, ".gemini", "config")
+	if err := os.MkdirAll(filepath.Join(configDir, "plugins", "a-serena"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(configDir, "plugins", "b-graft"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	global := filepath.Join(configDir, "mcp_config.json")
+	if err := os.WriteFile(global, []byte(`{"mcpServers":{"serena":{"tools":["find_symbol"]}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	serenaPlugin := filepath.Join(configDir, "plugins", "a-serena", "mcp_config.json")
+	if err := os.WriteFile(serenaPlugin, []byte(`{"mcpServers":{"serena":{"tools":["replace_content"]}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	graftPlugin := filepath.Join(configDir, "plugins", "b-graft", "mcp_config.json")
+	if err := os.WriteFile(graftPlugin, []byte(`{"mcpServers":{"graft":{"tools":["graft_find_code"]}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	paths, err := AntigravityConfigPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPaths := strings.Join([]string{global, serenaPlugin, graftPlugin}, "\n")
+	if got := strings.Join(paths, "\n"); got != wantPaths {
+		t.Fatalf("config paths:\n%s\nwant:\n%s", got, wantPaths)
+	}
+
+	inv, err := ScanAntigravityConfigs(paths, filepath.Join(home, "schemas"), planecontract.MatchMCPTool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(inv.Servers, ","); got != "graft,serena" {
+		t.Fatalf("servers = %s, want graft,serena", got)
+	}
+	if got := strings.Join(inv.Runtime, ","); got != "find_symbol,graft_find_code,replace_content" {
+		t.Fatalf("runtime tools = %s, want merged tools from global and both plugins", got)
+	}
+	if len(inv.Uncontracted) != 0 {
+		t.Fatalf("uncontracted = %v, want none", inv.Uncontracted)
 	}
 }
 

@@ -204,13 +204,17 @@ func printClaudeCoverage(bundle string, stdout, stderr io.Writer) int {
 // against the registry. Uncontracted tools are the finding.
 // Exit 1 when any exist so scripts can gate on it; 2 on missing/bad config.
 func printAntigravityCoverage(configPath, schemasDir string, stdout, stderr io.Writer) int {
+	var configPaths []string
+	defaultConfig := configPath == ""
 	if configPath == "" {
-		p, err := coverage.AntigravityConfigPath()
+		paths, err := coverage.AntigravityConfigPaths()
 		if err != nil {
 			fmt.Fprintf(stderr, "guardrail: doctor --coverage antigravity: %s\n", safetext.SingleLine(err.Error()))
 			return 2
 		}
-		configPath = p
+		configPaths = paths
+	} else {
+		configPaths = []string{configPath}
 	}
 	if schemasDir == "" {
 		s, err := coverage.AntigravitySchemasDir()
@@ -221,13 +225,19 @@ func printAntigravityCoverage(configPath, schemasDir string, stdout, stderr io.W
 		schemasDir = s
 	}
 
-	inv, err := coverage.ScanAntigravity(configPath, schemasDir, planecontract.MatchMCPTool)
+	var inv coverage.AntigravityInventory
+	var err error
+	if defaultConfig {
+		inv, err = coverage.ScanAntigravityConfigs(configPaths, schemasDir, planecontract.MatchMCPTool)
+	} else {
+		inv, err = coverage.ScanAntigravity(configPath, schemasDir, planecontract.MatchMCPTool)
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "guardrail: doctor --coverage antigravity: %s\n", safetext.SingleLine(err.Error()))
 		return 2
 	}
 
-	fmt.Fprintf(stdout, "antigravity coverage: Antigravity (%s)\n", safetext.SingleLine(configPath))
+	fmt.Fprintf(stdout, "antigravity coverage: Antigravity (%s)\n", safetext.SingleLine(strings.Join(inv.ConfigPaths, ", ")))
 	for _, line := range inv.Describe() {
 		fmt.Fprintln(stdout, "  "+safetext.SingleLine(line))
 	}

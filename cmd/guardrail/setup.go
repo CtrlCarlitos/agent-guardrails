@@ -169,7 +169,7 @@ func setupEnable(planes []string, stdout, stderr io.Writer) int {
 			}
 		}
 	}
-	if code := setupGates(stdout, stderr); code != 0 {
+	if code := setupGates(len(batch) > 0, stdout, stderr); code != 0 {
 		return code
 	}
 	setupPrintStatus(planes, stdout)
@@ -283,12 +283,18 @@ func setupStopApprovalDaemon() {
 }
 
 // setupGates runs the antigravity coverage gate (when agy is on PATH) and
-// then the selftest against this binary.
-func setupGates(stdout, stderr io.Writer) int {
+// then the selftest against this binary. Once this run has successfully
+// enabled a plane, a coverage failure is a warning: returning failure would
+// falsely tell an installer that the already-armed plane was not installed.
+func setupGates(enabledThisRun bool, stdout, stderr io.Writer) int {
 	if setupAgyPresent() {
 		if code := setupDoctorCoverage(stdout, stderr); code != 0 {
-			fmt.Fprintf(stderr, "guardrail: setup: doctor --coverage antigravity failed (exit %d)\n", code)
-			return 1
+			if enabledThisRun {
+				fmt.Fprintf(stderr, "guardrail: setup: warning: planes were enabled, but Antigravity coverage remains unknown (doctor exit %d); run 'guardrail doctor --coverage antigravity' to inspect it\n", code)
+			} else {
+				fmt.Fprintf(stderr, "guardrail: setup: doctor --coverage antigravity failed (exit %d)\n", code)
+				return 1
+			}
 		}
 	}
 	if code := setupSelftest(stdout, stderr); code != 0 {
