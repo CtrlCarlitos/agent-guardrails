@@ -152,6 +152,7 @@ func ValidateWebHost(host string) error {
 
 // Policy is a fully merged, ready-to-evaluate policy.
 type Policy struct {
+	WebResearchOff     bool // populated only from machine-scoped Operator config
 	Slots              Slots
 	Recipes            RecipeConfig
 	Rules              []Rule

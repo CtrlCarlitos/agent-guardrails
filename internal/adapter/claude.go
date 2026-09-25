@@ -103,6 +103,7 @@ func ParseClaude(r io.Reader) (engine.ToolCall, error) {
 		tc.InputShape = "opaque-object"
 	}
 	tc.RepoRoot = repoRoot(p.CWD)
+	tc.NativeWebResearch = nativeResearchCall(tc)
 	return tc, nil
 }
 

@@ -305,6 +305,7 @@ func printDoctor(stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "merge: ERROR %s\n", safetext.SingleLine(err.Error()))
 		return 0
 	}
+	fmt.Fprintln(stdout, webResearchPosture(merged.WebResearchOff))
 	if len(warnings) == 0 {
 		fmt.Fprintln(stdout, "policy warnings: none")
 	} else {

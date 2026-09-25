@@ -299,6 +299,7 @@ func ParseAntigravity(phase string, r io.Reader) (engine.ToolCall, error) {
 		tc.InputShape = "opaque-object"
 	}
 	tc.RepoRoot = repoRoot(cwd)
+	tc.NativeWebResearch = nativeResearchCall(tc)
 	return tc, nil
 }
 

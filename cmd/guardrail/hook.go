@@ -145,6 +145,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 		stderrWarnings := append(append([]string{}, highPriorityWarnings...), mergeWarnings...)
 		adapter.EmitModelWarnings(stderrWarnings, stderr)
 		text := adapter.PostureText(policy.SortedWaivers(merged), postureWarnings)
+		text += "\n\n" + webResearchPosture(merged.WebResearchOff)
 		text += "\n\n" + claudePlanePosture()
 		if line := claudeCoveragePosture(); line != "" {
 			text += "\n\n" + line

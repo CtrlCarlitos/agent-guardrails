@@ -41,6 +41,7 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 		UnknownToolPosture: unknownToolPosture,
 	}
 	if op != nil {
+		m.WebResearchOff = op.WebResearchEnforcement == "off"
 		for _, host := range op.GlobalWebHosts {
 			if ValidateWebHost(host) == nil {
 				m.Slots.WebHosts = append(m.Slots.WebHosts, host)

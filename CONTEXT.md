@@ -107,6 +107,11 @@ persists through a matching Overlay request and Operator config grant; Global
 scope persists only in Operator config. It never authorizes a host wildcard or
 an unrelated domain.
 
+**Web-research enforcement**:
+An operator-selected posture for native research tools, independent of shell
+networking and external tools. Turning it off permits native research without
+claiming to enforce its outbound data or destinations.
+
 **Plane lifecycle**:
 The operator-controlled enabled or disabled state of Guardrail integration for a
 plane. The Guardrail binary remains installed while a plane is disabled, so an

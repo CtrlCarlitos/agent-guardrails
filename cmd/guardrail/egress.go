@@ -101,6 +101,9 @@ func writeOperatorConfig(op *policy.OperatorConfig) error {
 
 func operatorConfigContent(op *policy.OperatorConfig) ([]byte, error) {
 	raw := map[string]any{"web_hosts": map[string]any{"global": op.GlobalWebHosts}}
+	if op.WebResearchEnforcement != "" {
+		raw["web_research"] = map[string]any{"enforcement": op.WebResearchEnforcement}
+	}
 	for root, grant := range op.Repos {
 		raw[root] = grant
 	}

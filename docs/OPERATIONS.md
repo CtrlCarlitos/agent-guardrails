@@ -68,6 +68,27 @@ like from the outside for four days: `registered`, green, enforcing nothing.
 | Too many asks tonight | `guardrail night on --for 8h` (terminal only) | Relaxes routine asks to allow until then. External-tier asks (publishing, schedulers, unknown MCP) are never relaxed (ADR-0018). `guardrail night off` restores. `guardrail night status` works from anywhere and exits 1 when inactive — a state, not a failure. |
 | Windows: an opencode agent reports *every* tool call failing `guardrail: could not run (spawnSync … ETIMEDOUT); failing closed` | see **Windows: engine unreachable** below | Per-spawn latency (Defender scan + NTFS `CreateProcess`, #132) exceeded the opencode plugin's budget; the plugin denies everything when the engine cannot run — fail-closed by design. Other planes have larger hook budgets and keep working; opencode failing alone is expected, not evidence of a binary bug. |
 
+## Native web research
+
+From your own terminal, `guardrail web-research status` reports the setting.
+`guardrail web-research off` requests authenticated approval to permit native
+research; `guardrail web-research on` requests strict enforcement again. Here
+**on means enforcement on**, not search enabled. Both changes require an
+enrolled authenticator; a failed or denied approval does not authorize a change.
+The command reports success only after the approved setting is persisted.
+
+Off covers native search, image search, opening pages, following links, finding
+text and screenshots, including Codex batches and opaque result references. It
+does not enforce the outbound query data or destination hosts. Host-native
+permissions still apply. It does not permit shell networking, arbitrary MCP
+calls, secret-file access or destructive commands. Context7 setup is separate.
+
+Verified fresh setup records off. An upgrade or a missing/invalid setting stays
+strict; existing users opt out through the command above. Windows and WSL each
+have their own machine-scoped Operator config. Doctor and session-start posture
+report the setting; permitted research is audited as
+`web-research-enforcement-off`, not an enforced allow.
+
 ## Grant one exact command
 
 When a policy verdict asks but repeating the command should not require a live

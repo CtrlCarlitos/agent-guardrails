@@ -119,6 +119,15 @@ func setupReconcile(planes []string, state string, stdout, stderr io.Writer) int
 // setupEnable reconciles every detected target plane against this binary,
 // approves the whole batch once, then gates on coverage and selftest.
 func setupEnable(planes []string, stdout, stderr io.Writer) int {
+	for _, plane := range planes {
+		if planeInstalled(plane) {
+			if err := initializeWebResearchDefault(stdout); err != nil {
+				fmt.Fprintf(stderr, "guardrail: setup: web-research default: %v\n", err)
+				return 1
+			}
+			break
+		}
+	}
 	var batch []string
 	for _, plane := range planes {
 		if !planeInstalled(plane) {

@@ -4,7 +4,15 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.4-dev (2026-09-25)
+
+### Policy
+- **Feature (#351): operator-controlled native web-research enforcement.**
+  `guardrail web-research on|off|status` separates strict web controls from
+  unrelated protections. Off permits recognized native research, including
+  Codex batches and result references, and explicitly disclaims outbound-data
+  enforcement. Changes require authenticated operator approval. Verified fresh
+  setup records off; existing, missing or invalid configuration stays strict.
 
 ### Tests
 - Add a read-only Codex execution-contract probe for native Windows and
