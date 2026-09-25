@@ -527,13 +527,21 @@ function Remove-GuardrailExe {
 	Say "guardrail.exe is in use; renamed to guardrail.exe.old $([char]0x2014) delete it after the next reboot"
 }
 
-# Remove-DestLeftovers: sweep what `guardrail update` and this script leave
-# beside the binary (a superseded guardrail.exe.old, an update or install
-# staging file). A leftover still in use stays; it never fails the uninstall.
-function Remove-DestLeftovers {
+# Get-DestLeftovers: list what `guardrail update` and this script left beside
+# the binary (a superseded guardrail.exe.old, an update or install staging
+# file).
+function Get-DestLeftovers {
 	foreach ($name in @('guardrail.exe.old', '.guardrail-update', '.guardrail.install.exe')) {
 		$p = Join-Path $script:Dest $name
-		if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }
+		if (Test-Path -LiteralPath $p) { $p }
+	}
+}
+
+# Remove-DestLeftovers: sweep every owned leftover. A leftover still in use
+# stays; it never fails the uninstall.
+function Remove-DestLeftovers {
+	foreach ($p in @(Get-DestLeftovers)) {
+		Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
 	}
 }
 
@@ -542,6 +550,16 @@ function Remove-DestLeftovers {
 # state root). Never downloads anything.
 function Uninstall-Guardrail {
 	if (-not (Test-Path -LiteralPath $script:Exe -PathType Leaf)) {
+		$leftovers = @(Get-DestLeftovers)
+		if ($leftovers.Count -gt 0) {
+			Remove-DestLeftovers
+			$left = @(Get-ChildItem -LiteralPath $script:Dest -Force -ErrorAction SilentlyContinue)
+			if ($left.Count -eq 0) {
+				Remove-FromPath
+				Remove-Item -LiteralPath $script:Dest -Force -ErrorAction SilentlyContinue
+			}
+			Remove-DefenderExclusion
+		}
 		Say "nothing installed at $($script:Dest)"
 	} else {
 		if (-not $NoSetup) {
