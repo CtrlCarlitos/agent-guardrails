@@ -21,6 +21,13 @@ explicitly in **Breaking** notes.
   observation never claims Guardrail enforcement or trusted shell metadata.
 
 ### Hooks
+- **Fix (#353): the Antigravity hook command no longer breaks under agy's
+  `cmd /C` spawn.** agy passes the command line through Go's exec, which turns
+  every `"` into `\"`; `cmd.exe` then looked for a program named
+  `\"C:/…/guardrail.exe\"` and denied every tool call. A Windows binary path
+  that needs no quoting is now written bare, with forward slashes, which both
+  `cmd.exe` and a POSIX shell accept. A path with a space keeps its quotes
+  (no quote-free spelling exists for it). Claude's spelling is unchanged.
 - **Fix (#349, partial): Codex post-tool policy feedback now states that the
   tool already ran.** It no longer presents an after-the-fact finding as a
   prevented action or pending approval. Policy decisions and blocking feedback
