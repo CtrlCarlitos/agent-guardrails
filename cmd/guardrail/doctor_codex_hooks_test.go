@@ -45,7 +45,7 @@ func TestWindowsDoctorCodexHooksReportsIndependentStagesAndDecodedCommand(t *tes
 		"trusted: yes",
 		"handler id: guardrail-codex-PreToolUse",
 		"$guardrailPath = 'C:\\Users\\Agent User\\.local\\bin\\guardrail.exe'",
-		"handler failure: evaluator exited with code",
+		"$env:GUARDRAIL_CODEX_STRUCTURED_WINDOWS = '1'",
 		"generated command hash: sha256:",
 		"trust hash: sha256:pre",
 		"direct exit code: 2",
