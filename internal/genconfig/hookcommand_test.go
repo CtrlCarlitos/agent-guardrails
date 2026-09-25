@@ -108,8 +108,15 @@ func TestWindowsEveryHookedPlaneQuotesTheBinary(t *testing.T) {
 			if strings.Contains(executable, `\`) {
 				t.Errorf("%s: executable %q carries a backslash", tt.plane, executable)
 			}
-			if executable != `"C:/Users/u/.local/bin/guardrail.exe"` {
-				t.Errorf("%s: executable = %q, want the quoted, forward-slashed binary", tt.plane, executable)
+			// antigravity's runtime spawns `cmd /C` through Go, which turns a
+			// quote into \" that cmd cannot read (#353), so a path needing no
+			// quotes is emitted bare there.
+			want := `"C:/Users/u/.local/bin/guardrail.exe"`
+			if tt.plane == "antigravity" {
+				want = `C:/Users/u/.local/bin/guardrail.exe`
+			}
+			if executable != want {
+				t.Errorf("%s: executable = %q, want the forward-slashed binary %q", tt.plane, executable, want)
 			}
 			if hazard := UnquotedShellHazard(command); hazard != "" {
 				t.Errorf("%s: command %q is still hazardous: %s", tt.plane, command, hazard)
