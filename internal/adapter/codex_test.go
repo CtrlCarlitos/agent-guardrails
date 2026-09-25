@@ -162,6 +162,28 @@ func TestCodexEmitNeverReturnsUnsupportedAsk(t *testing.T) {
 	}
 }
 
+func TestWindowsCodexConfiguredLauncherUsesStructuredDenials(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows launcher contract")
+	}
+	t.Setenv("GUARDRAIL_CODEX_STRUCTURED_WINDOWS", "1")
+	for _, test := range []struct {
+		event string
+		want  string
+	}{
+		{event: "pre", want: `"permissionDecision":"deny"`},
+		{event: "post", want: `"decision":"block"`},
+	} {
+		t.Run(test.event, func(t *testing.T) {
+			var out, errb bytes.Buffer
+			code := EmitCodex(policy.Verdict{Decision: policy.Deny, Reason: "fixture"}, test.event, engine.ToolCall{}, &out, &errb)
+			if code != 0 || !strings.Contains(out.String(), test.want) || !strings.Contains(errb.String(), "policy denial") {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errb.String())
+			}
+		})
+	}
+}
+
 func TestCodexAllowedShellGuardsActualDirectory(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows command hooks fail closed until Codex identifies the runtime shell")

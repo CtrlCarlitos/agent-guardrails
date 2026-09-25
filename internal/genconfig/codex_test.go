@@ -174,6 +174,9 @@ func TestCodexWrapperOwnershipAndExecution(t *testing.T) {
 	if !strings.Contains(windowsScript, "--handler-id 'guardrail-codex-PreToolUse'") || !strings.Contains(windowsScript, "--handler-hash 'sha256:") {
 		t.Fatalf("encoded commandWindows does not carry inspectable diagnostic identity: %s", windowsScript)
 	}
+	if strings.Contains(windowsScript, "ReadToEnd") || strings.Contains(windowsScript, "| &") {
+		t.Fatalf("encoded commandWindows must leave Codex stdin inherited: %s", windowsScript)
+	}
 	// Verify CodexHooksRegistered accepts it
 	doc := map[string]any{"hooks": hooksMap}
 	if !CodexHooksRegistered(doc) {
@@ -195,7 +198,7 @@ func TestWindowsCodexInstalledCommandRunsUnderPowerShell(t *testing.T) {
 	}
 	hooksPath := filepath.Join(dir, "hooks.json")
 	binary := filepath.Join(dir, "guardrail.cmd")
-	if err := os.WriteFile(binary, []byte("@findstr /c:\"session_id\" >nul || exit /b 9\r\n@exit /b %GUARDRAIL_TEST_EXIT%\r\n"), 0o755); err != nil {
+	if err := os.WriteFile(binary, []byte("@findstr /c:\"session_id\" >nul || exit /b 9\r\n@if not \"%GUARDRAIL_TEST_EXIT%\"==\"2\" exit /b %GUARDRAIL_TEST_EXIT%\r\n@echo {\"hookSpecificOutput\":{\"permissionDecision\":\"deny\"}}\r\n@exit /b 0\r\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := WriteCodexWrapper(hooksPath, binary); err != nil {
@@ -213,7 +216,7 @@ func TestWindowsCodexInstalledCommandRunsUnderPowerShell(t *testing.T) {
 	}{
 		{name: "evaluator allows", exit: "0"},
 		{name: "policy denies", exit: "2", wantBlock: true},
-		{name: "evaluator crashes", exit: "7", wantBlock: true},
+		{name: "evaluator crashes", exit: "7", wantBlock: false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cmd := exec.Command(pwsh, "-NoProfile", "-NonInteractive", "-Command", command)
@@ -224,8 +227,12 @@ func TestWindowsCodexInstalledCommandRunsUnderPowerShell(t *testing.T) {
 			cmd.Stdout = &stdout
 			cmd.Stderr = &stderr
 			_ = cmd.Run()
-			if got := cmd.ProcessState.ExitCode(); got != 0 {
-				t.Fatalf("exit = %d, want 0; stdout: %s; stderr: %s; command: %s", got, stdout.String(), stderr.String(), command)
+			wantExit := 0
+			if test.exit == "7" {
+				wantExit = 1
+			}
+			if got := cmd.ProcessState.ExitCode(); got != wantExit {
+				t.Fatalf("exit = %d, want %d; stdout: %s; stderr: %s; command: %s", got, wantExit, stdout.String(), stderr.String(), command)
 			}
 			if got := strings.Contains(stdout.String(), `"permissionDecision":"deny"`); got != test.wantBlock {
 				t.Fatalf("blocking JSON = %t, want %t; stdout: %s; stderr: %s", got, test.wantBlock, stdout.String(), stderr.String())
@@ -234,7 +241,48 @@ func TestWindowsCodexInstalledCommandRunsUnderPowerShell(t *testing.T) {
 	}
 }
 
-func TestWindowsCodexInstalledBlocksUseEventSpecificJSON(t *testing.T) {
+func TestWindowsCodexInstalledCommandPreservesHookJSONOnStdin(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("PowerShell command handlers execute only on Windows")
+	}
+	pwsh, err := exec.LookPath("pwsh.exe")
+	if err != nil {
+		t.Skip("pwsh.exe is required to exercise Codex's configured Windows shell")
+	}
+	dir := t.TempDir()
+	hooksPath := filepath.Join(dir, "hooks.json")
+	binary := filepath.Join(dir, "guardrail.cmd")
+	capturePath := filepath.Join(dir, "hook-input.json")
+	binaryContent := "@powershell.exe -NoLogo -NoProfile -NonInteractive -Command \"$source=[Console]::OpenStandardInput(); $dest=[IO.File]::Create($env:GUARDRAIL_CAPTURE); $source.CopyTo($dest); $dest.Dispose()\"\r\n@exit /b %errorlevel%\r\n"
+	if err := os.WriteFile(binary, []byte(binaryContent), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteCodexWrapper(hooksPath, binary); err != nil {
+		t.Fatal(err)
+	}
+	hooks := CodexConfigFor(hooksPath, binary)["hooks"].(map[string]any)
+	group := hooks["SessionStart"].([]any)[0].(map[string]any)
+	command := group["hooks"].([]any)[0].(map[string]any)["commandWindows"].(string)
+	payload := `{"session_id":"fixture","cwd":"C:\\repo","hook_event_name":"SessionStart","source":"startup"}`
+	cmd := exec.Command(pwsh, "-NoProfile", "-NonInteractive", "-Command", command)
+	cmd.Env = append(os.Environ(), "GUARDRAIL_CAPTURE="+capturePath)
+	cmd.Stdin = strings.NewReader(payload)
+	var stdout, stderr strings.Builder
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("launcher: %v; stdout=%q stderr=%q", err, stdout.String(), stderr.String())
+	}
+	raw, err := os.ReadFile(capturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if len(raw) == 0 || raw[0] != '{' || !json.Valid([]byte(trimmed)) {
+		t.Fatalf("handler stdin is not BOM-free JSON: leading bytes=% x raw=%q", raw[:min(len(raw), 8)], string(raw))
+	}
+}
+
+func TestWindowsCodexInstalledPropagatesHandlerFailure(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("PowerShell command handlers execute only on Windows")
 	}
@@ -252,26 +300,15 @@ func TestWindowsCodexInstalledBlocksUseEventSpecificJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	hooks := CodexConfigFor(hooksPath, binary)["hooks"].(map[string]any)
-	for _, test := range []struct {
-		event string
-		want  string
-	}{
-		{event: "PreToolUse", want: `"permissionDecision":"deny"`},
-		{event: "PostToolUse", want: `"decision":"block"`},
-		{event: "SessionStart", want: `"continue":false`},
-	} {
-		t.Run(test.event, func(t *testing.T) {
-			group := hooks[test.event].([]any)[0].(map[string]any)
-			command := group["hooks"].([]any)[0].(map[string]any)["commandWindows"].(string)
-			cmd := exec.Command(pwsh, "-NoProfile", "-NonInteractive", "-Command", command)
-			cmd.Stdin = strings.NewReader(`{"session_id":"fixture","hook_event_name":"` + test.event + `"}`)
-			var stdout, stderr strings.Builder
-			cmd.Stdout, cmd.Stderr = &stdout, &stderr
-			_ = cmd.Run()
-			if got := cmd.ProcessState.ExitCode(); got != 0 || !strings.Contains(stdout.String(), test.want) {
-				t.Fatalf("exit=%d stdout=%q stderr=%q, want structured %s block", got, stdout.String(), stderr.String(), test.event)
-			}
-		})
+	group := hooks["PreToolUse"].([]any)[0].(map[string]any)
+	command := group["hooks"].([]any)[0].(map[string]any)["commandWindows"].(string)
+	cmd := exec.Command(pwsh, "-NoProfile", "-NonInteractive", "-Command", command)
+	cmd.Stdin = strings.NewReader(`{"session_id":"fixture","hook_event_name":"PreToolUse"}`)
+	var stdout, stderr strings.Builder
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	_ = cmd.Run()
+	if got := cmd.ProcessState.ExitCode(); got != 1 || stdout.Len() != 0 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q, want handler failure propagated", got, stdout.String(), stderr.String())
 	}
 }
 
@@ -344,7 +381,7 @@ func TestCodexWindowsCommandRunsAndReturnsStructuredBlocks(t *testing.T) {
 		t.Fatal(err)
 	}
 	binary := filepath.Join(dir, "guardrail.cmd")
-	if err := os.WriteFile(binary, []byte("@findstr /c:\"session_id\" >nul || exit /b 9\r\n@exit /b %GUARDRAIL_TEST_EXIT%\r\n"), 0o755); err != nil {
+	if err := os.WriteFile(binary, []byte("@findstr /c:\"session_id\" >nul || exit /b 9\r\n@if not \"%GUARDRAIL_TEST_EXIT%\"==\"2\" exit /b %GUARDRAIL_TEST_EXIT%\r\n@echo {\"hookSpecificOutput\":{\"permissionDecision\":\"deny\"}}\r\n@exit /b 0\r\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -364,7 +401,7 @@ func TestCodexWindowsCommandRunsAndReturnsStructuredBlocks(t *testing.T) {
 	}{
 		{name: "evaluator allows", exit: "0"},
 		{name: "policy denies without transport noise", exit: "2", wantBlock: `"permissionDecision":"deny"`},
-		{name: "evaluator crashes", exit: "7", wantBlock: "guardrail: handler failure: evaluator exited with code 7"},
+		{name: "evaluator crashes", exit: "7"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := os.Stat(binary); err != nil {
@@ -378,8 +415,12 @@ func TestCodexWindowsCommandRunsAndReturnsStructuredBlocks(t *testing.T) {
 			cmd.Stdout = &stdout
 			cmd.Stderr = &stderr
 			_ = cmd.Run()
-			if got := cmd.ProcessState.ExitCode(); got != 0 {
-				t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q; command: %s", got, stdout.String(), stderr.String(), command)
+			wantExit := 0
+			if test.exit == "7" {
+				wantExit = 7
+			}
+			if got := cmd.ProcessState.ExitCode(); got != wantExit {
+				t.Fatalf("exit = %d, want %d; stdout=%q stderr=%q; command: %s", got, wantExit, stdout.String(), stderr.String(), command)
 			}
 			if got := stdout.String(); (test.wantBlock == "" && got != "") || (test.wantBlock != "" && !strings.Contains(got, test.wantBlock)) || strings.Contains(got, "evaluator unavailable or blocked") {
 				t.Fatalf("stdout = %q, want block %q and no conflated fallback; stderr=%q", got, test.wantBlock, stderr.String())
@@ -405,11 +446,11 @@ func TestCodexWindowsMissingBinaryReturnsStructuredTransportBlock(t *testing.T) 
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	_ = cmd.Run()
-	if got := cmd.ProcessState.ExitCode(); got != 0 {
-		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", got, stdout.String(), stderr.String())
+	if got := cmd.ProcessState.ExitCode(); got != 2 {
+		t.Fatalf("exit = %d, want 2; stdout=%q stderr=%q", got, stdout.String(), stderr.String())
 	}
-	if got := stdout.String(); !strings.Contains(got, "guardrail: transport failure: configured handler executable is unavailable") || strings.Contains(got, "handler failure") || !strings.Contains(got, `"permissionDecision":"deny"`) {
-		t.Fatalf("stdout = %q, want structured transport failure only; stderr=%q", got, stderr.String())
+	if got := stderr.String(); !strings.Contains(got, "guardrail: transport failure: configured handler executable is unavailable") || strings.Contains(got, "handler failure") || stdout.Len() != 0 {
+		t.Fatalf("stderr = %q, want transport failure only; stdout=%q", got, stdout.String())
 	}
 }
 

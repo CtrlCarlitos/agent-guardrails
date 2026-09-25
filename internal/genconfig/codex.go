@@ -36,17 +36,17 @@ func CodexConfigFor(hooksPath, binary string) Fragment {
 			wrapperPath := filepath.Join(filepath.Dir(hooksPath), "guardrail-hook.cmd")
 			// Codex runs commandWindows through the shell configured for the
 			// session, which can be PowerShell or cmd.exe. Keep the entire outer
-			// command free of quotes and shell-specific control operators; the
-			// encoded script performs invocation and exit mapping in PowerShell.
+			// command free of quotes and shell-specific control operators. The
+			// owned wrapper inherits Codex's stdin bytes unchanged.
 			windowsBase := "& $wrapperPath --handler-id '" + handlerID + "'"
-			windowsInvocation := "$payload | " + windowsBase + " --handler-hash '" + codexGeneratedCommandHash(windowsBase) + "'"
+			windowsInvocation := windowsBase + " --handler-hash '" + codexGeneratedCommandHash(windowsBase) + "'"
 			windowsScript := codexWindowsHookScript("wrapperPath", wrapperPath, windowsInvocation, "configured handler wrapper is unavailable")
 			commandWindows = codexWindowsHookPrefix + encodePowerShellCommand(windowsScript)
 		} else {
 			// Print-only fragments do not have an owned wrapper. Keep the direct
 			// invocation inside the same shell-neutral encoded launcher.
 			windowsBase := "& $guardrailPath hook codex --handler-id '" + handlerID + "'"
-			windowsInvocation := "$payload | " + windowsBase + " --handler-hash '" + codexGeneratedCommandHash(windowsBase) + "'"
+			windowsInvocation := windowsBase + " --handler-hash '" + codexGeneratedCommandHash(windowsBase) + "'"
 			windowsScript := codexWindowsHookScript("guardrailPath", binary, windowsInvocation, "configured handler executable is unavailable")
 			commandWindows = codexWindowsHookPrefix + encodePowerShellCommand(windowsScript)
 		}
@@ -62,30 +62,9 @@ func CodexConfigFor(hooksPath, binary string) Fragment {
 	return Fragment{"hooks": hooks}
 }
 
-// codexWindowsHookScript keeps the outer command valid in both PowerShell and
-// cmd.exe. PowerShell converts a nested native exit 2 into process exit 1 when
-// it is itself run through -Command, so intentional blocking decisions are
-// returned using Codex's documented event-specific JSON shapes with exit 0.
 func codexWindowsHookScript(pathVariable, executablePath, invocation, unavailable string) string {
 	quotedPath := strings.ReplaceAll(executablePath, "'", "''")
-	block := "function Write-GuardrailBlock([string] $reason) { " +
-		"if ([string]::IsNullOrWhiteSpace($reason)) { $reason = 'guardrail: handler failure: evaluator blocked without a reason; continue independent work.' } else { $reason = $reason.Trim() }; " +
-		"try { $event = (ConvertFrom-Json -InputObject $payload).hook_event_name } catch { [Console]::Error.WriteLine($reason); exit 2 }; " +
-		"if ($event -eq 'PreToolUse') { $response = @{ hookSpecificOutput = @{ hookEventName = 'PreToolUse'; permissionDecision = 'deny'; permissionDecisionReason = $reason } } } " +
-		"elseif ($event -eq 'PostToolUse') { $response = @{ decision = 'block'; reason = $reason } } " +
-		"elseif ($event -eq 'SessionStart') { $response = @{ continue = $false; stopReason = $reason; systemMessage = $reason } } " +
-		"else { [Console]::Error.WriteLine($reason); exit 2 }; " +
-		"[Console]::Out.Write(($response | ConvertTo-Json -Compress -Depth 4)); exit 0 }; "
-	check := "if (-not (Test-Path -LiteralPath $" + pathVariable + " -PathType Leaf) -and $null -eq (Get-Command -Name $" + pathVariable + " -ErrorAction SilentlyContinue)) { Write-GuardrailBlock 'guardrail: transport failure: " + unavailable + "; continue independent work.' }; "
-	run := "$stdoutPath = $null; $stderrPath = $null; try { " +
-		"$stdoutPath = [IO.Path]::GetTempFileName(); $stderrPath = [IO.Path]::GetTempFileName(); " +
-		invocation + " 1> $stdoutPath 2> $stderrPath; $guardrailExit = $LASTEXITCODE; " +
-		"$guardrailOut = [IO.File]::ReadAllText($stdoutPath); $guardrailErr = [IO.File]::ReadAllText($stderrPath) " +
-		"} catch { Write-GuardrailBlock ('guardrail: transport failure: PowerShell handler launcher failed (' + $_.Exception.Message + '); continue independent work.') } " +
-		"finally { if ($null -ne $stdoutPath) { Remove-Item -LiteralPath $stdoutPath -Force -ErrorAction SilentlyContinue }; if ($null -ne $stderrPath) { Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue } }; " +
-		"if ($guardrailExit -eq 0) { [Console]::Out.Write($guardrailOut); [Console]::Error.Write($guardrailErr); exit 0 }; " +
-		"if ([string]::IsNullOrWhiteSpace($guardrailErr)) { $guardrailErr = \"guardrail: handler failure: evaluator exited with code $guardrailExit; continue independent work.\" }; Write-GuardrailBlock $guardrailErr"
-	return "$payload = [Console]::In.ReadToEnd(); " + block + "$" + pathVariable + " = '" + quotedPath + "'; " + check + run
+	return "$env:GUARDRAIL_CODEX_STRUCTURED_WINDOWS = '1'; $" + pathVariable + " = '" + quotedPath + "'; if (-not (Test-Path -LiteralPath $" + pathVariable + " -PathType Leaf) -and $null -eq (Get-Command -Name $" + pathVariable + " -ErrorAction SilentlyContinue)) { [Console]::Error.WriteLine('guardrail: transport failure: " + unavailable + "; continue independent work.'); exit 2 }; " + invocation + "; exit $LASTEXITCODE"
 }
 
 // CodexWrapperContent returns the inspectable batch wrapper content for Codex
@@ -103,7 +82,7 @@ func CodexWrapperContent(binary string) []byte {
 	return []byte(b.String())
 }
 
-// WriteCodexWrapper writes the inspectable hook wrapper script alongside hooksPath.
+// WriteCodexWrapper writes the inspectable hook wrapper alongside hooksPath.
 func WriteCodexWrapper(hooksPath, binary string) error {
 	dir := filepath.Dir(hooksPath)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -159,11 +138,11 @@ func decodeCodexWindowsCommand(command string) (string, bool) {
 	return string(utf16.Decode(units)), true
 }
 
-func codexWindowsCommandHasStructuredBlocks(command string) bool {
+func codexWindowsCommandHasCurrentLauncher(command string) bool {
 	script, ok := decodeCodexWindowsCommand(command)
-	return ok && strings.Contains(script, "permissionDecision = 'deny'") &&
-		strings.Contains(script, "decision = 'block'") &&
-		strings.Contains(script, "continue = $false")
+	return ok && strings.Contains(script, "$env:GUARDRAIL_CODEX_STRUCTURED_WINDOWS = '1'") &&
+		strings.Contains(script, "--handler-id 'guardrail-codex-") && strings.Contains(script, "; exit $LASTEXITCODE") &&
+		!strings.Contains(script, "ReadToEnd") && !strings.Contains(script, "| &")
 }
 
 // CodexRules is a coarse native floor for command escalation, not a filesystem
@@ -250,7 +229,7 @@ func CodexHooksRegistered(doc map[string]any) bool {
 					strings.Contains(command, " hook codex --handler-id '"+ownedID+"' --handler-hash 'sha256:") &&
 					strings.HasSuffix(command, codexHookFailureSuffix) &&
 					codexWindowsCommandHasHandler(commandWindows, ownedID) &&
-					codexWindowsCommandHasStructuredBlocks(commandWindows) &&
+					codexWindowsCommandHasCurrentLauncher(commandWindows) &&
 					isEncoded {
 					found = true
 				}

@@ -10,10 +10,12 @@ explicitly in **Breaking** notes.
 - **Fix (#342): Codex Windows hook commands no longer die in the configured
   shell before reaching Guardrail.** `commandWindows` is now a quote-free,
   encoded PowerShell launcher, so it parses correctly whether Codex is using
-  PowerShell or `cmd.exe`. The launcher translates blocking evaluator results
-  into Codex's documented event-specific JSON decisions, avoiding
-  PowerShell's conversion of a nested exit 2 into exit 1. Installed hooks still
-  invoke the owned, inspectable batch wrapper.
+  PowerShell or `cmd.exe`. The launcher leaves Codex's stdin inherited instead
+  of piping it through Windows PowerShell, which preserves the JSON input
+  without a UTF-8 byte-order mark. The evaluator returns documented
+  event-specific JSON for Windows policy blocks, avoiding PowerShell's
+  conversion of a nested exit 2 into exit 1. Installed hooks retain the owned,
+  inspectable batch wrapper.
 
 ### Installation
 - **Fix (#324): unattended Windows installs can explicitly defer a disable.**
