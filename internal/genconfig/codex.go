@@ -36,8 +36,19 @@ func CodexConfigFor(hooksPath, binary string) Fragment {
 		var commandWindows string
 		if hooksPath != "" {
 			wrapperPath := filepath.Join(filepath.Dir(hooksPath), "guardrail-hook.cmd")
-			windowsBase := "\"" + wrapperPath + "\" --handler-id " + handlerID
-			commandWindows = windowsBase + " --handler-hash " + codexGeneratedCommandHash(windowsBase) + codexWindowsHookFailureSuffix
+			if codexWindowsBarePath(wrapperPath) {
+				windowsBase := wrapperPath + " --handler-id " + handlerID
+				commandWindows = windowsBase + " --handler-hash " + codexGeneratedCommandHash(windowsBase) + codexWindowsHookFailureSuffix
+			} else {
+				// Codex currently wraps commandWindows in another pair of quotes on
+				// Windows (openai/codex#38168). Keep the outer command quote-free;
+				// PowerShell can carry a path that is unsafe as a cmd.exe bare word
+				// inside EncodedCommand without exposing nested quotes to Codex.
+				windowsBase := "& $wrapperPath --handler-id '" + handlerID + "'"
+				windowsInvocation := windowsBase + " --handler-hash '" + codexGeneratedCommandHash(windowsBase) + "'"
+				windowsScript := "$wrapperPath = '" + strings.ReplaceAll(wrapperPath, "'", "''") + "'; if (-not (Test-Path -LiteralPath $wrapperPath -PathType Leaf)) { [Console]::Error.WriteLine('guardrail: transport failure: configured handler wrapper is unavailable; continue independent work.'); exit 3 }; " + windowsInvocation + "; exit $LASTEXITCODE"
+				commandWindows = codexWindowsHookPrefix + encodePowerShellCommand(windowsScript) + codexWindowsHookFailureSuffix
+			}
 		} else {
 			// Codex executes commandWindows through cmd.exe. Keep the encoded
 			// fallback for print-only fragments; installed configs use the owned,
@@ -57,6 +68,19 @@ func CodexConfigFor(hooksPath, binary string) Fragment {
 		}}
 	}
 	return Fragment{"hooks": hooks}
+}
+
+func codexWindowsBarePath(path string) bool {
+	if path == "" {
+		return false
+	}
+	for _, r := range path {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || strings.ContainsRune(`:\/._-`, r) {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // CodexWrapperContent returns the inspectable batch wrapper content for Codex

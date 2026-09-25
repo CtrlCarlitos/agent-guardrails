@@ -6,6 +6,15 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Hooks
+- **Fix (#342): Codex Windows hook commands no longer die in `cmd.exe` before
+  reaching Guardrail.** Installed commands now keep their outer
+  `commandWindows` spelling free of embedded quotes, working around the current
+  Codex Windows runner bug (openai/codex#38168). A cmd-safe wrapper path is
+  emitted bare; paths containing spaces or other shell-sensitive characters
+  use an encoded PowerShell launcher that still invokes the owned, inspectable
+  batch wrapper.
+
 ### Installation
 - **Fix (#324): unattended Windows installs can explicitly defer a disable.**
   `install.ps1 -State disabled -SetupIfInteractive` now installs or updates
