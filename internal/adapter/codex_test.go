@@ -162,6 +162,59 @@ func TestCodexEmitNeverReturnsUnsupportedAsk(t *testing.T) {
 	}
 }
 
+func TestCodexPostFeedbackDoesNotClaimPreventionOrApproval(t *testing.T) {
+	t.Setenv("GUARDRAIL_CODEX_STRUCTURED_WINDOWS", "")
+	testCodexPostFeedback(t, false)
+}
+
+func TestWindowsCodexPostFeedbackUsesStructuredBlock(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows launcher contract")
+	}
+	t.Setenv("GUARDRAIL_CODEX_STRUCTURED_WINDOWS", "1")
+	testCodexPostFeedback(t, true)
+}
+
+func testCodexPostFeedback(t *testing.T, structured bool) {
+	t.Helper()
+	for _, decision := range []policy.Decision{policy.Ask, policy.Deny, policy.Complete} {
+		t.Run(string(decision), func(t *testing.T) {
+			var out, errb bytes.Buffer
+			v := policy.Verdict{Decision: decision, RuleID: "P5.ci-infra-lockfile", Reason: "CI edit fixture", RequestID: "not-a-post-request", ApprovalURL: "http://localhost/not-a-post-approval"}
+			code := EmitCodex(v, "post", engine.ToolCall{Tool: "apply_patch"}, &out, &errb)
+			wantCode := 2
+			if structured {
+				wantCode = 0
+				var payload struct {
+					Decision string `json:"decision"`
+					Reason   string `json:"reason"`
+				}
+				if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+					t.Fatal(err)
+				}
+				if payload.Decision != "block" || !strings.Contains(errb.String(), payload.Reason) || payload.Reason == "" {
+					t.Fatalf("stdout=%q stderr=%q", out.String(), errb.String())
+				}
+			} else if out.Len() != 0 {
+				t.Fatalf("unexpected stdout: %q", out.String())
+			}
+			if code != wantCode {
+				t.Fatalf("exit=%d, want %d", code, wantCode)
+			}
+			for _, want := range []string{"PostToolUse", "already ran", "not prevented or undone", "No approval request was created", "CI edit fixture"} {
+				if !strings.Contains(errb.String(), want) {
+					t.Errorf("stderr=%q, missing %q", errb.String(), want)
+				}
+			}
+			for _, forbidden := range []string{"Codex PreToolUse", "Operator action pending", "not-a-post-request", "http://localhost/not-a-post-approval", "retry this exact action once"} {
+				if strings.Contains(errb.String(), forbidden) {
+					t.Errorf("stderr=%q includes misleading %q", errb.String(), forbidden)
+				}
+			}
+		})
+	}
+}
+
 func TestWindowsCodexConfiguredLauncherUsesStructuredDenials(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows launcher contract")

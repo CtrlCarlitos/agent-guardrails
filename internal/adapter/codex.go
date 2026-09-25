@@ -186,6 +186,11 @@ func EmitCodex(v policy.Verdict, event string, tc engine.ToolCall, stdout, stder
 	if v.Decision == policy.Complete {
 		reason = fmt.Sprintf("Operator action pending: %s; request %s; open %s. Wait for completion before continuing this action.", v.OperatorAction, v.RequestID, v.ApprovalURL)
 	}
+	if event == "post" {
+		// Post-tool policy evaluation reports effects; it cannot gate execution
+		// or submit an operator request. Never reuse pre-execution guidance here.
+		reason = "Guardrail PostToolUse feedback: the tool already ran; its effects were not prevented or undone by this hook. Policy finding: " + sanitizeForModel(v.Reason) + ". No approval request was created by this post-tool check. Report the finding to the operator and inspect the resulting state. Do not automatically repeat or undo the action, or treat conversational approval as recorded authorization; continue independent work."
+	}
 	fmt.Fprintln(stderr, "guardrail: policy denial: "+reason)
 	if codexStructuredWindowsEnabled() {
 		return emitCodexBlock(event, reason, stdout)
