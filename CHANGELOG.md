@@ -7,6 +7,17 @@ explicitly in **Breaking** notes.
 ## Unreleased
 
 ### Installation
+- **Fix (#334): Antigravity coverage follows its effective MCP configuration.**
+  An absent or empty global `~/.gemini/config/mcp_config.json` now means no
+  servers from that source, not a parse/install failure. Default discovery
+  merges the global (or legacy CLI) file with every
+  `~/.gemini/config/plugins/*/mcp_config.json` bundle, including duplicate
+  server declarations, so live plugin-provided tools reach the coverage gate.
+  An explicit missing `--config` remains an error. If coverage fails only
+  after this setup run already enabled planes, setup reports coverage as
+  unknown, continues through selftest and status, and exits success when those
+  checks pass; an already-consistent run still treats coverage failure as an
+  error.
 - **Fix (#335): the ownership-drift reconcile hint now converges.** `setup`
   and `plane enable` include manifest `Missing` and `Stale` entries in their
   shared re-enable rule, and carry that exact repair intent through the

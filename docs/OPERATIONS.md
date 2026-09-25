@@ -225,8 +225,14 @@ floor drifted; **registered handlers differ from what this binary generates**
 (the hook command, the codex wrapper or the opencode plugin entry, #317).
 Planes already consistent print `already enabled` and do not prompt; the rest
 go through one approval together. It then runs `doctor --coverage
-antigravity` when `agy` is on PATH and `selftest`; either failing is a
-non-zero exit. It ends with one status line per plane. `setup` refuses to run
+antigravity` when `agy` is on PATH and `selftest`. A selftest failure is always
+a non-zero exit. Coverage failure is also non-zero when no plane changed; if
+this run already enabled one or more planes, setup instead warns that coverage
+is unknown, continues through selftest and the status block, and returns
+success when selftest passes. That keeps an installer from reporting an armed
+plane as uninstalled while preserving the coverage diagnostic and the
+`guardrail doctor --coverage antigravity` hint. It ends with one status line
+per plane. `setup` refuses to run
 without an interactive terminal (exit 2) and refuses to register the
 updater's staging or `.old` path (exit 2); it prints the path it registers
 before asking. When no operator authenticator is enrolled, an enable is a

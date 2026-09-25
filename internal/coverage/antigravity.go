@@ -14,7 +14,7 @@ import (
 // AntigravityInventory is what the scan of Antigravity MCP configuration
 // and schemas established.
 type AntigravityInventory struct {
-	ConfigPath   string              // path to mcp_config.json
+	ConfigPaths  []string            // ordered mcp_config.json sources
 	SchemasDir   string              // path to schema directory
 	Servers      []string            // configured server names, sorted
 	ServerTools  map[string][]string // server -> tool names discovered, sorted
@@ -25,19 +25,41 @@ type AntigravityInventory struct {
 
 // AntigravityConfigPath resolves the default path to Antigravity's mcp_config.json.
 func AntigravityConfigPath() (string, error) {
-	home, err := os.UserHomeDir()
+	paths, err := AntigravityConfigPaths()
 	if err != nil {
 		return "", err
 	}
-	p := filepath.Join(home, ".gemini", "config", "mcp_config.json")
-	if _, err := os.Stat(p); err == nil {
-		return p, nil
+	return paths[0], nil
+}
+
+// AntigravityConfigPaths resolves Antigravity's effective MCP configuration:
+// the global (or legacy CLI) file followed by every plugin bundle. The primary
+// path remains in the result when absent so doctor can name what it checked;
+// default scanning treats that absence as an empty configuration.
+func AntigravityConfigPaths() ([]string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
 	}
-	alt := filepath.Join(home, ".gemini", "antigravity-cli", "mcp_config.json")
-	if _, err := os.Stat(alt); err == nil {
-		return alt, nil
+	primary := filepath.Join(home, ".gemini", "config", "mcp_config.json")
+	legacy := filepath.Join(home, ".gemini", "antigravity-cli", "mcp_config.json")
+	paths := []string{primary}
+	if _, err := os.Stat(primary); err != nil {
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+		if _, err := os.Stat(legacy); err == nil {
+			paths[0] = legacy
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
 	}
-	return p, nil
+	plugins, err := filepath.Glob(filepath.Join(home, ".gemini", "config", "plugins", "*", "mcp_config.json"))
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(plugins)
+	return append(paths, plugins...), nil
 }
 
 // AntigravitySchemasDir resolves the default directory where Antigravity stores MCP tool schemas.
@@ -76,24 +98,47 @@ func isValidToolName(name string) bool {
 // ScanAntigravity reads Antigravity's mcp_config.json and scans MCP tool schemas
 // for each configured server, checking them against matchRegistry.
 func ScanAntigravity(configPath, schemasDir string, matchRegistry func(string) (planecontract.MCPToolSpec, bool)) (AntigravityInventory, error) {
-	raw, err := os.ReadFile(configPath)
-	if err != nil {
-		return AntigravityInventory{}, fmt.Errorf("cannot read config %q: %w", configPath, err)
-	}
-	var doc struct {
-		MCPServers map[string]any `json:"mcpServers"`
-	}
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		return AntigravityInventory{}, fmt.Errorf("parsing %q: %w", configPath, err)
+	return scanAntigravityConfigs([]string{configPath}, schemasDir, matchRegistry, false)
+}
+
+// ScanAntigravityConfigs scans the union of Antigravity's default optional
+// config sources. Missing files and empty files mean that source contributes
+// no servers; malformed non-empty JSON remains an error.
+func ScanAntigravityConfigs(configPaths []string, schemasDir string, matchRegistry func(string) (planecontract.MCPToolSpec, bool)) (AntigravityInventory, error) {
+	return scanAntigravityConfigs(configPaths, schemasDir, matchRegistry, true)
+}
+
+func scanAntigravityConfigs(configPaths []string, schemasDir string, matchRegistry func(string) (planecontract.MCPToolSpec, bool), optional bool) (AntigravityInventory, error) {
+	serverConfigs := map[string][]any{}
+	for _, configPath := range configPaths {
+		raw, err := os.ReadFile(configPath)
+		if os.IsNotExist(err) && optional {
+			continue
+		}
+		if err != nil {
+			return AntigravityInventory{}, fmt.Errorf("cannot read config %q: %w", configPath, err)
+		}
+		if len(strings.TrimSpace(string(raw))) == 0 {
+			continue
+		}
+		var doc struct {
+			MCPServers map[string]any `json:"mcpServers"`
+		}
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			return AntigravityInventory{}, fmt.Errorf("parsing %q: %w", configPath, err)
+		}
+		for server, config := range doc.MCPServers {
+			serverConfigs[server] = append(serverConfigs[server], config)
+		}
 	}
 
 	inv := AntigravityInventory{
-		ConfigPath:  configPath,
+		ConfigPaths: append([]string{}, configPaths...),
 		SchemasDir:  schemasDir,
 		ServerTools: map[string][]string{},
 	}
 
-	for server := range doc.MCPServers {
+	for server := range serverConfigs {
 		inv.Servers = append(inv.Servers, server)
 	}
 	sort.Strings(inv.Servers)
@@ -113,15 +158,17 @@ func ScanAntigravity(configPath, schemasDir string, matchRegistry func(string) (
 		}
 
 		// Check if config entry explicitly declares tools
-		if serverVal, ok := doc.MCPServers[server].(map[string]any); ok {
-			if toolsList, ok := serverVal["tools"].([]any); ok {
-				for _, item := range toolsList {
-					switch t := item.(type) {
-					case string:
-						addTool(t)
-					case map[string]any:
-						if name, ok := t["name"].(string); ok {
-							addTool(name)
+		for _, config := range serverConfigs[server] {
+			if serverVal, ok := config.(map[string]any); ok {
+				if toolsList, ok := serverVal["tools"].([]any); ok {
+					for _, item := range toolsList {
+						switch t := item.(type) {
+						case string:
+							addTool(t)
+						case map[string]any:
+							if name, ok := t["name"].(string); ok {
+								addTool(name)
+							}
 						}
 					}
 				}
