@@ -6,6 +6,14 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Docs
+- **Docs (#89): `CONTRIBUTING.md`.** Build, gofmt, vet and test commands for
+  Windows and Linux (the WSL recipe), how to run the adversarial corpus and the
+  contract fixtures, the house rules (TDD, conventional commits, one PR per
+  issue, no attribution trailers, `TestWindows...` naming, no force-push), the
+  rules enforced on agents, where a rule, MCP family, plane or ADR goes, and how
+  to file an issue. The README's stale "Go 1.25" now says 1.26 and links it.
+
 ### Update
 - **Fix (#94): a failed post-install verification is a failed update.**
   `guardrail update` ran `doctor` and `selftest` on the new binary but returned 0
