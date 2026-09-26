@@ -9,3 +9,4 @@ node_modules/
 /graft/
 .serena/
 .superpowers/
+/internal/engine/guardrail-worktree-tests-*/
