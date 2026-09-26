@@ -4,6 +4,27 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Tests
+- **Fix (#367): the adversarial suite no longer leaves a 20 MB build directory
+  and an approval daemon behind on Windows.** A test that runs the real binary
+  can make it spawn the detached approval daemon, and on Windows a running image
+  cannot be deleted, so `TestMain`'s `RemoveAll` of the build directory failed
+  and its error was discarded: 133 directories (2.7 GB) accumulated in `%TEMP%`
+  on one machine, and finished test worktrees could not be removed
+  (`Device or resource busy`). Measured: one full run left exactly one daemon and
+  one directory; after this change a full run leaves none. Every child
+  environment in the suite is now built by `adversarialChildEnv`, which registers
+  a cleanup that finds the daemon serving that test's pipe and terminates it, but
+  only after confirming the process is this suite's own binary. `TestMain` now
+  retries the removal and reports a failure instead of swallowing it, and sweeps
+  `guardrail-adversarial-*` directories older than a day that hold nothing but a
+  built binary (leftovers of killed runs). The client's refusal to talk to a
+  daemon that is a different program (ADR-0021) is unchanged; the test asks the
+  OS which process serves the pipe. New `approval.EndpointFor(stateRoot)` names
+  the endpoint a process with a given state root would use.
+
 ## v0.23.8-dev (2026-09-26)
 
 ### Hooks
