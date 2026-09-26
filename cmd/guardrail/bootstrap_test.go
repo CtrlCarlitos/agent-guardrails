@@ -139,8 +139,8 @@ func TestSetupEnrolledStillRequiresTerminal(t *testing.T) {
 
 	var out, errb strings.Builder
 	code := run([]string{"setup"}, strings.NewReader(""), &out, &errb)
-	if code != 2 {
-		t.Fatalf("exit = %d, want 2; stderr=%q", code, errb.String())
+	if code != exitOperatorActionPending {
+		t.Fatalf("exit = %d, want %d (operator action pending); stderr=%q", code, exitOperatorActionPending, errb.String())
 	}
 	if !strings.Contains(errb.String(), "setup requires an interactive local terminal") {
 		t.Fatalf("stderr = %q", errb.String())
@@ -151,7 +151,7 @@ func TestSetupEnrolledStillRequiresTerminal(t *testing.T) {
 	}
 }
 
-// Disabling is a loosening action: no terminal is still exit 2, and no
+// Disabling is a loosening action: no terminal is exit 3 (operator action pending), and no
 // enrollment is still exit 3, whatever the bootstrap does for enable.
 func TestSetupDisableWithoutEnrollmentKeepsTerminalGate(t *testing.T) {
 	driftSandbox(t)
@@ -162,8 +162,8 @@ func TestSetupDisableWithoutEnrollmentKeepsTerminalGate(t *testing.T) {
 
 	var out, errb strings.Builder
 	code := run([]string{"setup", "--state", "disabled"}, strings.NewReader(""), &out, &errb)
-	if code != 2 {
-		t.Fatalf("exit = %d, want 2; stderr=%q", code, errb.String())
+	if code != exitOperatorActionPending {
+		t.Fatalf("exit = %d, want %d (operator action pending); stderr=%q", code, exitOperatorActionPending, errb.String())
 	}
 	if !planeIntegrationRegistered("claude") {
 		t.Fatal("claude was unregistered without a terminal")
@@ -283,8 +283,8 @@ func TestPlaneDisableWithoutEnrollmentExitsNeedsEnrollment(t *testing.T) {
 		t.Fatal("claude was unregistered without an approval")
 	}
 	code = cmdPlane([]string{"disable", "claude"}, false, &out, &errb)
-	if code != 2 {
-		t.Fatalf("non-terminal disable exit = %d, want 2", code)
+	if code != exitOperatorActionPending {
+		t.Fatalf("non-terminal disable exit = %d, want %d", code, exitOperatorActionPending)
 	}
 }
 

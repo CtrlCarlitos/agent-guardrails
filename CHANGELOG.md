@@ -4,6 +4,26 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Installation
+- **Change (#364 follow-up): `setup` and `plane enable|disable` exit 3, not 2,
+  when an enrolled operator has no interactive terminal.** A change that needs a
+  passkey approval needs a terminal to host it, so with none attached the work
+  is waiting on the operator, which is what exit 3 means ("operator action
+  pending"), not a usage error. Exit 2 goes back to meaning only usage and
+  unsupported platform, so an installer, CI or a dotfiles apply can treat every
+  "waiting on a human" outcome the same way and no longer has to avoid `setup`
+  with `--no-setup` to keep the two apart. The refusal text is unchanged and is
+  followed by the same `operator action pending: …` remedy the other pending
+  cases print. `setup` now validates its arguments before the terminal check, so
+  a mistyped flag is still exit 2 whether or not a terminal is attached.
+  `operator`, `recover`, `web-research` and `approvals` are interactive by nature
+  and keep exit 2. The first-install bootstrap still needs no terminal and exits
+  0. The installers' `setup` probe is unaffected: it treats a binary as lacking
+  `setup` only for exit 2 plus "unknown subcommand". **Behaviour change:**
+  callers that matched exit 2 for "no terminal" must match 3.
+
 ## v0.23.6-dev (2026-09-25)
 
 ### Installation

@@ -39,15 +39,6 @@ func init() {
 // selftests. It parses arguments, refuses non-terminal and staging paths,
 // prints the registered path, then hands off to setupReconcile.
 func cmdSetup(args []string, terminal bool, stdout, stderr io.Writer) int {
-	// With no operator enrolled, an enable is a bootstrap (ADR-0030): it
-	// hosts no approval ceremony, so it needs no terminal. Every other run
-	// keeps the gate — disable always, and enable once a passkey exists.
-	bootstrap := !setupWantsDisable(args) && !operatorEnrolled()
-	if !terminal && !bootstrap {
-		fmt.Fprintln(stderr, "guardrail: setup requires an interactive local terminal (run it from your shell, not from an agent or CI)")
-		return 2
-	}
-
 	state := "enabled"
 	var planes []string
 	planesSet := false
@@ -87,6 +78,25 @@ func cmdSetup(args []string, terminal bool, stdout, stderr io.Writer) int {
 		}
 	} else {
 		planes = append([]string(nil), supportedPlanes...)
+	}
+
+	// The terminal gate runs after the arguments are validated, so a usage
+	// error stays a usage error (exit 2) whether or not a terminal is
+	// attached. Parsing is pure: nothing has touched the home directory yet.
+	//
+	// With no operator enrolled, an enable is a bootstrap (ADR-0030): it
+	// hosts no approval ceremony, so it needs no terminal. Every other run
+	// keeps the gate: disable always, and enable once a passkey exists.
+	bootstrap := !setupWantsDisable(args) && !operatorEnrolled()
+	if !terminal && !bootstrap {
+		fmt.Fprintln(stderr, "guardrail: setup requires an interactive local terminal (run it from your shell, not from an agent or CI)")
+		// Waiting on the operator, not a usage error: exit 3, so an unattended
+		// caller treats it like every other operator-action-pending outcome.
+		action := "plane-enable"
+		if setupWantsDisable(args) {
+			action = "plane-disable"
+		}
+		return pendingApproval(action, "no interactive terminal is attached", stderr)
 	}
 
 	exe, err := installedExecutable()

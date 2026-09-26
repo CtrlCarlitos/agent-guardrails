@@ -24,8 +24,8 @@ func TestSetupRequiresInteractiveTerminal(t *testing.T) {
 	var out, errb strings.Builder
 	// run() derives terminal from *os.File stdin; a strings.Reader is not one.
 	code := run([]string{"setup"}, strings.NewReader(""), &out, &errb)
-	if code != 2 {
-		t.Fatalf("exit = %d, want 2", code)
+	if code != exitOperatorActionPending {
+		t.Fatalf("exit = %d, want %d (operator action pending)", code, exitOperatorActionPending)
 	}
 	const want = "guardrail: setup requires an interactive local terminal (run it from your shell, not from an agent or CI)"
 	if !strings.Contains(errb.String(), want) {
