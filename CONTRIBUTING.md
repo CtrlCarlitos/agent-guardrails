@@ -107,6 +107,9 @@ bash test/installer/install_sh_test.sh                                        # 
   theme.
 - **PR body.** State the root cause and what you verified on each OS.
 - **Squash-merge** once green; the branch is deleted on merge.
+- **Releases** follow [`docs/release-checklist.md`](docs/release-checklist.md).
+  A change to the updater is verified on the release after the one that
+  contains it (N+2, not N+1); say which one in the PR.
 
 ### Rules enforced on agents
 
