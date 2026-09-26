@@ -4,6 +4,21 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Doctor
+- **Feat (#105): `doctor` ends with one verdict line.** `verdict: healthy`, or
+  `verdict: N problems (see above)`, counting everything doctor already prints
+  in a warning register: policy warnings, an overlay warning or parse error, an
+  unreadable operator config, a plane present but not registered (or disabled,
+  unparseable, `CANNOT SPAWN`), unmarked legacy hook groups, ownership drift,
+  Antigravity floor warnings, an unreachable engine, a spawn latency warning,
+  credential-posture warnings and, with `--coverage`, uncontracted tools. The
+  soft `NEVER OBSERVED FIRING` caveat is not counted. Exit codes are unchanged:
+  plain `doctor` exits 0, `--coverage` keeps its exit 1, and a run that fails
+  (exit 2) prints no verdict. It follows the next-steps block, so it is the last
+  line.
+
 ## v0.23.10-dev (2026-09-26)
 
 ### Engine

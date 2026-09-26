@@ -204,13 +204,24 @@ func runPostureProbe(name string, args ...string) (string, bool) {
 	return string(out), true
 }
 
-func printCredentialPosture(stdout interface{ Write([]byte) (int, error) }) {
-	lines := credentialPostureLines(gatherCredentialPosture())
+// postureGatherer is the seam tests replace so the host's gh and kubectl do
+// not decide their outcome.
+var postureGatherer = gatherCredentialPosture
+
+// printCredentialPosture returns how many of the lines it printed are
+// warnings. The informational line about credential variables is not one.
+func printCredentialPosture(stdout interface{ Write([]byte) (int, error) }) int {
+	lines := credentialPostureLines(postureGatherer())
 	if len(lines) == 0 {
-		return
+		return 0
 	}
 	fmt.Fprintln(stdout, "credential posture:")
+	warnings := 0
 	for _, line := range lines {
 		fmt.Fprintln(stdout, line)
+		if strings.HasPrefix(line, "  WARNING:") {
+			warnings++
+		}
 	}
+	return warnings
 }

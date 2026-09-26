@@ -38,7 +38,8 @@ func spawnLatencyVerdict(samples []time.Duration) (time.Duration, string) {
 	return p95, fmt.Sprintf("spawn latency: p95 %s over %d samples — per-spawn cost this high fails planes' hook budgets closed; check the AV/Defender exclusion for the binary path and system load, and see the runbook (#132)", p95, len(samples))
 }
 
-func printSpawnProbeWithSampler(stdout io.Writer, sampler func() time.Duration) {
+// printSpawnProbeWithSampler returns 1 when the latency warning printed.
+func printSpawnProbeWithSampler(stdout io.Writer, sampler func() time.Duration) int {
 	samples := make([]time.Duration, 0, spawnProbeSamples)
 	for i := 0; i < spawnProbeSamples; i++ {
 		samples = append(samples, sampler())
@@ -46,9 +47,10 @@ func printSpawnProbeWithSampler(stdout io.Writer, sampler func() time.Duration) 
 	p95, warning := spawnLatencyVerdict(samples)
 	if warning != "" {
 		fmt.Fprintln(stdout, warning)
-		return
+		return 1
 	}
 	fmt.Fprintf(stdout, "spawn latency: p95 %s over %d samples (ok)\n", p95, len(samples))
+	return 0
 }
 
 // selfSpawnSampler measures the wall time of spawning this binary's own
@@ -67,9 +69,9 @@ func selfSpawnSampler() func() time.Duration {
 // printSpawnProbe reports self-spawn latency, except inside test binaries
 // where re-exec would run the test suite recursively — the #58 rule: exec
 // the installed binary, never the in-process test binary.
-func printSpawnProbe(stdout io.Writer) {
+func printSpawnProbe(stdout io.Writer) int {
 	if flag.Lookup("test.v") != nil {
-		return
+		return 0
 	}
-	printSpawnProbeWithSampler(stdout, selfSpawnSampler())
+	return printSpawnProbeWithSampler(stdout, selfSpawnSampler())
 }

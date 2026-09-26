@@ -11,9 +11,21 @@ guardrail selftest      # behaviour: the installed binary still denies/asks as i
 guardrail audit         # what happened: decisions, top rules, unclassified tools
 ```
 
-Healthy looks like: `policy warnings: none`, every plane `registered`,
+Healthy looks like: doctor's last line reads `verdict: healthy`,
 `selftest: all probes passed`, and no rule in the audit top list you don't
 recognise. If all three are clean, the problem is not Guardrail.
+
+`verdict: N problems (see above)` is the sum of everything doctor printed in a
+warning register: each policy warning, an overlay warning or parse error, an
+unreadable operator config, a plane that is present but not registered (or
+disabled, unparseable, or `CANNOT SPAWN`), unmarked legacy hook groups,
+ownership drift, an Antigravity floor warning, an unreachable engine, a spawn
+latency warning, each credential-posture `WARNING`, and, with `--coverage`,
+uncontracted tools. It is not counted: `NEVER OBSERVED FIRING` (a soft caveat a
+fresh enrolment legitimately shows), `no manifest`, advice lines (`allow list`,
+`credential variables set`) and the codex Windows `unenforced` note. Plain
+`doctor` exits 0 whatever the verdict (use `selftest` to gate); `--coverage`
+keeps its exit 1. No verdict is printed when doctor fails to run (exit 2).
 
 **`registered` is a claim, not enforcement.** doctor can see that a hook is
 installed; only an audit record shows it ran. A claude plane that is healthy
@@ -47,6 +59,7 @@ like from the outside for four days: `registered`, green, enforcing nothing.
 
 | You see | Run | Why |
 |---|---|---|
+| doctor: `verdict: N problems (see above)` | Read the `WARNING` and warning-register lines above it; the rows below name each fix | The last line of doctor counts them so you do not have to (#105). `verdict: healthy` means none. |
 | Agent says it was blocked and you don't know why | `guardrail audit` then `grep '"decision":"deny"' ~/.local/state/guardrail/audit.jsonl \| grep -v selftest \| tail -5` | Every verdict is a JSONL record with `rule_id` and `reason`. Selftest writes deny probes to the same log on every update — filter them out or you will be reading the last selftest. |
 | `operator action pending: …` (exit 3) from `setup`, `plane enable` or `plane disable`: the approval daemon is not running, or the request was denied or expired | Run `guardrail setup` from an interactive terminal, approve with your passkey, then re-run what provisioned the machine | Nothing is broken: the binary is installed and what is registered keeps enforcing. Only the change waited on you (#364). `guardrail next` lists what is still owed. |
 | `no operator authenticator is enrolled` from `setup --state disabled`, `plane disable` or `recover` (exit 3) | `guardrail operator enroll` from a real terminal, then re-run the command it named | No passkey is enrolled, so no approval ceremony can start, and loosening actions wait for one (ADR-0030). The daemon is fine; nothing was changed. `approval daemon unavailable` now means exactly that: nothing answered on the socket and none could be spawned (#326). |
@@ -363,6 +376,9 @@ codex: probes pass (2)
 note: codex probes invoke the hook directly; live runtime mediation is evidenced by audit records
 selftest: all probes passed
 ```
+
+Current doctor ends its own block with a `verdict:` line (`verdict: healthy` on a
+converged machine); the capture above predates it.
 
 Afterwards `~/.local/state/guardrail/selftest-passed` reads the new version and the
 next Claude session's posture has **no** selftest line and **no** coverage line.
