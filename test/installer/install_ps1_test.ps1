@@ -499,7 +499,9 @@ exit 0
 		& $pwshExe -NoProfile -ExecutionPolicy Bypass -File $child 1> $o 2> $e
 		$script:rc = $LASTEXITCODE
 		$script:out = [System.IO.File]::ReadAllText($o)
-		$script:err = [System.IO.File]::ReadAllText($e)
+		# Windows PowerShell 5.1 wraps redirected native stderr at the console
+		# width, splitting words; rejoin before matching.
+		$script:err = [System.IO.File]::ReadAllText($e) -replace "[\r\n]+", ''
 	}
 
 	function Case-UpdateVerificationFailureExits1AndNamesRollback {
