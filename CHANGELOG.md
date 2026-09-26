@@ -17,6 +17,19 @@ explicitly in **Breaking** notes.
   `uninstall`, `upgrade` and `build --deep` ask too. Read-only forms (`pip list`,
   `uv --version`, `poetry show`, `graft ask`), `--no-install` launches and
   launches of a local path stay allowed.
+- **Fix (#146): a session could replace the enforcement binary with a plain
+  copy.** `Copy-Item <asset> ~\.local\bin\guardrail.exe -Force` was allowed.
+  Two causes: the `P5.self-config` globs named `guardrail` but not
+  `guardrail.exe`, and the write-target reader only knew the POSIX spellings, so
+  the Windows copy, move and content commands were invisible to the rule. It now
+  reads the destination (and, for a move or rename, the source) of `Copy-Item`,
+  `copy`, `cpi`, `Move-Item`, `move`, `Rename-Item`, `xcopy`, `robocopy`,
+  `Set-Content`, `Add-Content`, `Out-File`, `Tee-Object` and `New-Item`, including
+  directory destinations, wildcard sources and robocopy file lists, and denies
+  them as `P5.self-config` on the installed binary in either spelling. The same
+  cmdlets now also deny on the other self-config paths (`.claude/settings.json`,
+  `guardrail.toml`, ...). `guardrail update` and the installer replace the binary
+  themselves and are unaffected; `guardrail.exe.old` staging names stay clear.
 
 ### Setup
 - **Fix (#322): a hook event a newer release stops generating no longer leaves
