@@ -18,7 +18,8 @@ import (
 // Only planes that are actually installed are reported: a plane the operator
 // does not use has nothing to drift, and a line per absent plane is how this
 // section becomes noise.
-func printOwnershipDrift(stdout io.Writer) {
+func printOwnershipDrift(stdout io.Writer) int {
+	problems := 0
 	for _, plane := range []string{"claude", "opencode", "codex", "antigravity"} {
 		if !planeInstalled(plane) {
 			continue
@@ -32,5 +33,10 @@ func printOwnershipDrift(stdout io.Writer) {
 			continue
 		}
 		fmt.Fprintln(stdout, genconfig.DriftLine(plane, report))
+		// Drift is a problem; "no manifest" is not knowledge of one (#105).
+		if !report.NoManifest && !report.Clean() {
+			problems++
+		}
 	}
+	return problems
 }

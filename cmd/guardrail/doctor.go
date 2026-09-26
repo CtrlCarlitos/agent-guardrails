@@ -25,7 +25,12 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	if !ok {
 		return 2
 	}
-	code := printDoctor(stdout, stderr)
+	code, problems := printDoctor(stdout, stderr)
+	if code != 0 {
+		// The diagnosis itself could not run to the end; there is nothing
+		// honest to summarise.
+		return code
+	}
 	if opts.codexHooks {
 		path, err := planeConfigPath("codex")
 		if err != nil {
@@ -37,29 +42,61 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "guardrail: Codex diagnostic cwd: %s\n", safetext.SingleLine(err.Error()))
 			return 1
 		}
-		if diagnosticCode := printCodexHookDiagnostics(path, cwd, runtime.GOOS, stdout, stderr); diagnosticCode != 0 {
-			return diagnosticCode
+		diagnosticCode := printCodexHookDiagnostics(path, cwd, runtime.GOOS, stdout, stderr)
+		if diagnosticCode == 1 {
+			problems++
 		}
-		return code
+		return finishDoctor(stdout, diagnosticCode, problems)
 	}
-	if opts.coverage == "" {
-		return code
-	}
+	var covCode int
 	switch opts.coverage {
 	case "codex":
-		if covCode := cmdDoctorCodexCoverage(args, stdout, stderr); covCode != 0 {
-			return covCode
-		}
+		covCode = cmdDoctorCodexCoverage(args, stdout, stderr)
 	case "claude":
-		if covCode := printClaudeCoverage(opts.bundle, stdout, stderr); covCode != 0 {
-			return covCode
-		}
+		covCode = printClaudeCoverage(opts.bundle, stdout, stderr)
 	case "antigravity":
-		if covCode := printAntigravityCoverage(opts.config, opts.schemas, stdout, stderr); covCode != 0 {
-			return covCode
-		}
+		covCode = printAntigravityCoverage(opts.config, opts.schemas, stdout, stderr)
+	}
+	if covCode == 1 {
+		problems++
+	}
+	return finishDoctor(stdout, covCode, problems)
+}
+
+// finishDoctor ends the run with the verdict (#105). Exit code 1 is a finding
+// the run reported and counted; anything higher is a failure to run (bad input,
+// an unreadable bundle) whose message is already on stderr, so no verdict is
+// printed for it: a "healthy" after an error would be a claim nothing measured.
+// The code is passed through unchanged, so the verdict never alters an exit.
+func finishDoctor(stdout io.Writer, code, problems int) int {
+	if code <= 1 {
+		fmt.Fprintln(stdout, doctorVerdictLine(problems))
 	}
 	return code
+}
+
+// doctorVerdictLine is the single line a reader, a runbook and a nudge can all
+// point at: everything doctor printed in a warning register, summed.
+func doctorVerdictLine(problems int) string {
+	switch problems {
+	case 0:
+		return "verdict: healthy"
+	case 1:
+		return "verdict: 1 problem (see above)"
+	}
+	return fmt.Sprintf("verdict: %d problems (see above)", problems)
+}
+
+// planeStateIsProblem reports whether a plane's settings line is in the
+// warning register. Absent is not a problem (the plane is simply not set up),
+// and neither is the soft caveat "never observed firing" (a fresh enrolment
+// legitimately trips it, see claudeMediationCaveat) or the codex line that
+// states a known external limit on Windows.
+func planeStateIsProblem(state string) bool {
+	return strings.HasPrefix(state, "present, ") ||
+		strings.HasPrefix(state, "unparseable") ||
+		strings.HasPrefix(state, "unreadable") ||
+		strings.Contains(state, claudeCannotSpawnMarker)
 }
 
 type doctorOptions struct {
@@ -248,7 +285,11 @@ func printAntigravityCoverage(configPath, schemasDir string, stdout, stderr io.W
 	return 0
 }
 
-func printDoctor(stdout, stderr io.Writer) int {
+// printDoctor prints the diagnosis and returns an exit code and the number of
+// problems it printed in a warning register (#105). The verdict line is not
+// printed here: --coverage adds findings after this returns.
+func printDoctor(stdout, stderr io.Writer) (int, int) {
+	problems := 0
 	nightState, err := loadNightState(time.Now())
 	if err != nil {
 		fmt.Fprintf(stderr, "guardrail: night marker unreadable (%s); night mode remains inactive\n", safetext.SingleLine(err.Error()))
@@ -273,12 +314,13 @@ func printDoctor(stdout, stderr io.Writer) int {
 	base, baseErr := policy.LoadBase()
 	if baseErr != nil {
 		fmt.Fprintf(stdout, "base policy: ERROR %s\n", safetext.SingleLine(baseErr.Error()))
-		return 0
+		return 0, problems + 1
 	}
 
 	pth, ok, warn := policy.FindOverlayPath(cwd)
 	if warn != "" {
 		fmt.Fprintf(stdout, "overlay: %s\n", safetext.SingleLine(strings.TrimPrefix(warn, "guardrail: ")))
+		problems++
 	}
 	var ov *policy.Overlay
 	switch {
@@ -287,6 +329,7 @@ func printDoctor(stdout, stderr io.Writer) int {
 		if err != nil {
 			fmt.Fprintf(stdout, "overlay: %s (PARSE ERROR: %s)\n",
 				safetext.SingleLine(pth), safetext.SingleLine(err.Error()))
+			problems++
 		} else {
 			ov = o
 			fmt.Fprintf(stdout, "overlay: %s (parsed OK)\n", safetext.SingleLine(pth))
@@ -299,17 +342,19 @@ func printDoctor(stdout, stderr io.Writer) int {
 	if opErr != nil {
 		fmt.Fprintf(stderr, "guardrail: operator config unreadable (%s); treating as empty\n",
 			safetext.SingleLine(opErr.Error()))
+		problems++
 	}
 	merged, warnings, err := policy.Merge(base, ov, version, op, repoRoot)
 	if err != nil {
 		fmt.Fprintf(stdout, "merge: ERROR %s\n", safetext.SingleLine(err.Error()))
-		return 0
+		return 0, problems + 1
 	}
 	fmt.Fprintln(stdout, webResearchPosture(merged.WebResearchOff))
 	if len(warnings) == 0 {
 		fmt.Fprintln(stdout, "policy warnings: none")
 	} else {
 		fmt.Fprintln(stdout, "policy warnings:")
+		problems += len(warnings)
 		for _, w := range warnings {
 			fmt.Fprintf(stdout, "  - %s\n", safetext.SingleLine(w))
 		}
@@ -332,15 +377,23 @@ func printDoctor(stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "operator authenticators: %s\n", describeAuthenticators(credentials))
 	}
 
+	claudeState := claudeSettingsState()
 	fmt.Fprintf(stdout, "claude settings: %s\n", safetext.SingleLine(claudeSettingsLine()))
+	if planeStateIsProblem(claudeState) {
+		problems++
+	}
 	// Advice about a list the operator owns: which rules are broader than the
 	// baseline, notably a blanket `Bash(graft:*)` (#363). Never a warning.
 	if line := allowListLine(); line != "" {
 		fmt.Fprintln(stdout, safetext.SingleLine(line))
 	}
-	fmt.Fprintf(stdout, "opencode settings: %s\n", safetext.SingleLine(planeStatusState("opencode")))
-	fmt.Fprintf(stdout, "codex settings: %s\n", safetext.SingleLine(planeStatusState("codex")))
-	fmt.Fprintf(stdout, "antigravity settings: %s\n", safetext.SingleLine(planeStatusState("antigravity")))
+	for _, plane := range []string{"opencode", "codex", "antigravity"} {
+		state := planeStatusState(plane)
+		fmt.Fprintf(stdout, "%s settings: %s\n", plane, safetext.SingleLine(state))
+		if planeStateIsProblem(state) {
+			problems++
+		}
+	}
 	if home, err := os.UserHomeDir(); err == nil {
 		if doc, err := genconfig.ReadJSONObject(filepath.Join(home, ".claude", "settings.json")); err == nil {
 			{
@@ -349,6 +402,7 @@ func printDoctor(stdout, stderr io.Writer) int {
 					if n > 1 {
 						plural = "entries"
 					}
+					problems++
 					fmt.Fprintf(stdout, "  WARNING: %d unmarked guardrail-like hook %s in settings.json — legacy pre-marker entries. `guardrail plane enable claude` absorbs them; re-running the installer also will.\n", n, plural)
 				}
 			}
@@ -357,10 +411,12 @@ func printDoctor(stdout, stderr io.Writer) int {
 		if raw, err := os.ReadFile(agPath); err == nil {
 			var doc map[string]any
 			if err := json.Unmarshal(raw, &doc); err != nil {
+				problems++
 				fmt.Fprintf(stdout, "  WARNING: Antigravity has no declarative floor (ADR-0008); hooks.json is unparseable so Antigravity runs completely unguarded. Run `guardrail plane enable antigravity`.\n")
 			} else {
 				if guardrail, ok := doc["guardrail"].(map[string]any); ok {
 					if enabled, ok := guardrail["enabled"].(bool); ok && !enabled {
+						problems++
 						fmt.Fprintf(stdout, "  WARNING: Antigravity has no declarative floor (ADR-0008); guardrail is disabled in hooks.json so Antigravity runs completely unguarded. Run `guardrail plane enable antigravity`.\n")
 					}
 				}
@@ -369,24 +425,27 @@ func printDoctor(stdout, stderr io.Writer) int {
 					if n > 1 {
 						plural = "entries"
 					}
+					problems++
 					fmt.Fprintf(stdout, "  WARNING: %d unmarked guardrail-like hook %s in hooks.json — legacy pre-marker entries. `guardrail plane enable antigravity` absorbs them; re-running the installer also will.\n", n, plural)
 				}
 				for _, problem := range antigravityHookSpawnProblems(doc, antigravityHookSpawner) {
+					problems++
 					fmt.Fprintf(stdout, "  WARNING: %s\n", safetext.SingleLine(problem))
 				}
 			}
 		} else if errors.Is(err, fs.ErrNotExist) && planeInstalled("antigravity") {
+			problems++
 			fmt.Fprintf(stdout, "  WARNING: Antigravity has no declarative floor (ADR-0008); without hooks.json, Antigravity runs completely unguarded. Run `guardrail plane enable antigravity`.\n")
 		}
 	}
-	printOwnershipDrift(stdout)
-	printEngineHealth(stdout)
-	printSpawnProbe(stdout)
+	problems += printOwnershipDrift(stdout)
+	problems += printEngineHealth(stdout)
+	problems += printSpawnProbe(stdout)
 	// Posture, not policy: guardrail cannot narrow the operator's credential,
 	// only notice that it is wider than the work needs (#236). Warns, never
 	// fails, and reports nothing at all when it learned nothing -- silence
 	// here means "not known", never "fine".
-	printCredentialPosture(stdout)
+	problems += printCredentialPosture(stdout)
 	// Last, so what the operator still owes is what stays on screen. An updater
 	// older than `next` never prints the block, but it always runs this doctor,
 	// so this is the one place the first update onto a release with `next` can
@@ -397,7 +456,7 @@ func printDoctor(stdout, stderr io.Writer) int {
 			printNextSteps(stdout, steps)
 		}
 	}
-	return 0
+	return 0, problems
 }
 
 // operatorApprovalStatus reports the credential-store state. ADR-0021 step
