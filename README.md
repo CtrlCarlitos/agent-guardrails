@@ -249,7 +249,7 @@ Found a missing check, or a denial with no useful next step? [Open an issue](htt
 
 ## Working on it
 
-Go 1.25. `go test ./...` runs everything including a 300+ case adversarial corpus and per-plane contract fixtures (recorded real hook payloads with the verdict, rule and projected paths pinned). CI runs the full suite on Ubuntu and macOS, and the Windows-shaped subset on Windows. The house rules are simple: a failing test first, one PR per finding, conventional commits, no force-push — and if a deny doesn't tell the agent what to do next, that's the bug, not the deny.
+Go 1.26 (see [CONTRIBUTING.md](./CONTRIBUTING.md) for the full build, test and PR rules). `go test ./...` runs everything including a 300+ case adversarial corpus and per-plane contract fixtures (recorded real hook payloads with the verdict, rule and projected paths pinned). CI runs the full suite on Ubuntu and macOS, and the Windows-shaped subset on Windows. The house rules are simple: a failing test first, one PR per finding, conventional commits, no force-push — and if a deny doesn't tell the agent what to do next, that's the bug, not the deny.
 
 ```
 cmd/guardrail/     the binary: hook <plane>, gen-config, sync, doctor, selftest, update, …
