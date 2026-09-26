@@ -6,6 +6,17 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Setup
+- **Fix (#322): a hook event a newer release stops generating no longer leaves
+  its old guardrail group on disk.** The merge only visited events the new
+  fragment still emits, so a registration written by an older release kept its
+  owned group under the dropped event and `guardrail setup` failed its
+  convergence check ("still differs after approval") on every run. The merge now
+  also removes guardrail-owned (and legacy unmarked guardrail) groups under an
+  event the fragment dropped, keeps the operator's own groups and every
+  untouched event, and retires the ownership record so `plane disable` and
+  drift stay exact.
+
 ### Approvals
 - **Fix (#383): the approval ceremony no longer leaves an operator guessing which
   authenticator to use.** On a machine with a Windows and a WSL instance, the

@@ -620,6 +620,46 @@ func mergeHooks(dst, src map[string]any) {
 		}
 		dst[event] = out
 	}
+	retireDroppedEvents(dst, src)
+}
+
+// retireDroppedEvents removes guardrail-owned groups under an event that dst
+// holds and the new fragment no longer emits (#322). Without it, the first
+// release that drops a hook event left the old group on disk for every operator
+// upgrading from an older registration, and `guardrail setup` failed its
+// convergence check on every run. Only owned groups go: the ones marked
+// `guardrail-`, and legacy pre-marker guardrail groups, which the same-event path
+// already absorbs. The operator's own groups stay, an event they share with the
+// operator stays, and an event left with no group is dropped rather than left as
+// an empty array. Non-array values (a named wrapper's `enabled` flag) and events
+// the fragment does emit are untouched.
+func retireDroppedEvents(dst, src map[string]any) {
+	var dropped []string
+	for event := range dst {
+		if _, emitted := src[event]; !emitted {
+			dropped = append(dropped, event)
+		}
+	}
+	for _, event := range dropped {
+		groups, ok := toAnySlice(dst[event])
+		if !ok {
+			continue
+		}
+		kept := make([]any, 0, len(groups))
+		for _, g := range groups {
+			if ownedByGuardrail(g) || unmarkedGuardrailGroup(g) {
+				continue
+			}
+			kept = append(kept, g)
+		}
+		switch {
+		case len(kept) == len(groups):
+		case len(kept) == 0:
+			delete(dst, event)
+		default:
+			dst[event] = kept
+		}
+	}
 }
 
 func ownedByGuardrail(group any) bool {

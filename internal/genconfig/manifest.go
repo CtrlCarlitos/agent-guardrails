@@ -195,7 +195,21 @@ func recordOwnership(plane, target string, before, after map[string]any, reconci
 			}
 			fresh = mergeOwnership(live, fresh)
 		} else {
-			fresh = mergeOwnership(existing.Entries, fresh)
+			// A plain merge still retires what it removed itself: an entry that
+			// was in the file before this merge and is gone after it, such as an
+			// owned group under an event the new fragment dropped (#322). Left
+			// recorded, it would read as "missing" and fail setup's convergence
+			// check. Entries that were already absent stay as they were.
+			live := make([]ManifestEntry, 0, len(existing.Entries))
+			for _, entry := range existing.Entries {
+				_, wasPresent := currentValue(before, entry)
+				_, isPresent := currentValue(after, entry)
+				if wasPresent && !isPresent {
+					continue
+				}
+				live = append(live, entry)
+			}
+			fresh = mergeOwnership(live, fresh)
 		}
 	}
 
