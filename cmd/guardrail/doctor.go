@@ -328,6 +328,11 @@ func printDoctor(stdout, stderr io.Writer) int {
 	fmt.Fprintln(stdout, operatorApprovalStatus(enrolled, anyPlaneRegistered()))
 
 	fmt.Fprintf(stdout, "claude settings: %s\n", safetext.SingleLine(claudeSettingsLine()))
+	// Advice about a list the operator owns: which rules are broader than the
+	// baseline, notably a blanket `Bash(graft:*)` (#363). Never a warning.
+	if line := allowListLine(); line != "" {
+		fmt.Fprintln(stdout, safetext.SingleLine(line))
+	}
 	fmt.Fprintf(stdout, "opencode settings: %s\n", safetext.SingleLine(planeStatusState("opencode")))
 	fmt.Fprintf(stdout, "codex settings: %s\n", safetext.SingleLine(planeStatusState("codex")))
 	fmt.Fprintf(stdout, "antigravity settings: %s\n", safetext.SingleLine(planeStatusState("antigravity")))

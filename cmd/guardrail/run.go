@@ -101,6 +101,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdOperator(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdin, stdout, stderr)
 	case "audit":
 		return cmdAudit(args[1:], stdout, stderr)
+	case "allow-baseline":
+		return cmdAllowBaseline(args[1:], stdout, stderr)
 	case "next":
 		return cmdNext(args[1:], stdout, stderr)
 	case "selftest":
