@@ -64,7 +64,9 @@ $labels = @(
 	'purge-without-uninstall-exits-2',
 	'state-with-uninstall-exits-2',
 	'handoff-propagates-setup-exit-code',
-	'noninteractive-disable-can-skip-setup'
+	'noninteractive-disable-can-skip-setup',
+	'update-verification-failure-exits-1-and-names-rollback',
+	'update-refused-before-replacement-says-left-as-it-was'
 )
 
 if (-not $onWindows) {
@@ -472,6 +474,49 @@ exit $code
 		}
 	}
 
+	# UpdateFailure: dot-source install.ps1 in a child pwsh, point it at a fake
+	# guardrail.cmd whose `update` exits 1, and run Update-Installed (the real
+	# self-update path cannot be staged here: the built binary is not at the
+	# self-update floor). $Replaced picks whether the fake reports the new
+	# version afterwards, i.e. whether the swap happened before the failure.
+	function UpdateFailure([bool]$Replaced) {
+		$dest = Fresh
+		$reported = 'v0.19.2-dev'
+		if ($Replaced) { $reported = $Version }
+		[System.IO.File]::WriteAllText((Join-Path $dest 'guardrail.cmd'), "@echo off`r`nif ""%~1""==""version"" echo guardrail $reported& exit /b 0`r`nexit /b 1`r`n")
+		$child = Join-Path $dest 'child.ps1'
+		Set-Content -LiteralPath $child -Encoding UTF8 -Value @"
+. '$InstallPs1'
+`$Version = '$Version'
+`$script:Exe = '$(Join-Path $dest 'guardrail.cmd')'
+`$script:Installed = 'v0.19.2-dev'
+Update-Installed
+exit 0
+"@
+		$o = Join-Path $tmp "uf-out.$Replaced"
+		$e = Join-Path $tmp "uf-err.$Replaced"
+		$ErrorActionPreference = 'Continue'
+		& $pwshExe -NoProfile -ExecutionPolicy Bypass -File $child 1> $o 2> $e
+		$script:rc = $LASTEXITCODE
+		$script:out = [System.IO.File]::ReadAllText($o)
+		# Windows PowerShell 5.1 wraps redirected native stderr at the console
+		# width, splitting words; rejoin before matching.
+		$script:err = [System.IO.File]::ReadAllText($e) -replace "[\r\n]+", ''
+	}
+
+	function Case-UpdateVerificationFailureExits1AndNamesRollback {
+		UpdateFailure $true
+		if (-not (WantRc 1)) { return $false }
+		if (-not (Has err 'already replaced')) { return $false }
+		return (Has err 'guardrail.cmd update v0.19.2-dev')
+	}
+
+	function Case-UpdateRefusedBeforeReplacementSaysLeftAsItWas {
+		UpdateFailure $false
+		if (-not (WantRc 1)) { return $false }
+		return (Has err 'left as it was')
+	}
+
 	function Case-NoninteractiveDisableCanSkipSetup {
 		# An unattended caller can opt into installing the binary while leaving
 		# the plane state unchanged instead of turning the terminal refusal into
@@ -529,6 +574,8 @@ exit $code
 	Check 'state-with-uninstall-exits-2' { Case-StateWithUninstallExits2 }
 	Check 'handoff-propagates-setup-exit-code' { Case-HandoffPropagatesSetupExitCode }
 	Check 'noninteractive-disable-can-skip-setup' { Case-NoninteractiveDisableCanSkipSetup }
+	Check 'update-verification-failure-exits-1-and-names-rollback' { Case-UpdateVerificationFailureExits1AndNamesRollback }
+	Check 'update-refused-before-replacement-says-left-as-it-was' { Case-UpdateRefusedBeforeReplacementSaysLeftAsItWas }
 	Check 'parses-under-windows-powershell-syntax' { Case-ParsesUnderWindowsPowerShellSyntax }
 } finally {
 	Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue

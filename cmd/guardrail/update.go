@@ -159,9 +159,25 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 			_ = os.Unsetenv(updateRunEnv)
 		}
 	}()
-	_ = runInstalledBinary(exe, []string{"doctor"}, stdout, stderr)
-	if selftestCode := runInstalledBinary(exe, []string{"selftest"}, stdout, stderr); selftestCode != 0 {
-		fmt.Fprintln(stderr, "guardrail: selftest failed on the new binary; investigate before continuing")
+	// A failed verification is a failed update (#94): the binary is already
+	// replaced, but automation must not read an unhealthy install as success.
+	// Exit 3 is "operator action pending" (#364), not a failure. Both steps
+	// always run so one report is complete.
+	var failed []string
+	for _, step := range []string{"doctor", "selftest"} {
+		if code := runInstalledBinary(exe, []string{step}, stdout, stderr); code != 0 && code != exitOperatorActionPending {
+			fmt.Fprintf(stderr, "guardrail: %s failed on the new binary (exit %d)\n", step, code)
+			failed = append(failed, step)
+		}
+	}
+	if len(failed) > 0 {
+		rollback := "guardrail update <previous version>"
+		if prev := safeVersionString(); prev != "" {
+			rollback = "guardrail update " + prev
+		}
+		fmt.Fprintf(stderr, "guardrail: %s already replaced by %s and post-install verification failed (%s); "+
+			"investigate, or roll back with: %s\n", exe, version, strings.Join(failed, ", "), rollback)
+		return 1
 	}
 	// Last, so it is the thing left on screen: the steps still owed to the
 	// operator, computed by the binary just installed for the same reason
