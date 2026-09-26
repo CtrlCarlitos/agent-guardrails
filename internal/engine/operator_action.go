@@ -17,7 +17,69 @@ type Action struct {
 
 var nightUntilCommand = regexp.MustCompile(`\Aguardrail night on --until ([0-2][0-9]:[0-5][0-9])\z`)
 var hostList = `[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+`
-var webHostCommand = regexp.MustCompile(`\Aguardrail egress (grant|revoke) --scope (repo|global) --host (` + hostList + `(?:,` + hostList + `)*)\z`)
+var webHostBatch = regexp.MustCompile(`\A` + hostList + `(?:,` + hostList + `)*\z`)
+
+// parseWebHostCommand recognises `guardrail egress grant|revoke` with exactly one
+// --scope and one --host, in either order and in either `--flag value` or
+// `--flag=value` spelling (#126: argument parsers are order-agnostic, and a
+// guard that is not sends the command down the unbrokered path, where the agent
+// loses the passkey flow).
+//
+// It stays a whitelist, not a shell parser. Every byte of the command must be a
+// lowercase letter, digit, '.', ',', '=', '-' or a single space, so quoting,
+// substitution, chaining, pipes, redirects, tabs and newlines can never be part
+// of a canonical action. Each flag must appear exactly once with a non-empty
+// value, and any other flag, operand or extra space is rejected. The broker path
+// files an approval request, so what counts as canonical must not widen.
+func parseWebHostCommand(command string) (verb, scope, hosts string, ok bool) {
+	const prefix = "guardrail egress "
+	if !strings.HasPrefix(command, prefix) {
+		return "", "", "", false
+	}
+	for i := 0; i < len(command); i++ {
+		c := command[i]
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == ',' || c == '=' || c == '-' || c == ' ') {
+			return "", "", "", false
+		}
+	}
+	tokens := strings.Split(command[len(prefix):], " ")
+	if len(tokens) < 3 || (tokens[0] != "grant" && tokens[0] != "revoke") {
+		return "", "", "", false
+	}
+	verb = tokens[0]
+	values := map[string]string{}
+	for i := 1; i < len(tokens); i++ {
+		token := tokens[i]
+		if token == "" || !strings.HasPrefix(token, "--") {
+			return "", "", "", false
+		}
+		name, value, hasValue := strings.Cut(token[2:], "=")
+		if !hasValue {
+			i++
+			if i >= len(tokens) || strings.HasPrefix(tokens[i], "-") {
+				return "", "", "", false
+			}
+			value = tokens[i]
+		}
+		if (name != "scope" && name != "host") || value == "" || strings.Contains(value, "=") {
+			return "", "", "", false
+		}
+		if _, dup := values[name]; dup {
+			return "", "", "", false
+		}
+		values[name] = value
+	}
+	scope, hosts = values["scope"], values["host"]
+	if len(values) != 2 || (scope != "repo" && scope != "global") || !webHostBatch.MatchString(hosts) {
+		return "", "", "", false
+	}
+	for _, host := range strings.Split(hosts, ",") {
+		if policy.ValidateWebHost(host) != nil {
+			return "", "", "", false
+		}
+	}
+	return verb, scope, hosts, true
+}
 
 // OperatorAction accepts only a complete canonical command with no shell syntax.
 // Everything else remains subject to the unconditional self-configuration deny.
@@ -35,16 +97,11 @@ func OperatorAction(tc ToolCall) (Action, bool) {
 		}
 		return Action{Name: "night-on", Parameters: map[string]string{"until": matches[1]}}, true
 	}
-	matches = webHostCommand.FindStringSubmatch(tc.Command)
-	if len(matches) != 4 {
+	verb, scope, hosts, ok := parseWebHostCommand(tc.Command)
+	if !ok {
 		return Action{}, false
 	}
-	for _, host := range strings.Split(matches[3], ",") {
-		if policy.ValidateWebHost(host) != nil {
-			return Action{}, false
-		}
-	}
-	return Action{Name: "web-host-" + matches[1], Parameters: map[string]string{"scope": matches[2], "hosts": matches[3]}}, true
+	return Action{Name: "web-host-" + verb, Parameters: map[string]string{"scope": scope, "hosts": hosts}}, true
 }
 
 // OperatorActionSatisfied reports whether a web-host grant would change

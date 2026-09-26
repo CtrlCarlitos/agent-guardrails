@@ -7,6 +7,14 @@ explicitly in **Breaking** notes.
 ## Unreleased
 
 ### Approvals
+- **Fix (#126): the canonical egress grant/revoke action is recognised in any flag
+  order.** `guardrail egress grant --host x --scope repo` and the `--flag=value`
+  spellings fell past the operator-action guard, which only matched
+  `--scope` first, so the agent got no approval request for a command the CLI
+  accepts. The guard now parses the arguments (each of `--scope` and `--host`
+  exactly once, clean values, no shell syntax) instead of matching one fixed
+  spelling; extra, unknown, missing or duplicated flags and anything chained
+  stay non-canonical.
 - **Fix (#383): the approval ceremony no longer leaves an operator guessing which
   authenticator to use.** On a machine with a Windows and a WSL instance, the
   page fired its WebAuthn request the moment it loaded, so an operator met a
