@@ -53,7 +53,7 @@ Linux, macOS and WSL:
 ```sh
 (
   set -eu
-  ver=v0.23.6-dev   # the release you want
+  ver=v0.23.7-dev   # the release you want
   url="https://github.com/CtrlCarlitos/agent-guardrails/releases/download/$ver"
   tmp="$(mktemp -d)"; cd "$tmp"
 
@@ -69,7 +69,7 @@ Windows (Windows PowerShell 5.1 or PowerShell 7):
 
 ```powershell
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12  # Windows PowerShell 5.1 may default to TLS 1.0/1.1
-$ver = 'v0.23.6-dev'   # the release you want
+$ver = 'v0.23.7-dev'   # the release you want
 $url = "https://github.com/CtrlCarlitos/agent-guardrails/releases/download/$ver"
 Set-Location (New-Item -ItemType Directory -Force -Path (Join-Path $env:TEMP "guardrail-$ver"))
 
@@ -81,7 +81,7 @@ if ((Get-FileHash -Algorithm SHA256 install.ps1).Hash -ne $want) { throw 'instal
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version $ver
 ```
 
-`v0.23.6-dev` is an example; use the tag of the release you are installing (the operator bumps it here at each release). `latest` is refused on purpose: you always install an exact, checksummed tag. Run the downloaded file as shown rather than piping it into a shell or evaluating it in-process — the scripts `exit` on failure, which would close an interactive PowerShell session, and they hand your terminal to `guardrail setup` for a passkey approval.
+`v0.23.7-dev` is an example; use the tag of the release you are installing (the operator bumps it here at each release). `latest` is refused on purpose: you always install an exact, checksummed tag. Run the downloaded file as shown rather than piping it into a shell or evaluating it in-process — the scripts `exit` on failure, which would close an interactive PowerShell session, and they hand your terminal to `guardrail setup` for a passkey approval.
 
 What the installer does:
 
