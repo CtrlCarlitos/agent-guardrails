@@ -17,8 +17,10 @@ func testRepoBase(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := filepath.Join(cwd, "guardrail-worktree-tests")
-	if err := os.MkdirAll(base, 0o700); err != nil {
+	// Unique per call, and still under the package directory: a fixed name
+	// let concurrent runs in one checkout share and delete each other's repo.
+	base, err := os.MkdirTemp(cwd, "guardrail-worktree-tests-*")
+	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(base) })
@@ -115,5 +117,22 @@ func TestWindowsUnrelatedRepositoryWriteStaysOutOfRepo(t *testing.T) {
 	tc := ToolCall{Plane: "opencode", Tool: "Write", Paths: []string{target}, CWD: repo, RepoRoot: repo}
 	if v := checkOutOfRepoWrite(tc); v == nil || v.RuleID != "P5.out-of-repo" {
 		t.Fatalf("unrelated-repo write -> %+v, want ask/P5.out-of-repo", v)
+	}
+}
+
+// Every test that builds a repository takes its own base directory. A shared
+// fixed path let two `go test` runs in one checkout (overlapping Stop hooks,
+// parallel agents) clobber each other's repositories and each other's cleanup:
+// `could not lock config file: File exists`, `cannot lock ref 'HEAD'`.
+func TestWindowsRepoBaseIsUniquePerCall(t *testing.T) {
+	first := testRepoBase(t)
+	second := testRepoBase(t)
+	if first == second {
+		t.Fatalf("testRepoBase returned %q twice; concurrent runs would share and delete it", first)
+	}
+	for _, dir := range []string{first, second} {
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			t.Errorf("%q was not created: %v", dir, err)
+		}
 	}
 }

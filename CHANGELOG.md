@@ -4,6 +4,18 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Tests
+- **Fix: the linked-worktree engine tests no longer collide when two test runs
+  share a checkout.** They built their repository under one fixed directory
+  (`internal/engine/guardrail-worktree-tests`) and removed it on cleanup, so
+  overlapping runs (Stop hooks from parallel sessions, agents sharing a
+  checkout) deleted each other's repositories and failed with `could not lock
+  config file: File exists` and `cannot lock ref 'HEAD'`. Reproduced with three
+  concurrent runs before the change and clean after. Each test now takes its own
+  `guardrail-worktree-tests-*` directory.
+
 ## v0.23.5-dev (2026-09-25)
 
 ### Policy
