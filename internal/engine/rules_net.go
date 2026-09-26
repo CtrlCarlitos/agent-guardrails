@@ -57,6 +57,7 @@ func laterPipelineStage(earlier, later Simple) bool {
 }
 
 func checkPackageInstall(s Simple) *policy.Verdict {
+	s.Argv = pipModuleArgv(s.Argv)
 	command := head(s.Argv)
 	joined := strings.Join(s.Argv, " ")
 
@@ -76,7 +77,7 @@ func checkPackageInstall(s Simple) *policy.Verdict {
 	}
 
 	switch command {
-	case "npm", "yarn", "pnpm":
+	case "npm", "yarn", "pnpm", "bun":
 		for _, a := range nonFlagArgs(s.Argv) {
 			if a == "install" || a == "i" || a == "ci" || a == "add" {
 				return &policy.Verdict{Decision: policy.Ask, RuleID: "P6.package-install",
@@ -100,7 +101,7 @@ func checkPackageInstall(s Simple) *policy.Verdict {
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P6.package-install", Reason: "new system package install"}
 		}
 	}
-	return nil
+	return checkInstallSpellings(s)
 }
 
 func checkEgress(s Simple, pol *policy.Policy) *policy.Verdict {

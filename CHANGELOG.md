@@ -6,6 +6,18 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Engine
+- **Fix (#381): installs and remote-code launchers are asked about under every
+  spelling, not only `pip install` and `npm install`.** `python -m pip install`,
+  `pipx install|run`, `uv pip install|sync`, `uv sync|add|tool install`,
+  `poetry install|add|update`, `bun install|add`, bare `yarn`, and the
+  fetch-and-run launchers `npx`, `npm exec`, `pnpm dlx`, `yarn dlx`, `bunx`,
+  `uvx` were allowed silently. They now get the same `P6.package-install` ask
+  (and `python -m pip` keeps the `P6.registry-redirect` deny). `graft init`,
+  `uninstall`, `upgrade` and `build --deep` ask too. Read-only forms (`pip list`,
+  `uv --version`, `poetry show`, `graft ask`), `--no-install` launches and
+  launches of a local path stay allowed.
+
 ### Setup
 - **Fix (#322): a hook event a newer release stops generating no longer leaves
   its old guardrail group on disk.** The merge only visited events the new
