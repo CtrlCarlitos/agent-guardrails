@@ -27,7 +27,7 @@ func TestInstallAndLauncherSpellingsAsk(t *testing.T) {
 		"npx.exe some-remote-package",
 		"graft init", "graft uninstall", "graft upgrade", "graft build --deep",
 		"graft.exe init",
-		"cd /repo && npx some-remote-package",
+		"true && npx some-remote-package",
 		"bash -c 'uv sync'",
 	} {
 		v := evalNet(t, c, pol)
