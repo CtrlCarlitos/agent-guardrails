@@ -28,6 +28,13 @@ explicitly in **Breaking** notes.
   that needs no quoting is now written bare, with forward slashes, which both
   `cmd.exe` and a POSIX shell accept. A path with a space keeps its quotes
   (no quote-free spelling exists for it). Claude's spelling is unchanged.
+- **Fix (#353): `doctor` now spawns each Antigravity hook command the way agy
+  does.** It previously read `hooks.json` and reported "guardrail integration
+  registered" while every tool call was denied. Each guardrail-owned command's
+  executable is run as `cmd /C <exe> version` through Go's exec (which writes no
+  audit record); one that cannot be reached is a WARNING naming the hook, the
+  cause and the fix (`guardrail plane enable antigravity`). Windows only; a
+  no-op elsewhere.
 - **Fix (#349, partial): Codex post-tool policy feedback now states that the
   tool already ran.** It no longer presents an after-the-fact finding as a
   prevented action or pending approval. Policy decisions and blocking feedback

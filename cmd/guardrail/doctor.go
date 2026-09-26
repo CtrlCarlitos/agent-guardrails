@@ -361,6 +361,9 @@ func printDoctor(stdout, stderr io.Writer) int {
 					}
 					fmt.Fprintf(stdout, "  WARNING: %d unmarked guardrail-like hook %s in hooks.json — legacy pre-marker entries. `guardrail plane enable antigravity` absorbs them; re-running the installer also will.\n", n, plural)
 				}
+				for _, problem := range antigravityHookSpawnProblems(doc, antigravityHookSpawner) {
+					fmt.Fprintf(stdout, "  WARNING: %s\n", safetext.SingleLine(problem))
+				}
 			}
 		} else if errors.Is(err, fs.ErrNotExist) && planeInstalled("antigravity") {
 			fmt.Fprintf(stdout, "  WARNING: Antigravity has no declarative floor (ADR-0008); without hooks.json, Antigravity runs completely unguarded. Run `guardrail plane enable antigravity`.\n")
