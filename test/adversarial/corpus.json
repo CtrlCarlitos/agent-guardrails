@@ -2695,5 +2695,76 @@
     "repo_root": "/repo",
     "want": "ask",
     "want_rule_id": "P3.unresolved"
+  },
+  {
+    "name": "copy over the installed guardrail binary with Copy-Item (#146)",
+    "tool": "Bash",
+    "command": "Copy-Item /tmp/dl/g.exe /home/u/.local/bin/guardrail.exe -Force",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "copy over the installed guardrail binary with the exe spelling (#146)",
+    "tool": "Bash",
+    "command": "cp /tmp/dl/g /home/u/.local/bin/guardrail.exe",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "move over the installed guardrail binary with Move-Item (#146)",
+    "tool": "Bash",
+    "command": "Move-Item /tmp/dl/g.exe /home/u/.local/bin/guardrail.exe",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "xcopy over the installed guardrail binary (#146)",
+    "tool": "Bash",
+    "command": "xcopy /Y /tmp/dl/g.exe /home/u/.local/bin/guardrail.exe",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "robocopy the installed guardrail binary into place (#146)",
+    "tool": "Bash",
+    "command": "robocopy /tmp/dl /home/u/.local/bin guardrail.exe",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "Set-Content onto the installed guardrail binary (#146)",
+    "tool": "Bash",
+    "command": "Set-Content -Path /home/u/.local/bin/guardrail.exe -Value x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "Out-File onto the installed guardrail binary (#146)",
+    "tool": "Bash",
+    "command": "echo x | Out-File /home/u/.local/bin/guardrail.exe",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "Copy-Item of an ordinary file stays allowed (#146)",
+    "tool": "Bash",
+    "command": "Copy-Item a.txt b.txt",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
   }
 ]
