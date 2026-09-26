@@ -1,9 +1,11 @@
 package engine
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -31,16 +33,39 @@ func testRepoBase(t *testing.T) string {
 // linked worktree, returning its root.
 func addLinkedWorktree(t *testing.T, repo string) string {
 	t.Helper()
-	commit := exec.Command("git", "-C", repo, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "init")
-	if output, err := commit.CombinedOutput(); err != nil {
-		t.Fatalf("git commit: %v: %s", err, output)
+	if err := commitInitial(repo); err != nil {
+		t.Fatal(err)
 	}
 	linked := filepath.Join(filepath.Dir(repo), "linked")
-	worktree := exec.Command("git", "-C", repo, "worktree", "add", "--detach", linked)
-	if output, err := worktree.CombinedOutput(); err != nil {
-		t.Fatalf("git worktree add: %v: %s", err, output)
+	if err := addDetachedWorktree(repo, linked); err != nil {
+		t.Fatal(err)
 	}
 	return linked
+}
+
+// pinnedGit runs git against repo's own .git and nothing else. Without
+// --git-dir, git discovers a repository by walking up from the directory, so a
+// fixture whose .git was removed underneath it would silently operate on the
+// checkout that encloses the fixtures. A missing .git is an error here.
+func pinnedGit(repo string, args ...string) *exec.Cmd {
+	full := append([]string{"-C", repo, "--git-dir=" + filepath.Join(repo, ".git")}, args...)
+	return exec.Command("git", full...)
+}
+
+func commitInitial(repo string) error {
+	commit := pinnedGit(repo, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "init")
+	if output, err := commit.CombinedOutput(); err != nil {
+		return fmt.Errorf("git commit: %w: %s", err, output)
+	}
+	return nil
+}
+
+func addDetachedWorktree(repo, linked string) error {
+	worktree := pinnedGit(repo, "worktree", "add", "--detach", linked)
+	if output, err := worktree.CombinedOutput(); err != nil {
+		return fmt.Errorf("git worktree add: %w: %s", err, output)
+	}
+	return nil
 }
 
 // TestWindowsLinkedWorktreeWriteStaysInRepo pins the one-branch-per-PR
@@ -134,5 +159,43 @@ func TestWindowsRepoBaseIsUniquePerCall(t *testing.T) {
 		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 			t.Errorf("%q was not created: %v", dir, err)
 		}
+	}
+}
+
+// The fixtures live inside the checkout's own repository, so a fixture whose
+// .git goes missing (a racing cleanup, a failed init) must not let git climb
+// to the enclosing repository and commit there. That is how a test's
+// `init` commit once landed on a real branch. With the helpers pinned to the
+// fixture's own git directory, the missing .git is an error instead.
+func TestWindowsFixtureGitNeverFallsThroughToAParentRepo(t *testing.T) {
+	base := testRepoBase(t)
+	outer := filepath.Join(base, "outer")
+	if err := os.MkdirAll(outer, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	initGitRepository(t, outer, false)
+	if err := commitInitial(outer); err != nil {
+		t.Fatal(err)
+	}
+	inner := filepath.Join(outer, "inner")
+	if err := os.MkdirAll(inner, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	commitErr := commitInitial(inner)
+	worktreeErr := addDetachedWorktree(inner, filepath.Join(base, "linked"))
+
+	count, err := exec.Command("git", "-C", outer, "rev-list", "--count", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(count)); got != "1" {
+		t.Errorf("the enclosing repository has %s commits, want 1: a fixture command committed into it", got)
+	}
+	if commitErr == nil {
+		t.Error("commitInitial succeeded in a directory with no .git of its own")
+	}
+	if worktreeErr == nil {
+		t.Error("addDetachedWorktree succeeded in a directory with no .git of its own")
 	}
 }
