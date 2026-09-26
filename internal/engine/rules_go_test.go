@@ -18,10 +18,11 @@ func evalGo(t *testing.T, command string) policy.Verdict {
 // The cut is *whose code*, not whether code executes. Running the repository's
 // own packages is not something a static tool-call guard can contain — the
 // agent authored them and can reach them through Bash a hundred other ways
-// (ADR-0012) — and `go run ./cmd/x`, `go test ./...` and `go generate ./...`
-// are the three most frequent commands a Go developer types. Gating them would
-// be friction with no containment. What is gateable is the one-step
-// fetch-and-execute, and the toolchain's own supply-chain levers.
+// (ADR-0012) — and `go run ./cmd/x` and `go test ./...` are the most frequent
+// commands a Go developer types. Gating them would be friction with no
+// containment. What is gateable is the one-step fetch-and-execute, the
+// toolchain's own supply-chain levers, and the out-of-band command lines
+// (`-toolexec`, //go:generate directives) the hook never sees.
 
 // Local packages stay allow. This is the row that keeps the rule usable, and
 // it is asserted first because it is the one a wrong cut would break.
@@ -34,7 +35,7 @@ func TestGoLocalWorkflowStaysAllow(t *testing.T) {
 		"go run ./cmd/guardrail",
 		"go run .",
 		"go run ../tool",
-		"go generate ./...",
+		"go generate -n ./...",
 		"go vet ./...",
 		"gofmt -w .",
 		"go doc net/http",
@@ -189,6 +190,181 @@ func TestGoGetAndInstallKeepTheirExistingVerdict(t *testing.T) {
 		v := evalGo(t, command)
 		if v.Decision != policy.Ask || v.RuleID != "P6.package-install" {
 			t.Errorf("%q -> %+v, want ask/P6.package-install (unchanged)", command, v)
+		}
+	}
+}
+
+// #251 remainder. `go generate` is not `go test`: it runs the program named in
+// every //go:generate directive, a command line the hook never sees, so a
+// directive is a way to launder a command the Engine would deny if it were
+// typed. `-n` only prints the commands and stays allowed.
+func TestGoGenerateAsks(t *testing.T) {
+	for _, command := range []string{
+		"go generate",
+		"go generate ./...",
+		"go generate -x ./internal/...",
+		"go generate -run stringer ./...",
+		"go.exe generate ./...",
+		`C:\Go\bin\go.exe generate ./...`,
+		"go -C sub generate ./...",
+	} {
+		v := evalGo(t, command)
+		if v.Decision != policy.Ask || v.RuleID != "P1.go-generate" {
+			t.Errorf("%q -> %+v, want ask/P1.go-generate", command, v)
+		}
+	}
+	if v := evalGo(t, "go generate -n ./..."); v.Decision != policy.Allow {
+		t.Errorf("go generate -n -> %+v, want allow: -n prints the directives and runs nothing", v)
+	}
+}
+
+// The toolchain's own tools ship with the Go distribution and can do nothing
+// the shell cannot; they stay allowed under every spelling.
+func TestGoToolBuiltinsStayAllow(t *testing.T) {
+	for _, command := range []string{
+		"go tool",
+		"go tool pprof cpu.out",
+		"go tool pprof -http=:8080 cpu.out",
+		"go tool cover -html=c.out",
+		"go tool trace t.out",
+		"go tool vet ./...",
+		"go tool test2json -p x",
+		"go tool covdata percent -i=dir",
+		"go tool nm a.out",
+		"go tool objdump a.out",
+		"go tool -n stringer",
+		"go.exe tool pprof cpu.out",
+		"go -C sub tool cover -func=c.out",
+	} {
+		if v := evalGo(t, command); v.Decision != policy.Allow {
+			t.Errorf("%q -> %+v, want allow: a built-in tool of the distribution", command, v)
+		}
+	}
+}
+
+// Since Go 1.24 `go tool <name>` also runs a tool declared by a go.mod `tool`
+// directive: third-party module code, built and executed in one step (and
+// fetched first when it is not in the module cache). That is the `go run
+// <remote>` shape, and it asks the same way.
+func TestGoToolModuleToolAsks(t *testing.T) {
+	for _, command := range []string{
+		"go tool stringer -type=X",
+		"go tool golang.org/x/tools/cmd/stringer",
+		"go tool -modfile=tools.mod stringer",
+		"go tool -modfile tools.mod stringer",
+		"go.exe tool mytool",
+		"go -C sub tool mytool",
+	} {
+		v := evalGo(t, command)
+		if v.Decision != policy.Ask || v.RuleID != "P6.package-install" {
+			t.Errorf("%q -> %+v, want ask/P6.package-install: a module-declared tool", command, v)
+		}
+	}
+}
+
+// `go install` of a module path or a pinned version fetches, builds and
+// installs third-party code: the package-install ask, under every spelling of
+// the go binary and behind the global -C flag.
+func TestGoInstallRemoteAsksAsPackageInstall(t *testing.T) {
+	for _, command := range []string{
+		"go install example.com/x@latest",
+		"go install golang.org/x/tools/gopls@v0.16.0",
+		"go install -v example.com/x@latest",
+		"go.exe install example.com/x@latest",
+		"GO.EXE install example.com/x@latest",
+		`C:\Go\bin\go.exe install example.com/x@latest`,
+		"go -C sub install example.com/x@latest",
+		"go -C=sub install example.com/x@latest",
+	} {
+		v := evalGo(t, command)
+		if v.Decision != policy.Ask || v.RuleID != "P6.package-install" {
+			t.Errorf("%q -> %+v, want ask/P6.package-install", command, v)
+		}
+	}
+}
+
+// `go install` of the repository's own packages fetches nothing new (the same
+// dependencies `go build` resolves), but it writes an executable into GOBIN,
+// which is on PATH and outside the repository: a binary named `git` there
+// shadows the real one. That is the out-of-repo write ask, not a package
+// install, and the reason names the in-repo alternative.
+func TestGoInstallLocalAsksAsOutOfRepoWrite(t *testing.T) {
+	for _, command := range []string{
+		"go install",
+		"go install .",
+		"go install ./cmd/guardrail",
+		"go install ./...",
+		"go install ../tool",
+		"go install -v ./cmd/x",
+		"go.exe install ./cmd/x",
+		"go -C sub install ./cmd/x",
+	} {
+		v := evalGo(t, command)
+		if v.Decision != policy.Ask || v.RuleID != "P1.out-of-repo-write" {
+			t.Errorf("%q -> %+v, want ask/P1.out-of-repo-write", command, v)
+		}
+	}
+}
+
+// In module mode `go get` exists only to change go.mod requirements and
+// download them. Even a local pattern resolves missing imports from the
+// network, and `go get go@X` / `toolchain@X` downloads a toolchain that later
+// runs. No form of it is free of remote effect, so every form asks.
+func TestGoGetAsksInEveryForm(t *testing.T) {
+	for _, command := range []string{
+		"go get",
+		"go get example.com/x",
+		"go get example.com/x@none",
+		"go get -u ./...",
+		"go get -t ./...",
+		"go get go@1.23",
+		"go get toolchain@go1.23.1",
+		"go.exe get example.com/x",
+		"GO.EXE get example.com/x",
+		"go -C sub get example.com/x",
+	} {
+		v := evalGo(t, command)
+		if v.Decision != policy.Ask || v.RuleID != "P6.package-install" {
+			t.Errorf("%q -> %+v, want ask/P6.package-install", command, v)
+		}
+	}
+	if v := evalGo(t, "go help get"); v.Decision != policy.Allow {
+		t.Errorf("go help get -> %+v, want allow", v)
+	}
+}
+
+// `go -C dir <subcommand>` changes directory before the subcommand runs. The
+// classifier read argv[1] as the subcommand, so the flag hid every rule in
+// this file: `go -C sub run example.com/x@latest` was allowed.
+func TestGoGlobalChdirFlagDoesNotHideTheSubcommand(t *testing.T) {
+	for _, tc := range []struct {
+		command  string
+		decision policy.Decision
+		rule     string
+	}{
+		{"go -C sub run example.com/x@latest", policy.Ask, "P6.package-install"},
+		{"go -C=sub env -w GOPROXY=https://evil.test", policy.Deny, "P6.registry-redirect"},
+		{"go -C sub mod edit -replace example.com/x=../evil", policy.Deny, "P6.registry-redirect"},
+		{"go -C sub mod download", policy.Ask, "P6.package-install"},
+		{"go -C sub build -toolexec /tmp/evil ./...", policy.Ask, "P1.toolexec"},
+	} {
+		v := evalGo(t, tc.command)
+		if v.Decision != tc.decision || v.RuleID != tc.rule {
+			t.Errorf("%q -> %+v, want %s/%s", tc.command, v, tc.decision, tc.rule)
+		}
+	}
+}
+
+// The everyday commands stay silent under every spelling of the go binary.
+func TestGoEverydayCommandsStayAllowUnderEverySpelling(t *testing.T) {
+	for _, command := range []string{
+		"go build ./...", "go test ./...", "go vet ./...", "go fmt ./...",
+		"go list ./...", "go env", "go version",
+		"go.exe build ./...", "GO.EXE test ./...", `C:\Go\bin\go.exe vet ./...`,
+		"go -C sub build ./...", "go -C sub test ./...", "go.exe -C sub list ./...",
+	} {
+		if v := evalGo(t, command); v.Decision != policy.Allow {
+			t.Errorf("%q -> %+v, want allow", command, v)
 		}
 	}
 }

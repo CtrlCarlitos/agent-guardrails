@@ -147,7 +147,7 @@ var broadPatterns = map[string]string{
 	"uv":         "also runs uv sync, uv add, uv pip install and uv run with remote dependencies",
 	"poetry":     "also runs poetry install and poetry add",
 	"cargo":      "also runs cargo install and cargo run",
-	"go":         "also runs go install, go get and go run",
+	"go":         "also runs go install, go get, go generate, go tool and go run",
 	"go run":     "runs any Go program",
 	"cargo run":  "runs any Rust program",
 	"python -m":  "runs any module, including pip install",

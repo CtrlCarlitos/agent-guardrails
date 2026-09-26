@@ -92,10 +92,8 @@ func checkPackageInstall(s Simple) *policy.Verdict {
 		if len(s.Argv) > 1 && s.Argv[1] == "install" {
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P6.package-install", Reason: "new Rust crate install"}
 		}
-	case "go":
-		if len(s.Argv) > 1 && (s.Argv[1] == "install" || s.Argv[1] == "get") {
-			return &policy.Verdict{Decision: policy.Ask, RuleID: "P6.package-install", Reason: "new Go module fetched and built"}
-		}
+	// go get and go install are classified with the rest of the go toolchain
+	// in rules_go.go (checkGoToolchain), which also reads past `go -C dir`.
 	case "apt", "apt-get", "brew":
 		if len(s.Argv) > 1 && s.Argv[1] == "install" {
 			return &policy.Verdict{Decision: policy.Ask, RuleID: "P6.package-install", Reason: "new system package install"}

@@ -6,6 +6,22 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Engine
+- **Fix (#251): the rest of the go toolchain is classified.** `go generate`
+  now asks (`P1.go-generate`): it runs the command in every `//go:generate`
+  directive, which the hook never sees; `go generate -n` (list only) stays
+  allowed. `go tool` keeps the distribution's tools (`pprof`, `cover`, `trace`,
+  `vet`, ...) allowed and asks (`P6.package-install`) for a tool declared by a
+  go.mod `tool` directive, which builds and runs third-party module code.
+  `go install` of a module path or version keeps the `P6.package-install` ask;
+  `go install` of the repository's own packages now asks as
+  `P1.out-of-repo-write` (it writes into GOBIN, on PATH) and names
+  `go build -o` as the in-repo alternative. Every `go get` still asks. The
+  global `go -C dir` flag no longer hides the subcommand: `go -C sub run
+  example.com/x@latest`, `go -C sub install ...@latest`, `go -C sub env -w
+  GOPROXY=...` and `go -C sub mod edit -replace` were allowed and now get the
+  verdict their unprefixed form gets. `go.exe` spellings are covered.
+
 ### CLI
 - **Fix (#395): `guardrail help` lists every subcommand it dispatches.**
   `allow-baseline`, `next`, `daemon` and `help` itself were accepted but not
