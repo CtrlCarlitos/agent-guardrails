@@ -150,6 +150,9 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 	if ov.EngineMinVersion != "" && versionOlder(binaryVersion, ov.EngineMinVersion) {
 		warns = append(warns, fmt.Sprintf("guardrail: binary %s is older than this repo's engine_min_version %s", binaryVersion, ov.EngineMinVersion))
 	}
+	// Last, so repo-chosen key names never push a waiver or DROPPED notice
+	// out of the bounded model-facing warning list.
+	warns = append(warns, ov.Warnings...)
 	return m, warns, nil
 }
 

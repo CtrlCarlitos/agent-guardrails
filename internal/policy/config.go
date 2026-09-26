@@ -15,6 +15,11 @@ import (
 
 const maxOverlayBytes = 1 << 20
 
+// maxUnknownKeyWarnings bounds how many unknown Overlay keys are named one by
+// one; the rest are counted in a single warning, so a repository cannot fill
+// the bounded model-facing warning list with key names.
+const maxUnknownKeyWarnings = 5
+
 type Overlay struct {
 	EngineMinVersion   string
 	AuditLog           string
@@ -30,6 +35,10 @@ type Overlay struct {
 	Rules              []Rule
 	Waive              []string
 	Path               string
+	// Warnings name keys the parser does not know. They do not fail the load
+	// (an overlay written for a newer binary must still parse), but a typo
+	// must not vanish silently either (#397). Merge passes them on.
+	Warnings []string
 }
 
 func FindOverlayPath(cwd string) (path string, ok bool, warn string) {
@@ -158,10 +167,38 @@ func LoadOverlay(pth string) (*Overlay, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parsing overlay %s: %w", pth, err)
 	}
+	var unknownKeys []string
+	reported := map[string]bool{}
 	for _, key := range metadata.Undecoded() {
 		if len(key) > 0 && key[0] == "recipes" {
 			return nil, fmt.Errorf("parsing overlay %s: unsupported recipe setting %s", pth, key.String())
 		}
+		// An unknown table reports once: skip keys under one already named.
+		// Array-of-table entries share a key path, so a repeated key is one
+		// warning too.
+		covered := false
+		for i := 1; i <= len(key); i++ {
+			if reported[key[:i].String()] {
+				covered = true
+				break
+			}
+		}
+		if covered {
+			continue
+		}
+		reported[key.String()] = true
+		unknownKeys = append(unknownKeys, key.String())
+	}
+	var keyWarnings []string
+	for i, key := range unknownKeys {
+		if i == maxUnknownKeyWarnings {
+			keyWarnings = append(keyWarnings, fmt.Sprintf(
+				"guardrail: overlay %s has %d more unknown keys (ignored)", pth, len(unknownKeys)-i))
+			break
+		}
+		keyWarnings = append(keyWarnings, fmt.Sprintf(
+			"guardrail: overlay %s has unknown key %s (ignored; check the spelling against guardrail.toml.example)",
+			pth, key))
 	}
 	var unknownToolPosture UnknownToolPosture
 	if f.UnknownToolPosture != "" {
@@ -183,6 +220,7 @@ func LoadOverlay(pth string) (*Overlay, error) {
 		WebHosts:           f.Slots.WebHosts,
 		Waive:              f.Waive,
 		Path:               pth,
+		Warnings:           keyWarnings,
 	}
 	if f.Recipes.Odoo != nil {
 		odoo := OdooRecipeConfig{

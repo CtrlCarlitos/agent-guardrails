@@ -140,7 +140,8 @@ change is still recorded in the [CHANGELOG](../CHANGELOG.md).
 ## Breaking-change process
 
 1. **Announce** in a GitHub issue labeled `breaking-change` before the change
-   lands.
+   lands (the label exists in the repository; filter issues by it to see
+   every announced break).
 2. **Deprecate for at least one minor version.** The old behaviour keeps
    working and warns on use (a warning, not removal).
 3. **Remove in the next major version.**
@@ -203,11 +204,11 @@ candidates for follow-up issues.
 - **Exit codes are per command.** There is no single table that every command
   follows beyond 0 and 3; `1` and `2` are used consistently as described above,
   but a few commands (`egress`, `gen-config`, `sync`, `hook`) never return 1.
-- **The Overlay ignores unknown keys** (only unknown `recipes` settings are an
-  error), so a mistyped key does not fail loudly. Forward compatibility relies
-  on this; typo detection would be a separate change.
+- **The Overlay warns on unknown keys but still loads** (only unknown `recipes`
+  settings are an error). Forward compatibility relies on the load
+  succeeding, so an Overlay written for a newer binary keeps parsing on an
+  older one; a mistyped key is a policy warning naming the key and the file
+  (`doctor` lists it and counts it toward its verdict line, `sync` prints it,
+  the hook passes it on), not a failure (#397).
 - **The Overlay has no schema version.** `engine_min_version` is the only
   compatibility gate.
-- **`breaking-change` label.** The process names a label that did not exist in
-  the repository when this was written; it needs to be created before the first
-  announcement.
