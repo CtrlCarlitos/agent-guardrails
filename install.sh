@@ -12,8 +12,9 @@
 # could not disable the planes or remove a file; otherwise the exit code of
 # `guardrail setup` (0 with --no-setup, and after an uninstall; a first
 # install with no enrolled operator arms the planes and exits 0; 3 when the
-# change needs the operator: no authenticator enrolled, the approval daemon
-# not running, or the request denied or expired. The binary is installed and
+# change needs the operator: no authenticator enrolled, no interactive terminal
+# for an enrolled operator, the approval daemon not running, or the request
+# denied or expired. The binary is installed and
 # the planes keep what is registered; a caller may treat 3 as a warning).
 set -eu
 
@@ -278,8 +279,9 @@ verify_installed() {
 # setup_supported: whether <dest>/guardrail has the `setup` subcommand.
 # Probed as `setup --state disabled` with stdin not a terminal: disabling
 # always needs a terminal, so a binary that has `setup` refuses before
-# touching anything (exit 2, "requires an interactive local terminal"),
-# while one that predates it exits 2 with "unknown subcommand". A bare
+# touching anything (exit 3 from #364 on, 2 before it, with "requires an
+# interactive local terminal"), while one that predates it exits 2 with
+# "unknown subcommand"; only that pair reads as unsupported. A bare
 # `setup` would not do: with no operator enrolled it arms the planes
 # (ADR-0030), and a probe must never have side effects. Probing first keeps
 # the real run's output streaming and lets the hand-off exec.

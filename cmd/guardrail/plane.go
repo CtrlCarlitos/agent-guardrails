@@ -353,7 +353,7 @@ func cmdPlaneLifecycle(args []string, action, outcome string, terminal bool, std
 	bootstrap := action == "plane-enable" && !operatorEnrolled()
 	if !terminal && !bootstrap {
 		fmt.Fprintf(stderr, "guardrail: plane %s requires an interactive local terminal\n", verb)
-		return 2
+		return pendingApproval(action, "no interactive terminal is attached", stderr)
 	}
 
 	// Reconciliation: a plane already in the desired state never prompts.

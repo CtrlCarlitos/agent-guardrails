@@ -177,7 +177,7 @@ func TestPlaneCommandArgumentValidation(t *testing.T) {
 	if code := run([]string{"plane", "disable"}, strings.NewReader(""), &out, &errb); code != 2 {
 		t.Fatalf("missing plane exit = %d", code)
 	}
-	if code := run([]string{"plane", "disable", "codex"}, strings.NewReader(""), &out, &errb); code != 2 || !strings.Contains(errb.String(), "interactive") {
+	if code := run([]string{"plane", "disable", "codex"}, strings.NewReader(""), &out, &errb); code != exitOperatorActionPending || !strings.Contains(errb.String(), "interactive") {
 		t.Fatalf("codex exit = %d, stderr %q", code, errb.String())
 	}
 	if code := run([]string{"plane", "disable", "emacs"}, strings.NewReader(""), &out, &errb); code != 2 {
@@ -186,10 +186,10 @@ func TestPlaneCommandArgumentValidation(t *testing.T) {
 	if code := run([]string{"plane", "disable", "claude", "opencode"}, strings.NewReader(""), &out, &errb); code != 2 {
 		t.Fatalf("multiple planes exit = %d", code)
 	}
-	if code := run([]string{"plane", "enable", "codex"}, strings.NewReader(""), &out, &errb); code != 2 || !strings.Contains(errb.String(), "interactive") {
+	if code := run([]string{"plane", "enable", "codex"}, strings.NewReader(""), &out, &errb); code != exitOperatorActionPending || !strings.Contains(errb.String(), "interactive") {
 		t.Fatalf("enable codex exit = %d, stderr %q", code, errb.String())
 	}
-	if code := run([]string{"plane", "enable", "claude"}, strings.NewReader(""), &out, &errb); code != 2 || !strings.Contains(errb.String(), "interactive") {
+	if code := run([]string{"plane", "enable", "claude"}, strings.NewReader(""), &out, &errb); code != exitOperatorActionPending || !strings.Contains(errb.String(), "interactive") {
 		t.Fatalf("enable non-terminal exit = %d, stderr %q", code, errb.String())
 	}
 	if code := run([]string{"plane", "warp"}, strings.NewReader(""), &out, &errb); code != 2 {
@@ -205,7 +205,7 @@ func TestPlaneDisableRequiresInteractiveTerminal(t *testing.T) {
 
 	var out, errb strings.Builder
 	// run() derives terminal from *os.File stdin; a strings.Reader is not one.
-	if code := run([]string{"plane", "disable", "claude"}, strings.NewReader(""), &out, &errb); code != 2 || !strings.Contains(errb.String(), "interactive") {
+	if code := run([]string{"plane", "disable", "claude"}, strings.NewReader(""), &out, &errb); code != exitOperatorActionPending || !strings.Contains(errb.String(), "interactive") {
 		t.Fatalf("non-terminal exit = %d, stderr %q", code, errb.String())
 	}
 }

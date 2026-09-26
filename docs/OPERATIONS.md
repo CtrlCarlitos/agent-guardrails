@@ -255,8 +255,10 @@ success when selftest passes. That keeps an installer from reporting an armed
 plane as uninstalled while preserving the coverage diagnostic and the
 `guardrail doctor --coverage antigravity` hint. It ends with one status line
 per plane. `setup` refuses to run
-without an interactive terminal (exit 2) and refuses to register the
-updater's staging or `.old` path (exit 2); it prints the path it registers
+without an interactive terminal once an operator is enrolled (exit **3**,
+operator action pending: it is the operator's to fix, and the message says
+how) and refuses to register the
+updater's staging or `.old` path (exit 2, usage); it prints the path it registers
 before asking. When no operator authenticator is enrolled, an enable is a
 **bootstrap** (ADR-0030): the planes are registered without an approval and
 without a terminal, the audit log gets an `operator-action` record with
@@ -265,10 +267,13 @@ instruction to `guardrail operator enroll`. The approval-less path can only
 tighten: `setup --state disabled`, `plane disable` and `recover` on an
 unenrolled machine stop before submitting anything, print `run 'guardrail
 operator enroll' … then '<command>'`, and exit **3** (#326), distinct from 1
-(a genuine failure) and 2 (usage, no terminal); installers pass the code
-through. Exit **3** means *operator action pending* and nothing else (#364):
-no authenticator enrolled, the approval daemon not running, or the request
-denied or expired. The binary is installed, what is registered keeps
+(a genuine failure) and 2 (usage, unsupported platform); installers pass the
+code through. Exit **3** means *operator action pending* and nothing else
+(#364): no authenticator enrolled, no interactive terminal for an enrolled
+operator (`setup`, `plane enable|disable`), the approval daemon not running, or
+the request denied or expired. `operator`, `recover`, `web-research` and
+`approvals` are interactive by nature and still exit 2 without a terminal. The
+binary is installed, what is registered keeps
 enforcing, and only a passkey approval from an interactive terminal finishes
 the change, so an unattended caller (a dotfiles apply, CI) can treat 3 as a
 warning and 1 as a failure without matching log text. The message on stderr

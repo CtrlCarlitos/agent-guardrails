@@ -446,8 +446,10 @@ exit $code
 
 	function Case-HandoffPropagatesSetupExitCode {
 		# The real binary's `setup --state disabled`, with stdin piped rather
-		# than a console, refuses with exit 2; the script must exit with
-		# setup's code, not its own. Disable is the probe because a bare
+		# than a console, refuses with exit 3 (operator action pending, #364;
+		# it was 2 before); the script must exit with setup's code, not its
+		# own, so a caller can tell this apart from its own usage exit 2.
+		# Disable is the probe because a bare
 		# `setup` on a machine with no enrolled operator now arms the planes
 		# and exits 0 (ADR-0030). Sandboxed roots and a piped stdin keep it
 		# off real state. The binary is placed first with -NoSetup so the
@@ -460,8 +462,9 @@ exit $code
 			InSandbox $sbHome { Run -Version $Version -Dest $dest -BaseUrl (Join-Path $tmp 'releases') -NoSetup }
 			if (-not (WantRc 0)) { return $false }
 			InSandbox $sbHome { RunNoConsole -Version $Version -State disabled -Dest $dest -BaseUrl (Join-Path $tmp 'releases') }
-			if (-not (WantRc 2)) { return $false }
+			if (-not (WantRc 3)) { return $false }
 			if (-not (Has err 'requires an interactive local terminal')) { return $false }
+			if (-not (Has err 'operator action pending')) { return $false }
 			return (Reports $exe $Version)
 		} finally {
 			Restore-UserPath $savedPath
