@@ -417,8 +417,8 @@ func TestSetupDeniedApprovalFails(t *testing.T) {
 	calls := stubSetupGates(t, false, 0, 0)
 
 	code, out, errb := runSetup(t)
-	if code != 1 {
-		t.Fatalf("exit = %d, want 1; stdout=%q stderr=%q", code, out, errb)
+	if code != exitOperatorActionPending {
+		t.Fatalf("exit = %d, want %d (operator action pending); stdout=%q stderr=%q", code, exitOperatorActionPending, out, errb)
 	}
 	if calls.selftest != 0 {
 		t.Fatalf("selftest calls = %d, want 0 after denial", calls.selftest)
@@ -587,8 +587,8 @@ func TestSetupDisableDeniedFails(t *testing.T) {
 	calls := stubSetupGates(t, false, 0, 0)
 
 	code, out, errb := runSetup(t, "--state", "disabled")
-	if code != 1 {
-		t.Fatalf("exit = %d, want 1; stdout=%q stderr=%q", code, out, errb)
+	if code != exitOperatorActionPending {
+		t.Fatalf("exit = %d, want %d (operator action pending); stdout=%q stderr=%q", code, exitOperatorActionPending, out, errb)
 	}
 	if !planeIntegrationRegistered("claude") {
 		t.Fatal("claude no longer registered after denied disable")

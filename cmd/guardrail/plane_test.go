@@ -271,7 +271,7 @@ func TestPlaneDisableDeniedApprovalFails(t *testing.T) {
 	defer func() { planeInstalled = origInstalled }()
 
 	var out, errb strings.Builder
-	if code := runPlaneTerminal(t, []string{"plane", "disable", "claude"}, &out, &errb); code != 1 {
+	if code := runPlaneTerminal(t, []string{"plane", "disable", "claude"}, &out, &errb); code != exitOperatorActionPending {
 		t.Fatalf("exit = %d, stderr %q", code, errb.String())
 	}
 }

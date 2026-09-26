@@ -11,8 +11,10 @@
 # checksum, install or post-install version failure, or an uninstall that
 # could not disable the planes or remove a file; otherwise the exit code of
 # `guardrail setup` (0 with --no-setup, and after an uninstall; a first
-# install with no enrolled operator arms the planes and exits 0; 3 when
-# --state disabled needs an approval no enrolled operator can give).
+# install with no enrolled operator arms the planes and exits 0; 3 when the
+# change needs the operator: no authenticator enrolled, the approval daemon
+# not running, or the request denied or expired. The binary is installed and
+# the planes keep what is registered; a caller may treat 3 as a warning).
 set -eu
 
 # Oldest release whose `guardrail update` is the sanctioned replacement path.
@@ -296,6 +298,9 @@ handoff() {
 	cleanup
 	if [ "$run_setup" -eq 0 ]; then
 		say "guardrail $version installed at $dest/guardrail (setup skipped)"
+		# The steps still owed to the operator (#364). Best effort: a release
+		# that predates `next` answers exit 2, which must not fail the install.
+		"$dest/guardrail" next 2>/dev/null || true
 		exit 0
 	fi
 	if ! setup_supported; then
