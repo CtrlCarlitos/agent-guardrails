@@ -72,9 +72,10 @@ therefore live in the temp directory, never in yours.
 These run without `--no-setup` against the fake `guardrail`, so the
 script really hands off. Before the hand-off (and before the uninstall's
 disable step) the script probes `guardrail setup` with stdin from
-`/dev/null`: a binary that has `setup` refuses with exit 2 and
-`requires an interactive local terminal`; one that predates it exits 2
-with `unknown subcommand`. A `fake_guardrail` third argument of `old`
+`/dev/null`: a binary that has `setup` refuses with `requires an
+interactive local terminal` (exit 3, operator action pending, from #364 on;
+exit 2 before); one that predates it exits 2 with `unknown subcommand`, and
+only that pair reads as unsupported. A `fake_guardrail` third argument of `old`
 makes the fake answer the second way; its `plane` calls go to
 `update.log`.
 
@@ -154,8 +155,8 @@ way. `uninstall-keeps-path-when-dest-shared` drops a foreign file in
 `install: leaving <dest> on PATH (other tools live there)`.
 `handoff-propagates-setup-exit-code` installs the real binary without
 `-NoSetup`, with the child's stdin piped instead of a console: the real
-`setup` refuses with exit 2 and `requires an interactive local terminal`,
-and the script must exit 2 too.
+`setup` refuses with exit 3 (operator action pending) and `requires an
+interactive local terminal`, and the script must exit 3 too.
 `noninteractive-disable-can-skip-setup` starts without a binary and passes
 `-State disabled -SetupIfInteractive` with the same redirected stdin. The
 binary must install, setup must be deferred with an actionable message, and
