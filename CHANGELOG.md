@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.10-dev (2026-09-26)
 
 ### Engine
 - **Fix (#381): installs and remote-code launchers are asked about under every
