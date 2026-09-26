@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## v0.23.4-dev (2026-09-25)
+## v0.23.5-dev (2026-09-25)
 
 ### Policy
 - **Feature (#357, ADR-0028 phases B and C): guardrail stops writing a
@@ -30,12 +30,6 @@ explicitly in **Breaking** notes.
   `secret_globs` into the repo's Claude `permissions`; the Engine applies the
   overlay at hook time. If the Engine is unreachable a Claude session is
   unguarded, the exposure ADR-0028 accepts and `doctor` reports (#151).
-- **Feature (#351): operator-controlled native web-research enforcement.**
-  `guardrail web-research on|off|status` separates strict web controls from
-  unrelated protections. Off permits recognized native research, including
-  Codex batches and result references, and explicitly disclaims outbound-data
-  enforcement. Changes require authenticated operator approval. Verified fresh
-  setup records off; existing, missing or invalid configuration stays strict.
 - **Fix (#355): `P3.unresolved` no longer holds a path-free builtin after an
   uncertain `cd`, and says what is actually uncertain.** After a command that
   changes the filesystem (`mkdir`, `git worktree add`), a `cd` may or may not
@@ -51,12 +45,6 @@ explicitly in **Breaking** notes.
   and names the way out (join with `&&`, use `git -C <dir>` or absolute paths,
   or split into separate calls) instead of blaming an unresolved value that is
   not there. Real unresolved values keep the old wording.
-
-### Tests
-- Add a read-only Codex execution-contract probe for native Windows and
-  WSL/Linux. It records shell/directory requests, actual hook payloads and
-  execution evidence separately, including code-mode calls. A successful
-  observation never claims Guardrail enforcement or trusted shell metadata.
 
 ### Hooks
 - **Fix (#353): the Antigravity hook command no longer breaks under agy's
@@ -79,6 +67,24 @@ explicitly in **Breaking** notes.
   path's 8.3 short name (`C:/PROGRA~1/…`) instead. When no usable short name
   exists the quoted spelling stays, `doctor` reports it as before, and `setup`
   now warns before arming Antigravity for a path agy cannot spawn.
+
+## v0.23.4-dev (2026-09-25)
+
+### Policy
+- **Feature (#351): operator-controlled native web-research enforcement.**
+  `guardrail web-research on|off|status` separates strict web controls from
+  unrelated protections. Off permits recognized native research, including
+  Codex batches and result references, and explicitly disclaims outbound-data
+  enforcement. Changes require authenticated operator approval. Verified fresh
+  setup records off; existing, missing or invalid configuration stays strict.
+
+### Tests
+- Add a read-only Codex execution-contract probe for native Windows and
+  WSL/Linux. It records shell/directory requests, actual hook payloads and
+  execution evidence separately, including code-mode calls. A successful
+  observation never claims Guardrail enforcement or trusted shell metadata.
+
+### Hooks
 - **Fix (#349, partial): Codex post-tool policy feedback now states that the
   tool already ran.** It no longer presents an after-the-fact finding as a
   prevented action or pending approval. Policy decisions and blocking feedback
