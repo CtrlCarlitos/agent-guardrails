@@ -104,6 +104,9 @@ func cmdSetup(args []string, terminal bool, stdout, stderr io.Writer) int {
 	}
 
 	fmt.Fprintf(stdout, "setup: registering %s\n", exe)
+	if warning := antigravitySpawnWarning(exe, planes, state); warning != "" {
+		fmt.Fprintln(stderr, warning)
+	}
 
 	return setupReconcile(planes, state, stdout, stderr)
 }
