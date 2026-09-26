@@ -79,3 +79,26 @@ func TestWindowsAntigravityHookSpawnProbeUsesCmdWithGoQuoteEscaping(t *testing.T
 		t.Fatalf("quoted stub reported %v, want one problem", got)
 	}
 }
+
+// #358: a binary path agy cannot spawn is named at setup time, before the
+// plane is armed and every tool call is denied. The path is one that exists on
+// no host, so no 8.3 name can rescue it.
+func TestAntigravitySpawnWarningNamesAnUnspawnableBinaryPath(t *testing.T) {
+	const spaced = `C:\Program Files\guardrail-358-absent\guardrail.exe`
+	got := antigravitySpawnWarning(spaced, []string{"claude", "antigravity"}, "enabled")
+	for _, want := range []string{"Antigravity cannot spawn", "path without a space", spaced} {
+		if !strings.Contains(got, want) {
+			t.Errorf("warning %q does not mention %q", got, want)
+		}
+	}
+	for name, warn := range map[string]string{
+		"antigravity not requested": antigravitySpawnWarning(spaced, []string{"claude"}, "enabled"),
+		"disabling":                 antigravitySpawnWarning(spaced, []string{"antigravity"}, "disabled"),
+		"spawnable path":            antigravitySpawnWarning(`C:\Users\u\.local\bin\guardrail.exe`, []string{"antigravity"}, "enabled"),
+		"posix path with a space":   antigravitySpawnWarning(`/home/first last/bin/guardrail`, []string{"antigravity"}, "enabled"),
+	} {
+		if warn != "" {
+			t.Errorf("%s: unexpected warning %q", name, warn)
+		}
+	}
+}

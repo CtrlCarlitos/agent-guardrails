@@ -5,9 +5,13 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 )
 
 // agySpawnBudget bounds one probe. `version` returns at once; the budget only
@@ -63,13 +67,24 @@ func antigravityHookSpawnProblems(doc map[string]any, spawn func(exe string) err
 				}
 				if err := spawn(exe); err != nil {
 					problems = append(problems, fmt.Sprintf(
-						"hook %s cannot spawn under Antigravity's `cmd /C` (%s): %s. Every Antigravity tool call is denied until it can. `guardrail plane enable antigravity` rewrites the command; a binary path containing a space cannot be written without quotes, so install to a path without one (an 8.3 short path such as C:/PROGRA~1 also works) (#353)",
+						"hook %s cannot spawn under Antigravity's `cmd /C` (%s): %s. Every Antigravity tool call is denied until it can. `guardrail plane enable antigravity` rewrites the command, using the binary's 8.3 short name when its path contains a space and the volume has one; if it has none, install the binary to a path without a space (#353, #358)",
 						id, exe, strings.TrimRight(err.Error(), ". ")))
 				}
 			}
 		}
 	}
 	return problems
+}
+
+// antigravitySpawnWarning is what `setup` says before arming Antigravity for a
+// binary path agy cannot spawn (#358), or "" when there is nothing to say. It
+// warns and does not refuse: the other planes are unaffected, and doctor keeps
+// reporting the plane until the binary is reinstalled somewhere spawnable.
+func antigravitySpawnWarning(exe string, planes []string, state string) string {
+	if state != "enabled" || !slices.Contains(planes, "antigravity") || genconfig.AntigravityHookSpawnable(exe) {
+		return ""
+	}
+	return fmt.Sprintf("guardrail: setup: warning: Antigravity cannot spawn a hook for %s: the path contains a space, agy's `cmd /C` spawn mangles the quotes it needs, and no 8.3 short name is available on this volume. Every Antigravity tool call will be denied until guardrail is installed at a path without a space and setup is run again", safetext.SingleLine(exe))
 }
 
 // leadingCommandWord is the command's executable text as written: the quoted

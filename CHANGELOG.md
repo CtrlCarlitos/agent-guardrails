@@ -35,6 +35,12 @@ explicitly in **Breaking** notes.
   audit record); one that cannot be reached is a WARNING naming the hook, the
   cause and the fix (`guardrail plane enable antigravity`). Windows only; a
   no-op elsewhere.
+- **Fix (#358): a binary path containing a space now works under agy when the
+  volume has 8.3 short names.** Such a path needs quotes, which agy's `cmd /C`
+  spawn cannot deliver, so the Antigravity hook command is written with the
+  path's 8.3 short name (`C:/PROGRA~1/…`) instead. When no usable short name
+  exists the quoted spelling stays, `doctor` reports it as before, and `setup`
+  now warns before arming Antigravity for a path agy cannot spawn.
 - **Fix (#349, partial): Codex post-tool policy feedback now states that the
   tool already ran.** It no longer presents an after-the-fact finding as a
   prevented action or pending approval. Policy decisions and blocking feedback

@@ -32,6 +32,7 @@ func TestWindowsAntigravityHookCommandCarriesNoQuotesWhenThePathNeedsNone(t *tes
 
 // A path that does need quotes keeps them: unquoted, cmd would split it.
 func TestWindowsAntigravityHookCommandStillQuotesAPathWithASpace(t *testing.T) {
+	withShortPathResolver(t, func(string) (string, bool) { return "", false })
 	got := preCommand(t, `C:\Program Files\guardrail\guardrail.exe`)
 	want := `"C:/Program Files/guardrail/guardrail.exe" hook antigravity pre`
 	if got != want {
@@ -69,5 +70,26 @@ func TestWindowsAntigravityHookCommandLeavesAShortNameTildeBare(t *testing.T) {
 	want := `C:/Users/RUNNER~1/AppData/Local/Temp/guardrail.exe hook antigravity pre`
 	if got != want {
 		t.Fatalf("antigravity pre command = %q, want %q", got, want)
+	}
+}
+
+// The measured remedy, end to end with the real resolver: a stub in a
+// directory whose name has a space cannot be spelled without quotes, but its
+// 8.3 name reaches the binary through agy's cmd /C spawn and Go's escaping.
+func TestWindowsAntigravityHookCommandSpawnsASpacedPathThroughItsShortName(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "dir with space")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stub := filepath.Join(dir, "guardrail.cmd")
+	if err := os.WriteFile(stub, []byte("@exit /b 0\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	command := preCommand(t, stub)
+	if strings.HasPrefix(command, `"`) {
+		t.Skipf("no usable 8.3 name on this volume; quoted spelling kept: %s", command)
+	}
+	if out, err := exec.Command("cmd", "/C", command).CombinedOutput(); err != nil {
+		t.Fatalf("cmd /C %s: %v\n%s", command, err, out)
 	}
 }

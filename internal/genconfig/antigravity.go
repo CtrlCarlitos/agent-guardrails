@@ -15,17 +15,53 @@ import (
 // A Windows path that needs no quoting is therefore emitted bare, forward
 // slashes only. cmd.exe and a POSIX shell both take that spelling, so it
 // keeps the property #149 bought. A path that does need quotes (a space, a
-// metacharacter) falls back to HookCommand: unquoted it would be split, and
-// no quote-free spelling exists for it.
+// metacharacter) is written as its 8.3 short name when the volume has one and
+// that name is itself quote-free (#358). With none, it falls back to
+// HookCommand: unquoted the path would be split, and no quote-free spelling
+// exists for it, which doctor reports.
 func antigravityHookCommand(binary string, args ...string) string {
-	if windowsShapedPath(binary) {
-		slashed := strings.ReplaceAll(binary, `\`, "/")
-		if bareWindowsWord(slashed) {
-			return slashed + " " + strings.Join(args, " ")
-		}
+	if word, ok := antigravityBareWord(binary); ok {
+		return word + " " + strings.Join(args, " ")
 	}
 	return HookCommand(binary, args...)
 }
+
+// antigravityBareWord is the quote-free spelling of a Windows binary path, or
+// false when there is none.
+func antigravityBareWord(binary string) (string, bool) {
+	if !windowsShapedPath(binary) {
+		return "", false
+	}
+	if slashed := strings.ReplaceAll(binary, `\`, "/"); bareWindowsWord(slashed) {
+		return slashed, true
+	}
+	short, ok := shortPathResolver(binary)
+	if !ok {
+		return "", false
+	}
+	// With 8.3 creation off GetShortPathName returns the long name unchanged;
+	// only a result that really is quote-free counts.
+	if slashed := strings.ReplaceAll(short, `\`, "/"); bareWindowsWord(slashed) {
+		return slashed, true
+	}
+	return "", false
+}
+
+// AntigravityHookSpawnable reports whether agy can spawn a hook for this
+// binary path. Only a Windows-shaped path that has no quote-free spelling is
+// unspawnable: agy's `cmd /C` spawn is what turns a quote into \" (#353), and
+// nothing suggests a POSIX host does that.
+func AntigravityHookSpawnable(binary string) bool {
+	if !windowsShapedPath(binary) {
+		return true
+	}
+	_, ok := antigravityBareWord(binary)
+	return ok
+}
+
+// shortPathResolver maps a Windows path to its 8.3 short name. A variable so a
+// test can stand in for a volume with, or without, short names.
+var shortPathResolver = resolveShortPath
 
 // bareWindowsWord reports whether a forward-slash Windows path reaches either
 // shell untouched: the drive colon, then only what shellSafeWord admits, plus
