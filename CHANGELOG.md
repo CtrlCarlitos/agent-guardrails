@@ -6,6 +6,27 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Approvals
+- **Fix (#383): the approval ceremony no longer leaves an operator guessing which
+  authenticator to use.** On a machine with a Windows and a WSL instance, the
+  page fired its WebAuthn request the moment it loaded, so an operator met a
+  small system dialog with no context, chose "iPhone or Android device", scanned
+  the QR code (which "linked"), and the phone answered "No passkeys available":
+  a passkey for the rpId `localhost` lives only where it was enrolled. Cause: the
+  enrollment page never sent the authenticator's transports, though the store
+  records them when they arrive, so every stored credential had `transports:
+  null` and the browser, told nothing, offered every option including a phone.
+  Enrollment now sends `getTransports()` (guarded for browsers without it), so
+  credentials enrolled from now on narrow the prompt. The approval page now says
+  which guardrail instance is asking (`WSL Ubuntu-24.04 on <host>`), explains
+  that passkeys for localhost cannot live on a phone, and, when the ceremony
+  fails, names what to do next (`guardrail operator recover-reset`, then
+  `guardrail operator enroll`, choosing this device). `doctor` prints
+  `operator authenticators: N authenticators: X synced, Y device-bound;
+  transports recorded for Z of N`, so "which device can approve" has an answer.
+  `docs/operator-approvals.md` documents the WSL topology. Credentials enrolled
+  before this change still have no transports; the doc says how to replace them.
+
 ### Policy
 - **Feature (#363): `guardrail allow-baseline`, a reviewed list of Claude Code
   allow rules that are safe to put in your own settings.** It replaces the

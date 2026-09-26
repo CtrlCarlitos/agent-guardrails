@@ -52,6 +52,45 @@ trusted local terminal and type `RESET`. It removes only public credential
 records, writes a recovery audit record, and disables approvals until a new
 initial enrollment. Recovery is never available through the broker socket.
 
+## Windows plus WSL, and why a phone cannot approve
+
+A machine can run two guardrail instances: one on Windows and one inside WSL.
+Each has its **own** credential store (`%LOCALAPPDATA%` on Windows,
+`~/.local/state/guardrail` in WSL), and both ceremonies use the WebAuthn rpId
+`localhost` on a loopback port. The approval page opens in the browser on the
+Windows host, so a WSL approval is a Windows browser talking to a daemon inside
+WSL. What that means for you:
+
+- **A credential is only usable where it lives.** A passkey enrolled for the WSL
+  instance can approve the WSL instance, from the browser or passkey provider that
+  holds it. It cannot approve the Windows instance, and the reverse. The approval
+  page names the instance that is asking (`Guardrail instance: WSL Ubuntu-24.04 on
+  <host>`), so you can tell which one you are authenticating for.
+- **A phone cannot approve with a passkey it does not hold.** The browser's system
+  dialog may offer "iPhone, iPad or Android device" (a QR code). Scanning it links
+  the phone, and the phone then looks for the exact credential the page asked for.
+  Passkeys for `localhost` are created where you enrolled, so unless you enrolled
+  this instance's authenticator on that phone, it answers "No passkeys available".
+  Choose this device (Windows Hello or your passkey provider), not the phone.
+- **Synced passkeys follow their provider, not the machine.** `guardrail doctor`
+  prints `operator authenticators: N authenticators: X synced (backup-eligible, held
+  by a passkey provider), Y device-bound; transports recorded for Z of N`. Synced
+  means the passkey lives in a provider such as your browser's password manager and
+  only offers itself where that provider is signed in. Device-bound means it lives
+  in the machine's authenticator (Windows Hello, a security key).
+- **Transports are recorded at enrollment.** An authenticator enrolled before this
+  was fixed has no recorded transports, so the browser cannot narrow its prompt and
+  offers every option. To get a narrower prompt, add a new authenticator with
+  `guardrail operator add-authenticator` while one still works, or run
+  `guardrail operator recover-reset` and enroll again, choosing this device when
+  the system dialog asks.
+
+If the approval page ends with "No enrolled authenticator responded", the
+authenticator you used is not the one enrolled for this instance. Use the browser
+and authenticator you enrolled it with. If that authenticator is gone, from this
+instance's own terminal run `guardrail operator recover-reset`, then `guardrail
+operator enroll`, and choose this device.
+
 ## Limits And Validation
 
 Unix, WSL, and macOS use the local loopback ceremony. Windows operator actions
