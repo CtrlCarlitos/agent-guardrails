@@ -146,6 +146,19 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	// — this process is still the superseded release, and its in-process
 	// doctor and selftest would report on, and record a pass for, the old
 	// version.
+	//
+	// The runs are marked (updateRunEnv) so the new doctor does not print the
+	// next-steps block: this updater prints it itself, last. An updater from
+	// before that does not mark them, and its doctor shows the block (#374).
+	prior, hadPrior := os.LookupEnv(updateRunEnv)
+	_ = os.Setenv(updateRunEnv, "1")
+	defer func() {
+		if hadPrior {
+			_ = os.Setenv(updateRunEnv, prior)
+		} else {
+			_ = os.Unsetenv(updateRunEnv)
+		}
+	}()
 	_ = runInstalledBinary(exe, []string{"doctor"}, stdout, stderr)
 	if selftestCode := runInstalledBinary(exe, []string{"selftest"}, stdout, stderr); selftestCode != 0 {
 		fmt.Fprintln(stderr, "guardrail: selftest failed on the new binary; investigate before continuing")
