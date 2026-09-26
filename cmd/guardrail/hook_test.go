@@ -2370,6 +2370,33 @@ func TestHookWebHostGrantAlreadySatisfiedDoesNotFileRequest(t *testing.T) {
 	}
 }
 
+// The canonical egress action is recognised whichever flag comes first (#126).
+// Before the fix the reversed and `=` spellings fell to the self-configuration
+// deny, so the model got no approval flow and no "already authorized" answer.
+func TestHookWebHostGrantIsRecognisedInEveryFlagOrder(t *testing.T) {
+	stateHome := t.TempDir()
+	testenv.SetState(t, stateHome)
+	testenv.SetConfig(t, t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	repo := webHostProbeRepo(t)
+	if err := executeWebHostApproval(approval.Request{ID: "r1", RepoRoot: repo, Parameters: map[string]string{"hosts": "a.example.test"}, Scope: approval.RepoScope, Action: "web-host-grant"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{
+		"guardrail egress grant --scope repo --host a.example.test",
+		"guardrail egress grant --host a.example.test --scope repo",
+		"guardrail egress grant --scope=repo --host=a.example.test",
+		"guardrail egress grant --host=a.example.test --scope=repo",
+	} {
+		payload := fmt.Sprintf(`{"session_id":"s1","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":%q}}`, repo, command)
+		var stdout, stderr bytes.Buffer
+		code := run([]string{"hook", "claude"}, strings.NewReader(payload), &stdout, &stderr)
+		if code != 2 || !strings.Contains(stderr.String(), "already authorized") {
+			t.Errorf("%q: exit = %d, stderr %q, want the operator-action answer", command, code, stderr.String())
+		}
+	}
+}
+
 func TestHookGlobalWebHostGrantIsNotSatisfiedByRepoGrant(t *testing.T) {
 	stateHome := t.TempDir()
 	testenv.SetState(t, stateHome)
