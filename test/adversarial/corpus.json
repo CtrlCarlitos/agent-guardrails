@@ -2987,5 +2987,84 @@
     "repo_root": "/repo",
     "want": "deny",
     "want_rule_id": "P6.registry-redirect"
+  },
+  {
+    "name": "move the installed binary away",
+    "tool": "Bash",
+    "command": "mv /home/u/.local/bin/guardrail /repo/tmp/g",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "wildcard delete of the installed binary",
+    "tool": "Bash",
+    "command": "rm /home/u/.local/bin/guardrail*",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "nested shell moves the installed binary away",
+    "tool": "Bash",
+    "command": "sh -c 'mv /home/u/.local/bin/guardrail /tmp/g'",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "python one-liner overwrites the installed binary",
+    "tool": "Bash",
+    "command": "python3 -c \"open('/home/u/.local/bin/guardrail','wb').write(b'x')\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "node one-liner deletes the installed binary",
+    "tool": "Bash",
+    "command": "node -e \"require('fs').unlinkSync(require('os').homedir()+'/.local/bin/guardrail')\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "perl one-liner unlinks the installed binary",
+    "tool": "Bash",
+    "command": "perl -e 'unlink \"/home/u/.local/bin/guardrail\"'",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "powershell -Command deletes the installed binary",
+    "tool": "Bash",
+    "command": "pwsh -Command \"Remove-Item /home/u/.local/bin/guardrail\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "repo build output binary is not the installed one",
+    "tool": "Bash",
+    "command": "rm /repo/bin/*",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "staged update artifact delete is not self-config",
+    "tool": "Bash",
+    "command": "python3 -c \"import os; os.remove('/repo/tmp/guardrail.old')\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
   }
 ]

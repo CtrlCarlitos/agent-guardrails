@@ -31,11 +31,23 @@ var psRenameParams = psParams{
 	paths:    []string{"path", "literalpath"},
 }
 
+var psRemoveParams = psParams{
+	switches: []string{"force", "recurse", "whatif", "confirm", "usetransaction"},
+	values:   []string{"path", "literalpath", "filter", "include", "exclude", "credential", "stream"},
+	paths:    []string{"path", "literalpath"},
+}
+
 // psCopyMove maps a command name to whether it removes its source.
 var psCopyMove = map[string]bool{
 	"copy-item": false, "copy": false, "cpi": false, "xcopy": false,
 	"move-item": true, "move": true, "mi": true,
 }
+
+// psRemovers are the Windows delete commands: the cmdlet, its `ri` alias, and
+// cmd's `del`/`erase` (also PowerShell aliases). `rm`, `rmdir` and `rd` reach
+// the self-config rule through the POSIX reader already. Deleting the
+// installed binary disables enforcement as surely as replacing it (#146).
+var psRemovers = map[string]bool{"remove-item": true, "ri": true, "del": true, "erase": true}
 
 var psContentWriters = map[string]bool{
 	"set-content": true, "add-content": true, "out-file": true,
@@ -136,6 +148,10 @@ func powershellWriteTargets(argv []string) (targets []string, ok bool) {
 		}
 		return targets, true
 	}
+	if psRemovers[command] {
+		binding := bindPS(stripSlashSwitches(argv), psRemoveParams)
+		return binding.operands, true
+	}
 	if psContentWriters[command] {
 		binding := bindPS(argv, psContentParams)
 		if len(binding.operands) == 0 {
@@ -163,8 +179,129 @@ func powershellWriteCandidates(tc ToolCall, bash *bashAnalysis) []pathCandidate 
 			continue
 		}
 		for _, target := range targets {
-			out = append(out, pathCandidate{posix: true, path: target, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
+			for _, spelling := range windowsTargetSpellings(target) {
+				out = append(out, pathCandidate{posix: true, path: spelling, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot})
+			}
 		}
 	}
 	return out
+}
+
+// windowsTargetSpellings returns the target plus the spellings Win32 resolves
+// it to: forward slashes (so `~\.local\bin\x` is read like `~/.local/bin/x`)
+// and, for a Win32 path, the name with trailing dots and spaces stripped
+// (`guardrail.exe.` is guardrail.exe, #178).
+func windowsTargetSpellings(target string) []string {
+	out := []string{target}
+	slashed := strings.ReplaceAll(target, `\`, "/")
+	if slashed != target {
+		out = append(out, slashed)
+	}
+	if win32ResolvedPath(target) {
+		if trimmed := strings.TrimRight(slashed, ". "); trimmed != slashed && trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+// installedBinaryNames are the file names the enforcement binary is installed
+// under.
+var installedBinaryNames = []string{"guardrail.exe", "guardrail"}
+
+// installedBinaryGlobs are the self-config globs that name the binary itself.
+var installedBinaryGlobs = []string{
+	"**/.local/bin/guardrail", "**/bin/guardrail",
+	"**/.local/bin/guardrail.exe", "**/bin/guardrail.exe",
+}
+
+// movedAwayBinary returns the installed binary's path when a POSIX `mv` (or
+// PowerShell's `mv` alias of Move-Item) takes it as a source: moving it away
+// disables enforcement as surely as replacing it (#146). Only the binary
+// counts here; moving other self-config files is judged by where they land.
+func movedAwayBinary(tc ToolCall, bash *bashAnalysis) string {
+	if bash == nil || bash.err != nil {
+		return ""
+	}
+	for _, s := range bash.orderedSimples {
+		if head(s.Argv) != "mv" {
+			continue
+		}
+		for _, source := range moveSourceTargets(s.Argv) {
+			spellings := windowsTargetSpellings(source)
+			spellings = append(spellings, binaryWildcardExpansions(source)...)
+			for _, spelling := range spellings {
+				candidate := pathCandidate{posix: true, path: spelling, cwd: s.Cwd, cwdUnknown: s.cwdUnknown, repoRoot: tc.RepoRoot}
+				if matchesScoped(candidate, installedBinaryGlobs, nil) {
+					return spelling
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// binaryWildcardExpansions returns the installed binary's path when a
+// wildcard target would match it: `Remove-Item ~\.local\bin\*.exe` and
+// `rm ~/.local/bin/guardrail*` delete it without naming it. The expansion is
+// kept to a pattern that names guardrail or a directory that is the install
+// location (`.local/bin`), so `rm bin/*` in a repository's build output is not
+// read as deleting the installed binary.
+func binaryWildcardExpansions(target string) []string {
+	slashed := strings.ReplaceAll(target, `\`, "/")
+	base := strings.ToLower(path.Base(slashed))
+	if !hasWildcard(base) {
+		return nil
+	}
+	dir := path.Dir(slashed)
+	installDir := strings.HasSuffix(strings.ToLower("/"+dir), "/.local/bin")
+	if !installDir && !strings.Contains(base, "guard") {
+		return nil
+	}
+	var out []string
+	for _, name := range installedBinaryNames {
+		if matched, err := path.Match(base, name); err == nil && matched {
+			out = append(out, winJoin(dir, name))
+		}
+	}
+	return out
+}
+
+// mentionsInstalledBinary reports whether opaque text names the installed
+// binary by a literal path: a word or quoted string ending in
+// `/bin/guardrail` or `/bin/guardrail.exe` in either slash direction. A
+// relative `bin/guardrail` (a repository's own build output) does not count,
+// and neither does a staged name like `guardrail.exe.old`.
+func mentionsInstalledBinary(text string) bool {
+	return mentionsInstalledBinaryAt(text, 0)
+}
+
+// mentionsInstalledBinaryAt descends into quoted strings: a word that is still
+// quoted text when it reaches the rule (`"...('C:\x\guardrail.exe', $b)"`)
+// holds the path one quoting level down.
+func mentionsInstalledBinaryAt(text string, depth int) bool {
+	for _, candidate := range visiblePathCandidates(text) {
+		if namesInstalledBinary(candidate) {
+			return true
+		}
+		if depth < 3 && candidate != text && strings.ContainsAny(candidate, `'"`+"`") &&
+			mentionsInstalledBinaryAt(candidate, depth+1) {
+			return true
+		}
+	}
+	return false
+}
+
+func namesInstalledBinary(candidate string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(candidate, `\`, "/"))
+	if !strings.Contains(normalized, "/") {
+		return false
+	}
+	normalized = strings.TrimRight(path.Clean(normalized), ". ")
+	for _, name := range installedBinaryNames {
+		if strings.HasSuffix(normalized, "/bin/"+name) {
+			return true
+		}
+	}
+	return false
 }
