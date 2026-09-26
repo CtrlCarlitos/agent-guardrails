@@ -64,6 +64,14 @@ explicitly in **Breaking** notes.
   rule ID, the expected verdict), a tool not covered by a plane's contract,
   and a feature. `config.yml` keeps blank issues and sends bypass reports to
   the private security advisory form.
+- **Docs (#108): `docs/release-checklist.md`.** The release flow as the
+  `chore(release)` commits run it: `## Unreleased` becomes a dated section,
+  the README install pin moves in its three places, one release PR squashed,
+  an annotated tag on the squash commit, `release.yml` publishes nine assets,
+  and the tag is reported for the dotfiles pin. Updater changes verify on N+2,
+  not N+1 (#94's exit code is the current instance: it shows first on the
+  update from v0.23.11-dev to its successor). Linked from `OPERATIONS.md` and
+  `CONTRIBUTING.md`.
 
 ## v0.23.11-dev (2026-09-26)
 

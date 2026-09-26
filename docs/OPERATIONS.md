@@ -396,6 +396,11 @@ next Claude session's posture has **no** selftest line and **no** coverage line.
 If the doctor header still names the *old* release, the updater predates #58:
 run `guardrail selftest` once by hand.
 
+The update is run by the binary that was installed before it, so a change to
+the updater only shows on the update *after* the release that contains it
+(N+2, not N+1). Cutting a release, and that rule, are in
+[release-checklist.md](release-checklist.md).
+
 `update` does not touch the registered handlers. Run `guardrail setup` after it
 (or re-run the installer, which does both): it re-registers any plane whose
 handlers differ from what the new binary generates and prints `already
