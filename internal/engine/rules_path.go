@@ -709,11 +709,24 @@ func checkSelfConfigCandidatesAnalysis(tc ToolCall, candidates []pathCandidate, 
 	// Windows copy/move/content cmdlets (#146): the POSIX write-target reader
 	// does not know them, so `Copy-Item x guardrail.exe` was invisible here.
 	candidates = append(append([]pathCandidate(nil), candidates...), powershellWriteCandidates(tc, bash)...)
+	// A wildcard that matches the installed binary's name deletes or
+	// overwrites it without naming it (#146).
+	for _, candidate := range candidates {
+		for _, expanded := range binaryWildcardExpansions(candidate.path) {
+			expandedCandidate := candidate
+			expandedCandidate.path = expanded
+			candidates = append(candidates, expandedCandidate)
+		}
+	}
 	for _, candidate := range candidates {
 		if matchesScoped(candidate, selfConfigGlobs, selfConfigRootOnly) {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
 				Reason: "write to the agent's own guardrail/shell config: " + candidate.path}
 		}
+	}
+	if moved := movedAwayBinary(tc, bash); moved != "" {
+		return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
+			Reason: "moves the installed guardrail binary away: " + moved + "; replace it with `guardrail update`"}
 	}
 	if bash != nil && bash.err == nil {
 		for _, s := range bash.orderedSimples {
@@ -725,11 +738,28 @@ func checkSelfConfigCandidatesAnalysis(tc ToolCall, candidates []pathCandidate, 
 					return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
 						Reason: "opaque command names the Operator config: " + head(s.Argv)}
 				}
+				if mentionsInstalledBinary(arg) {
+					return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
+						Reason: InstalledBinaryMentionReason + " (" + head(s.Argv) + ")"}
+				}
 			}
 		}
 	}
+	if bash != nil && bash.err != nil && mentionsInstalledBinary(tc.Command) {
+		// A command the parser cannot read (a PowerShell .NET call such as
+		// [IO.File]::WriteAllBytes) is as opaque as interpreter input.
+		return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
+			Reason: InstalledBinaryMentionReason + " (unparsed command)"}
+	}
 	return nil
 }
+
+// InstalledBinaryMentionReason marks a P5.self-config verdict raised because
+// opaque input (interpreter code, an unparseable command) names the installed
+// guardrail binary by path (#146). Guardrail cannot tell a read or a run from
+// a write there, so it names the supported ways instead.
+const InstalledBinaryMentionReason = "opaque input names the installed guardrail binary; Guardrail cannot tell a read or a run from a write or a delete. " +
+	"Replace it with `guardrail update`, run it as `guardrail <command>`, or ask the operator to do it from their own terminal"
 
 func containsOperatorConfigPath(arg string) bool {
 	for _, candidate := range visiblePathCandidates(arg) {

@@ -21,6 +21,21 @@ explicitly in **Breaking** notes.
   example.com/x@latest`, `go -C sub install ...@latest`, `go -C sub env -w
   GOPROXY=...` and `go -C sub mod edit -replace` were allowed and now get the
   verdict their unprefixed form gets. `go.exe` spellings are covered.
+- **Fix (#146): deleting or moving away the enforcement binary is
+  `P5.self-config`, and so is naming it in interpreter input.** `Remove-Item`,
+  `ri`, `del`, `erase` (also under `cmd /c`) on `guardrail.exe` were allowed;
+  wildcards that match the binary (`Remove-Item ~\.local\bin\*.exe`,
+  `rm ~/.local/bin/guardrail*`), a trailing-dot spelling, and a POSIX `mv`
+  that takes the binary as its source were missed too. They now deny. A
+  literal path to the installed binary (`.../bin/guardrail`,
+  `.../bin/guardrail.exe`) inside `python -c`, `node -e`, `perl -e`,
+  `powershell -Command` input, or in a PowerShell line the parser cannot read
+  (`[IO.File]::WriteAllBytes(...)`), denies the same way the Operator config
+  already did: Guardrail cannot tell a read or a run from a write there, so a
+  hash or a `& '<path>' doctor` through an interpreter is denied too; run
+  `guardrail <command>` directly. `guardrail update`, `doctor` and `selftest`,
+  the staged `.old` name, and a repository's `bin/*` build output are
+  unaffected.
 
 ### CLI
 - **Fix (#395): `guardrail help` lists every subcommand it dispatches.**
