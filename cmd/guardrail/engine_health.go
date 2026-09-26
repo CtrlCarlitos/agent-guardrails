@@ -106,6 +106,12 @@ func engineHealthDoctorLine(h engineHealth) string {
 		h.detail)
 }
 
-func printEngineHealth(stdout interface{ Write([]byte) (int, error) }) {
-	fmt.Fprintln(stdout, engineHealthDoctorLine(currentEngineHealth()))
+// printEngineHealth returns 1 when the Engine is unreachable, else 0.
+func printEngineHealth(stdout interface{ Write([]byte) (int, error) }) int {
+	h := currentEngineHealth()
+	fmt.Fprintln(stdout, engineHealthDoctorLine(h))
+	if h.reachable {
+		return 0
+	}
+	return 1
 }
