@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.6-dev (2026-09-25)
 
 ### Installation
 - **Feature (#364): `update`, `setup` and the installers end with the steps
