@@ -82,7 +82,14 @@ fake_guardrail() { # $1 = dest, $2 = version the fake reports, $3 = setup's exit
 d="$(dirname "$0")"
 case "$1" in
   version) echo "guardrail $(cat "$d/.fake-version")" ;;
-  update) echo "$*" >>"$d/update.log"; echo "$2" >"$d/.fake-version" ;;
+  update)
+    echo "$*" >>"$d/update.log"
+    # .fake-update: "refused" fails before replacing; "verify-fails" replaces, then fails.
+    mode="$(cat "$d/.fake-update" 2>/dev/null || true)"
+    [ "$mode" = refused ] && exit 1
+    echo "$2" >"$d/.fake-version"
+    [ "$mode" = verify-fails ] && exit 1
+    exit 0 ;;
   setup)
     if [ "$(cat "$d/.fake-setup-rc")" = old ]; then
       echo 'guardrail: unknown subcommand "setup"' >&2; exit 2
@@ -157,6 +164,29 @@ case_existing_at_or_above_floor_uses_self_update() {
   grep -qx "update $VERSION" "$dest/update.log" 2>/dev/null || { echo "  update.log lacks 'update $VERSION'"; dump; return 1; }
   # still the fake: no asset was fetched or installed over it
   grep -q '\.fake-version' "$dest/guardrail" || { echo "  $dest/guardrail was replaced"; return 1; }
+}
+
+case_update_verification_failure_exits_1_and_names_rollback() {
+  local dest
+  dest="$(fresh)"
+  fake_guardrail "$dest" v0.19.2-dev
+  echo verify-fails >"$dest/.fake-update"
+  run --version "$VERSION" --dest "$dest" --base-url "$tmp/empty" --no-setup
+  want_rc 1 || return 1
+  has err "already replaced" || return 1
+  has err "guardrail update v0.19.2-dev" || return 1
+  absent "$dest/setup.log"
+}
+
+case_update_refused_before_replacement_says_left_as_it_was() {
+  local dest
+  dest="$(fresh)"
+  fake_guardrail "$dest" v0.19.2-dev
+  echo refused >"$dest/.fake-update"
+  run --version "$VERSION" --dest "$dest" --base-url "$tmp/empty" --no-setup
+  want_rc 1 || return 1
+  has err "left as it was" || return 1
+  reports "$dest/guardrail" v0.19.2-dev
 }
 
 case_existing_below_floor_bootstraps() {
@@ -376,6 +406,8 @@ check tampered-checksum-refuses                  case_tampered_checksum_refuses
 check missing-sums-refuses                       case_missing_sums_refuses
 check disabled-with-no-binary-is-noop            case_disabled_with_no_binary_is_noop
 check existing-at-or-above-floor-uses-self-update case_existing_at_or_above_floor_uses_self_update
+check update-verification-failure-exits-1-and-names-rollback case_update_verification_failure_exits_1_and_names_rollback
+check update-refused-before-replacement-says-left-as-it-was case_update_refused_before_replacement_says_left_as_it_was
 check existing-below-floor-bootstraps            case_existing_below_floor_bootstraps
 check unsupported-arch-exits-2                   case_unsupported_arch_exits_2
 check uninstall-removes-binary-and-plugin        case_uninstall_removes_binary_and_plugin
