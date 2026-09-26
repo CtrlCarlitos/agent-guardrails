@@ -4,6 +4,19 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Update
+- **Fix (#94): a failed post-install verification is a failed update.**
+  `guardrail update` ran `doctor` and `selftest` on the new binary but returned 0
+  whatever they said, so automation read an unhealthy update as success. It now
+  exits 1 when either exits non-zero (3, operator action pending, is not a
+  failure), says the binary was already replaced, and names the rollback
+  (`guardrail update <previous version>`). `install.sh` and `install.ps1` tell a
+  refusal before replacement ("left as it was") from a failed verification after
+  it, and name the same rollback. Only a binary that has this fix reports it: an
+  older updater still exits 0.
+
 ## v0.23.10-dev (2026-09-26)
 
 ### Engine

@@ -104,11 +104,78 @@ func TestUpdateVerifiesTheInstalledBinaryNotItself(t *testing.T) {
 	}
 }
 
-func TestUpdateReportsAFailedSelftestOnTheInstalledBinary(t *testing.T) {
-	target := filepath.Join(t.TempDir(), "guardrail")
+// verifyFailureRun runs an update from a binary reporting v0.19.9-dev, with the
+// installed binary's subcommands answering codes[args[0]], and returns the
+// exit code, stderr and the subcommands that ran.
+func verifyFailureRun(t *testing.T, codes map[string]int) (int, string, string) {
+	t.Helper()
+	target := filepath.Join(t.TempDir(), testenv.ExecutableName("guardrail"))
 	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	origVersion := version
+	version = "v0.19.9-dev"
+	t.Cleanup(func() { version = origVersion })
+	stubUpdateSeams(t, target)
+	var ran []string
+	runInstalledBinary = func(exe string, args []string, stdout, stderr io.Writer) int {
+		ran = append(ran, args[0])
+		return codes[args[0]]
+	}
+	binary := "new-binary-bytes"
+	server := updateTestServer(t, binary, updateSumsFor(binary, updateAssetName()), http.StatusOK)
+	updateReleaseBase = server.URL + "/download"
+
+	var out, errb strings.Builder
+	code := run([]string{"update", "v0.19.10-dev"}, strings.NewReader(""), &out, &errb)
+	raw, _ := os.ReadFile(target)
+	if string(raw) != "new-binary-bytes" {
+		t.Fatalf("target = %q, want the new binary in place", raw)
+	}
+	return code, errb.String(), strings.Join(ran, ",")
+}
+
+// A failed post-install verification is a failed update (#94): non-zero, the
+// message says the replacement already happened and names the rollback.
+func TestUpdateFailedSelftestExitsOneAndNamesRollback(t *testing.T) {
+	code, errText, ran := verifyFailureRun(t, map[string]int{"selftest": 1})
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; stderr %q", code, errText)
+	}
+	for _, want := range []string{"selftest failed on the new binary", "already replaced", "guardrail update v0.19.9-dev"} {
+		if !strings.Contains(errText, want) {
+			t.Fatalf("stderr lacks %q:\n%s", want, errText)
+		}
+	}
+	if strings.Contains(ran, "next") {
+		t.Fatalf("ran %s: next-steps advice must not follow a failed verification", ran)
+	}
+}
+
+func TestUpdateFailedDoctorExitsOneAndNamesRollback(t *testing.T) {
+	code, errText, ran := verifyFailureRun(t, map[string]int{"doctor": 1})
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; stderr %q", code, errText)
+	}
+	for _, want := range []string{"doctor failed on the new binary", "already replaced", "guardrail update v0.19.9-dev"} {
+		if !strings.Contains(errText, want) {
+			t.Fatalf("stderr lacks %q:\n%s", want, errText)
+		}
+	}
+	if !strings.Contains(ran, "selftest") {
+		t.Fatalf("ran %s: selftest should still run so the report is complete", ran)
+	}
+}
+
+// A dev build has no release to roll back to; the message must not invent one.
+func TestUpdateFailedVerificationFromDevBuildInventsNoVersion(t *testing.T) {
+	target := filepath.Join(t.TempDir(), testenv.ExecutableName("guardrail"))
+	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	origVersion := version
+	version = "dev"
+	t.Cleanup(func() { version = origVersion })
 	stubUpdateSeams(t, target)
 	runInstalledBinary = func(exe string, args []string, stdout, stderr io.Writer) int {
 		if args[0] == "selftest" {
@@ -119,11 +186,23 @@ func TestUpdateReportsAFailedSelftestOnTheInstalledBinary(t *testing.T) {
 	binary := "new-binary-bytes"
 	server := updateTestServer(t, binary, updateSumsFor(binary, updateAssetName()), http.StatusOK)
 	updateReleaseBase = server.URL + "/download"
-
 	var out, errb strings.Builder
-	run([]string{"update", "v0.19.2-dev"}, strings.NewReader(""), &out, &errb)
-	if !strings.Contains(errb.String(), "selftest failed on the new binary") {
-		t.Fatalf("stderr = %q, want loud selftest failure", errb.String())
+	if code := run([]string{"update", "v0.19.10-dev"}, strings.NewReader(""), &out, &errb); code != 1 {
+		t.Fatalf("exit = %d, want 1", code)
+	}
+	if !strings.Contains(errb.String(), "guardrail update <previous version>") || strings.Contains(errb.String(), "guardrail update dev") {
+		t.Fatalf("stderr:\n%s", errb.String())
+	}
+}
+
+// Operator-pending (3) from the installed binary is not a failed update.
+func TestUpdateOperatorPendingVerificationIsNotAFailure(t *testing.T) {
+	code, errText, ran := verifyFailureRun(t, map[string]int{"doctor": 3})
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stderr %q", code, errText)
+	}
+	if ran != "doctor,selftest,next" {
+		t.Fatalf("ran %s", ran)
 	}
 }
 

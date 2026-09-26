@@ -8,7 +8,9 @@
 #   install.sh --help
 #
 # Exit codes: 2 usage / unsupported platform / missing tool; 1 download,
-# checksum, install or post-install version failure, or an uninstall that
+# checksum, install or post-install version failure (including a
+# `guardrail update` whose doctor or selftest failed after the swap: the message
+# names `guardrail update <previous version>` as the rollback), or an uninstall that
 # could not disable the planes or remove a file; otherwise the exit code of
 # `guardrail setup` (0 with --no-setup, and after an uninstall; a first
 # install with no enrolled operator arms the planes and exits 0; 3 when the
@@ -392,7 +394,16 @@ main() {
 		say "guardrail $version already installed at $dest/guardrail"
 	elif [ -n "$installed" ] && version_at_least "$installed" "$SELF_UPDATE_FLOOR"; then
 		say "updating $dest/guardrail from $installed to $version via guardrail update"
-		"$dest/guardrail" update "$version" || die 1 "guardrail update $version failed; $dest/guardrail left as it was"
+		if ! "$dest/guardrail" update "$version"; then
+			# Before the swap the binary is untouched; after it, the update's own
+			# post-install verification failed (#94) and the previous release is the
+			# rollback target.
+			now=$("$dest/guardrail" version 2>/dev/null) || now=""
+			if [ "$now" = "guardrail $version" ]; then
+				die 1 "$dest/guardrail was already replaced by $version and its post-install verification failed; roll back with: $dest/guardrail update $installed"
+			fi
+			die 1 "guardrail update $version failed; $dest/guardrail left as it was"
+		fi
 	else
 		bootstrap
 	fi

@@ -7,7 +7,9 @@
 #   install.ps1 -Help
 #
 # Exit codes: 2 usage / unsupported platform; 1 download, checksum, install
-# or post-install version failure, or an uninstall that could not disable
+# or post-install version failure (including a `guardrail update` whose
+# doctor or selftest failed after the swap: the message names `guardrail update
+# <previous version>` as the rollback), or an uninstall that could not disable
 # the planes or remove a file; otherwise the exit code of `guardrail setup`
 # (0 with -NoSetup, and after an uninstall; a first install with no enrolled
 # operator arms the planes and exits 0; 3 when the change needs the operator:
@@ -397,7 +399,15 @@ function Update-Installed {
 	} catch {
 		$code = 1
 	}
-	if ($code -ne 0) { Die 1 "guardrail update $Version failed; $($script:Exe) left as it was" }
+	if ($code -ne 0) {
+		# Before the swap the binary is untouched; after it, the update's own
+		# post-install verification failed (#94) and the previous release is the
+		# rollback target.
+		if ((Get-GuardrailVersionLine) -ceq "guardrail $Version") {
+			Die 1 "$($script:Exe) was already replaced by $Version and its post-install verification failed; roll back with: $($script:Exe) update $($script:Installed)"
+		}
+		Die 1 "guardrail update $Version failed; $($script:Exe) left as it was"
+	}
 }
 
 function Confirm-Installed {

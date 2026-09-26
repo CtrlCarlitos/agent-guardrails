@@ -65,7 +65,7 @@ like from the outside for four days: `registered`, green, enforcing nothing.
 | Approval page never opened / daemon looks stuck | `guardrail approvals list`; if that hangs, kill the `guardrail approvals daemon` process — the next request re-spawns it from the installed binary | The daemon is spawned on demand and shut down by every `update`, so it can never outlive a release |
 | `registered handlers differ from this binary` (printed by `setup`), or a plane still runs the previous release's hook command after `guardrail update` | `guardrail setup` | `update` swaps the binary but leaves registered handlers alone; `setup` compares each plane's registered hooks (and the codex wrapper / opencode plugin entry) with what this binary generates and re-merges any that differ, under one approval (#317). Seeing the line during `setup` means it is fixing it. |
 | `guardrail update` says `release assets may still be publishing; retry in a minute` | wait 60 s, run it again | You raced the release uploader; nothing was changed |
-| `update` printed `selftest failed on the new binary` | `guardrail selftest` (read the FAILED lines) then `guardrail update <previous version>` | The new release drifted on a probe. Roll back with the same command; it is checksum-verified either way |
+| `update` (or the installer) exited 1 with `<step> failed on the new binary` / `already replaced` | `guardrail selftest` (read the FAILED lines) then `guardrail update <previous version>` (the message names it) | The new release drifted on a probe or doctor failed. The binary is already replaced, and the exit is 1 so automation does not read it as success (#94). Roll back with the same command; it is checksum-verified either way |
 | Agent needs a website | agent runs `guardrail egress grant --scope repo --host a.example.com,b.example.com` inside its session → you approve with passkey; or you run the same at a terminal (immediate, no passkey) | Grants live in `~/.config/guardrail/waivers.toml` plus the repo's `guardrail.toml`; **both** must agree. Native WebFetch is always denied; `guardrail fetch <url>` is the sanctioned path |
 | Too many asks tonight | `guardrail night on --for 8h` (terminal only) | Relaxes routine asks to allow until then. External-tier asks (publishing, schedulers, unknown MCP) are never relaxed (ADR-0018). `guardrail night off` restores. `guardrail night status` works from anywhere and exits 1 when inactive — a state, not a failure. |
 | Windows: an opencode agent reports *every* tool call failing `guardrail: could not run (spawnSync … ETIMEDOUT); failing closed` | see **Windows: engine unreachable** below | Per-spawn latency (Defender scan + NTFS `CreateProcess`, #132) exceeded the opencode plugin's budget; the plugin denies everything when the engine cannot run — fail-closed by design. Other planes have larger hook budgets and keep working; opencode failing alone is expected, not evidence of a binary bug. |
@@ -292,6 +292,17 @@ It never downloads, never touches PATH or Defender.
 `guardrail update <tag>` on its own replaces the binary and runs `doctor` and
 `selftest` on it, but leaves the registered handlers as they were. Follow it
 with `guardrail setup`, or re-run the installer, which does both.
+
+Exit codes of `update`: 0 healthy; 2 usage; 1 failure, of two kinds the
+message tells apart. Before the swap (download, checksum, version check,
+staging) the installed binary is untouched. After it, if `doctor` or `selftest`
+on the new binary exits non-zero (3, operator action pending, is not a failure),
+the binary **is already replaced**: `update` runs both, prints which failed,
+skips the next-steps block, exits 1 and names the rollback,
+`guardrail update <previous version>` (the version of the binary that ran the
+update; a dev build says `<previous version>` because it has none). The
+installers pass that through: exit 1 with the same rollback line. An updater
+older than #94 exits 0 on these failures, and the installer cannot tell.
 
 **`--no-setup` (`-NoSetup`)** stops once the binary is in place and verified,
 exit 0. Use it in CI, or when you want to run `setup` yourself; a first
