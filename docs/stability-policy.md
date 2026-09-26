@@ -61,8 +61,11 @@ this one.
 
 The subcommands and flags printed by `guardrail help` are stable, along with the
 operator commands documented in [OPERATIONS.md](OPERATIONS.md) (`allow-baseline`,
-`next`, `approvals ...`). `guardrail daemon` is internal: it is spawned on demand
-and does not appear in `help`.
+`next`, `approvals ...`), except what `help` itself marks internal:
+`guardrail daemon` (the ADR-0025 resident engine daemon) is listed there as
+"internal: not a stable surface". Every subcommand the dispatcher accepts is in
+`help` or in the test's hidden list with a reason
+(`TestHelpListsEveryDispatchedSubcommand`, #395), so the two cannot drift.
 
 **Exit-code contract.** Verified against `cmd/guardrail` (`run.go`, `plane.go`,
 `hook.go`) and by running the binary:
