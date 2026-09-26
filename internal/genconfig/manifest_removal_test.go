@@ -80,7 +80,7 @@ func TestDisableClaudeRemovesTheFloorAndKeepsOperatorEntries(t *testing.T) {
 		},
 		"statusLine": map[string]any{"type": "command", "command": "mine"},
 	})
-	if err := MergePlaneInto(path, "claude", ClaudeConfig(base, "guardrail")); err != nil {
+	if err := MergePlaneInto(path, "claude", legacyClaudeFragment(base, "guardrail")); err != nil {
 		t.Fatal(err)
 	}
 	if got := len(stringsAt(t, readJSON(t, path), "permissions", "deny")); got < 100 {
@@ -131,7 +131,7 @@ func TestDisableOpencodeRemovesOnlyGuardrailPermissionEntries(t *testing.T) {
 		},
 		"mcp": map[string]any{"serena": map[string]any{"type": "local"}},
 	})
-	if err := MergePlaneInto(path, "opencode", OpencodeConfig(base, filepath.Join(dir, "guardrail.js"))); err != nil {
+	if err := MergePlaneInto(path, "opencode", legacyOpencodeFragment(base, filepath.Join(dir, "guardrail.js"))); err != nil {
 		t.Fatal(err)
 	}
 	if err := RemovePlaneFrom(path, "opencode"); err != nil {
@@ -174,7 +174,7 @@ func TestDisableOpencodeKeepsOperatorPlugins(t *testing.T) {
 	writeJSON(t, path, map[string]any{
 		"plugin": []any{"~/.config/opencode/node_modules/superpowers"},
 	})
-	if err := MergePlaneInto(path, "opencode", OpencodeConfig(base, filepath.Join(dir, "guardrail.js"))); err != nil {
+	if err := MergePlaneInto(path, "opencode", legacyOpencodeFragment(base, filepath.Join(dir, "guardrail.js"))); err != nil {
 		t.Fatal(err)
 	}
 	if got := stringsAt(t, readJSON(t, path), "plugin"); len(got) != 2 {

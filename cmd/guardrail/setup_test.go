@@ -732,12 +732,12 @@ func TestSetupReenablesOnFloorDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	perms, _ := doc["permissions"].(map[string]any)
-	deny, _ := perms["deny"].([]any)
-	if len(deny) == 0 {
-		t.Fatal("enable wrote no permissions.deny entries")
+	allow, _ := perms["allow"].([]any)
+	if len(allow) == 0 {
+		t.Fatal("enable wrote no permissions.allow entries")
 	}
-	removed, _ := deny[0].(string)
-	perms["deny"] = deny[1:]
+	removed, _ := allow[0].(string)
+	perms["allow"] = allow[1:]
 	raw, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -759,7 +759,7 @@ func TestSetupReenablesOnFloorDrift(t *testing.T) {
 	}
 	quoted, _ := json.Marshal(removed)
 	if !strings.Contains(readPlaneJSON(t, path), string(quoted)) {
-		t.Fatalf("deny entry %s not restored", quoted)
+		t.Fatalf("allow entry %s not restored", quoted)
 	}
 }
 

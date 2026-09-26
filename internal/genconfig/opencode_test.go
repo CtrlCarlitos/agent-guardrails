@@ -551,7 +551,7 @@ try {
 }
 
 func TestOpencodeConfigBashPermissions(t *testing.T) {
-	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+	frag := legacyOpencodeFragment(secretPol(), "/x/guardrail.js")
 	bash := frag["permission"].(map[string]any)["bash"].(orderedPermissionRules)
 	if bash["*"] != "allow" {
 		t.Errorf(`bash["*"] = %q, want "allow"`, bash["*"])
@@ -597,7 +597,7 @@ func TestOpencodeConfigBashPermissions(t *testing.T) {
 }
 
 func TestOpencodeGitConfigFloorOnlyDeniesDefiniteDangerousWrites(t *testing.T) {
-	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+	frag := legacyOpencodeFragment(secretPol(), "/x/guardrail.js")
 	raw, err := json.Marshal(frag)
 	if err != nil {
 		t.Fatal(err)
@@ -622,7 +622,7 @@ func TestOpencodeGitConfigFloorOnlyDeniesDefiniteDangerousWrites(t *testing.T) {
 }
 
 func TestOpencodeConfigReadEditPermissions(t *testing.T) {
-	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+	frag := legacyOpencodeFragment(secretPol(), "/x/guardrail.js")
 	read := frag["permission"].(map[string]any)["read"].(orderedPermissionRules)
 	edit := frag["permission"].(map[string]any)["edit"].(orderedPermissionRules)
 	if read["**/.ssh/**"] != "deny" {
@@ -644,7 +644,7 @@ func TestOpencodeAskTierAndScopedClaudeUseStrongestNativeVerdict(t *testing.T) {
 		SecretDirs:     []string{"**/.ssh/**"},
 		SecretAskGlobs: []string{"**/*.pem"},
 	}}
-	raw, err := json.Marshal(OpencodeConfig(pol, "/x/guardrail.js"))
+	raw, err := json.Marshal(legacyOpencodeFragment(pol, "/x/guardrail.js"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -698,7 +698,7 @@ func TestOpencodeSecretDirsOutrankSecretAllow(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			pol := secretPol()
 			pol.Slots.SecretAllow = []string{tt.allow}
-			raw, err := json.Marshal(OpencodeConfig(pol, "/x/guardrail.js"))
+			raw, err := json.Marshal(legacyOpencodeFragment(pol, "/x/guardrail.js"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -713,7 +713,7 @@ func TestOpencodeSecretDirsOutrankSecretAllow(t *testing.T) {
 }
 
 func TestOpencodeConfigProtectsGuardrailOwnMachinery(t *testing.T) {
-	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+	frag := legacyOpencodeFragment(secretPol(), "/x/guardrail.js")
 	edit := frag["permission"].(map[string]any)["edit"].(orderedPermissionRules)
 	want := []string{
 		"guardrail.toml",
@@ -734,7 +734,7 @@ func TestOpencodeConfigProtectsGuardrailOwnMachinery(t *testing.T) {
 }
 
 func TestOpencodeConfigProtectsOperatorConfig(t *testing.T) {
-	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+	frag := legacyOpencodeFragment(secretPol(), "/x/guardrail.js")
 	edit := frag["permission"].(map[string]any)["edit"].(orderedPermissionRules)
 	for _, path := range []string{
 		"**/.config/guardrail/**",
@@ -750,7 +750,7 @@ func TestOpencodeConfigProtectsOperatorConfig(t *testing.T) {
 }
 
 func TestOpencodeConfigPluginRegistered(t *testing.T) {
-	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+	frag := legacyOpencodeFragment(secretPol(), "/x/guardrail.js")
 	plugins := frag["plugin"].([]string)
 	if len(plugins) != 1 || plugins[0] != "/x/guardrail.js" {
 		t.Errorf("plugin = %v", plugins)
@@ -758,7 +758,7 @@ func TestOpencodeConfigPluginRegistered(t *testing.T) {
 }
 
 func TestOpencodeConfigOrderedStandaloneOutput(t *testing.T) {
-	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+	frag := legacyOpencodeFragment(secretPol(), "/x/guardrail.js")
 	first, err := json.MarshalIndent(frag, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -807,7 +807,7 @@ func TestMergeOpencodePreservesExistingProjectConfig(t *testing.T) {
 		}
 	}`), 0o644)
 
-	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+	frag := legacyOpencodeFragment(secretPol(), "/x/guardrail.js")
 	if err := MergeInto(p, frag); err != nil {
 		t.Fatal(err)
 	}
@@ -851,7 +851,7 @@ func TestMergeIntoOpencodePermissionPrecedence(t *testing.T) {
 	if err := os.WriteFile(p, []byte(existing), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := MergeInto(p, OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
+	if err := MergeInto(p, legacyOpencodeFragment(secretPol(), "/x/guardrail.js")); err != nil {
 		t.Fatal(err)
 	}
 

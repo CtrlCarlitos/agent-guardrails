@@ -14,7 +14,7 @@ import "testing"
 
 func ghFloorDecision(t *testing.T, command string) string {
 	t.Helper()
-	frag := ClaudeConfig(secretPol(), "guardrail")
+	frag := legacyClaudeFragment(secretPol(), "guardrail")
 	perms := frag["permissions"].(map[string]any)
 	return claudeNativeDecision(perms, "Bash("+command+")")
 }
@@ -92,7 +92,7 @@ func TestGhApiMethodFlagBeforeEndpointAsks(t *testing.T) {
 // Both planes, one source. OpenCode rewrites the same globs into its own
 // permission map, so the entries must survive the rewrite.
 func TestGhGlobsReachTheOpencodePlane(t *testing.T) {
-	frag := OpencodeConfig(secretPol(), "/opt/guardrail/guardrail.js")
+	frag := legacyOpencodeFragment(secretPol(), "/opt/guardrail/guardrail.js")
 	permission := frag["permission"].(map[string]any)
 	bash := permission["bash"].(orderedPermissionRules)
 

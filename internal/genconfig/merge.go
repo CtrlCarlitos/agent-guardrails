@@ -10,8 +10,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-
-	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
 // MergeInto deep-merges frag into the JSON object stored at path, creating the
@@ -198,20 +196,12 @@ func removeGeneratedMatches(existing map[string]any, plane string) int {
 	return removed
 }
 
-// fallbackFragment is what this binary would write for the plane. The plugin
-// path is derived the way gen-config defaults it, alongside the config file.
+// fallbackFragment is the floor an earlier release wrote for the plane: the
+// entries that can be present in a settings file without any manifest
+// claiming them, which is what ownership drift calls stale and what
+// PruneLegacyFloor removes. This binary generates no floor of its own.
 func fallbackFragment(plane string) (map[string]any, bool) {
-	base, err := policy.LoadBase()
-	if err != nil {
-		return nil, false
-	}
-	switch plane {
-	case "claude":
-		return ClaudeConfig(base, "guardrail"), true
-	case "opencode":
-		return OpencodeConfig(base, "guardrail.js"), true
-	}
-	return nil, false
+	return legacyFloorFragment(plane)
 }
 
 func removeGuardrailHookGroups(existing map[string]any, plane string) int {

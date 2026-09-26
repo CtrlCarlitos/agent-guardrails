@@ -20,7 +20,7 @@ func TestMergeOpencodeReplacesPriorGuardrailPluginEntries(t *testing.T) {
 		"plugin": ["C:\\state\\guardrail.js", "superpowers@git+https://github.com/obra/superpowers.git"]
 	}`), 0o644)
 
-	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+	frag := legacyOpencodeFragment(secretPol(), "/x/guardrail.js")
 	if err := MergeInto(p, frag); err != nil {
 		t.Fatal(err)
 	}
@@ -58,10 +58,10 @@ func TestMergeOpencodeReplacesPriorGuardrailPluginEntries(t *testing.T) {
 func TestMergeOpencodeKeepsSingleGuardrailPluginEntryIdempotent(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "opencode.json")
 	os.WriteFile(p, []byte(`{"plugin": ["/x/guardrail.js"]}`), 0o644)
-	if err := MergeInto(p, OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
+	if err := MergeInto(p, legacyOpencodeFragment(secretPol(), "/x/guardrail.js")); err != nil {
 		t.Fatal(err)
 	}
-	if err := MergeInto(p, OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
+	if err := MergeInto(p, legacyOpencodeFragment(secretPol(), "/x/guardrail.js")); err != nil {
 		t.Fatal(err)
 	}
 

@@ -90,7 +90,7 @@ func TestOpenCodeBraceTranslationIsEquivalent(t *testing.T) {
 }
 
 func TestOpencodeConfigTranslatesEveryUnsupportedSourceGlob(t *testing.T) {
-	frag := OpencodeConfig(secretPol(), "/opt/guardrail/guardrail.js")
+	frag := legacyOpencodeFragment(secretPol(), "/opt/guardrail/guardrail.js")
 	bash := frag["permission"].(map[string]any)["bash"].(orderedPermissionRules)
 
 	for pattern := range bash {
