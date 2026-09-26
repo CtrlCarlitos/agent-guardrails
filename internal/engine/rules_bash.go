@@ -1216,7 +1216,16 @@ func checkRmRf(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {
 			continue
 		}
 		if s.wordUnresolved(i) {
-			continue // P3 owns unresolved operands.
+			// P3 owns unresolved operands, with one exception. A tracked variable
+			// followed by a literal glob (`T=/etc; rm -rf $T/x*`) is left
+			// unresolved on purpose (NF5b), but the answer to "can this target be
+			// outside the repository" is the same as for the literal spelling, and
+			// that one is a denial. Ask about it as the literal is asked (#377).
+			resolved, ok := s.globTailResolved[i]
+			if !ok {
+				continue
+			}
+			raw = resolved
 		}
 		candidate := pathCandidate{posix: true, path: raw, cwd: simpleCwd(s, tc), cwdUnknown: s.cwdUnknown}
 		if candidate.cwdUnknown && !filepath.IsAbs(raw) {

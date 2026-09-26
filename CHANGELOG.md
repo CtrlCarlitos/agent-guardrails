@@ -6,6 +6,24 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Policy
+- **Fix (#377): a recursive delete outside the repository is denied when its
+  path is a tracked variable followed by a literal glob.** `T=/etc; rm -rf
+  $T/x*` was only asked about (`P3.unresolved`) while `rm -rf /etc/x*` and
+  `rm -rf "$T"/x*` were `P1.rm-rf` denials. A literal glob after an unquoted
+  variable is left unresolved on purpose (NF5b: a glob expands to many
+  arguments, so a judgement about one path does not cover it), and the
+  recursive-delete check skipped every unresolved operand. It now asks the one
+  question it needs, whether the target can be outside the repository, using the
+  operand as it would be typed out, and denies exactly when the literal would be
+  denied. The word stays unresolved for every other rule, so `T=/etc; cat
+  $T/*.conf` and `S=/tmp/scripts; bash $S/*.sh` still ask, and a glob that
+  arrives in a variable's value, several fields, a substitution, an unknown
+  variable and an extglob opener formed across the boundary are still not
+  resolved. It also holds through `command` and `env` wrappers. A note on
+  measurement: deleting a specific path under the system temp directory is
+  allowed by design, and `$HOME/x` was already a denial.
+
 ### Installation
 - **Fix (#374): the first update onto a release that has `guardrail next` now
   shows the next-steps block too.** `update` is run by the binary being

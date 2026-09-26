@@ -2659,5 +2659,41 @@
     "night": true,
     "want": "complete",
     "want_rule_id": "operator-action"
+  },
+  {
+    "name": "variable path with a literal glob tail is denied like the literal",
+    "tool": "Bash",
+    "command": "T=/etc; rm -rf $T/x*",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P1.rm-rf"
+  },
+  {
+    "name": "braced variable path with a literal glob tail is denied like the literal",
+    "tool": "Bash",
+    "command": "T=/etc; rm -rf ${T}/x*",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P1.rm-rf"
+  },
+  {
+    "name": "variable path with a literal glob tail behind a command wrapper is denied",
+    "tool": "Bash",
+    "command": "T=/etc; command rm -rf $T/x*",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P1.rm-rf"
+  },
+  {
+    "name": "unknown variable with a glob tail is still held",
+    "tool": "Bash",
+    "command": "rm -rf $UNSET/x*",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P3.unresolved"
   }
 ]

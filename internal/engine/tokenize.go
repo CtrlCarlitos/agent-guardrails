@@ -39,8 +39,15 @@ type Simple struct {
 	// Copies built by later rewrites do not carry it, so anything reshaped
 	// keeps the conservative reading.
 	cwdOnlyUnresolved bool
-	origin            *syntax.Stmt
-	shellState        cwdState
+	// globTailResolved holds, for an operand left unresolved only because a
+	// literal glob follows a tracked variable (`$T/x*`), the word as it would be
+	// typed out. The word stays unresolved for every rule; only the
+	// recursive-delete check reads this, to ask whether the target can be outside
+	// the repository (#377). A copy built by a later rewrite does not carry it,
+	// so anything reshaped keeps the conservative reading (an ask).
+	globTailResolved map[int]string
+	origin           *syntax.Stmt
+	shellState       cwdState
 }
 
 type pipelinePosition struct {
@@ -128,6 +135,12 @@ func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pip
 			} else {
 				s.Argv = append(s.Argv, raw)
 				s.Unresolved = true
+				if glob, ok := resolveLocalWordKeepingLiteralGlob(w, state); tracked && ok {
+					if s.globTailResolved == nil {
+						s.globTailResolved = make(map[int]string)
+					}
+					s.globTailResolved[index] = glob
+				}
 			}
 		}
 		for _, r := range stmt.Redirs {
@@ -231,6 +244,24 @@ func (s Simple) inputRedirectUnresolved(index int) bool {
 }
 
 func resolveLocalWord(word *syntax.Word, state cwdState) (string, bool) {
+	return resolveLocalWordOpts(word, state, false)
+}
+
+// resolveLocalWordKeepingLiteralGlob resolves a word the way resolveLocalWord
+// does, except that a glob written literally in the word (`$T/x*`) does not make
+// it unresolved. resolveLocalWord refuses that on purpose (NF5b): a glob expands
+// to many arguments at runtime, so one path is not a judgement about all of them.
+// The recursive-delete check uses this variant for its own question, whether a
+// target can be outside the repository, where the answer for `T=/etc; rm -rf
+// $T/x*` is the answer for `rm -rf /etc/x*`. A glob that arrives in a variable's
+// value is still refused, and so is an extglob opener formed across the
+// boundary (#377). The resolved word is never stored in Simple.Argv; the word
+// stays unresolved for every other rule.
+func resolveLocalWordKeepingLiteralGlob(word *syntax.Word, state cwdState) (string, bool) {
+	return resolveLocalWordOpts(word, state, true)
+}
+
+func resolveLocalWordOpts(word *syntax.Word, state cwdState, keepLiteralGlob bool) (string, bool) {
 	if word == nil || len(state.variables) == 0 {
 		return "", false
 	}
@@ -279,18 +310,33 @@ func resolveLocalWord(word *syntax.Word, state cwdState) (string, bool) {
 	if resolved := value.String(); unquotedParameter && !fieldAnchor && (len(word.Parts) != 1 || resolved == "") {
 		return "", false
 	}
-	if resolved := value.String(); unquotedParameter && !unquotedValueGuaranteesOneField(resolved, "") {
-		return "", false
-	} else {
+	resolved := value.String()
+	if keepLiteralGlob {
+		// Each parameter's value was already required to be one field with no
+		// glob character, so a glob in the resolved word was written literally.
+		// Only an extglob opener can still arise across the boundary.
+		if unquotedParameter && containsExtglobOpener(resolved) {
+			return "", false
+		}
 		return resolved, true
 	}
+	if unquotedParameter && !unquotedValueGuaranteesOneField(resolved, "") {
+		return "", false
+	}
+	return resolved, true
 }
 
 func unquotedValueGuaranteesOneField(value, ifs string) bool {
 	if strings.ContainsAny(value, ifs) || strings.ContainsAny(value, "*?[") {
 		return false
 	}
-	return !strings.Contains(value, "@(") && !strings.Contains(value, "+(") && !strings.Contains(value, "!(")
+	return !containsExtglobOpener(value)
+}
+
+// containsExtglobOpener reports an extended-glob opener, which a literal and a
+// variable's value can form together even when neither contains one alone.
+func containsExtglobOpener(value string) bool {
+	return strings.Contains(value, "@(") || strings.Contains(value, "+(") || strings.Contains(value, "!(")
 }
 
 func resolveLocalQuotedParts(parts []syntax.WordPart, variables map[string]string) (string, bool) {
@@ -2834,6 +2880,7 @@ func commandDerivedFromAt(outer Simple, argv []string, sourceArg int) Simple {
 	if sourceArg >= 0 && sourceArg+len(argv) <= len(outer.Argv) {
 		derived.literalArgs = remapProvenance(outer.literalArgs, sourceArg, len(argv))
 		derived.resolvedArgs = remapProvenance(outer.resolvedArgs, sourceArg, len(argv))
+		derived.globTailResolved = remapStringProvenance(outer.globTailResolved, sourceArg, len(argv))
 	}
 	// Only a call whose argv survived unwrapped keeps the cwd-only marker: a
 	// stripped `env`, `command` or `sudo` changed which command runs.
@@ -3794,4 +3841,20 @@ func runnerInner(argv []string) ([]string, error) {
 		return argv[1:], nil
 	}
 	return nil, nil
+}
+
+// remapStringProvenance is remapProvenance for per-argument values: the operand
+// keeps its resolved text when a wrapper is stripped and the indices shift.
+func remapStringProvenance(values map[int]string, offset, length int) map[int]string {
+	var remapped map[int]string
+	for index, value := range values {
+		if index < offset || index >= offset+length {
+			continue
+		}
+		if remapped == nil {
+			remapped = make(map[int]string)
+		}
+		remapped[index-offset] = value
+	}
+	return remapped
 }
