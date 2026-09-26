@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -859,5 +860,30 @@ func TestWindowsDoctorReportsTheHazardInClaudeSettingsState(t *testing.T) {
 	}
 	if strings.TrimSpace(state) == "guardrail hook registered" {
 		t.Fatal("doctor reported a bare green for a hook that cannot run")
+	}
+}
+
+// The probe has to reach the operator through doctor's own output, not only
+// through a helper nobody calls (#353): a quoted command that registers fine
+// and cannot spawn under agy must not read as a healthy plane.
+func TestDoctorWarnsWhenAnAntigravityHookCommandCannotSpawn(t *testing.T) {
+	home := t.TempDir()
+	testenv.SetHome(t, home)
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	old := antigravityHookSpawner
+	antigravityHookSpawner = func(exe string) error {
+		if strings.Contains(exe, `"`) {
+			return errors.New("not recognized")
+		}
+		return nil
+	}
+	t.Cleanup(func() { antigravityHookSpawner = old })
+	writeAntigravityHooks(t, home, `{"guardrail":{"enabled":true,"PreToolUse":[
+		{"id":"guardrail-antigravity-pre","matcher":"*","hooks":[{"type":"command","command":"\"C:/x/guardrail.exe\" hook antigravity pre"}]}
+	]}}`)
+	var out, errb bytes.Buffer
+	run([]string{"doctor"}, strings.NewReader(""), &out, &errb)
+	if !strings.Contains(out.String(), "cannot spawn under Antigravity") {
+		t.Fatalf("want a spawn warning:\n%s", out.String())
 	}
 }
