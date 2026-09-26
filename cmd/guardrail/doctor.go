@@ -326,6 +326,11 @@ func printDoctor(stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "audit log: %s\n", safetext.SingleLine(audit.DefaultPath(merged.Slots.AuditLog)))
 	enrolled, _ := defaultOperatorAuthStore().Enrolled()
 	fmt.Fprintln(stdout, operatorApprovalStatus(enrolled, anyPlaneRegistered()))
+	// Which authenticators back those approvals, so "which device can approve"
+	// has an answer (#383). Absent when no credential is readable.
+	if credentials, err := operatorCredentials(); err == nil && len(credentials) > 0 {
+		fmt.Fprintf(stdout, "operator authenticators: %s\n", describeAuthenticators(credentials))
+	}
 
 	fmt.Fprintf(stdout, "claude settings: %s\n", safetext.SingleLine(claudeSettingsLine()))
 	// Advice about a list the operator owns: which rules are broader than the
