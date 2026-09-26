@@ -80,7 +80,13 @@ func (r Request) Summary() string {
 	}
 	if r.Action == "plane-enable" || r.Action == "plane-disable" {
 		if list := r.Parameters["planes"]; list != "" {
-			return "planes: " + list
+			summary := "planes: " + list
+			if prune := r.Parameters["prune_floor"]; prune != "" {
+				// The passkey covers exactly what is shown, and this enable
+				// also deletes settings entries: say so.
+				summary += "; also removes retired settings floor entries guardrail wrote earlier from: " + prune
+			}
+			return summary
 		}
 	}
 	if r.Action == "recover" {
@@ -328,7 +334,7 @@ func validateRequest(r Request) error {
 	if (r.Action == "web-host-grant" || r.Action == "web-host-revoke") && !validWebHostParameters(r) {
 		return ErrMalformed
 	}
-	if (r.Action == "plane-enable" || r.Action == "plane-disable") && !validPlaneList(r.Parameters) {
+	if (r.Action == "plane-enable" || r.Action == "plane-disable") && !validPlaneList(r.Action, r.Parameters) {
 		return ErrMalformed
 	}
 	if r.Action == "recover" && !validRecoverRepair(r.Parameters) {
@@ -373,20 +379,73 @@ func validRecoverRepair(params map[string]string) bool {
 	return false
 }
 
-func validPlaneList(params map[string]string) bool {
-	if len(params) != 1 {
+// validPlaneList accepts exactly the parameters a plane lifecycle request may
+// carry, and binds the optional ones to the batch the operator is approving:
+//
+//   - planes: required, a list of supported planes.
+//   - reconcile_ownership (plane-enable only): the planes whose ownership
+//     records are reconciled by this enable (#335); a subset of planes.
+//   - prune_floor (plane-enable only): the planes whose retired settings floor
+//     this enable also removes (#357); a subset of planes, and only claude and
+//     opencode ever had a floor to remove.
+//
+// Any other key is rejected. The request is what the passkey covers, so an
+// unknown parameter must not ride along unseen. Both optional keys were
+// missing here, which made every enable of an already-registered plane
+// unapprovable: the broker refused it and the daemon reported it as
+// "unavailable".
+func validPlaneList(action string, params map[string]string) bool {
+	planes, ok := planeSet(params["planes"], nil)
+	if !ok {
 		return false
 	}
-	list := params["planes"]
-	if list == "" {
-		return false
-	}
-	for _, plane := range strings.Split(list, ",") {
-		if plane != "claude" && plane != "opencode" && plane != "antigravity" && plane != "codex" {
+	for key, value := range params {
+		switch key {
+		case "planes":
+		case "reconcile_ownership":
+			if action != "plane-enable" {
+				return false
+			}
+			if _, ok := planeSet(value, planes); !ok {
+				return false
+			}
+		case "prune_floor":
+			if action != "plane-enable" {
+				return false
+			}
+			subset, ok := planeSet(value, planes)
+			if !ok {
+				return false
+			}
+			for plane := range subset {
+				if plane != "claude" && plane != "opencode" {
+					return false
+				}
+			}
+		default:
 			return false
 		}
 	}
 	return true
+}
+
+// planeSet parses a comma-separated plane list. It must be non-empty, name
+// only supported planes, and, when within is set, stay inside it.
+func planeSet(list string, within map[string]bool) (map[string]bool, bool) {
+	if list == "" {
+		return nil, false
+	}
+	set := map[string]bool{}
+	for _, plane := range strings.Split(list, ",") {
+		if plane != "claude" && plane != "opencode" && plane != "antigravity" && plane != "codex" {
+			return nil, false
+		}
+		if within != nil && !within[plane] {
+			return nil, false
+		}
+		set[plane] = true
+	}
+	return set, true
 }
 
 func canonicalNightExpiry(until string, now time.Time) (string, error) {
@@ -421,6 +480,14 @@ func durable(r Request) session.ApprovalRequest {
 	}
 	if r.Action == "plane-enable" || r.Action == "plane-disable" {
 		params["planes"] = r.Parameters["planes"]
+		// What the approved handler needs, and what the passkey covered. Left
+		// out of the store they were validated and then silently dropped, so
+		// an approved enable ran without its reconcile or its prune.
+		for _, key := range []string{"reconcile_ownership", "prune_floor"} {
+			if value := r.Parameters[key]; value != "" {
+				params[key] = value
+			}
+		}
 	}
 	if r.Action == "recover" {
 		params["repair"] = r.Parameters["repair"]

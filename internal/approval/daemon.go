@@ -174,6 +174,7 @@ func (d *Daemon) handle(conn net.Conn) {
 	switch message.Operation {
 	case "submit":
 		r, err := d.broker.Create(message.Request)
+		createErr := err
 		if err == nil {
 			browser, url, startErr := StartBrowser(d.broker, d.authStore, r.ID)
 			if startErr == nil {
@@ -200,6 +201,12 @@ func (d *Daemon) handle(conn net.Conn) {
 			// Name the real reason: the terminal turns it into the
 			// enrollment instruction instead of debugging the daemon.
 			reply.Error = ErrNotEnrolled.Error()
+		case errors.Is(createErr, ErrMalformed):
+			// The request itself was rejected. Only Create decides that, so this
+			// keys on createErr: a failed browser start can also wrap ErrMalformed
+			// and must keep the generic reply. Saying so tells the operator (and
+			// the log) to look at the request, not at the daemon.
+			reply.Error = "approval request malformed"
 		case err != nil:
 			reply.Error = "approval request unavailable"
 		default:

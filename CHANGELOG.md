@@ -4,6 +4,29 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Hooks
+- **Fix (#372, #335, #357): `plane enable` of an already-registered plane can
+  be approved again.** Re-enabling a registered plane sends more than the plane
+  list: `reconcile_ownership` (#335) and, while the retired settings floor is
+  still on disk, `prune_floor` (#357). The approval broker accepted exactly one
+  parameter, so it refused every such request and the daemon answered with the
+  opaque `approval request unavailable`; the operator saw
+  `approval request failed: approval request unavailable` and the change could
+  not be approved. That blocked applying the Antigravity hook fix (#353/#354) and
+  the floor prune to any machine that already had the plane registered. The
+  command tests stub the transport and call the approved handler directly, so
+  they never met the broker's validation or its store; new tests go through both.
+  The broker now accepts exactly `planes`, `reconcile_ownership` and `prune_floor`
+  for a plane enable (the last two only there, each bound to the planes in the
+  request; `prune_floor` only for claude and opencode) and rejects every other
+  key. It also persists them: the store kept only `planes`, so an approved enable
+  would have run without its reconcile or its prune. The approval summary the
+  passkey covers now says when an enable also removes retired floor entries.
+  A rejected request is reported as `approval request malformed`, not as the
+  same words as a failed browser start.
+
 ## v0.23.7-dev (2026-09-26)
 
 ### Installation
