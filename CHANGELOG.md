@@ -15,6 +15,14 @@ explicitly in **Breaking** notes.
   config file: File exists` and `cannot lock ref 'HEAD'`. Reproduced with three
   concurrent runs before the change and clean after. Each test now takes its own
   `guardrail-worktree-tests-*` directory.
+- **Fix: the linked-worktree fixtures can no longer commit into the checkout
+  that encloses them.** Their git commands relied on git discovering the
+  repository from the working directory, so a fixture whose `.git` vanished (a
+  racing cleanup) made git climb to the real repository and commit the test's
+  `init` there, which is how an unsigned empty commit landed on a real PR
+  branch. The helpers now pin `--git-dir` to the fixture's own `.git`, so a
+  missing one is an error. A regression test reproduces the leak (the enclosing
+  repository gained a commit) and passes with the pin.
 
 ## v0.23.5-dev (2026-09-25)
 
