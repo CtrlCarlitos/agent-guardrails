@@ -59,7 +59,7 @@ safe_roots = ["/etc","/home"]
 			auditPath := filepath.Join(roots.State, "guardrail", "audit.jsonl")
 			cmd := exec.Command(bin, "hook", "claude")
 			cmd.Stdin = bytes.NewReader(payload)
-			cmd.Env = testenv.ChildProcessEnv(roots, "GUARDRAIL_CONFIG="+overlayPath)
+			cmd.Env = adversarialChildEnv(t, roots, "GUARDRAIL_CONFIG="+overlayPath)
 			var stdout, stderr bytes.Buffer
 			cmd.Stdout = &stdout
 			cmd.Stderr = &stderr
@@ -164,7 +164,7 @@ egress_allowlist = ["evil.example.com", "other.example.com"]
 			auditPath := filepath.Join(roots.State, "guardrail", "audit.jsonl")
 			cmd := exec.Command(bin, "hook", "claude")
 			cmd.Stdin = bytes.NewReader(payload)
-			cmd.Env = testenv.ChildProcessEnv(roots, "GUARDRAIL_CONFIG="+overlayPath)
+			cmd.Env = adversarialChildEnv(t, roots, "GUARDRAIL_CONFIG="+overlayPath)
 			var stdout, stderr bytes.Buffer
 			cmd.Stdout = &stdout
 			cmd.Stderr = &stderr
@@ -248,7 +248,8 @@ func TestAuthorizedSecretAllowStillBlocksSymlinkEscape(t *testing.T) {
 	auditPath := filepath.Join(stateHome, "guardrail", "audit.jsonl")
 	cmd := exec.Command(bin, "hook", "claude")
 	cmd.Stdin = bytes.NewReader(payload)
-	cmd.Env = testenv.ChildProcessEnv(
+	cmd.Env = adversarialChildEnv(
+		t,
 		testenv.Roots{Home: t.TempDir(), Config: cfgHome, State: stateHome},
 		"GUARDRAIL_CONFIG="+overlayPath,
 	)

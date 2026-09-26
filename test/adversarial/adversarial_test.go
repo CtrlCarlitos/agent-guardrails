@@ -64,10 +64,9 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	sweepStaleBuildDirs(os.TempDir(), 24*time.Hour)
 	code := m.Run()
-	if adversarialBuildDir != "" {
-		_ = os.RemoveAll(adversarialBuildDir)
-	}
+	removeBuildDir()
 	os.Exit(code)
 }
 
@@ -224,7 +223,7 @@ func TestAdversarialCorpus(t *testing.T) {
 			// The Windows names have to travel with the XDG ones: without
 			// LOCALAPPDATA the child writes its audit log into the operator's
 			// real profile and the assertion below reads an empty temp dir.
-			cmd.Env = testenv.ChildProcessEnv(testenv.Roots{
+			cmd.Env = adversarialChildEnv(t, testenv.Roots{
 				Home: processHome, Config: configHome, State: stateHome,
 			}, "GUARDRAIL_CONFIG="+config)
 			if actualHome != "" {

@@ -43,6 +43,12 @@ type Daemon struct {
 
 func DefaultSocketPath() string { return defaultPrivateEndpoint() }
 
+// EndpointFor is the broker endpoint a process started with the given state
+// root (XDG_STATE_HOME on Unix, LOCALAPPDATA on Windows, the pair
+// testenv.ChildRootEnv sets) would use. A test that runs the real binary in an
+// isolated state root uses it to find, and stop, the daemon that binary spawned.
+func EndpointFor(stateRoot string) string { return endpointForStateRoot(stateRoot) }
+
 var (
 	// ErrDaemonUnavailable means exactly that: no daemon answered on the
 	// socket and none could be spawned. A daemon that answered with an

@@ -21,6 +21,11 @@ func defaultPrivateEndpoint() string {
 		home, _ := os.UserHomeDir()
 		base = filepath.Join(home, ".local", "state")
 	}
+	return endpointForStateRoot(base)
+}
+
+// endpointForStateRoot is the broker socket for an XDG state home.
+func endpointForStateRoot(base string) string {
 	socket := filepath.Join(base, "guardrail", "approval", "broker.sock")
 	// Unix socket path limits: Linux ~108, darwin ~104. The direct path
 	// usually fits; the deterministic fallback must fit on darwin even when

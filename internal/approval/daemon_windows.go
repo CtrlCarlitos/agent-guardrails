@@ -36,6 +36,12 @@ func brokerPipeName(stateRoot string) string {
 
 func defaultPrivateEndpoint() string { return brokerPipeName(windowsStateRoot()) }
 
+// endpointForStateRoot is the broker pipe for a LOCALAPPDATA root, the value a
+// child process started with that LOCALAPPDATA would use.
+func endpointForStateRoot(localAppData string) string {
+	return brokerPipeName(filepath.Join(localAppData, "guardrail"))
+}
+
 // currentUserSID returns the SID of the user running this process; the pipe
 // DACL grants access to this SID only, so the OS authenticates every peer.
 func currentUserSID() (*windows.SID, error) {
