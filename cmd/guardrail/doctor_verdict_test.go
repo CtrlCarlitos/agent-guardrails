@@ -138,6 +138,31 @@ func TestDoctorCountsEveryPolicyWarning(t *testing.T) {
 	}
 }
 
+// A mistyped overlay key is a visible problem, not a silent no-op, and the
+// overlay still parses (#397).
+func TestDoctorCountsAnUnknownOverlayKey(t *testing.T) {
+	home := verdictSandbox(t)
+	overlay := filepath.Join(home, "overlay.toml")
+	if err := os.WriteFile(overlay, []byte("waiver = [\"P6.curl-egress\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GUARDRAIL_CONFIG", overlay)
+
+	var out, errb bytes.Buffer
+	if code := cmdDoctor(nil, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%q", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "(parsed OK)") {
+		t.Fatalf("an unknown key must not be a parse error:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "unknown key waiver") {
+		t.Fatalf("doctor does not name the unknown key:\n%s", out.String())
+	}
+	if got := lastLine(out.String()); got != "verdict: 1 problem (see above)" {
+		t.Fatalf("last line = %q, want 1 problem:\n%s", got, out.String())
+	}
+}
+
 func TestDoctorCountsAWideCredentialWarning(t *testing.T) {
 	verdictSandbox(t)
 	orig := postureGatherer

@@ -45,6 +45,17 @@ explicitly in **Breaking** notes.
   `case` labels from `run.go` and fails when one is neither in the usage text
   nor in an explicit hidden list with a reason.
 
+### Policy
+- **Fix (#397): an unknown key in `guardrail.toml` is a warning, not
+  silence.** The Overlay parser dropped every key it did not know (only
+  unknown `recipes` settings failed), so a typo such as `waiver`, `[slot]` or
+  `[slots] safe_root` did nothing and `doctor` said `verdict: healthy`. Each
+  unknown key (an unknown table once) is now a policy warning naming the key
+  and the file: `doctor` lists it and counts it toward the verdict line, `sync`
+  prints it, and the hook passes it on with the other policy warnings. The
+  Overlay still loads, so existing overlays and overlays written for a newer
+  binary keep working.
+
 ## v0.23.11-dev (2026-09-26)
 
 ### Docs
