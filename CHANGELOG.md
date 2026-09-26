@@ -4,6 +4,32 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Policy
+- **Feature (#363): `guardrail allow-baseline`, a reviewed list of Claude Code
+  allow rules that are safe to put in your own settings.** It replaces the
+  explicit-allow channel first proposed on that issue, which is withdrawn: the
+  Engine blocks and never approves, and Claude Code's permission prompts are its
+  own, driven by an allow list in a file the operator owns (ADR-0028). The
+  baseline is documentation for that file, and guardrail writes none of it.
+  "Safe" is a definition the operator already accepted: the verification
+  commands guardrail runs for them at session end, taken from the recipe registry
+  so the two cannot disagree (`go build|test|vet`, `pytest`, `ruff check`, `mypy`,
+  `tsc`, `eslint`, `npm test`, `cargo test`, ...), plus read-only package queries
+  and graft's read-only subcommands, allowed **by subcommand**. Installs and
+  adds, remote launchers (`npx`, `dlx`, `uvx`), arbitrary code (`node <file>`,
+  `python -c`, `npm run <any>`) and graft's mutating subcommands (`init` writes
+  agent config and Claude hooks, `upgrade` runs `npm install -g`, `uninstall`,
+  `build --deep`) are deliberately outside it, and a test fails if a rule that
+  could match one is ever added. `guardrail allow-baseline` lists the rules with
+  the reason for each, `--json` prints them as a `permissions.allow` block (the
+  same block is in `docs/allow-baseline.md`, and a test fails if the two
+  disagree), and `--check` compares your list with it: which rules you lack, and
+  which of yours are broader than the baseline with the reason (a blanket
+  `Bash(graft:*)` also runs `graft init` and `graft upgrade`). `doctor` gains one
+  advisory line. There is deliberately no apply.
+
 ## v0.23.9-dev (2026-09-26)
 
 ### Policy
