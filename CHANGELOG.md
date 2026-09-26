@@ -13,6 +13,13 @@ explicitly in **Breaking** notes.
   issue, no attribution trailers, `TestWindows...` naming, no force-push), the
   rules enforced on agents, where a rule, MCP family, plane or ADR goes, and how
   to file an issue. The README's stale "Go 1.25" now says 1.26 and links it.
+- **Docs (#103): `docs/stability-policy.md`.** What is stable (verdict format,
+  hook protocol, CLI surface with the 0/1/2/3 exit-code contract, Overlay and
+  Operator config formats), what is not yet (internal Go APIs, adapter
+  behaviour, MCP registry schema, audit log, additive-only), the
+  breaking-change process, and a per-plane support table (Codex on Windows is
+  registered, unenforced: openai/codex#24453). Documentation only: no version
+  is tagged or renamed.
 
 ### Update
 - **Fix (#94): a failed post-install verification is a failed update.**
