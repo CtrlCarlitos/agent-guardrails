@@ -85,3 +85,10 @@ func cmdNext(args []string, stdout, stderr io.Writer) int {
 	printNextSteps(stdout, steps)
 	return 0
 }
+
+// updateRunEnv marks the verification runs (`doctor`, `selftest`, `next`) that
+// `update` starts on the binary it just installed. The updater prints the
+// next-steps block itself, last, so a marked `doctor` does not print it too.
+// An updater older than `next` never sets it, which is the point: its `doctor`
+// is the only place the block can appear (#374).
+const updateRunEnv = "GUARDRAIL_UPDATE_RUN"
