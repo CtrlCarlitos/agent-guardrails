@@ -22,6 +22,14 @@ explicitly in **Breaking** notes.
   GOPROXY=...` and `go -C sub mod edit -replace` were allowed and now get the
   verdict their unprefixed form gets. `go.exe` spellings are covered.
 
+### CLI
+- **Fix (#395): `guardrail help` lists every subcommand it dispatches.**
+  `allow-baseline`, `next`, `daemon` and `help` itself were accepted but not
+  listed; the `operator` subcommand line sat under `approvals`. `daemon` is
+  marked internal, not a stable surface. A test now reads the dispatcher's
+  `case` labels from `run.go` and fails when one is neither in the usage text
+  nor in an explicit hidden list with a reason.
+
 ## v0.23.11-dev (2026-09-26)
 
 ### Docs
