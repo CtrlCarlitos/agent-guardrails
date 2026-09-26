@@ -161,8 +161,8 @@ func setupEnable(planes []string, stdout, stderr io.Writer) int {
 			}
 		} else {
 			setupStopApprovalDaemon()
-			if !planesViaApproval(batch, "plane-enable", "enabled", stdout, stderr) {
-				return 1
+			if code := planesViaApproval(batch, "plane-enable", "enabled", stdout, stderr); code != 0 {
+				return code
 			}
 		}
 		// Approval says the daemon ran the merge, not that this binary's
@@ -187,6 +187,11 @@ func setupEnable(planes []string, stdout, stderr io.Writer) int {
 	setupPrintStatus(planes, stdout)
 	if bootstrap {
 		printBootstrapInstruction("setup", batch, stdout)
+	} else if steps, err := nextSteps(); err == nil {
+		// Planes this run was not asked about may still be owed work; end
+		// with what is left rather than leave it to a doctor line (#364).
+		// Bootstrap prints its own instruction, so it is not doubled.
+		printNextSteps(stdout, steps)
 	}
 	return 0
 }
@@ -277,8 +282,8 @@ func setupDisable(planes []string, stdout, stderr io.Writer) int {
 		if !requireOperatorEnrolled("guardrail setup --state disabled", stderr) {
 			return exitNotEnrolled
 		}
-		if !planesViaApproval(batch, "plane-disable", "disabled", stdout, stderr) {
-			return 1
+		if code := planesViaApproval(batch, "plane-disable", "disabled", stdout, stderr); code != 0 {
+			return code
 		}
 	}
 	// Nothing left needs the daemon; stopping it releases this binary so an

@@ -304,6 +304,28 @@ case_handoff_propagates_setup_exit_code() {
   grep -qx "setup" "$dest/setup.log" 2>/dev/null || { echo "  setup.log lacks 'setup'"; dump; return 1; }
 }
 
+case_no_setup_prints_the_next_steps() {
+  local dest home
+  dest="$(fresh)"
+  home="$(fresh)"
+  # A detected plane that is not registered yet: the steps have something to say.
+  mkdir -p "$home/.claude" && echo '{}' >"$home/.claude/settings.json"
+  HOME="$home" run --version "$VERSION" --dest "$dest" --base-url "$tmp/releases" --no-setup
+  want_rc 0 || return 1
+  has out "setup skipped" || return 1
+  has out "next steps:" || return 1
+  has out "claude: not registered" || return 1
+}
+
+case_no_setup_tolerates_a_binary_without_next() {
+  local dest
+  dest="$(fresh)"
+  fake_guardrail "$dest" "$VERSION" 0 # answers `next` like an older release: exit 2
+  run --version "$VERSION" --dest "$dest" --base-url "$tmp/empty" --no-setup
+  want_rc 0 || return 1
+  has out "setup skipped" || return 1
+}
+
 case_disabled_falls_back_on_old_binary() {
   local dest
   dest="$(fresh)"
@@ -364,6 +386,8 @@ check purge-without-uninstall-exits-2            case_purge_without_uninstall_ex
 check state-with-uninstall-exits-2               case_state_with_uninstall_exits_2
 check uninstall-aborts-when-disable-fails        case_uninstall_aborts_when_disable_fails
 check handoff-propagates-setup-exit-code        case_handoff_propagates_setup_exit_code
+check no-setup-prints-the-next-steps            case_no_setup_prints_the_next_steps
+check no-setup-tolerates-a-binary-without-next   case_no_setup_tolerates_a_binary_without_next
 check disabled-falls-back-on-old-binary         case_disabled_falls_back_on_old_binary
 check uninstall-falls-back-on-old-binary        case_uninstall_falls_back_on_old_binary
 check enabled-refuses-old-binary                case_enabled_refuses_old_binary

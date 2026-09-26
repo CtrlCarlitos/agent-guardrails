@@ -49,12 +49,19 @@ var (
 // supportedPlanes are ordered for stable --all reporting.
 var supportedPlanes = []string{"claude", "opencode", "antigravity", "codex"}
 
-// exitNotEnrolled is the exit code for "no operator authenticator is
-// enrolled": nothing that needs an approval can succeed until `guardrail
-// operator enroll` has run. Distinct from 1 (denied, expired, failed) and 2
-// (usage, no terminal) so an installer or a dotfiles run can tell "needs
-// enrollment" apart from a failure (#326).
-const exitNotEnrolled = 3
+// exitOperatorActionPending is the exit code for "the work is waiting on the
+// operator, and nothing is broken": no authenticator is enrolled (#326), the
+// approval daemon is not running, or the operator denied the request or let it
+// expire (#364). The binary is installed and what is registered keeps
+// enforcing; only a passkey approval from an interactive terminal completes
+// the change. Distinct from 1 (a genuine failure) and 2 (usage, no terminal)
+// so an installer, CI or a dotfiles run can treat 3 as a warning and 1 as a
+// failure without grepping the log.
+const exitOperatorActionPending = 3
+
+// exitNotEnrolled is the name the enrollment preflight used before 3 covered
+// every operator-action case. Same value.
+const exitNotEnrolled = exitOperatorActionPending
 
 // operatorEnrolled reports whether an approval ceremony could begin at all.
 // Overridable in tests. A store that cannot be inspected reports true: the
@@ -400,10 +407,7 @@ func cmdPlaneLifecycle(args []string, action, outcome string, terminal bool, std
 	if !requireOperatorEnrolled("guardrail plane "+verb+" "+strings.Join(args, " "), stderr) {
 		return exitNotEnrolled
 	}
-	if !planesViaApproval(batch, action, outcome, stdout, stderr) {
-		return 1
-	}
-	return 0
+	return planesViaApproval(batch, action, outcome, stdout, stderr)
 }
 
 func actionSuffix(action string) string {
@@ -415,7 +419,7 @@ func actionSuffix(action string) string {
 
 // planesViaApproval submits ONE broker request for the whole batch, so a
 // single WebAuthn ceremony covers every plane.
-func planesViaApproval(planes []string, action, outcome string, stdout, stderr io.Writer) bool {
+func planesViaApproval(planes []string, action, outcome string, stdout, stderr io.Writer) int {
 	cwd, _ := os.Getwd()
 	parameters := map[string]string{"planes": strings.Join(planes, ",")}
 	if action == "plane-enable" {
@@ -424,7 +428,7 @@ func planesViaApproval(planes []string, action, outcome string, stdout, stderr i
 			report, err := planeOwnershipDrift(plane)
 			if err != nil {
 				fmt.Fprintf(stderr, "guardrail: %s: reading ownership drift: %v\n", plane, err)
-				return false
+				return 1
 			}
 			// Any re-enable of a registered plane may replace owned hook
 			// entries, making the old manifest records missing as part of this
@@ -443,7 +447,7 @@ func planesViaApproval(planes []string, action, outcome string, stdout, stderr i
 			n, err := legacyFloorCount(plane)
 			if err != nil {
 				fmt.Fprintf(stderr, "guardrail: %s: reading the settings floor: %v\n", plane, err)
-				return false
+				return 1
 			}
 			if n > 0 {
 				fmt.Fprintf(stdout, "%s: will also remove %d floor entries guardrail wrote earlier (the Engine enforces them; your own entries are kept)\n", plane, n)
@@ -474,7 +478,7 @@ func planesViaApproval(planes []string, action, outcome string, stdout, stderr i
 		for _, plane := range planes {
 			fmt.Fprintf(stderr, "guardrail: %s: approval request failed: %v\n", plane, err)
 		}
-		return false
+		return approvalSubmitFailure(action, err, stderr)
 	}
 	fmt.Fprintf(stdout, "%s: approval required; open %s\n", strings.Join(planes, ", "), created.ApprovalURL)
 
@@ -489,7 +493,7 @@ func planesViaApproval(planes []string, action, outcome string, stdout, stderr i
 			for _, plane := range planes {
 				fmt.Fprintf(stderr, "guardrail: %s: approval daemon unavailable\n", plane)
 			}
-			return false
+			return pendingApproval(action, "the approval daemon is not running", stderr)
 		}
 		switch status.Status {
 		case "approved", "completed":
@@ -498,18 +502,18 @@ func planesViaApproval(planes []string, action, outcome string, stdout, stderr i
 			for _, plane := range planes {
 				fmt.Fprintf(stdout, "%s %s\n", plane, outcome)
 			}
-			return true
+			return 0
 		case "denied", "expired":
 			for _, plane := range planes {
 				fmt.Fprintf(stderr, "guardrail: %s: %s %s\n", plane, actionSuffix(action), status.Status)
 			}
-			return false
+			return pendingApproval(action, "the approval was "+status.Status, stderr)
 		}
 	}
 	for _, plane := range planes {
 		fmt.Fprintf(stderr, "guardrail: %s: %s approval expired\n", plane, actionSuffix(action))
 	}
-	return false
+	return pendingApproval(action, "the approval expired before it was answered", stderr)
 }
 
 func cmdPlaneStatus(args []string, stdout, stderr io.Writer) int {
@@ -720,4 +724,32 @@ func legacyFloorCount(plane string) (int, error) {
 		return 0, err
 	}
 	return genconfig.LegacyFloorEntries(path, plane)
+}
+
+// approvalSubmitFailure classifies a request the approval daemon never
+// accepted. Nothing answering, or no enrolled authenticator, is the operator's
+// to fix and exits as pending; any other error is a genuine failure and keeps
+// exit 1, or the distinction is worthless to an unattended caller.
+func approvalSubmitFailure(action string, err error, stderr io.Writer) int {
+	switch {
+	case errors.Is(err, approval.ErrDaemonUnavailable):
+		return pendingApproval(action, "the approval daemon is not running", stderr)
+	case errors.Is(err, approval.ErrNotEnrolled):
+		return pendingApproval(action, "no operator authenticator is enrolled", stderr)
+	}
+	return 1
+}
+
+// pendingApproval reports the state and the way out for a change that is
+// waiting on the operator (#364), and returns the pending exit code. The
+// remedy is the sentence an unattended caller used to write by hand: the
+// current wiring keeps enforcing, nothing was loosened, and a passkey approval
+// from an interactive terminal finishes the change.
+func pendingApproval(action, cause string, stderr io.Writer) int {
+	if action == "plane-enable" {
+		fmt.Fprintf(stderr, "guardrail: operator action pending: %s, so the plane change was not applied. What is registered now keeps enforcing; nothing was loosened. To finish, run `guardrail setup` from an interactive terminal, approve it with your passkey, then re-run whatever provisioned this machine. Exit %d means operator action pending, not a failure.\n", cause, exitOperatorActionPending)
+		return exitOperatorActionPending
+	}
+	fmt.Fprintf(stderr, "guardrail: operator action pending: %s, so the plane change was not applied. The planes stay as they are. Re-run the same command from an interactive terminal and approve it with your passkey. Exit %d means operator action pending, not a failure.\n", cause, exitOperatorActionPending)
+	return exitOperatorActionPending
 }

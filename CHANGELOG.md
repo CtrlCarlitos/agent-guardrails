@@ -6,6 +6,30 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Installation
+- **Feature (#364): `update`, `setup` and the installers end with the steps
+  still owed to the operator, and exit 3 now means "operator action
+  pending".** New read-only `guardrail next` prints an ordered block computed
+  from the current state (a plane whose handlers or hook spelling changed, the
+  retired settings floor `plane enable` will remove, an operator who is not
+  enrolled, restarting the agents) and prints nothing when nothing applies. It
+  shares `setupEnableReason` with `setup` and `plane enable`, so the three never
+  disagree, and it never changes a file or opens an approval. `update` runs it
+  last through the freshly installed binary, `setup` ends with it for planes it
+  was not asked about (bootstrap keeps its own instruction), and `install.sh` /
+  `install.ps1` run it when setup is skipped, tolerating a release that predates
+  it.
+  Exit code 3, previously only "no authenticator enrolled", now covers every
+  case where the work waits on the operator: the approval daemon not running,
+  and a request that was denied or expired. Each prints an `operator action
+  pending: <cause>` message that says what is still true (what is registered
+  keeps enforcing, nothing was loosened) and how to finish (`guardrail setup`
+  from an interactive terminal, approve, re-run the provisioning). A genuine
+  failure still exits 1, so an unattended caller no longer has to match log text
+  such as "approval request" to tell them apart. **Behaviour change:** denied,
+  expired and daemon-unavailable outcomes of `setup` and `plane enable|disable`
+  exit 3 instead of 1. The installer headers document the code.
+
 ### Tests
 - **Fix: the linked-worktree engine tests no longer collide when two test runs
   share a checkout.** They built their repository under one fixed directory

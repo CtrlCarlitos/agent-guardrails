@@ -87,8 +87,8 @@ func TestSetupPrintsDaemonReasonVerbatim(t *testing.T) {
 	setupShutdownDaemon = func(string) error { return nil }
 
 	code, _, errb := runSetup(t)
-	if code != 1 {
-		t.Fatalf("exit = %d, want 1; stderr=%q", code, errb)
+	if code != exitOperatorActionPending {
+		t.Fatalf("exit = %d, want %d (operator action pending); stderr=%q", code, exitOperatorActionPending, errb)
 	}
 	if !strings.Contains(errb, "claude: approval request failed: no operator authenticator is enrolled") {
 		t.Fatalf("stderr lacks the daemon's reason:\n%s", errb)

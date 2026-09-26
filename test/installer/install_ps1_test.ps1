@@ -314,6 +314,26 @@ exit $code
 		return (IsEmpty $dest)
 	}
 
+	function Case-NoSetupPrintsTheNextSteps {
+		$savedPath = Save-UserPath
+		$dest = Fresh
+		$sbHome = Fresh
+		try {
+			# A detected plane that is not registered yet: the steps have something to say.
+			$claudeDir = Join-Path $sbHome '.claude'
+			New-Item -ItemType Directory -Force -Path $claudeDir | Out-Null
+			Set-Content -LiteralPath (Join-Path $claudeDir 'settings.json') -Value '{}'
+			InSandbox $sbHome { Run -Version $Version -Dest $dest -BaseUrl (Join-Path $tmp 'releases') -NoSetup }
+			if (-not (WantRc 0)) { return $false }
+			if (-not (Has out 'setup skipped')) { return $false }
+			if (-not (Has out 'next steps:')) { return $false }
+			return (Has out 'claude: not registered')
+		} finally {
+			Restore-UserPath $savedPath
+			Remove-HarnessExclusion (Join-Path $dest 'guardrail.exe')
+		}
+	}
+
 	function Case-UninstallRemovesBinaryAndPlugin {
 		$savedPath = Save-UserPath
 		$dest = Fresh
@@ -496,6 +516,7 @@ exit $code
 	Check 'tampered-checksum-refuses' { Case-TamperedChecksumRefuses }
 	Check 'missing-sums-refuses' { Case-MissingSumsRefuses }
 	Check 'disabled-with-no-binary-is-noop' { Case-DisabledWithNoBinaryIsNoop }
+	Check 'no-setup-prints-the-next-steps' { Case-NoSetupPrintsTheNextSteps }
 	Check 'uninstall-removes-binary-and-plugin' { Case-UninstallRemovesBinaryAndPlugin }
 	Check 'uninstall-keeps-path-when-dest-shared' { Case-UninstallKeepsPathWhenDestShared }
 	Check 'uninstall-sweeps-old-only-dest' { Case-UninstallSweepsOldOnlyDest }

@@ -48,6 +48,7 @@ like from the outside for four days: `registered`, green, enforcing nothing.
 | You see | Run | Why |
 |---|---|---|
 | Agent says it was blocked and you don't know why | `guardrail audit` then `grep '"decision":"deny"' ~/.local/state/guardrail/audit.jsonl \| grep -v selftest \| tail -5` | Every verdict is a JSONL record with `rule_id` and `reason`. Selftest writes deny probes to the same log on every update — filter them out or you will be reading the last selftest. |
+| `operator action pending: …` (exit 3) from `setup`, `plane enable` or `plane disable`: the approval daemon is not running, or the request was denied or expired | Run `guardrail setup` from an interactive terminal, approve with your passkey, then re-run what provisioned the machine | Nothing is broken: the binary is installed and what is registered keeps enforcing. Only the change waited on you (#364). `guardrail next` lists what is still owed. |
 | `no operator authenticator is enrolled` from `setup --state disabled`, `plane disable` or `recover` (exit 3) | `guardrail operator enroll` from a real terminal, then re-run the command it named | No passkey is enrolled, so no approval ceremony can start, and loosening actions wait for one (ADR-0030). The daemon is fine; nothing was changed. `approval daemon unavailable` now means exactly that: nothing answered on the socket and none could be spawned (#326). |
 | doctor: `operator approvals: disabled (no authenticator enrolled; planes armed by bootstrap; …)` | `guardrail operator enroll` | The first install armed the planes without an approval (ADR-0030). They are guarding; nothing can loosen them until a passkey exists. Enrolling puts every later change behind it. |
 | doctor: `N unmarked guardrail-like hook entries in settings.json` | `guardrail plane enable claude` | Legacy pre-marker hook groups; enable absorbs them (ADR-0004). Passkey. |
@@ -264,8 +265,22 @@ instruction to `guardrail operator enroll`. The approval-less path can only
 tighten: `setup --state disabled`, `plane disable` and `recover` on an
 unenrolled machine stop before submitting anything, print `run 'guardrail
 operator enroll' … then '<command>'`, and exit **3** (#326), distinct from 1
-(denied, failed) and 2 (usage, no terminal); installers pass the code
-through. A run with nothing to register or remove exits 0 in every state.
+(a genuine failure) and 2 (usage, no terminal); installers pass the code
+through. Exit **3** means *operator action pending* and nothing else (#364):
+no authenticator enrolled, the approval daemon not running, or the request
+denied or expired. The binary is installed, what is registered keeps
+enforcing, and only a passkey approval from an interactive terminal finishes
+the change, so an unattended caller (a dotfiles apply, CI) can treat 3 as a
+warning and 1 as a failure without matching log text. The message on stderr
+says which cause and how to finish (`guardrail setup` from a real terminal,
+approve, re-run whatever provisioned the machine). A run with nothing to
+register or remove exits 0 in every state.
+
+`guardrail next` prints the steps still owed to the operator, in order, and
+nothing when nothing applies. It is read-only advice: it never changes a file
+and never asks for an approval. `update` ends with it (run by the freshly
+installed binary), `setup` ends with it for planes it was not asked about, and
+the installers run it when setup is skipped (`--no-setup` / `-NoSetup`).
 It never downloads, never touches PATH or Defender.
 
 `guardrail update <tag>` on its own replaces the binary and runs `doctor` and

@@ -10,8 +10,10 @@
 # or post-install version failure, or an uninstall that could not disable
 # the planes or remove a file; otherwise the exit code of `guardrail setup`
 # (0 with -NoSetup, and after an uninstall; a first install with no enrolled
-# operator arms the planes and exits 0; 3 when -State disabled needs an
-# approval no enrolled operator can give).
+# operator arms the planes and exits 0; 3 when the change needs the operator:
+# no authenticator enrolled, the approval daemon not running, or the request
+# denied or expired. The binary is installed and the planes keep what is
+# registered; a caller may treat 3 as a warning).
 # PowerShell itself rejects unknown or malformed parameters (exit 1 when run
 # with -File).
 #
@@ -608,6 +610,13 @@ function Invoke-Handoff {
 	Cleanup
 	if ($NoSetup) {
 		Say "guardrail $Version installed at $($script:Exe) (setup skipped)"
+		# The steps still owed to the operator (#364). Best effort: a release
+		# that predates `next` answers exit 2, which must not fail the install.
+		try {
+			$ErrorActionPreference = 'Continue'
+			$PSNativeCommandUseErrorActionPreference = $false
+			& $script:Exe next 2>$null
+		} catch { }
 		exit 0
 	}
 	if ($State -eq 'disabled' -and $SetupIfInteractive -and -not (Test-InteractiveInput)) {

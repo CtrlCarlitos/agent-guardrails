@@ -150,6 +150,11 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	if selftestCode := runInstalledBinary(exe, []string{"selftest"}, stdout, stderr); selftestCode != 0 {
 		fmt.Fprintln(stderr, "guardrail: selftest failed on the new binary; investigate before continuing")
 	}
+	// Last, so it is the thing left on screen: the steps still owed to the
+	// operator, computed by the binary just installed for the same reason
+	// doctor and selftest are (#364). Advice only; a failure here changes
+	// nothing about the update.
+	_ = runInstalledBinary(exe, []string{"next"}, stdout, stderr)
 	return 0
 }
 

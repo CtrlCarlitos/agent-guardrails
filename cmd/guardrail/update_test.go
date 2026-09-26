@@ -93,7 +93,9 @@ func TestUpdateVerifiesTheInstalledBinaryNotItself(t *testing.T) {
 	if code := run([]string{"update", "v0.19.2-dev"}, strings.NewReader(""), &out, &errb); code != 0 {
 		t.Fatalf("exit = %d, stderr %q", code, errb.String())
 	}
-	want := [][]string{{target, "doctor"}, {target, "selftest"}}
+	// The update closes with the steps still owed to the operator, computed by
+	// the installed binary (#364), after its own verification.
+	want := [][]string{{target, "doctor"}, {target, "selftest"}, {target, "next"}}
 	if fmt.Sprint(installedRuns) != fmt.Sprint(want) {
 		t.Fatalf("installed runs = %v, want %v", installedRuns, want)
 	}
