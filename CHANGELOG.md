@@ -13,6 +13,21 @@ explicitly in **Breaking** notes.
   Codex batches and result references, and explicitly disclaims outbound-data
   enforcement. Changes require authenticated operator approval. Verified fresh
   setup records off; existing, missing or invalid configuration stays strict.
+- **Fix (#355): `P3.unresolved` no longer holds a path-free builtin after an
+  uncertain `cd`, and says what is actually uncertain.** After a command that
+  changes the filesystem (`mkdir`, `git worktree add`), a `cd` may or may not
+  succeed, so the working directory after a following `;` has two possible
+  values, and every later command was held as "unresolved" even when nothing in
+  it was: `mkdir -p out && cd out; echo done` asked. `:`, `true`, `false`,
+  `echo`, `printf` (without options) and `pwd`, written literally on a plain
+  call with no redirect, assignment, wrapper or function/eval body, are no
+  longer held for that reason alone. Everything else asks exactly as before:
+  relative paths and programs, redirects, `printf -v`, `eval`, `command`/`env`/
+  `sudo` wrappers, command substitution, and functions or aliases shadowing a
+  builtin. When the hold is about the working directory, the reason now says so
+  and names the way out (join with `&&`, use `git -C <dir>` or absolute paths,
+  or split into separate calls) instead of blaming an unresolved value that is
+  not there. Real unresolved values keep the old wording.
 
 ### Tests
 - Add a read-only Codex execution-contract probe for native Windows and
