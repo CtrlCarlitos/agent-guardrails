@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability or guardrail bypass
+    url: https://github.com/CtrlCarlitos/agent-guardrails/security/advisories/new
+    about: Report a policy bypass, secret-path leak or approval-flow flaw privately. A public issue is a working exploit.
+  - name: Operations runbook
+    url: https://github.com/CtrlCarlitos/agent-guardrails/blob/main/docs/OPERATIONS.md
+    about: Symptom-to-fix table for doctor, selftest, setup and approvals messages; check it before filing.

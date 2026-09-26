@@ -1,0 +1,95 @@
+name: Engine verdict (false positive or false negative)
+description: guardrail blocked or asked about something safe, or allowed something it should have stopped.
+title: "[verdict] <rule-id or allowed>: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **A false negative that bypasses protection** (reads a secret, loosens policy without the operator, escapes the approval flow, disables guardrail) is a security problem: report it privately (Security → Report a vulnerability). A public issue is a working exploit for everyone on that version.
+        Use this template for a verdict that is too strict, or an allowed call that is risky but not a bypass.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - False positive (blocked or asked, should be allowed)
+        - False negative (allowed, should be asked or denied)
+        - Right verdict, but the denial gave no useful next step
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: guardrail version
+      description: Output of `guardrail version`.
+    validations:
+      required: true
+  - type: dropdown
+    id: plane
+    attributes:
+      label: Plane
+      options:
+        - Claude Code
+        - opencode
+        - Antigravity
+        - Codex
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - Windows
+        - Linux
+        - WSL
+        - macOS
+    validations:
+      required: true
+  - type: input
+    id: shell
+    attributes:
+      label: Shell
+      placeholder: PowerShell 7.5 / Git Bash / bash 5.2 / zsh
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: The command or tool call
+      description: Exactly as the agent sent it (the Bash command, or the tool name and its arguments). Redact secrets, keep the shape.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: verdict
+    attributes:
+      label: The verdict you got
+      description: "`allow`, `ask` or `deny`, the `rule_id` and the reason. `guardrail audit` shows them; the audit record below is best."
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: The verdict you expected, and why
+      description: For a false positive, say what the command does and why it is safe. For a false negative, say what it can do that should be stopped.
+    validations:
+      required: true
+  - type: textarea
+    id: guidance
+    attributes:
+      label: Did the denial say what to do next?
+      description: A deny with no usable next step is a bug on its own (docs/error-message-discipline.md). Paste the guidance text and what the agent did after it.
+  - type: textarea
+    id: audit-record
+    attributes:
+      label: Audit record
+      description: The matching line from the audit log (`guardrail doctor` prints its path). Remove anything private.
+      render: json
+  - type: input
+    id: doctor-verdict
+    attributes:
+      label: "`guardrail doctor` verdict line"
+      placeholder: "verdict: healthy"

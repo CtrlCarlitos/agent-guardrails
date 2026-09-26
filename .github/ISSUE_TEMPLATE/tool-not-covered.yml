@@ -1,0 +1,63 @@
+name: Tool not covered
+description: A plane's tool (built-in or MCP) is not in guardrail's contract, or is projected wrongly.
+title: "[coverage] <plane>: <tool-name>"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `guardrail doctor --coverage claude` (or `--coverage codex --schema <path>`) lists uncontracted tools. If the tool lets an agent get around a protection guardrail already claims, report it privately instead (Security → Report a vulnerability).
+  - type: input
+    id: version
+    attributes:
+      label: guardrail version
+    validations:
+      required: true
+  - type: dropdown
+    id: plane
+    attributes:
+      label: Plane
+      options:
+        - Claude Code
+        - opencode
+        - Antigravity
+        - Codex
+    validations:
+      required: true
+  - type: input
+    id: host-version
+    attributes:
+      label: Plane (host) version
+      placeholder: claude 2.x / opencode 1.x / codex 0.x
+  - type: input
+    id: tool
+    attributes:
+      label: Tool name
+      description: As the host names it in the hook payload (for MCP, the full `mcp__server__tool` name).
+    validations:
+      required: true
+  - type: dropdown
+    id: capability
+    attributes:
+      label: What the tool does
+      multiple: true
+      options:
+        - Reads files
+        - Writes or edits files
+        - Executes commands or code
+        - Reaches the network
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: path-args
+    attributes:
+      label: Which arguments carry paths, commands or URLs
+      description: A sample payload is best (redacted).
+      render: json
+  - type: textarea
+    id: observed
+    attributes:
+      label: What guardrail did with it
+      description: The verdict and rule ID from the audit log, or the `doctor --coverage` line.
+      render: text

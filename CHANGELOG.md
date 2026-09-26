@@ -41,6 +41,15 @@ explicitly in **Breaking** notes.
   Overlay still loads, so existing overlays and overlays written for a newer
   binary keep working.
 
+### Docs
+- **Docs (#93): GitHub issue templates.** `.github/ISSUE_TEMPLATE/` has issue
+  forms for a bug (plane, OS, shell, `guardrail version`, the `guardrail
+  doctor` verdict line, the audit record), an engine verdict (false positive,
+  false negative, or a denial with no next step: the command, the verdict and
+  rule ID, the expected verdict), a tool not covered by a plane's contract,
+  and a feature. `config.yml` keeps blank issues and sends bypass reports to
+  the private security advisory form.
+
 ## v0.23.11-dev (2026-09-26)
 
 ### Docs
