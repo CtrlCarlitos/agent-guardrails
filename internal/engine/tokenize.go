@@ -33,8 +33,14 @@ type Simple struct {
 	fsUncertain           bool
 	pipelines             []pipelinePosition
 	cwdUnknown            bool
-	origin                *syntax.Stmt
-	shellState            cwdState
+	// cwdOnlyUnresolved marks a plain call (no assignments, no redirects,
+	// not replaced by a function body or eval) whose Unresolved flag came
+	// from an uncertain working directory and from nothing else (#355).
+	// Copies built by later rewrites do not carry it, so anything reshaped
+	// keeps the conservative reading.
+	cwdOnlyUnresolved bool
+	origin            *syntax.Stmt
+	shellState        cwdState
 }
 
 type pipelinePosition struct {
@@ -78,6 +84,7 @@ func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pip
 			}
 		}
 		var args []*syntax.Word
+		plainCall := false
 		if stmt.Cmd != nil {
 			ce, ok := stmt.Cmd.(*syntax.CallExpr)
 			if !ok {
@@ -86,6 +93,7 @@ func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pip
 				}
 			} else {
 				args = ce.Args
+				plainCall = len(ce.Assigns) == 0 && len(stmt.Redirs) == 0
 			}
 		}
 		if len(args) == 0 && len(stmt.Redirs) == 0 {
@@ -96,6 +104,8 @@ func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pip
 			s.Cwd = state.cwd
 			s.Unresolved = state.unknown
 			s.cwdUnknown = state.unknown
+			_, replaced := replacements[stmt]
+			s.cwdOnlyUnresolved = state.unknown && plainCall && !replaced
 			s.origin = stmt
 			s.shellState = state
 		}
@@ -2756,6 +2766,7 @@ func normalizeWithState(command string, state cwdState, ctx *normalizeContext, f
 			// unknowable so sibling statements are still evaluated.
 			degraded := s
 			degraded.Unresolved = true
+			degraded.cwdOnlyUnresolved = false
 			degraded.origin = nil
 			degraded.shellState = cwdState{}
 			out = append(out, degraded)
@@ -2824,6 +2835,9 @@ func commandDerivedFromAt(outer Simple, argv []string, sourceArg int) Simple {
 		derived.literalArgs = remapProvenance(outer.literalArgs, sourceArg, len(argv))
 		derived.resolvedArgs = remapProvenance(outer.resolvedArgs, sourceArg, len(argv))
 	}
+	// Only a call whose argv survived unwrapped keeps the cwd-only marker: a
+	// stripped `env`, `command` or `sudo` changed which command runs.
+	derived.cwdOnlyUnresolved = outer.cwdOnlyUnresolved && sourceArg == 0 && len(argv) == len(outer.Argv)
 	return derived
 }
 

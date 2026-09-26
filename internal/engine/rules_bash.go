@@ -133,7 +133,7 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 		}
 		if unresolvedPolicyPosition(s) {
 			takeSimple(&policy.Verdict{Decision: policy.Ask, RuleID: "P3.unresolved",
-				Reason: "command contains an unresolved value in a policy-bearing position"})
+				Reason: unresolvedReason(s)})
 		}
 		if len(s.Argv) == 0 {
 			takeSimple(checkAskTier(s, tc, pol)) // redirect targets only
@@ -785,7 +785,58 @@ func unresolvedPolicyPosition(s Simple) bool {
 		}
 	}
 	if len(unresolved) == 0 && s.Unresolved {
+		return !cwdIndependentBuiltin(s)
+	}
+	return false
+}
+
+// cwdIndependentBuiltin reports whether a simple that is unresolved only
+// because the working directory is uncertain (#355) is one of the builtins
+// that never read a cwd-relative path, so the uncertainty cannot change what
+// it does. Everything else keeps the blanket ask.
+//
+// Deliberately narrow, and every condition is load-bearing:
+//   - cwdOnlyUnresolved: the flag came from the cwd and from nothing else, on
+//     a plain call with no assignments, no redirects, and no function or eval
+//     body standing in for it. Any later rewrite drops the marker.
+//   - a literal argv[0] spelled exactly as the builtin: not a path, not a
+//     value the analysis resolved, so `/bin/echo`, `./echo` and `$c` still ask.
+//   - printf takes no option: `-v` assigns a shell variable.
+//   - no redirect of any kind, and no git-environment doubt.
+func cwdIndependentBuiltin(s Simple) bool {
+	if !s.cwdOnlyUnresolved || s.gitEnvironmentUnknown || len(s.Argv) == 0 ||
+		len(s.Redirects) > 0 || len(s.ReadRedirects) > 0 || s.resolvedArgs[0] {
+		return false
+	}
+	switch s.Argv[0] {
+	case ":", "true", "false", "echo", "pwd":
 		return true
+	case "printf":
+		for _, arg := range s.Argv[1:] {
+			if strings.HasPrefix(arg, "-") {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// unresolvedReason says what is actually unknown. An uncertain working
+// directory is not an unresolved value, and telling an agent it is sends it
+// looking for a variable that is not there (#355).
+func unresolvedReason(s Simple) string {
+	if s.cwdUnknown && !s.gitEnvironmentUnknown && !s.anyWordUnresolved() && !redirectsUnresolved(s) {
+		return "the working directory is uncertain here: an earlier `cd` may fail (for example into a directory this same command creates), and a following `;` runs either way, so this command's relative paths cannot be resolved. Join the steps with `&&` so a failed `cd` stops the chain, use `git -C <dir>` or absolute paths instead of `cd`, or split the work into separate tool calls"
+	}
+	return "command contains an unresolved value in a policy-bearing position"
+}
+
+func (s Simple) anyWordUnresolved() bool {
+	for index := range s.Argv {
+		if s.wordUnresolved(index) {
+			return true
+		}
 	}
 	return false
 }
