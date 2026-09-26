@@ -6,6 +6,10 @@ test, the house rules, and where each kind of change lives. Vocabulary is in
 operator runbook is [`docs/OPERATIONS.md`](docs/OPERATIONS.md), and the shape
 of the project is in the README section "Working on it".
 
+What may change and what may not: [`docs/stability-policy.md`](docs/stability-policy.md).
+Read it before touching a verdict, an exit code, the Overlay or Operator config
+formats, or the audit log.
+
 ## Build, format, vet, test
 
 Go `1.26` (`go.mod` says `go 1.26.0`). Run from the repository root:
