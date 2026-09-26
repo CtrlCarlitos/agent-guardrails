@@ -234,6 +234,7 @@ var selfConfigGlobsFloor = append([]string{
 	".agents/hooks.json",
 	"**/.gemini/config/hooks.json",
 	"**/.local/bin/guardrail", "**/bin/guardrail",
+	"**/.local/bin/guardrail.exe", "**/bin/guardrail.exe",
 }, append(operatorConfigGlobsFloor, sessionStoreGlobsFloor...)...)
 
 var gitProtectedGlobsFloor = []string{"**/.git/config", "**/.git/hooks/**"}

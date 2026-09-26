@@ -685,6 +685,7 @@ var selfConfigGlobs = []string{
 	"**/.agents/hooks.json",
 	"**/.gemini/config/hooks.json",
 	"**/.local/bin/guardrail", "**/bin/guardrail",
+	"**/.local/bin/guardrail.exe", "**/bin/guardrail.exe",
 }
 
 var selfConfigRootOnly = []string{"CLAUDE.md", "AGENTS.md", ".mcp.json"}
@@ -705,6 +706,9 @@ func checkSelfConfigCandidates(tc ToolCall, candidates []pathCandidate) *policy.
 }
 
 func checkSelfConfigCandidatesAnalysis(tc ToolCall, candidates []pathCandidate, bash *bashAnalysis) *policy.Verdict {
+	// Windows copy/move/content cmdlets (#146): the POSIX write-target reader
+	// does not know them, so `Copy-Item x guardrail.exe` was invisible here.
+	candidates = append(append([]pathCandidate(nil), candidates...), powershellWriteCandidates(tc, bash)...)
 	for _, candidate := range candidates {
 		if matchesScoped(candidate, selfConfigGlobs, selfConfigRootOnly) {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
