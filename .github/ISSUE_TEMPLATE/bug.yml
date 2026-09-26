@@ -1,0 +1,84 @@
+name: Bug report
+description: guardrail crashed, misbehaved, or a command did not do what its help or docs say.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. For a verdict you think is wrong (blocked something safe, or let something through), use the **Engine verdict** template instead.
+        A bypass of secret protection, of the approval flow or of self-protection is a security problem: report it privately (Security → Report a vulnerability), not here.
+  - type: input
+    id: version
+    attributes:
+      label: guardrail version
+      description: Output of `guardrail version`.
+      placeholder: guardrail v0.23.11-dev
+    validations:
+      required: true
+  - type: dropdown
+    id: plane
+    attributes:
+      label: Plane
+      description: The agent host involved, if any.
+      options:
+        - Claude Code
+        - opencode
+        - Antigravity
+        - Codex
+        - None (the guardrail CLI on its own)
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - Windows
+        - Linux
+        - WSL
+        - macOS
+    validations:
+      required: true
+  - type: input
+    id: shell
+    attributes:
+      label: Shell
+      description: The shell the command ran in, with its version if you know it.
+      placeholder: PowerShell 7.5 / Windows PowerShell 5.1 / Git Bash / bash 5.2 / zsh
+    validations:
+      required: true
+  - type: input
+    id: doctor-verdict
+    attributes:
+      label: "`guardrail doctor` verdict line"
+      description: The last line of `guardrail doctor`, run from the affected repository.
+      placeholder: "verdict: healthy"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The command you ran, what it printed, and its exit code (`echo $?` or `$LASTEXITCODE`).
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: audit-record
+    attributes:
+      label: Audit record
+      description: |
+        If a hook call was involved, the matching line from the audit log (`guardrail doctor` prints its path; `guardrail audit` summarizes it). Remove anything private, such as paths or command arguments you would not publish.
+      render: json
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Full `guardrail doctor` output (optional)
+      render: text

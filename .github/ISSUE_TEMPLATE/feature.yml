@@ -1,0 +1,38 @@
+name: Feature request
+description: Something guardrail should do that it does not.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        What guardrail may change and what it may not is in `docs/stability-policy.md`. A request that changes a Stable surface (verdict format, hook protocol, CLI exit codes, Overlay or Operator config format) follows the breaking-change process there.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you are trying to do and what gets in the way today. Include the command and plane if it is about a verdict.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What you would like guardrail to do. Say whether it loosens anything; loosening goes through the operator (ADR-0010).
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: planes
+    attributes:
+      label: Planes affected
+      multiple: true
+      options:
+        - Claude Code
+        - opencode
+        - Antigravity
+        - Codex
+        - All / the CLI itself

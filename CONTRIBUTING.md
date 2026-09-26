@@ -149,7 +149,11 @@ mediates, the guard applies to it, and these are not optional:
 
 ## Filing an issue
 
-Use the repository's issue tracker. Include the command or tool call, the
-verdict you got (`guardrail audit` shows the `rule_id` and `reason`), the verdict
-you expected, the plane and OS, and `guardrail doctor` output. For a security
-problem do not open a public issue; follow [`SECURITY.md`](SECURITY.md).
+Use the repository's issue tracker and pick the matching form
+([`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/)): bug, engine verdict
+(false positive, false negative, or a denial with no next step), tool not
+covered, or feature. Each asks for what a report needs: the command or tool
+call, the verdict you got (`guardrail audit` shows the `rule_id` and `reason`),
+the verdict you expected, the plane, OS and shell, `guardrail version` and the
+`guardrail doctor` verdict line. For a security problem do not open a public
+issue; follow [`SECURITY.md`](SECURITY.md).
