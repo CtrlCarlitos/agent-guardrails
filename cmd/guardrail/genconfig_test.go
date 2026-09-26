@@ -210,9 +210,10 @@ func TestGenConfigOpencodeMergeDeploysPlugin(t *testing.T) {
 		t.Errorf("guardrail plugin path %q not registered; plugin array = %v", pluginPath, plugins)
 	}
 
-	perm := m["permission"].(map[string]any)
-	if _, ok := perm["bash"]; !ok {
-		t.Error("permission.bash missing")
+	// The permission floor is retired (ADR-0028 phase B): merging registers
+	// the plugin and writes no rules of its own.
+	if _, ok := m["permission"]; ok {
+		t.Errorf("gen-config still wrote a permission floor: %v", m["permission"])
 	}
 }
 

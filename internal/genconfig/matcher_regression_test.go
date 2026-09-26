@@ -9,7 +9,7 @@ import (
 
 func TestEmittedHookMatchersEqualPlanecontractMatchers(t *testing.T) {
 	// Claude plane verification
-	claudeFrag := ClaudeConfig(&policy.Policy{}, "/usr/local/bin/guardrail")
+	claudeFrag := legacyClaudeFragment(&policy.Policy{}, "/usr/local/bin/guardrail")
 	claudeHooks, ok := claudeFrag["hooks"].(map[string]any)
 	if !ok {
 		t.Fatalf("ClaudeConfig emitted invalid hooks shape: %T", claudeFrag["hooks"])

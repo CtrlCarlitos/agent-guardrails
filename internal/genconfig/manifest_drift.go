@@ -136,7 +136,7 @@ func DriftLine(plane string, report DriftReport) string {
 		line += fmt.Sprintf(" %d entr%s missing from settings (ownership drifted);", n, plural(n))
 	}
 	if n := len(report.Stale); n > 0 {
-		line += fmt.Sprintf(" %d stale guardrail entr%s the manifest does not claim;", n, plural(n))
+		line += fmt.Sprintf(" %d stale guardrail entr%s the manifest does not claim (`plane enable %s` removes the retired floor);", n, plural(n), plane)
 	}
 	if n := len(report.Edited); n > 0 {
 		line += fmt.Sprintf(" %d operator-edited entr%s (left as-is);", n, plural(n))

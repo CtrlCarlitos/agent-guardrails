@@ -15,7 +15,7 @@ import "testing"
 
 func porcelainDecision(t *testing.T, command string) string {
 	t.Helper()
-	frag := ClaudeConfig(secretPol(), "guardrail")
+	frag := legacyClaudeFragment(secretPol(), "guardrail")
 	perms := frag["permissions"].(map[string]any)
 	return claudeNativeDecision(perms, "Bash("+command+")")
 }
@@ -141,7 +141,7 @@ func TestGhPorcelainGlobsCrossSeparators(t *testing.T) {
 
 // Both planes, one source.
 func TestGhPorcelainGlobsReachOpencode(t *testing.T) {
-	frag := OpencodeConfig(secretPol(), "/opt/guardrail/guardrail.js")
+	frag := legacyOpencodeFragment(secretPol(), "/opt/guardrail/guardrail.js")
 	bash := frag["permission"].(map[string]any)["bash"].(orderedPermissionRules)
 	for _, glob := range []string{
 		"gh secret set*",

@@ -226,7 +226,10 @@ func TestSyncMixedPlanesRejectUnresolvedBareBinaryBeforeDeployment(t *testing.T)
 	}
 }
 
-func TestSyncOverlayReachesClaudeFloor(t *testing.T) {
+// An overlay's secret_globs are enforced by the Engine at hook time. The
+// declarative floor that used to copy them into the repo's Claude settings is
+// retired (ADR-0028 phase C), so sync writes the hooks and no rules.
+func TestSyncWritesNoFloorForTheOverlay(t *testing.T) {
 	dir := t.TempDir()
 	gitInitSync(t, dir)
 	os.WriteFile(filepath.Join(dir, "guardrail.toml"), []byte(`
@@ -239,8 +242,8 @@ secret_globs = ["secrets/prod/**"]
 		t.Fatalf("exit=%d stderr=%s", code, errb.String())
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
-	if !strings.Contains(string(raw), "Read(secrets/prod/**)") {
-		t.Fatalf("overlay secret_globs did not reach the synced Claude floor:\n%s", raw)
+	if strings.Contains(string(raw), "Read(secrets/prod/**)") || !strings.Contains(string(raw), "guardrail-claude-pre") {
+		t.Fatalf("sync should register the hooks and write no floor for the overlay:\n%s", raw)
 	}
 }
 

@@ -354,7 +354,7 @@ func TestExecutePlaneApprovalEnablesOpenCode(t *testing.T) {
 	}
 
 	got := readPlaneJSON(t, settings)
-	if !strings.Contains(got, "permission") || !strings.Contains(got, "guardrail.js") || !strings.Contains(got, "keep") {
+	if strings.Contains(got, "permission") || !strings.Contains(got, "guardrail.js") || !strings.Contains(got, "keep") {
 		t.Fatalf("opencode enable wrong: %s", got)
 	}
 	dataHome := os.Getenv("XDG_DATA_HOME")

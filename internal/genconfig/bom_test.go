@@ -21,7 +21,7 @@ func TestMergeIntoReadsBOMPrefixedSettingsAndWritesWithoutBOM(t *testing.T) {
 	if err := os.WriteFile(path, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := MergePlaneInto(path, "claude", ClaudeConfig(secretPol(), "guardrail")); err != nil {
+	if err := MergePlaneInto(path, "claude", legacyClaudeFragment(secretPol(), "guardrail")); err != nil {
 		t.Fatalf("merge refused a BOM-prefixed file: %v", err)
 	}
 	raw, err := os.ReadFile(path)

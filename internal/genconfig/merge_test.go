@@ -363,7 +363,7 @@ func TestMergePlaneIntoRetiresNativeRulesThatPreemptTempAuthorization(t *testing
 		if err := os.WriteFile(p, []byte(existing), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := MergePlaneInto(p, "claude", ClaudeConfig(secretPol(), "/x/guardrail")); err != nil {
+		if err := MergePlaneInto(p, "claude", legacyClaudeFragment(secretPol(), "/x/guardrail")); err != nil {
 			t.Fatal(err)
 		}
 
@@ -403,7 +403,7 @@ func TestMergePlaneIntoRetiresNativeRulesThatPreemptTempAuthorization(t *testing
 		if err := os.WriteFile(p, []byte(existing), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := MergePlaneInto(p, "opencode", OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
+		if err := MergePlaneInto(p, "opencode", legacyOpencodeFragment(secretPol(), "/x/guardrail.js")); err != nil {
 			t.Fatal(err)
 		}
 
@@ -490,7 +490,7 @@ func TestMergeIntoOpencodePermissionCollision(t *testing.T) {
 	if err := os.WriteFile(p, []byte(existing), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := MergePlaneInto(p, "opencode", OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
+	if err := MergePlaneInto(p, "opencode", legacyOpencodeFragment(secretPol(), "/x/guardrail.js")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -538,7 +538,7 @@ func TestMergeIntoOpencodePermissionIdempotent(t *testing.T) {
 	if err := os.WriteFile(p, existing, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+	frag := legacyOpencodeFragment(secretPol(), "/x/guardrail.js")
 	if err := MergeInto(p, frag); err != nil {
 		t.Fatal(err)
 	}
@@ -566,7 +566,7 @@ func TestMergeIntoOpencodeTopLevelScalarPermission(t *testing.T) {
 			if err := os.WriteFile(p, existing, 0o644); err != nil {
 				t.Fatal(err)
 			}
-			if err := MergeInto(p, OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
+			if err := MergeInto(p, legacyOpencodeFragment(secretPol(), "/x/guardrail.js")); err != nil {
 				t.Fatal(err)
 			}
 			root := readJSON(t, p)
@@ -627,7 +627,7 @@ func TestMergeIntoOpencodeCategoryScalarPermission(t *testing.T) {
 				if err := os.WriteFile(p, raw, 0o644); err != nil {
 					t.Fatal(err)
 				}
-				if err := MergeInto(p, OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
+				if err := MergeInto(p, legacyOpencodeFragment(secretPol(), "/x/guardrail.js")); err != nil {
 					t.Fatal(err)
 				}
 
@@ -661,7 +661,7 @@ func TestMergeIntoOpencodeRetiresUnknownValuedObsoleteRule(t *testing.T) {
 	if err := os.WriteFile(p, existing, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := MergePlaneInto(p, "opencode", OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
+	if err := MergePlaneInto(p, "opencode", legacyOpencodeFragment(secretPol(), "/x/guardrail.js")); err != nil {
 		t.Fatal(err)
 	}
 	bash := readJSON(t, p)["permission"].(map[string]any)["bash"].(map[string]any)
@@ -698,7 +698,7 @@ func TestMergeIntoOpencodeObjectGlobalFallback(t *testing.T) {
 			if err := os.WriteFile(p, raw, 0o644); err != nil {
 				t.Fatal(err)
 			}
-			frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+			frag := legacyOpencodeFragment(secretPol(), "/x/guardrail.js")
 			if err := MergeInto(p, frag); err != nil {
 				t.Fatal(err)
 			}
@@ -759,7 +759,7 @@ func TestMergeIntoOpencodeUnknownObjectGlobalFallback(t *testing.T) {
 	if err := os.WriteFile(p, existing, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := MergeInto(p, OpencodeConfig(secretPol(), "/x/guardrail.js")); err != nil {
+	if err := MergeInto(p, legacyOpencodeFragment(secretPol(), "/x/guardrail.js")); err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]any{"mode": "audit"}
@@ -795,7 +795,7 @@ func TestMergeIntoOpencodeUnknownScalarFloor(t *testing.T) {
 			if err := os.WriteFile(p, raw, 0o644); err != nil {
 				t.Fatal(err)
 			}
-			frag := OpencodeConfig(secretPol(), "/x/guardrail.js")
+			frag := legacyOpencodeFragment(secretPol(), "/x/guardrail.js")
 			if err := MergeInto(p, frag); err != nil {
 				t.Fatal(err)
 			}

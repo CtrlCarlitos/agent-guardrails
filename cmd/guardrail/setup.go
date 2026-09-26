@@ -213,6 +213,18 @@ func setupEnableReason(plane string) (string, error) {
 	if missing := planeFloorDrift(plane); missing > 0 {
 		return fmt.Sprintf("permissions floor drifted (%d entries missing); re-enabling", missing), nil
 	}
+	// The floor guardrail used to write is retired (ADR-0028); re-enabling with
+	// the operator's approval removes it (#357). Without an enrolled operator
+	// the bootstrap path can only tighten, so it neither removes nor asks.
+	if operatorEnrolled() {
+		n, err := legacyFloorCount(plane)
+		if err != nil {
+			return "", err
+		}
+		if n > 0 {
+			return fmt.Sprintf("%d floor entries guardrail wrote earlier are still in the settings file; re-enabling removes them", n), nil
+		}
+	}
 	report, err := planeOwnershipDrift(plane)
 	if err != nil {
 		return "", err

@@ -8,6 +8,15 @@ the contract for what the opencode plugin does while its Engine is
 unreachable. **Codex is a named exception and keeps its floor** (see
 "Codex: the exception plane").
 
+**Update, 2026-09-25 (#357): phases B and C shipped.** The Claude and OpenCode
+generators no longer emit a floor, and `guardrail plane enable` removes the
+floor an earlier release wrote: exactly the entries guardrail generated, now or
+in a past release, with the operator's own entries and any value they edited
+left alone. The removal runs only under an approval that names it, never on the
+first-install bootstrap path, which can only tighten (ADR-0030). The generator
+lists survive as frozen data in `internal/genconfig/legacy_floor.go`, used to
+recognise old output and for ownership-drift detection, not to generate.
+
 Implementation is phased and the phases retire independently; the plan and its
 preconditions are recorded below rather than in a tracking issue, because the
 order is the decision.

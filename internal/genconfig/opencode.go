@@ -198,7 +198,7 @@ func OpencodePluginFor(binary string) []byte {
 	return []byte(strings.ReplaceAll(source, `"__FLOOR_FALLBACK_TOOLS__"`, string(floor)))
 }
 
-func OpencodeConfig(pol *policy.Policy, pluginPath string) Fragment {
+func legacyOpencodeFragment(pol *policy.Policy, pluginPath string) Fragment {
 	bash := orderedPermissionRules{"*": "allow"}
 	for _, g := range bashDenyGlobs() {
 		if p, ok := stripWrapper("Bash(", g); ok {

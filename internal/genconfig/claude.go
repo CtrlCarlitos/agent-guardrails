@@ -274,17 +274,17 @@ func ciInfraLockAskGlobs() []string {
 	return out
 }
 
+// ClaudeConfig is the fragment merged into ~/.claude/settings.json: hook
+// registration and the one allow entry below. It carries no deny or ask floor.
+// ADR-0028 (phase C) retired it: the Engine enforces everything it mirrored,
+// and the settings file belongs to the operator. `pol` is unused now and kept
+// so callers do not change. The lists the floor used to be built from live on
+// as legacyClaudePermissions, the exact set `plane enable` prunes.
 func ClaudeConfig(pol *policy.Policy, binary string) Fragment {
-	deny := append(bashDenyGlobs(), secretDenyGlobs(pol)...)
-	deny = append(deny, claudeSelfConfigDenyGlobs()...)
-	ask := append(bashAskGlobs(), secretAskGlobs(pol)...)
-	ask = append(ask, ciInfraLockAskGlobs()...)
 	return Fragment{
 		"hooks": claudeHooks(binary),
 		"permissions": map[string]any{
 			"allow": claudeFloorAllow(),
-			"deny":  deny,
-			"ask":   ask,
 		},
 	}
 }

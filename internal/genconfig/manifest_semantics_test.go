@@ -19,7 +19,7 @@ func opencodeMerged(t *testing.T, seed map[string]any) (path string) {
 	dir := t.TempDir()
 	path = filepath.Join(dir, "opencode.json")
 	writeJSON(t, path, seed)
-	if err := MergePlaneInto(path, "opencode", OpencodeConfig(base, filepath.Join(dir, "guardrail.js"))); err != nil {
+	if err := MergePlaneInto(path, "opencode", legacyOpencodeFragment(base, filepath.Join(dir, "guardrail.js"))); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -184,7 +184,7 @@ func TestRepeatedMergeDoesNotEraseTheRecord(t *testing.T) {
 		"permission": map[string]any{"bash": map[string]any{pattern: "ask"}},
 	})
 	for i := 0; i < 3; i++ {
-		if err := MergePlaneInto(path, "opencode", OpencodeConfig(base, filepath.Join(dir, "guardrail.js"))); err != nil {
+		if err := MergePlaneInto(path, "opencode", legacyOpencodeFragment(base, filepath.Join(dir, "guardrail.js"))); err != nil {
 			t.Fatalf("merge %d: %v", i, err)
 		}
 	}

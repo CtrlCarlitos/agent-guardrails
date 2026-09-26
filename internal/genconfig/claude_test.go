@@ -110,13 +110,15 @@ func TestSecretDenyGlobs(t *testing.T) {
 	}
 }
 
-func TestAskTierAndScopedClaudeReachTheFloor(t *testing.T) {
+// The floor is no longer generated (ADR-0028), but the entries older releases
+// wrote are what `plane enable` prunes, so each must still say what it claimed.
+func TestAskTierAndScopedLegacyClaudeFloorEntries(t *testing.T) {
 	pol := &policy.Policy{Slots: policy.Slots{
 		SecretDirs:     []string{"**/.ssh/**"},
 		SecretAskGlobs: []string{"**/*.pem"},
 	}}
-	cfg := ClaudeConfig(pol, "guardrail")
-	perms := cfg["permissions"].(map[string]any)
+	legacy := legacyClaudePermissions(pol)
+	perms := map[string]any{"deny": legacy["deny"], "ask": legacy["ask"]}
 	for _, test := range []struct {
 		operation string
 		want      string
@@ -137,22 +139,6 @@ func TestAskTierAndScopedClaudeReachTheFloor(t *testing.T) {
 		if got := claudeNativeDecision(perms, test.operation); got != test.want {
 			t.Errorf("Claude permission for %q = %q, want %q", test.operation, got, test.want)
 		}
-	}
-}
-
-func TestClaudeConfigShape(t *testing.T) {
-	frag := ClaudeConfig(secretPol(), "guardrail")
-	perms := frag["permissions"].(map[string]any)
-	deny := perms["deny"].([]string)
-	if !slices.Contains(deny, "Bash(rm -rf /)") || !slices.Contains(deny, "Read(**/.ssh/**)") {
-		t.Errorf("deny incomplete: %v", deny)
-	}
-	if _, ok := frag["hooks"]; !ok {
-		t.Error("hooks missing")
-	}
-	ask := perms["ask"].([]string)
-	if !slices.Contains(ask, "Bash(chmod -R *)") {
-		t.Errorf("ask incomplete: %v", ask)
 	}
 }
 
@@ -181,7 +167,7 @@ func TestBashDenyGlobsP2P6(t *testing.T) {
 }
 
 func TestGitConfigNativeFloorOnlyPreemptsDefiniteDangerousWrites(t *testing.T) {
-	frag := ClaudeConfig(secretPol(), "guardrail")
+	frag := legacyClaudeFragment(secretPol(), "guardrail")
 	perms := frag["permissions"].(map[string]any)
 	for _, operation := range []string{
 		"Bash(git config user.email x@y.com)",
@@ -200,7 +186,7 @@ func TestGitConfigNativeFloorOnlyPreemptsDefiniteDangerousWrites(t *testing.T) {
 }
 
 func TestClaudeTempDeleteReachesExistingBashPreHook(t *testing.T) {
-	frag := ClaudeConfig(secretPol(), "guardrail")
+	frag := legacyClaudeFragment(secretPol(), "guardrail")
 	perms := frag["permissions"].(map[string]any)
 	if got := claudeNativeDecision(perms, "Bash(rm -rf /)"); got != "deny" {
 		t.Fatalf("rm -rf / native decision = %q, want deny", got)
@@ -231,7 +217,7 @@ func TestBashAskGlobsP2P6(t *testing.T) {
 }
 
 func TestSelfConfigAndGitProtectedDenyGlobs(t *testing.T) {
-	frag := ClaudeConfig(secretPol(), "guardrail")
+	frag := legacyClaudeFragment(secretPol(), "guardrail")
 	perms := frag["permissions"].(map[string]any)
 	for _, operation := range []string{"Edit(.claude/settings.json)", "Edit(CLAUDE.md)", "Edit(repo/.git/config)", "Edit(repo/.git/hooks/pre-commit)"} {
 		if got := claudeNativeDecision(perms, operation); got != "deny" {
@@ -246,7 +232,7 @@ func TestSelfConfigAndGitProtectedDenyGlobs(t *testing.T) {
 }
 
 func TestClaudeConfigProtectsGuardrailOwnMachinery(t *testing.T) {
-	frag := ClaudeConfig(secretPol(), "guardrail")
+	frag := legacyClaudeFragment(secretPol(), "guardrail")
 	deny := frag["permissions"].(map[string]any)["deny"].([]string)
 	want := []string{
 		"Edit(guardrail.toml)",
@@ -267,7 +253,7 @@ func TestClaudeConfigProtectsGuardrailOwnMachinery(t *testing.T) {
 }
 
 func TestClaudeConfigProtectsSessionStore(t *testing.T) {
-	perms := ClaudeConfig(secretPol(), "guardrail")["permissions"].(map[string]any)
+	perms := legacyClaudeFragment(secretPol(), "guardrail")["permissions"].(map[string]any)
 	for _, operation := range []string{
 		"Edit(home/u/.local/state/guardrail/sessions/key.json)",
 		"Edit(Users/u/Library/Application Support/guardrail/sessions/key.json)",
@@ -291,7 +277,7 @@ func TestClaudeConfigProtectsSessionStore(t *testing.T) {
 }
 
 func TestClaudeConfigProtectsOperatorConfig(t *testing.T) {
-	frag := ClaudeConfig(secretPol(), "guardrail")
+	frag := legacyClaudeFragment(secretPol(), "guardrail")
 	deny := frag["permissions"].(map[string]any)["deny"].([]string)
 	want := []string{
 		"Edit(**/.config/guardrail/**)",
@@ -386,7 +372,7 @@ func TestClaudeHooksSessionCompletion(t *testing.T) {
 // gates fetch by the egress allowlist, so the floor may pre-approve exactly
 // that command form and nothing else.
 func TestClaudeFloorAllowsOnlyGuardrailFetch(t *testing.T) {
-	frag := ClaudeConfig(secretPol(), "guardrail")
+	frag := legacyClaudeFragment(secretPol(), "guardrail")
 	perms := frag["permissions"].(map[string]any)
 	allow, ok := perms["allow"].([]string)
 	if !ok {

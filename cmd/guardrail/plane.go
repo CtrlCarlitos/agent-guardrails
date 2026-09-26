@@ -90,7 +90,7 @@ func bootstrapPlanes(cmd string, planes []string, stdout, stderr io.Writer) erro
 			return fmt.Errorf("%s: %w", plane, err)
 		}
 		reconcile := planeIntegrationRegistered(plane) || len(report.Missing) > 0 || len(report.Stale) > 0
-		if err := enablePlaneIntegrationMode(plane, reconcile); err != nil {
+		if err := enablePlaneIntegrationMode(plane, reconcile, false); err != nil {
 			return fmt.Errorf("%s: %w", plane, err)
 		}
 	}
@@ -171,6 +171,20 @@ func executePlaneApproval(r approval.Request) error {
 			reconcile[plane] = true
 		}
 	}
+	prune := map[string]bool{}
+	if raw := r.Parameters["prune_floor"]; raw != "" {
+		if r.Action != "plane-enable" {
+			return fmt.Errorf("invalid approved plane action")
+		}
+		for _, plane := range strings.Split(raw, ",") {
+			if !slices.Contains(planes, plane) || !planeHasLegacyFloor(plane) {
+				return fmt.Errorf("invalid approved plane action")
+			}
+			prune[plane] = true
+			// Pruning retires ownership records, which is reconcile's job.
+			reconcile[plane] = true
+		}
+	}
 	alreadyCompleted, err := startActionAudit(r)
 	if err != nil {
 		return err
@@ -180,7 +194,7 @@ func executePlaneApproval(r approval.Request) error {
 	}
 	if r.Action == "plane-enable" {
 		for _, plane := range planes {
-			if err := enablePlaneIntegrationMode(plane, reconcile[plane]); err != nil {
+			if err := enablePlaneIntegrationMode(plane, reconcile[plane], prune[plane]); err != nil {
 				return err
 			}
 		}
@@ -212,10 +226,10 @@ func planePluginDir() (string, error) {
 }
 
 func enablePlaneIntegration(plane string) error {
-	return enablePlaneIntegrationMode(plane, false)
+	return enablePlaneIntegrationMode(plane, false, false)
 }
 
-func enablePlaneIntegrationMode(plane string, reconcileOwnership bool) error {
+func enablePlaneIntegrationMode(plane string, reconcileOwnership, pruneFloor bool) error {
 	binary, err := installedExecutable()
 	if err != nil {
 		return err
@@ -230,6 +244,14 @@ func enablePlaneIntegrationMode(plane string, reconcileOwnership bool) error {
 	merge := genconfig.MergePlaneInto
 	if reconcileOwnership {
 		merge = genconfig.ReconcilePlaneInto
+	}
+	// Removing the floor guardrail used to write loosens the file, so it runs
+	// only when an approval named it (ADR-0030: the approval-less path can only
+	// tighten). Before the merge, so the merge records what remains.
+	if pruneFloor {
+		if _, err := genconfig.PruneLegacyFloor(path, plane); err != nil {
+			return err
+		}
 	}
 	switch plane {
 	case "codex":
@@ -412,8 +434,30 @@ func planesViaApproval(planes []string, action, outcome string, stdout, stderr i
 				reconcile = append(reconcile, plane)
 			}
 		}
+		// The operator's passkey covers the removal, so it is named in the
+		// approved parameters and announced first: `plane enable` also removes
+		// the floor guardrail used to write into this file (#357). Only the
+		// entries guardrail wrote; the operator's own are kept.
+		var prune []string
+		for _, plane := range planes {
+			n, err := legacyFloorCount(plane)
+			if err != nil {
+				fmt.Fprintf(stderr, "guardrail: %s: reading the settings floor: %v\n", plane, err)
+				return false
+			}
+			if n > 0 {
+				fmt.Fprintf(stdout, "%s: will also remove %d floor entries guardrail wrote earlier (the Engine enforces them; your own entries are kept)\n", plane, n)
+				prune = append(prune, plane)
+				if !slices.Contains(reconcile, plane) {
+					reconcile = append(reconcile, plane)
+				}
+			}
+		}
 		if len(reconcile) > 0 {
 			parameters["reconcile_ownership"] = strings.Join(reconcile, ",")
+		}
+		if len(prune) > 0 {
+			parameters["prune_floor"] = strings.Join(prune, ",")
 		}
 	}
 	request := approval.Request{
@@ -656,4 +700,24 @@ func planeStatusState(plane string) string {
 		return "guardrail integration registered"
 	}
 	return "present, integration NOT registered"
+}
+
+// planeHasLegacyFloor reports whether guardrail ever wrote a declarative floor
+// into the plane's settings. Codex keeps its floor (ADR-0028's exception
+// plane) and antigravity never had one.
+func planeHasLegacyFloor(plane string) bool {
+	return plane == "claude" || plane == "opencode"
+}
+
+// legacyFloorCount is how many entries of the retired floor the plane's
+// settings file still carries. Read-only.
+func legacyFloorCount(plane string) (int, error) {
+	if !planeHasLegacyFloor(plane) {
+		return 0, nil
+	}
+	path, err := planeConfigPath(plane)
+	if err != nil {
+		return 0, err
+	}
+	return genconfig.LegacyFloorEntries(path, plane)
 }
