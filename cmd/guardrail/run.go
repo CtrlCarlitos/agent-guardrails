@@ -18,6 +18,7 @@ const usage = `guardrail — one guardrail policy across AI coding-agent planes
 
 usage: guardrail <command> [arguments]
 
+  help                              print this text (also -h, --help)
   version                           print the release version
   hook <plane> [phase]              evaluate a hook payload on stdin
       plane: claude | opencode | antigravity | codex (antigravity also needs a phase: pre | post)
@@ -40,13 +41,17 @@ usage: guardrail <command> [arguments]
   egress grant|revoke               authorize (or withdraw) web hosts for guardrail fetch
       --scope repo|global --host a.example.com,b.example.com
   operator <subcommand>                 manage operator authenticators
+      subcommands: enroll | add-authenticator | remove-authenticator | recover-reset
   approvals list                       show pending approval requests
   approvals approve <id>               re-open an approval ceremony and wait
-      subcommands: enroll | add-authenticator | remove-authenticator | recover-reset
   selftest                           probe installed enforcement per plane
       --evidence codex     check retained audit evidence after this binary's mtime (heuristic)
       --session <id> --since <time|duration> --expect-tool <name>  scope Codex evidence
   audit [--path <file>]              summarize the audit log (decisions, rules, drift)
+  allow-baseline [--json|--check]   list Claude Code allow rules safe to paste (writes nothing)
+      --json               print them as a permissions.allow block
+      --check              compare them with your Claude settings
+  next                              print the next steps for this machine's state
   doctor [flags]                    print resolved policy/overlay/audit/hook state
       --codex-hooks         inspect Codex registration, trust, direct runnability, and evidence
       --coverage claude    diff the installed Claude Code tool surface against the contract
@@ -64,6 +69,10 @@ usage: guardrail <command> [arguments]
   update <version>                  self-update to an exact checksum-verified release
   recover <repair>                  repair Guardrail-protected machinery (operator approval)
       repair: claude-settings | opencode-config | antigravity-hooks
+  daemon start|stop|status          resident engine daemon that hook calls use when it runs (ADR-0025)
+      internal: not a stable surface
+      --endpoint <pipe|socket>   custom endpoint (all three)
+      --idle <duration>          idle shutdown for start (default 30m)
 `
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
