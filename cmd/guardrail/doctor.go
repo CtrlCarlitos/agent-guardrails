@@ -377,6 +377,16 @@ func printDoctor(stdout, stderr io.Writer) int {
 	// fails, and reports nothing at all when it learned nothing -- silence
 	// here means "not known", never "fine".
 	printCredentialPosture(stdout)
+	// Last, so what the operator still owes is what stays on screen. An updater
+	// older than `next` never prints the block, but it always runs this doctor,
+	// so this is the one place the first update onto a release with `next` can
+	// show it. A current updater marks the doctor it runs and prints the block
+	// itself, after selftest, so it is not shown twice (#374).
+	if os.Getenv(updateRunEnv) == "" {
+		if steps, err := nextSteps(); err == nil {
+			printNextSteps(stdout, steps)
+		}
+	}
 	return 0
 }
 

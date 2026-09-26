@@ -6,6 +6,18 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Installation
+- **Fix (#374): the first update onto a release that has `guardrail next` now
+  shows the next-steps block too.** `update` is run by the binary being
+  replaced, and only `v0.23.6-dev` and later call `next` from it, so an operator
+  updating from an older release saw doctor and selftest and no steps, exactly
+  when they were needed most. Every updater does run the *new* binary's
+  `doctor`, so `doctor` now ends with the same block (only when something is
+  owed, computed by the same `nextSteps()` as `guardrail next`). A current updater
+  marks the verification runs it starts (`GUARDRAIL_UPDATE_RUN`, cleared when
+  `update` returns) and prints the block itself, last, after selftest, so it is
+  not shown twice.
+
 ### Tests
 - **Fix (#367): the adversarial suite no longer leaves a 20 MB build directory
   and an approval daemon behind on Windows.** A test that runs the real binary
