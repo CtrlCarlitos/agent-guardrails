@@ -7,6 +7,29 @@ explicitly in **Breaking** notes.
 ## v0.23.4-dev (2026-09-25)
 
 ### Policy
+- **Feature (#357, ADR-0028 phases B and C): guardrail stops writing a
+  permissions floor into Claude and OpenCode settings, and `plane enable`
+  removes the one it wrote earlier.** The Engine enforces everything the floor
+  mirrored, and a second copy in a file you own drifts and cannot be told apart
+  from your own entries. `ClaudeConfig` now writes hook registration and the
+  one `Bash(guardrail fetch:*)` allow; `OpencodeConfig` writes the plugin entry.
+  Codex keeps its native floor (ADR-0028's exception plane); Antigravity never
+  had one.
+  `guardrail plane enable <plane>` (and `setup`) now also removes every entry
+  that is exactly something guardrail generated, in this or an earlier release,
+  including the retired `dd` / `git clean` / `rm -rf` globs and the pre-#270
+  untranslated OpenCode globs. It keeps your own entries, any value you edited,
+  OpenCode's `bash "*"` base rule, and every other key. It announces the count
+  first, the operator's passkey covers it (the approved request names
+  `prune_floor`), it retires the ownership records, and it is idempotent.
+  The approval-less first-install bootstrap never prunes: it can only tighten
+  (ADR-0030). Measured on a copy of one operator's real files: Claude 247
+  permission entries and 11,185 bytes down to 5 allows and 3,598 bytes;
+  OpenCode 18,239 bytes down to 609.
+  **Behaviour change:** `sync` and `gen-config` no longer copy an overlay's
+  `secret_globs` into the repo's Claude `permissions`; the Engine applies the
+  overlay at hook time. If the Engine is unreachable a Claude session is
+  unguarded, the exposure ADR-0028 accepts and `doctor` reports (#151).
 - **Feature (#351): operator-controlled native web-research enforcement.**
   `guardrail web-research on|off|status` separates strict web controls from
   unrelated protections. Off permits recognized native research, including
