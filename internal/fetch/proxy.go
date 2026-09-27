@@ -4,6 +4,7 @@ package fetch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -25,14 +26,16 @@ func Fetch(ctx context.Context, raw string, pol *policy.Policy) (string, policy.
 		return "", policy.Verdict{Decision: policy.Deny, RuleID: "fetch-invalid"}, nil
 	}
 	if !allowedHost(host, pol) {
-		return "", policy.Verdict{Decision: policy.Ask, RuleID: "fetch-host", Reason: "web fetch to an unapproved host requires operator approval"}, nil
+		return "", policy.Verdict{Decision: policy.Ask, RuleID: "fetch-host", Reason: unapprovedHostReason("web fetch to an unapproved host requires operator approval", host)}, nil
 	}
+	var redirectHost string
 	client := &http.Client{Timeout: fetchTimeout, Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(req *http.Request, _ []*http.Request) error {
 		host, err := hostFromURL(req.URL.String())
 		if err != nil {
 			return errInvalid
 		}
 		if !allowedHost(host, pol) {
+			redirectHost = host
 			return errAsk
 		}
 		return nil
@@ -43,7 +46,7 @@ func Fetch(ctx context.Context, raw string, pol *policy.Policy) (string, policy.
 	}
 	resp, err := client.Do(req)
 	if errors.Is(err, errAsk) {
-		return "", policy.Verdict{Decision: policy.Ask, RuleID: "fetch-host", Reason: "redirect destination requires operator approval"}, nil
+		return "", policy.Verdict{Decision: policy.Ask, RuleID: "fetch-host", Reason: unapprovedHostReason("redirect destination requires operator approval", redirectHost)}, nil
 	}
 	if errors.Is(err, errInvalid) {
 		return "", policy.Verdict{Decision: policy.Deny, RuleID: "fetch-invalid"}, nil
@@ -68,6 +71,16 @@ func Fetch(ctx context.Context, raw string, pol *policy.Policy) (string, policy.
 		text = normalizeHTML(text)
 	}
 	return text, policy.Verdict{Decision: policy.Allow}, nil
+}
+
+// unapprovedHostReason names the host and the exact grant that approves it
+// (#125): "requires operator approval" alone left agents with no command to
+// run, and they stopped fetching instead of asking.
+func unapprovedHostReason(what, host string) string {
+	if host == "" {
+		return what
+	}
+	return fmt.Sprintf("%s: %s. Request it with `%s` (the operator approves it with a passkey), then retry this fetch", what, host, policy.WebHostGrantCommand(host))
 }
 
 func allowed(raw string, pol *policy.Policy) bool {

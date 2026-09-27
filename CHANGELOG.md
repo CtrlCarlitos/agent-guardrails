@@ -6,6 +6,27 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Engine
+- **Fix (#125): an egress deny leads to the fetch and the exact grant, and
+  never back to a dead end.** Measured on all four planes before the fix: a
+  `curl`/`wget` to an unapproved host told the agent to request a grant with
+  placeholder hosts (`api.example.com,cdn.example.com`), and once that grant
+  was approved the same `curl` was still denied with the same advice, because a
+  web-host grant authorizes `guardrail fetch`, not shell network tools; a
+  native web fetch said "complete the work by other means"; `guardrail fetch`
+  to an unapproved host printed only "requires operator approval"; and the
+  session posture never mentioned web access. Agents learned to stop trying.
+  Now the `P6.egress` reason for a web client names the exact grant
+  (`guardrail egress grant --scope repo --host <host>`), its next step says the
+  grant authorizes `guardrail fetch` and not curl or wget, the native-fetch
+  deny sends the agent to `guardrail fetch`, `guardrail fetch` names the host
+  and the exact grant (also for an unapproved redirect), and the SessionStart
+  posture says the path exists, to attempt the fetch rather than assume a
+  deny, and that `guardrail explain` shows any deny's record and next step.
+  Both denies end with "do not skip a fetch because an earlier one was
+  denied", and the rule ID still fits in the 512-rune model-facing bound. No
+  verdict changed.
+
 ### CLI
 - **Feature (#106): `guardrail explain`, one command from an audit record to
   the fix.** With no argument it prints the newest ask or deny for the
