@@ -51,6 +51,9 @@ func guidanceMetadataFor(v policy.Verdict) (meta guidanceMetadata) {
 		meta = guidanceMetadata{RemediationClass: remediationScopedAlternative}
 	case "P6.egress":
 		meta = guidanceMetadata{RemediationClass: remediationOperatorApproval}
+	case "web-fetch-native-deny":
+		// The prose names `guardrail fetch` as the replacement (#125).
+		meta = guidanceMetadata{RemediationClass: remediationScopedAlternative}
 	case "operator-action-satisfied":
 		meta = guidanceMetadata{RemediationClass: remediationContinueOtherWork}
 	default:
