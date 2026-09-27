@@ -159,27 +159,18 @@ leaving a hole; it says so in the CHANGELOG.
 
 ## Plane support status
 
-Measured facts only. "Enforced" means guardrail's hook is in the path of the
-plane's tool calls in a real session and a call it should stop is stopped.
-"Registered" means configuration is written; only an audit record from a real
-session shows a hook ran ([OPERATIONS.md](OPERATIONS.md)).
+| Plane | Status |
+|---|---|
+| Claude Code | Supported |
+| opencode | Supported |
+| Antigravity | Supported |
+| Codex | **Experimental**: registered but unenforced on Windows ([openai/codex#24453](https://github.com/openai/codex/issues/24453)); hosted tools and `write_stdin` bypass pre-hooks on every OS ([ADR-0014](adr/0014-codex-native-hooks-and-blocked-asks.md)) |
 
-| Plane | Windows | Linux / WSL | macOS | Status |
-|---|---|---|---|---|
-| Claude Code | Enforced | Enforced | CI-tested; no recorded real-session enforcement verification yet | Supported |
-| opencode | Enforced | Enforced | CI-tested; no recorded real-session enforcement verification yet | Supported |
-| Antigravity | Enforced | Enforced | CI-tested; no recorded real-session enforcement verification yet | Supported |
-| Codex | **Registered, unenforced**: Windows `command_execution` does not dispatch `PreToolUse` ([openai/codex#24453](https://github.com/openai/codex/issues/24453)); doctor says so | Registered; hosted tools and `write_stdin` bypass pre-hooks ([ADR-0014](adr/0014-codex-native-hooks-and-blocked-asks.md)); no enforcement claim made here | CI-tested; no recorded real-session enforcement verification | **Experimental** |
+The status is a policy decision. What is actually verified on each OS and
+shell, with the evidence for each cell, is in the
+[compatibility matrix](compatibility-matrix.md). That page is the single
+source for per-OS claims; this one does not repeat them.
 
-Notes:
-
-- macOS is exercised by CI (unit, contract and installer tests on
-  `macos-latest`), which is not the same as watching a real macOS agent session
-  get blocked. That verification has not been recorded, so this page does not
-  claim it.
-- A plane's status is re-checked on the machine with `guardrail doctor`,
-  `guardrail selftest` and, where offered, `guardrail selftest --evidence
-  <plane>` (`claude` and `codex`). See the plane rows in the README.
 - Experimental planes follow the "Not yet stable" rules for their adapter
   behaviour; the Stable sections above still hold for the verdict, the CLI and
   the config formats.
