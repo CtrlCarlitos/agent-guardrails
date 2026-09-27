@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 // appendsExeSuffix matches a test spelling the Windows executable suffix by
@@ -47,7 +49,7 @@ func TestNoTestRollsItsOwnExecutableSuffix(t *testing.T) {
 			return err
 		}
 		if info.IsDir() {
-			if name := info.Name(); name == ".git" || name == ".worktrees" || name == "graft" {
+			if name := info.Name(); name == ".git" || name == ".worktrees" || name == "graft" || testenv.IsNestedCheckout(root, path) {
 				return filepath.SkipDir
 			}
 			return nil

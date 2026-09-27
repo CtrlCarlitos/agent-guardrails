@@ -6,6 +6,13 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Tests
+- **Fix (#406): repo guard tests no longer read another checkout's files.**
+  Three guards that walk the repository skipped nested checkouts only by the
+  name `.worktrees`, so an agent's worktree under `.claude/worktrees/` made
+  `go test ./...` fail for as long as the agent ran. They now skip any
+  directory with its own `.git` (`testenv.IsNestedCheckout`).
+
 ### Installer
 - **Test (#146): the Defender exclusion is locked to the one binary.** A repo
   guard test now fails if `install.ps1` excludes anything other than exactly

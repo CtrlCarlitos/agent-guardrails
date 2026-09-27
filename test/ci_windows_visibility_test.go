@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
 // CI's windows job does not run the full suite. It runs a fixed package list
@@ -80,6 +82,9 @@ func goTestFiles(t *testing.T) map[string][]string {
 		if info.IsDir() {
 			switch info.Name() {
 			case ".git", ".worktrees", "graft", ".serena", "node_modules", ".winpipe-stage":
+				return filepath.SkipDir
+			}
+			if testenv.IsNestedCheckout(root, path) {
 				return filepath.SkipDir
 			}
 			return nil
