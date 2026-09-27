@@ -19,6 +19,19 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
+// usePasskeyApproval pins the broker tests to passkey mode (ADR-0033): prompt
+// is the default, and these assert the WebAuthn broker path unchanged.
+func usePasskeyApproval(t *testing.T, configHome string) {
+	t.Helper()
+	dir := filepath.Join(configHome, "guardrail")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "waivers.toml"), []byte("approval = \"passkey\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func enrollDaemonTestCredential(t *testing.T, stateHome string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(stateHome, "guardrail"), 0o700); err != nil {
@@ -39,6 +52,7 @@ func TestApprovalDaemonBinaryCompletesAdversarialNightRequest(t *testing.T) {
 	testenv.SetState(t, roots.State)
 	testenv.SetConfig(t, roots.Config)
 	enrollDaemonTestCredential(t, stateHome)
+	usePasskeyApproval(t, configHome)
 	daemon := exec.Command(bin, "approvals", "daemon")
 	daemon.Env = testenv.ChildProcessEnv(roots)
 	if err := daemon.Start(); err != nil {
@@ -101,6 +115,7 @@ func TestSubmitOnDemandReexecsProductionDaemon(t *testing.T) {
 	testenv.SetState(t, roots.State)
 	testenv.SetConfig(t, roots.Config)
 	enrollDaemonTestCredential(t, stateHome)
+	usePasskeyApproval(t, configHome)
 	socket := approval.DefaultSocketPath()
 
 	repo := t.TempDir()
