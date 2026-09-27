@@ -54,77 +54,92 @@ On Linux and macOS, make sure that directory is on your `PATH`. Check it:
 guardrail version
 ```
 
-## 2. Setup and your passkey
+## 2. Setup and approvals
 
 The installer ends by running `guardrail setup`. Setup registers guardrail
 with every agent host it finds (Claude Code, opencode, Antigravity, Codex),
 then runs `guardrail selftest`.
 
-On a first install no passkey exists yet, so there is nothing to approve
-against. Setup arms the hosts anyway and prints, for example:
+Changes to guardrail itself are **operator actions**, and they need your
+approval. By default that is a plain question
+([ADR-0033](adr/0033-operator-approvals-default-to-a-prompt.md)). Run from
+your terminal, setup asks before it registers anything:
+
+```
+Approve register guardrail on planes: claude, codex? [y/N]
+```
+
+Type `y` and press Enter. Anything else, including a bare Enter, is No: the
+command changes nothing and exits 3.
+
+An unattended install (no terminal, for example `curl … | sh` or a
+provisioning script) cannot be asked. On a first install it arms the hosts
+anyway and prints, for example:
 
 ```
 claude enabled (bootstrap: no operator enrolled)
-setup: planes armed without an approval because no operator authenticator is enrolled.
-setup: run 'guardrail operator enroll' from a real terminal to take control; every later plane change needs your passkey.
-``` Only turning
-protection **on** works this way. Turning it off or loosening it waits for a
-passkey ([ADR-0030](adr/0030-first-install-bootstrap-arms-without-approval.md)).
-
-Now enroll, from your own terminal (not from inside an agent session):
-
-```sh
-guardrail operator enroll
+setup: planes armed without an approval because nobody was asked.
+setup: later changes ask for your approval at a terminal or in the agent's host; set approval = "passkey" in the operator config for WebAuthn.
 ```
 
-It prints:
-
-```
-guardrail: open operator approval page:
-http://localhost:<port>
-```
-
-Open that URL yourself in the browser you trust. Guardrail never opens a
-browser for you. Complete the passkey prompt: Windows Hello, a password
-manager passkey or a physical security key. The command then prints
-`guardrail: authenticator enrolled`. If you work over SSH, forward the port
-first ([operator-approvals.md](operator-approvals.md)).
-
-A passkey only works for the guardrail it was enrolled with. A Windows and a
-WSL install on one machine each need their own. A phone cannot approve for
-`localhost`; choose this device when the browser asks.
+Only turning protection **on** works this way. Turning it off or loosening
+it waits for your approval
+([ADR-0030](adr/0030-first-install-bootstrap-arms-without-approval.md)).
 
 Restart the agents you wired so they load the hooks. **For Codex, run
 `/hooks` inside Codex and trust the generated hooks.** Codex does not run
 hooks you have not reviewed.
 
+### Optional: approve with a passkey instead
+
+If you want every approval to need a WebAuthn passkey (Windows Hello, a
+password manager passkey or a physical security key), add this line at the
+top of your Operator config (`%APPDATA%\guardrail\waivers.toml` on Windows,
+`~/.config/guardrail/waivers.toml` elsewhere):
+
+```toml
+approval = "passkey"
+```
+
+Then enroll, from your own terminal (not from inside an agent session):
+
+```sh
+guardrail operator enroll
+```
+
+It prints a `http://localhost:<port>` page URL. Open it yourself in the
+browser you trust; guardrail never opens a browser for you. A passkey only
+works for the guardrail it was enrolled with: a Windows and a WSL install on
+one machine each need their own. [operator-approvals.md](operator-approvals.md)
+covers SSH, WSL and why a phone cannot approve. `guardrail doctor` prints
+`approval mode: prompt …` or `approval mode: passkey …`.
+
 ## 3. Your first approval
 
-From now on, changes to guardrail itself need your passkey. Run setup again
-to see one:
+Run setup again:
 
 ```sh
 guardrail setup
 ```
 
 If every host is already registered and current, it prints `already
-enabled` and asks for nothing. If one needs registering again, it prints:
+enabled` and asks for nothing. If one needs registering again, it asks the
+same `[y/N]` question (in passkey mode it prints an approval URL instead).
 
-```
-claude: approval required; open http://localhost:<port>
-```
+The same question appears for `guardrail plane enable|disable`, `guardrail
+recover` and `guardrail web-research on|off`. An agent can ask for these
+too, but only through its host, never on its own. When it runs the exact
+command, for example `guardrail plane enable claude`, Claude Code and
+Antigravity show you their own permission prompt naming the action. Approve
+it there and the command runs once; refuse it and nothing changes. opencode
+shows its dialog where its permission settings ask; Codex cannot ask from a
+hook, so the agent tells you the command to run in your terminal. Night mode
+and web-host grants (`guardrail egress grant`) work the same way.
 
-Open the page. It shows the exact action, the repository path, the scope and
-when the request expires. Read them, then complete the passkey prompt. The
-page ends with `Approved: plane-enable completed. You may close this page.`
-and the command carries on.
-
-The same page appears for `guardrail plane enable|disable`, `guardrail
-recover`, `guardrail web-research on|off` and web-host grants. An agent can
-never approve for you. It is denied from running `setup`, `plane`,
-`recover`, `operator` or `night on|off` itself. When it runs `guardrail
-egress grant`, guardrail turns that into an approval request that waits for
-your passkey.
+One caution: a host set to approve everything by itself (Claude Code's
+bypass-permissions mode or an allow rule that matches these commands, Codex
+full-auto) answers that prompt for you. If you run agents that way, use the
+passkey.
 
 ## 4. Check the machine
 
@@ -160,11 +175,11 @@ nothing is owed:
 
 ```
 next steps:
-  1. claude: registered handlers differ from this binary; re-enabling. Run `guardrail plane enable claude` from an interactive terminal and approve it with your passkey.
+  1. claude: registered handlers differ from this binary; re-enabling. Run `guardrail plane enable claude` from an interactive terminal and answer its prompt.
   2. Restart the agents you wired so they load the new hooks.
 ```
 
-It never changes anything and never asks for a passkey.
+It never changes anything and never asks for an approval.
 
 ## 5. Exit codes
 
@@ -175,7 +190,7 @@ Scripts may rely on these ([stability policy](stability-policy.md#cli-surface)):
 | 0 | Done, or nothing to do. |
 | 1 | It ran and a check said no: a failing `selftest`, `night status` while night mode is off, an `update` whose new binary failed its checks. |
 | 2 | It did not run: a typo, a bad argument, or no terminal where one is required. |
-| 3 | Waiting on you. The change needs your passkey (or an enrolled passkey) and nothing was loosened. Run the command it names from a real terminal. |
+| 3 | Waiting on you. The change needs your approval (the terminal's `[y/N]`, or your passkey in passkey mode) and nothing was loosened. Run the command it names from a real terminal. |
 
 ## 6. When the agent is denied or asked
 

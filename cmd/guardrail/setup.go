@@ -87,8 +87,14 @@ func cmdSetup(args []string, terminal bool, stdout, stderr io.Writer) int {
 	// With no operator enrolled, an enable is a bootstrap (ADR-0030): it
 	// hosts no approval ceremony, so it needs no terminal. Every other run
 	// keeps the gate: disable always, and enable once a passkey exists.
-	bootstrap := !setupWantsDisable(args) && !operatorEnrolled()
-	if !terminal && !bootstrap {
+	//
+	// In prompt mode (ADR-0033) a host-approval ticket for this exact command
+	// stands in for the terminal, and a run that can ask does ask.
+	prompt := promptApprovalMode()
+	reachable := reachability(prompt, terminal)
+	defer setPromptReachable(reachable)()
+	bootstrap := !setupWantsDisable(args) && bootstrapAllowed(prompt, reachable)
+	if !reachable && !bootstrap {
 		fmt.Fprintln(stderr, "guardrail: setup requires an interactive local terminal (run it from your shell, not from an agent or CI)")
 		// Waiting on the operator, not a usage error: exit 3, so an unattended
 		// caller treats it like every other operator-action-pending outcome.
@@ -118,20 +124,20 @@ func cmdSetup(args []string, terminal bool, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, warning)
 	}
 
-	return setupReconcile(planes, state, stdout, stderr)
+	return setupReconcile(planes, state, terminal, stdout, stderr)
 }
 
 // setupReconcile dispatches on the requested state.
-func setupReconcile(planes []string, state string, stdout, stderr io.Writer) int {
+func setupReconcile(planes []string, state string, terminal bool, stdout, stderr io.Writer) int {
 	if state == "enabled" {
-		return setupEnable(planes, stdout, stderr)
+		return setupEnable(planes, terminal, stdout, stderr)
 	}
-	return setupDisable(planes, stdout, stderr)
+	return setupDisable(planes, terminal, stdout, stderr)
 }
 
 // setupEnable reconciles every detected target plane against this binary,
 // approves the whole batch once, then gates on coverage and selftest.
-func setupEnable(planes []string, stdout, stderr io.Writer) int {
+func setupEnable(planes []string, terminal bool, stdout, stderr io.Writer) int {
 	for _, plane := range planes {
 		if planeInstalled(plane) {
 			if err := initializeWebResearchDefault(stdout); err != nil {
@@ -159,7 +165,8 @@ func setupEnable(planes []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "%s: %s\n", plane, reason)
 		batch = append(batch, plane)
 	}
-	bootstrap := len(batch) > 0 && !operatorEnrolled()
+	prompt := promptApprovalMode()
+	bootstrap := len(batch) > 0 && bootstrapAllowed(prompt, promptApprovalReachable)
 	if len(batch) > 0 {
 		if bootstrap {
 			// First install: no passkey exists, so arm without an approval
@@ -170,8 +177,10 @@ func setupEnable(planes []string, stdout, stderr io.Writer) int {
 				return 1
 			}
 		} else {
-			setupStopApprovalDaemon()
-			if code := planesViaApproval(batch, "plane-enable", "enabled", stdout, stderr); code != 0 {
+			if !prompt {
+				setupStopApprovalDaemon()
+			}
+			if code := planesApproved(batch, "plane-enable", "enabled", terminal, stdout, stderr); code != 0 {
 				return code
 			}
 		}
@@ -231,7 +240,8 @@ func setupEnableReason(plane string) (string, error) {
 	// The floor guardrail used to write is retired (ADR-0028); re-enabling with
 	// the operator's approval removes it (#357). Without an enrolled operator
 	// the bootstrap path can only tighten, so it neither removes nor asks.
-	if operatorEnrolled() {
+	// In prompt mode the question is whether this run can obtain an approval.
+	if legacyFloorPrunable() {
 		n, err := legacyFloorCount(plane)
 		if err != nil {
 			return "", err
@@ -275,7 +285,7 @@ func planeOwnershipDrift(plane string) (genconfig.DriftReport, error) {
 // setupDisable removes every registered target plane's integration, approves
 // the whole batch once, and skips the coverage and selftest gates entirely:
 // disabling this binary's hooks is not a reason to verify them.
-func setupDisable(planes []string, stdout, stderr io.Writer) int {
+func setupDisable(planes []string, terminal bool, stdout, stderr io.Writer) int {
 	var batch []string
 	for _, plane := range planes {
 		switch {
@@ -289,10 +299,10 @@ func setupDisable(planes []string, stdout, stderr io.Writer) int {
 		}
 	}
 	if len(batch) > 0 {
-		if !requireOperatorEnrolled("guardrail setup --state disabled", stderr) {
+		if !promptApprovalMode() && !requireOperatorEnrolled("guardrail setup --state disabled", stderr) {
 			return exitNotEnrolled
 		}
-		if code := planesViaApproval(batch, "plane-disable", "disabled", stdout, stderr); code != 0 {
+		if code := planesApproved(batch, "plane-disable", "disabled", terminal, stdout, stderr); code != 0 {
 			return code
 		}
 	}

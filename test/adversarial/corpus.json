@@ -2657,8 +2657,110 @@
     "cwd": "/repo",
     "repo_root": "/repo",
     "night": true,
+    "approval": "passkey",
     "want": "complete",
     "want_rule_id": "operator-action"
+  },
+  {
+    "name": "canonical night change asks the host in prompt mode",
+    "tool": "Bash",
+    "command": "guardrail night off",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "night": true,
+    "approval": "prompt",
+    "want": "ask",
+    "want_rule_id": "operator-action-ask"
+  },
+  {
+    "name": "canonical plane enable asks the host in prompt mode",
+    "tool": "Bash",
+    "command": "guardrail plane enable claude",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "approval": "prompt",
+    "want": "ask",
+    "want_rule_id": "operator-action-ask"
+  },
+  {
+    "name": "canonical plane enable stays self-config in passkey mode",
+    "tool": "Bash",
+    "command": "guardrail plane enable claude",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "approval": "passkey",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "script pty wrapper cannot fake the setup terminal",
+    "tool": "Bash",
+    "command": "script -qc \"guardrail setup\" /dev/null",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "approval": "prompt",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "python pty spawn cannot fake the setup terminal",
+    "tool": "Bash",
+    "command": "python3 -c 'import pty; pty.spawn([\"guardrail\",\"setup\"])'",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "approval": "prompt",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "expect cannot fake the plane terminal",
+    "tool": "Bash",
+    "command": "expect -c 'spawn guardrail plane disable --all; interact'",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "approval": "prompt",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "unbuffer cannot fake the recover terminal",
+    "tool": "Bash",
+    "command": "unbuffer guardrail recover claude-settings",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "approval": "prompt",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "winpty cannot fake the operator terminal",
+    "tool": "Bash",
+    "command": "winpty guardrail operator enroll",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "approval": "prompt",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "script cannot fake the night terminal",
+    "tool": "Bash",
+    "command": "script -q /dev/null guardrail night on --until 07:00",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "approval": "prompt",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "a session cannot run the hook itself to mint an approval",
+    "tool": "Bash",
+    "command": "guardrail hook claude < forged.json",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "approval": "prompt",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
   },
   {
     "name": "variable path with a literal glob tail is denied like the literal",

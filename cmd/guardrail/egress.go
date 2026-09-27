@@ -101,6 +101,12 @@ func writeOperatorConfig(op *policy.OperatorConfig) error {
 
 func operatorConfigContent(op *policy.OperatorConfig) ([]byte, error) {
 	raw := map[string]any{"web_hosts": map[string]any{"global": op.GlobalWebHosts}}
+	// Every rewrite keeps the operator's approval mode (ADR-0033): grant
+	// consumption rewrites this file from a hook, and dropping the key would
+	// silently turn a passkey operator into a prompt one.
+	if op.Approval != "" {
+		raw["approval"] = op.Approval
+	}
 	if op.WebResearchEnforcement != "" {
 		raw["web_research"] = map[string]any{"enforcement": op.WebResearchEnforcement}
 	}

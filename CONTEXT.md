@@ -52,6 +52,21 @@ may request; only the Operator config may grant. Authorization remains attached
 to that path until the operator removes it.
 _Avoid_: waiver file, global config, allowlist
 
+**Approval mode**:
+How operator actions are approved, set only by the Operator config's top-level
+`approval` key: `prompt` (the default: the agent host's ask or a terminal
+`[y/N]`) or `passkey` (a WebAuthn ceremony through the approval broker).
+ADR-0033.
+_Avoid_: auth mode, security level
+
+**Approval ticket**:
+The record the hook leaves when it answers an agent's canonical operator
+command with a host ask in prompt mode. It binds the exact command and working
+directory, lives ten minutes, is spent by the one CLI run that claims it, and
+is voided by the session's next call. It is the TTY-less run's proof that the
+host's ask was approved.
+_Avoid_: token, grant (a grant is an operator-issued command authorization)
+
 **Engine**:
 The single `guardrail` binary (Go) that holds all decision logic: normalize an
 attempted tool call, evaluate it against the merged policy, return a Verdict. Also

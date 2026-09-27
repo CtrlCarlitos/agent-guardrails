@@ -81,7 +81,7 @@ What it prints is human-readable output and is not stable.
 | 0 | The command did what was asked, or there was nothing to do. For `hook`: the call is allowed or asked (an ask is an answer, not a failure). |
 | 1 | The command ran and reports a state or check that is not "fine": `night status` while night mode is inactive, `doctor --coverage` with uncontracted tools, `selftest --evidence` without enough evidence, `update` whose post-install `doctor` or `selftest` failed. A state, not a crash. |
 | 2 | Usage error or the command could not run: unknown subcommand, missing or bad arguments, unreadable input, no terminal where one is required. For `hook`: deny, or fail-closed. |
-| 3 | Operator action pending (`exitOperatorActionPending`, `cmd/guardrail/plane.go`): the change is waiting on the operator's approval or enrollment; nothing was loosened. Not a failure. Returned by `setup`, `plane enable|disable` and `recover`. |
+| 3 | Operator action pending (`exitOperatorActionPending`, `cmd/guardrail/plane.go`): the change is waiting on the operator's approval (a terminal `[y/N]` or host ask in prompt mode, a passkey in passkey mode) or, in passkey mode, enrollment; nothing was loosened. A declined `[y/N]` for `setup` or `plane` is also 3. Not a failure. Returned by `setup`, `plane enable|disable` and `recover`. |
 
 The code is per command family, so read it with the command: `1` means a check
 said no, `2` means the command did not run. A script may rely on `0` meaning
@@ -110,9 +110,14 @@ Machine-scoped, outside every repository, at `guardrail/waivers.toml` under the
 platform config directory (`internal/policy/operator.go`; layout in
 [operator-config.md](operator-config.md)). Stable: tables keyed by absolute
 repository path with `waive`, `secret_allow`, `audit_log`, `egress_allowlist`,
-`web_hosts` and `[[grant]]` entries, and the global `[web_hosts] global` and
-`[web_research] enforcement` tables. The file name `waivers.toml` is kept even
-though the concept is "Operator config".
+`web_hosts` and `[[grant]]` entries, the global `[web_hosts] global` and
+`[web_research] enforcement` tables, and the top-level
+`approval = "prompt" | "passkey"` key (missing means `"prompt"`; an unknown
+value makes the file unreadable, and an unreadable file means `"passkey"`;
+[ADR-0033](adr/0033-operator-approvals-default-to-a-prompt.md)). A binary
+older than the `approval` key cannot read a file that sets it and treats
+Operator config as empty; remove the key before downgrading. The file name
+`waivers.toml` is kept even though the concept is "Operator config".
 
 ## Not yet stable
 

@@ -63,7 +63,18 @@ an input to the verdict.
 
 ## Install and operator approvals per OS
 
-| OS | Binary and installer | Operator approvals | State |
+Operator approvals default to **prompt mode** on every OS
+([ADR-0033](adr/0033-operator-approvals-default-to-a-prompt.md)): a terminal
+`[y/N]`, or the agent host's own ask for the exact canonical command (Claude
+Code `ask`, Antigravity `force_ask`, opencode's dialog where its permission
+settings ask; Codex cannot ask from a hook and is told to hand the command to
+the operator). State: covered by the Go suite on Windows (this host) and by
+CI on Linux and macOS, with sandboxed state roots; no live host-ask session
+is on record yet, and the terminal `[y/N]` has been exercised only through
+the test seam, not a real console. The WebAuthn column below is **passkey
+mode** (`approval = "passkey"`).
+
+| OS | Binary and installer | Operator approvals (passkey mode) | State |
 |---|---|---|---|
 | Windows | `guardrail_windows_amd64.exe`, `guardrail_windows_arm64.exe`; `install.ps1` under PowerShell 5.1 and 7 | Browser WebAuthn over a per-user named pipe ([ADR-0021](adr/0021-windows-approval-broker.md), [ADR-0025](adr/0025-persistent-daemon-broker-windows.md)) | **Observed** on amd64 [E8]; arm64 CI-built only |
 | Linux | `guardrail_linux_amd64`, `guardrail_linux_arm64`; `install.sh` | Browser WebAuthn over a Unix socket | CI-tested only [E7] |

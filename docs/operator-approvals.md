@@ -1,9 +1,76 @@
 # Operator Approvals
 
-Guardrail completes persistent operator actions only after a local WebAuthn
-ceremony. The browser page shows the canonical action, repository path, scope,
-exact egress host when applicable, request ID prefix, and expiry. Verify those
-fields before satisfying the authenticator prompt.
+Guardrail completes persistent operator actions (`setup`, `plane
+enable|disable`, `recover`, `web-research on|off`, `night on|off`, `egress
+grant|revoke`) only after the operator approves them. How they approve is the
+**approval mode**, one top-level key in Operator config
+([ADR-0033](adr/0033-operator-approvals-default-to-a-prompt.md)):
+
+```toml
+approval = "prompt"   # the default: a host ask or a terminal [y/N]
+approval = "passkey"  # a WebAuthn ceremony through the approval broker
+```
+
+Only Operator config sets it; a repository's `guardrail.toml` cannot. If the
+file cannot be read or parsed, guardrail uses `passkey`, the stronger mode.
+`guardrail doctor` prints `approval mode: prompt …` or `approval mode: passkey …`.
+
+## Prompt mode (default)
+
+**From a terminal**, the command asks and waits:
+
+```
+Approve remove guardrail from planes: claude? [y/N]
+```
+
+`y` or `yes` approves; anything else, including a bare Enter, declines and
+changes nothing (exit 3 for `setup` and `plane`, 1 for `recover` and
+`web-research`). `night` and `egress` apply directly from a terminal, as they
+always have. With no terminal and no host approval the command refuses as
+before (exit 3, or 2 for `recover`, `web-research`, `night`, `egress`), except
+the first-install bootstrap of ADR-0030, which can only tighten.
+
+**From an agent**, the exact canonical command is intercepted by the hook and
+becomes the host's own permission prompt, naming the action:
+
+| Plane | What the operator sees |
+|---|---|
+| Claude Code | its permission prompt (`ask`) |
+| Antigravity | its permission prompt (`force_ask`) |
+| opencode | its dialog, where its permission settings ask for the command; otherwise the agent is told to have you run it in a terminal |
+| Codex | nothing: Codex cannot ask from a hook, so the call is denied and the agent names the command for you to run in a terminal |
+
+When you approve, the host runs the command without a terminal, so the hook
+leaves an **approval ticket** that the command claims as its proof. A ticket
+binds the exact command and working directory, lives ten minutes, is spent by
+the first run that claims it, and is voided by the session's next tool call,
+so a refused ask leaves nothing usable behind. Tickets live under the state
+root in `guardrail/approval-tickets/`, which agents cannot write (P5).
+Anything other than the exact command (a different spelling, a chained
+command, a pty wrapper such as `script`, `expect`, `unbuffer` or `winpty`,
+an interpreter naming guardrail) stays denied as `P5.self-config`, and a
+session cannot run `guardrail hook` itself.
+
+The audit log records how each action was approved: `transport: host-ask`,
+`terminal-prompt`, `bootstrap` or, in passkey mode, the WebAuthn transport.
+
+**Accepted trade-off.** A host that approves everything by itself answers the
+ask for you: Claude Code's `bypassPermissions` mode or an allow rule matching
+these commands, Codex full-auto. An agent in such a session can change
+guardrail's own settings unseen. Agents cannot switch their host into that mode
+(host settings are P5), but prompt mode trusts the host's prompt. Prompt mode
+also stops at the engine's static boundary: a script file or a background job
+the engine cannot see into can run the CLI, and only a passkey's user
+verification cannot be scripted. If either matters to you, use passkey mode.
+
+## Passkey mode
+
+With `approval = "passkey"`, guardrail completes persistent operator actions
+only after a local WebAuthn ceremony, exactly as before ADR-0033. The browser
+page shows the canonical action, repository path, scope, exact egress host
+when applicable, request ID prefix, and expiry. Verify those fields before
+satisfying the authenticator prompt. The rest of this page describes passkey
+mode.
 
 ## Enrollment
 
@@ -113,10 +180,10 @@ this enrollment; it must never initiate enrollment automatically.
 ## Plane Lifecycle Actions
 
 `guardrail plane enable|disable <plane>` (claude, opencode, or antigravity)
-manages Guardrail's integration in that plane's global config through broker
-approval: the command requires an interactive local terminal, submits a
-`plane-enable`/`plane-disable` request bound to the exact plane, and applies
-only after a WebAuthn approval. Enable regenerates and merges the Guardrail
+manages Guardrail's integration in that plane's global config through an
+operator approval of a `plane-enable`/`plane-disable` request bound to the
+exact planes: in prompt mode a terminal `[y/N]` or a host ask; in passkey mode
+an interactive local terminal, a broker request and a WebAuthn approval. Enable regenerates and merges the Guardrail
 floor (hooks, permissions, plugin); disable removes only Guardrail-owned
 entries, preserving unrelated configuration. Both take `--all`, which acts on
 detected supported planes, reports undetected planes, and always reports codex
@@ -129,9 +196,9 @@ request completes idempotently without a second mutation.
 ## Recovery Repairs
 
 `guardrail recover <repair>` (claude-settings, opencode-config,
-antigravity-hooks) repairs Guardrail-protected machinery through the broker:
-interactive terminal required, WebAuthn approval bound to the exact named
-repair, audit-journaled, idempotent. Every repair takes a timestamped backup
+antigravity-hooks) repairs Guardrail-protected machinery after an operator approval bound to the
+exact named repair (a terminal `[y/N]` or host ask in prompt mode; the broker
+and WebAuthn in passkey mode), audit-journaled, idempotent. Every repair takes a timestamped backup
 first (`<path>.guardrail-recover-<utc>`); an unparseable file is reset and
 the Guardrail integration re-registered (original bytes preserved in the
 backup), while a parseable file is repaired in place with user configuration

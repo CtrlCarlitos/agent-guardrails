@@ -42,6 +42,7 @@ type entry struct {
 	FixtureSymlinks           []fixtureSymlink `json:"fixture_symlinks,omitempty"`
 	Waive                     []string         `json:"waive,omitempty"`
 	Night                     bool             `json:"night,omitempty"`
+	Approval                  string           `json:"approval,omitempty"`
 	Want                      string           `json:"want"`
 	WantRuleID                string           `json:"want_rule_id,omitempty"`
 	RewriteLogicalRepoPaths   bool             `json:"rewrite_logical_repo_paths,omitempty"`
@@ -185,6 +186,13 @@ func TestAdversarialCorpus(t *testing.T) {
 			}
 			config := filepath.Join(t.TempDir(), "guardrail.toml")
 			var overlay []byte
+			// The approval mode is a top-level Operator config key, so it
+			// precedes any repository table (ADR-0033). Unset means the
+			// production default, prompt.
+			operatorConfig := ""
+			if e.Approval != "" {
+				operatorConfig = fmt.Sprintf("approval = %q\n", e.Approval)
+			}
 			if len(e.Waive) > 0 {
 				quoted := make([]string, len(e.Waive))
 				for i, ruleID := range e.Waive {
@@ -196,11 +204,13 @@ func TestAdversarialCorpus(t *testing.T) {
 				if err != nil {
 					t.Fatalf("resolve repository root for waiver grant: %v", err)
 				}
+				operatorConfig += fmt.Sprintf("[%q]\nwaive = [%s]\n", grantRoot, strings.Join(quoted, ","))
+			}
+			if operatorConfig != "" {
 				operatorDir := filepath.Join(configHome, "guardrail")
 				if err := os.MkdirAll(operatorDir, 0o700); err != nil {
 					t.Fatalf("create Operator config directory: %v", err)
 				}
-				operatorConfig := fmt.Sprintf("[%q]\nwaive = [%s]\n", grantRoot, strings.Join(quoted, ","))
 				if err := os.WriteFile(filepath.Join(operatorDir, "waivers.toml"), []byte(operatorConfig), 0o600); err != nil {
 					t.Fatalf("write Operator config: %v", err)
 				}
@@ -531,6 +541,9 @@ func validateEntry(e entry, names map[string]bool) error {
 		if ruleID == "" {
 			return fmt.Errorf("%q has an empty waiver rule ID", e.Name)
 		}
+	}
+	if e.Approval != "" && e.Approval != "prompt" && e.Approval != "passkey" {
+		return fmt.Errorf("%q has invalid approval %q", e.Name, e.Approval)
 	}
 	switch e.Want {
 	case "allow", "ask", "deny", "complete":

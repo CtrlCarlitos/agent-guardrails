@@ -85,17 +85,14 @@ func cmdRecover(args []string, terminal bool, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "guardrail: recover needs one known repair (claude-settings, opencode-config, antigravity-hooks)")
 		return 2
 	}
-	if !terminal {
+	prompt := promptApprovalMode()
+	if !reachability(prompt, terminal) {
 		fmt.Fprintln(stderr, "guardrail: recover requires an interactive local terminal")
 		return 2
 	}
 	repair := args[0]
-	if !requireOperatorEnrolled("guardrail recover "+repair, stderr) {
-		return exitNotEnrolled
-	}
-
 	cwd, _ := os.Getwd()
-	created, err := submitPlaneRequest(approval.Request{
+	request := approval.Request{
 		Plane:      "operator",
 		SessionID:  "terminal",
 		RepoRoot:   cwd,
@@ -103,7 +100,29 @@ func cmdRecover(args []string, terminal bool, stdout, stderr io.Writer) int {
 		Reason:     "operator terminal recovery",
 		Action:     "recover",
 		Parameters: map[string]string{"repair": repair},
-	})
+	}
+	if prompt {
+		transport, result := promptApproval("repair "+repair+" (backup, then re-register guardrail)", terminal, stdout)
+		switch result {
+		case approvalUnreachable:
+			fmt.Fprintln(stderr, "guardrail: recover requires an interactive local terminal")
+			return 2
+		case approvalDeclined:
+			fmt.Fprintf(stderr, "guardrail: %s: recover declined\n", repair)
+			return 1
+		}
+		if _, err := approval.ApplyLocal(request, transport); err != nil {
+			fmt.Fprintf(stderr, "guardrail: %s: recover failed: %v\n", repair, err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "%s recovered\n", repair)
+		return 0
+	}
+	if !requireOperatorEnrolled("guardrail recover "+repair, stderr) {
+		return exitNotEnrolled
+	}
+
+	created, err := submitPlaneRequest(request)
 	if err != nil {
 		fmt.Fprintf(stderr, "guardrail: %s: approval request failed: %v\n", repair, err)
 		return 1

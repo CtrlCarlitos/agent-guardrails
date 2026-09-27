@@ -369,8 +369,14 @@ func printDoctor(stdout, stderr io.Writer) (int, int) {
 	printRecipeStatus(merged, stdout)
 
 	fmt.Fprintf(stdout, "audit log: %s\n", safetext.SingleLine(audit.DefaultPath(merged.Slots.AuditLog)))
-	enrolled, _ := defaultOperatorAuthStore().Enrolled()
-	fmt.Fprintln(stdout, operatorApprovalStatus(enrolled, anyPlaneRegistered()))
+	opForMode, opModeErr := policy.LoadOperatorConfig()
+	fmt.Fprintln(stdout, approvalModeLine(opForMode, opModeErr))
+	if approvalModeOf(opForMode, opModeErr) == policy.ApprovalPasskey {
+		// Enrollment is what passkey approvals hang on; in prompt mode it is
+		// optional, and "approvals: disabled" would be untrue.
+		enrolled, _ := defaultOperatorAuthStore().Enrolled()
+		fmt.Fprintln(stdout, operatorApprovalStatus(enrolled, anyPlaneRegistered()))
+	}
 	// Which authenticators back those approvals, so "which device can approve"
 	// has an answer (#383). Absent when no credential is readable.
 	if credentials, err := operatorCredentials(); err == nil && len(credentials) > 0 {
@@ -462,6 +468,17 @@ func printDoctor(stdout, stderr io.Writer) (int, int) {
 // operatorApprovalStatus reports the credential-store state. ADR-0021 step
 // (d) lifted the Windows gate: the platform no longer forces the disabled
 // string; enrollment is the truth on every OS.
+func approvalModeLine(op *policy.OperatorConfig, err error) string {
+	switch {
+	case err != nil:
+		return "approval mode: passkey (operator config unreadable, so the stronger mode applies until it parses)"
+	case approvalModeOf(op, nil) == policy.ApprovalPasskey:
+		return "approval mode: passkey (operator actions need a WebAuthn approval; approval = \"passkey\")"
+	default:
+		return "approval mode: prompt (operator actions are approved in the agent host's ask or at a terminal [y/N]; set approval = \"passkey\" in the operator config for WebAuthn)"
+	}
+}
+
 func operatorApprovalStatus(enrolled, armed bool) string {
 	if enrolled {
 		return "operator approvals: WebAuthn"

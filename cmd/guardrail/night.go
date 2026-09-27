@@ -70,6 +70,9 @@ func cmdNight(args []string, operatorTerminal bool, stdout, stderr io.Writer) in
 		return 0
 	}
 	if (args[0] == "on" || args[0] == "off") && !operatorTerminal {
+		if code, handled := nightViaHostApproval(args, stdout, stderr); handled {
+			return code
+		}
 		fmt.Fprintln(stderr, "night mode is an operator action; run it from a terminal")
 		return 2
 	}
@@ -176,6 +179,51 @@ func cmdNightOn(path string, args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stdout, (night.State{Marker: marker, Active: true}).Banner())
 	return 0
+}
+
+// nightViaHostApproval applies a canonical night command that the agent host
+// asked the operator about and they approved (ADR-0033, prompt mode). Only
+// the canonical forms ever carry a ticket: `night off` and
+// `night on --until HH:MM`. It reports handled=false when there is nothing to
+// apply, and the caller keeps today's terminal refusal.
+func nightViaHostApproval(args []string, stdout, stderr io.Writer) (int, bool) {
+	var request approval.Request
+	switch {
+	case len(args) == 1 && args[0] == "off":
+		request.Action = "night-off"
+	case len(args) == 3 && args[0] == "on" && args[1] == "--until":
+		request.Action = "night-on"
+		request.Parameters = map[string]string{"until": args[2]}
+	default:
+		return 0, false
+	}
+	if !promptApprovalMode() || !claimInvocationTicket() {
+		return 0, false
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nightError(err, stderr), true
+	}
+	request.Plane, request.SessionID, request.RepoRoot = "operator", "host-ask", cwd
+	request.Scope, request.Reason = approval.Allow, "canonical operator action"
+	if _, err := approval.ApplyLocal(request, transportHostAsk); err != nil {
+		return nightError(err, stderr), true
+	}
+	if request.Action == "night-off" {
+		fmt.Fprintln(stdout, "night mode off")
+		return 0, true
+	}
+	path, err := night.DefaultPath()
+	if err != nil {
+		return nightError(err, stderr), true
+	}
+	state, err := night.Load(path, time.Now())
+	if err != nil || !state.Active {
+		fmt.Fprintln(stderr, "guardrail: approved night mode did not take effect")
+		return 1, true
+	}
+	fmt.Fprintln(stdout, state.Banner())
+	return 0, true
 }
 
 func repeatedNightFlag(args []string, name string) bool {
