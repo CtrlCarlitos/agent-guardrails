@@ -80,6 +80,14 @@ usage: guardrail <command> [arguments]
       --idle <duration>          idle shutdown for start (default 30m)
 `
 
+// operatorTerminal reports whether stdin is an interactive console, the gate
+// for commands only the operator may run by hand. A variable so tests can
+// exercise the run() wiring without a real console (#416).
+var operatorTerminal = func(stdin io.Reader) bool {
+	file, ok := stdin.(*os.File)
+	return ok && term.IsTerminal(int(file.Fd()))
+}
+
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
@@ -116,7 +124,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		cwd, _ := os.Getwd()
 		return cmdEgress(args[1:], terminal && term.IsTerminal(int(file.Fd())), cwd, stdout, stderr)
 	case "approvals":
-		return cmdApprovals(args[1:], false, stdout, stderr)
+		// The Engine denies a session's `approvals grant|approve` (#416), so
+		// the terminal gate here is the operator's, not the only barrier.
+		return cmdApprovalsInput(args[1:], operatorTerminal(stdin), stdin, stdout, stderr)
 	case "operator":
 		file, terminal := stdin.(*os.File)
 		return cmdOperator(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdin, stdout, stderr)

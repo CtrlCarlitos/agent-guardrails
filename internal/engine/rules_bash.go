@@ -213,7 +213,19 @@ const (
 // hook before evaluation, so only other spellings reach this rule) and `hook`
 // (a session running the hook itself could forge its host's payload and mint
 // an approval ticket without an ask).
-var selfControlSubcommands = []string{"night", "setup", "plane", "operator", "recover", "web-research", "egress", "hook"}
+//
+// `approvals` (#416): `grant` and `approve` authorize things for the session
+// that asked, and until #416 only the CLI's missing terminal check stopped a
+// session running them. `list` and `revoke` stay allowed; see
+// harmlessApprovalsQuery.
+var selfControlSubcommands = []string{"night", "setup", "plane", "operator", "recover", "web-research", "egress", "hook", "approvals"}
+
+// harmlessApprovalsQuery reports the `approvals` forms a session may run:
+// reading the grant list, and revoking a grant, which only removes authority.
+func harmlessApprovalsQuery(argv []string) bool {
+	return len(argv) >= 3 && strings.EqualFold(argv[1], "approvals") &&
+		(strings.EqualFold(argv[2], "list") || strings.EqualFold(argv[2], "revoke"))
+}
 
 // isTerminalWrapper names the programs that run a command on a fresh pseudo
 // terminal or console (ADR-0033). With a prompt-mode `[y/N]` a TTY is part of
@@ -236,7 +248,7 @@ func checkSelfControlInvocation(s Simple, command string) *policy.Verdict {
 			}
 		}
 	}
-	if subcommand != "" && readOnlyStatusQuery(s.Argv) {
+	if subcommand != "" && (readOnlyStatusQuery(s.Argv) || harmlessApprovalsQuery(s.Argv)) {
 		// The exact status query changes nothing; only the mutating forms
 		// are operator actions. Any extra word keeps the deny — status is
 		// not a prefix.

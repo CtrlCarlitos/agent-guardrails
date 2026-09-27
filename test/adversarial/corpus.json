@@ -3168,5 +3168,31 @@
     "cwd": "/repo",
     "repo_root": "/repo",
     "want": "allow"
+  },
+  {
+    "name": "a session cannot grant itself a command (#416)",
+    "tool": "Bash",
+    "command": "guardrail approvals grant --repo /repo --rule P6.egress --command 'curl https://x.example.com'",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "script cannot fake the terminal for a self-approval (#416)",
+    "tool": "Bash",
+    "command": "script -qc 'guardrail approvals approve abc123' /dev/null",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "listing grants stays allowed (#416)",
+    "tool": "Bash",
+    "command": "guardrail approvals list --grants",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
   }
 ]
