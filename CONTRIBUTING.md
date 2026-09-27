@@ -156,7 +156,8 @@ Use the repository's issue tracker and pick the matching form
 ([`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/)): bug, engine verdict
 (false positive, false negative, or a denial with no next step), tool not
 covered, or feature. Each asks for what a report needs: the command or tool
-call, the verdict you got (`guardrail audit` shows the `rule_id` and `reason`),
+call, the verdict you got (`guardrail explain` shows the `rule_id`, the `reason` and
+the next step),
 the verdict you expected, the plane, OS and shell, `guardrail version` and the
 `guardrail doctor` verdict line. For a security problem do not open a public
 issue; follow [`SECURITY.md`](SECURITY.md).

@@ -27,6 +27,24 @@ func Guidance(v policy.Verdict, action string) string {
 	}
 }
 
+// NextStep is the continuation Guidance gives the model for v, without the
+// surrounding boilerplate: the approval path for an ask, the rule's next step
+// for a deny, and the brokered-action text for a completed operator action.
+// `guardrail explain` prints it as the fix (#106), so the operator and the
+// agent read the same sentence and the two can never drift. Empty for allow.
+func NextStep(v policy.Verdict) string {
+	switch v.Decision {
+	case policy.Ask:
+		return askApprovalPath(v)
+	case policy.Deny:
+		return denyNextStep(v)
+	case policy.Complete:
+		return operatorActionGuidance(v)
+	default:
+		return ""
+	}
+}
+
 // askApprovalPath names which of the approval paths applies, because the
 // observed failure was not agents missing an instruction but agents looking
 // for machinery that does not exist (#129).

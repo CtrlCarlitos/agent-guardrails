@@ -60,7 +60,7 @@ like from the outside for four days: `registered`, green, enforcing nothing.
 | You see | Run | Why |
 |---|---|---|
 | doctor: `verdict: N problems (see above)` | Read the `WARNING` and warning-register lines above it; the rows below name each fix | The last line of doctor counts them so you do not have to (#105). `verdict: healthy` means none. |
-| Agent says it was blocked and you don't know why | `guardrail audit` then `grep '"decision":"deny"' ~/.local/state/guardrail/audit.jsonl \| grep -v selftest \| tail -5` | Every verdict is a JSONL record with `rule_id` and `reason`. Selftest writes deny probes to the same log on every update — filter them out or you will be reading the last selftest. |
+| Agent says it was blocked and you don't know why | `guardrail explain` from the repository (or `guardrail explain <session-id>`) | Prints the newest ask/deny for this repository: what was evaluated, the verdict and `rule_id`, the reason, the next step the agent was given, and what only you can do about it. Selftest probes are excluded. See **Why was this blocked** below. |
 | `operator action pending: …` (exit 3) from `setup`, `plane enable` or `plane disable`: the approval daemon is not running, or the request was denied or expired | Run `guardrail setup` from an interactive terminal, approve with your passkey, then re-run what provisioned the machine | Nothing is broken: the binary is installed and what is registered keeps enforcing. Only the change waited on you (#364). `guardrail next` lists what is still owed. |
 | `no operator authenticator is enrolled` from `setup --state disabled`, `plane disable` or `recover` (exit 3) | `guardrail operator enroll` from a real terminal, then re-run the command it named | No passkey is enrolled, so no approval ceremony can start, and loosening actions wait for one (ADR-0030). The daemon is fine; nothing was changed. `approval daemon unavailable` now means exactly that: nothing answered on the socket and none could be spawned (#326). |
 | doctor: `operator approvals: disabled (no authenticator enrolled; planes armed by bootstrap; …)` | `guardrail operator enroll` | The first install armed the planes without an approval (ADR-0030). They are guarding; nothing can loosen them until a passkey exists. Enrolling puts every later change behind it. |
@@ -82,6 +82,49 @@ like from the outside for four days: `registered`, green, enforcing nothing.
 | Agent needs a website | agent runs `guardrail egress grant --scope repo --host a.example.com,b.example.com` inside its session → you approve with passkey; or you run the same at a terminal (immediate, no passkey) | Grants live in `~/.config/guardrail/waivers.toml` plus the repo's `guardrail.toml`; **both** must agree. Native WebFetch is always denied; `guardrail fetch <url>` is the sanctioned path |
 | Too many asks tonight | `guardrail night on --for 8h` (terminal only) | Relaxes routine asks to allow until then. External-tier asks (publishing, schedulers, unknown MCP) are never relaxed (ADR-0018). `guardrail night off` restores. `guardrail night status` works from anywhere and exits 1 when inactive — a state, not a failure. |
 | Windows: an opencode agent reports *every* tool call failing `guardrail: could not run (spawnSync … ETIMEDOUT); failing closed` | see **Windows: engine unreachable** below | Per-spawn latency (Defender scan + NTFS `CreateProcess`, #132) exceeded the opencode plugin's budget; the plugin denies everything when the engine cannot run — fail-closed by design. Other planes have larger hook budgets and keep working; opencode failing alone is expected, not evidence of a binary bug. |
+
+## Why was this blocked: `guardrail explain`
+
+One command from an audit record to the fix (#106). Agents can run it too; it
+only reads the audit log and changes nothing.
+
+```
+guardrail explain                     # newest ask/deny for the repository you are in
+guardrail explain --last 5            # the five newest, newest first
+guardrail explain <session-id>        # newest ask/deny in that session, any repository
+guardrail explain <request-id>        # a brokered operator action, with its latest status
+guardrail explain 2026-09-26T10:01:00Z  # the record written at that instant
+guardrail explain --all               # search every repository, not only this one
+guardrail explain --path <file>       # read another audit log
+```
+
+For each record it prints what was evaluated (plane, session, repository, tool,
+command, paths), the verdict and `rule_id`, the reason, and:
+
+- **next step**: the continuation the agent was given for that verdict, taken
+  from the same code that wrote the guidance, so it cannot drift from it;
+- **operator**: what only you can do. For a grantable ask, the exact
+  `guardrail approvals grant --repo … --rule … --command …` line for that
+  command (not printed when the log redacted part of the command, since a grant
+  built from it could never match); for an ask that can never be granted, which
+  rule says so; for a brokered action, `guardrail approvals approve <id>` and
+  the request's latest status in the log;
+- **guidance**: the full text re-rendered from the record. The record keeps the
+  normalized command, not the raw tool arguments, so the quoted action is a
+  summary rather than the exact bytes the plane sent.
+
+A deny with **no rule ID** was not decided by a rule: the hook failed closed
+before it could evaluate the call (an unparseable payload, or a policy or
+Overlay that would not load). Those denies are recorded with `audit_kind:
+hook-fail-closed` and the reason the agent saw; `explain` says so and points at
+`guardrail doctor`, which names the broken file.
+
+The default scope is the repository you run it from, plus records that name no
+repository (written before records carried `repo_root`, or by a hook that
+failed before it knew the repository). It exits 0 when it explained something,
+1 when nothing matched (a state, not a failure), 2 on a usage error or an
+unreadable log. `explain` never re-evaluates a call: the policy may have changed
+since, and the record is what the agent saw.
 
 ## Native web research
 
