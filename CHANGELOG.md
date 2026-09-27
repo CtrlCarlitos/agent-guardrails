@@ -7,6 +7,16 @@ explicitly in **Breaking** notes.
 ## Unreleased
 
 ### Approvals
+- **Fix (#416): `guardrail approvals grant` and `approvals approve` work from
+  the operator's terminal, and a session can no longer run them.** Since the
+  first release the CLI passed "not a terminal" to both, so they refused even
+  in the operator's own console, and the grant `guardrail explain` prints was
+  unusable. The Engine had allowed the agent-run forms, including through
+  `script`, `unbuffer` and `winpty`, so the broken check was the only barrier.
+  The Engine now denies a session's `approvals grant|approve` as
+  `P5.self-config` (direct, interpreter and terminal-wrapper spellings), and
+  only then does the CLI honour a real terminal. `approvals list` and
+  `revoke` stay allowed.
 - **Feature (#413, ADR-0033): operator approvals default to a prompt; the
   passkey is opt-in.** Operator config gains a top-level key,
   `approval = "prompt" | "passkey"`. Missing means `prompt`, for everyone,
