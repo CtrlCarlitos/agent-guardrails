@@ -52,6 +52,11 @@ explicitly in **Breaking** notes.
   Linux and WSL cells it marked Enforced had no recorded run and are now
   operator-reported. `docs/operator-approvals.md` no longer says Windows
   approvals are fail-closed.
+- **Docs (#98): getting-started guide.** `docs/getting-started.md` walks a
+  new user from the pinned-tag installers through `guardrail setup`, passkey
+  enrollment and the first approval, to reading the `guardrail doctor`
+  verdict line and `guardrail next`, the exit codes 0 to 3, what a deny and
+  an ask look like, and `guardrail explain`. Linked from the README.
 
 ## v0.23.12-dev (2026-09-26)
 
