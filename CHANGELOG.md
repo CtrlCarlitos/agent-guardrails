@@ -4,6 +4,16 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Installer
+- **Test (#146): the Defender exclusion is locked to the one binary.** A repo
+  guard test now fails if `install.ps1` excludes anything other than exactly
+  `<dest>\guardrail.exe`: a directory, a process name, an extension, or a
+  `Set-MpPreference` that would replace the operator's own exclusion list.
+  The exclusion only ever runs elevated, which CI is not, so nothing checked
+  its scope before.
+
 ## v0.23.12-dev (2026-09-26)
 
 ### Engine
