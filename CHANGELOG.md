@@ -42,6 +42,17 @@ explicitly in **Breaking** notes.
   The exclusion only ever runs elevated, which CI is not, so nothing checked
   its scope before.
 
+### Docs
+- **Docs (#91): host × OS × shell compatibility matrix.**
+  `docs/compatibility-matrix.md` states, per plane, OS and shell, whether
+  guardrail is enforced and observed, registered only, unenforced, CI-tested
+  only or unknown, and cites the evidence for each cell (a dated Windows run,
+  audit records, research notes, ADRs, doctor wording). The per-OS table in
+  `docs/stability-policy.md` now links to it instead of repeating it; the
+  Linux and WSL cells it marked Enforced had no recorded run and are now
+  operator-reported. `docs/operator-approvals.md` no longer says Windows
+  approvals are fail-closed.
+
 ## v0.23.12-dev (2026-09-26)
 
 ### Engine

@@ -235,6 +235,7 @@ The engine intercepts that, opens a passkey approval, and applies the grant the 
 
 - [CONTEXT.md](./CONTEXT.md) — the vocabulary (plane, verdict, overlay, floor…). Two minutes, well spent.
 - [docs/OPERATIONS.md](./docs/OPERATIONS.md) — the runbook for when it's weird.
+- [docs/compatibility-matrix.md](./docs/compatibility-matrix.md) — which plane, OS and shell combinations are verified, and the evidence for each.
 - [docs/adr/](./docs/adr/) — every non-obvious decision, with the reasoning. Start with [0001](./docs/adr/0001-hybrid-enforcement-model.md), [0012](./docs/adr/0012-static-analysis-boundary-and-shape-threshold.md), [0013](./docs/adr/0013-delegation-inherits-enforcement-in-process.md).
 - [DESIGN.md](./DESIGN.md) — the full design.
 - [CHANGELOG.md](./CHANGELOG.md).

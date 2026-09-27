@@ -55,6 +55,11 @@ spawn fault and suppresses the never-observed caveat — cause, not consequence.
 Neither is appended when nothing is registered at all. This is what #149 looked
 like from the outside for four days: `registered`, green, enforcing nothing.
 
+Which plane, OS and shell combinations have been seen enforcing, and which
+are only registered or CI-tested, is recorded in
+[compatibility-matrix.md](compatibility-matrix.md). A new dated run of the
+checks above is how a cell there moves up.
+
 ## Symptom → command
 
 | You see | Run | Why |

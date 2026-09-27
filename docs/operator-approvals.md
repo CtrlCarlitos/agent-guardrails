@@ -93,8 +93,12 @@ operator enroll`, and choose this device.
 
 ## Limits And Validation
 
-Unix, WSL, and macOS use the local loopback ceremony. Windows operator actions
-are fail-closed pending a native validated broker transport. Browser automation
+Unix, WSL, and macOS use the local loopback ceremony. Windows uses the same
+browser ceremony; the CLI reaches the daemon over a per-user named pipe
+([ADR-0021](adr/0021-windows-approval-broker.md),
+[ADR-0025](adr/0025-persistent-daemon-broker-windows.md)). Which OS has a
+completed approval on record is in the
+[compatibility matrix](compatibility-matrix.md). Browser automation
 can open the page but cannot satisfy a physical or biometric user-verification
 prompt. Guardrail is not an OS sandbox: a same-user process with an unguarded
 OS bypass can still modify its deployment or deceive an operator.
