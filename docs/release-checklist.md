@@ -32,6 +32,8 @@ One PR from a fresh branch off `main` (recent ones: `chore/release-vX.Y.Z-dev`,
       `` `vX.Y.Z-dev` is an example `` sentence under them. Check with
       `grep -n "<old tag>" README.md` (must print nothing) and
       `grep -c "<new tag>" README.md` (must print 3).
+- [ ] `docs/getting-started.md`: the same pin, also in three places (`ver=...`,
+      `$ver = '...'` and "The examples use ..."). Same two greps on that file.
 - [ ] Title `chore(release): vX.Y.Z-dev`. Body: what it includes (issue
       numbers), `Root cause: none, release cut.`, and the verification you ran
       (`go vet ./...` and `go test ./...` on the commit you cut from; CI covers
