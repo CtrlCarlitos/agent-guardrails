@@ -86,6 +86,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 	switch args[0] {
+	case "setup", "plane", "recover", "night", "egress", "web-research":
+		// The operator actions: a prompt-mode approval binds this exact argv
+		// (a host ticket) or reads the terminal's answer (ADR-0033).
+		operatorInvocation = append([]string(nil), args...)
+		operatorInput = stdin
+	}
+	switch args[0] {
 	case "version":
 		fmt.Fprintf(stdout, "guardrail %s\n", version)
 		return 0

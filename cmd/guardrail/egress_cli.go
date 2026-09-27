@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 )
@@ -16,8 +17,9 @@ const egressUsage = `usage:
   guardrail egress revoke --scope repo|global --host a.example.com
 
 From a terminal the change applies immediately. Issued inside a guarded agent
-session, the same command is intercepted and brokered to the operator for
-passkey approval instead.
+session, the same command is intercepted: the agent's host asks the operator
+(approval = "prompt", the default), or it is brokered for passkey approval
+(approval = "passkey").
 `
 
 // cmdEgress is the terminal form of the web-host operator action. The agent
@@ -39,7 +41,10 @@ func cmdEgress(args []string, operatorTerminal bool, cwd string, stdout, stderr 
 		fmt.Fprintf(stderr, "guardrail: unknown egress action %q\n", safetext.SingleLine(action))
 		return 2
 	}
-	if !operatorTerminal {
+	// Prompt mode (ADR-0033): with no terminal, the host's recorded approval
+	// of this exact command is the only other way in.
+	hostApproved := !operatorTerminal && promptApprovalMode()
+	if !operatorTerminal && !hostApproved {
 		fmt.Fprintln(stderr, "guardrail: egress "+action+" is an operator action; run it from a terminal, or issue the exact command from a guarded session to request passkey approval")
 		return 2
 	}
@@ -76,6 +81,7 @@ func cmdEgress(args []string, operatorTerminal bool, cwd string, stdout, stderr 
 	grant := action == "grant"
 	var apply func(host string, grant bool) error
 	target := "global"
+	repoRoot := cwd
 	if scope == "global" {
 		apply = func(host string, grant bool) error { return applyGlobalWebHost(host, grant) }
 	} else {
@@ -86,9 +92,23 @@ func cmdEgress(args []string, operatorTerminal bool, cwd string, stdout, stderr 
 		}
 		root = filepath.Clean(root)
 		target = root
+		repoRoot = root
 		apply = func(host string, grant bool) error { return applyRepoWebHost(root, host, grant) }
 	}
-	if err := applyWebHostBatch(hosts, grant, apply); err != nil {
+	if hostApproved {
+		if !claimInvocationTicket() {
+			fmt.Fprintln(stderr, "guardrail: egress "+action+" is an operator action; run it from a terminal, or issue the exact command from a guarded session so its host asks the operator")
+			return 2
+		}
+		// The approved action's handler applies the same all-or-none batch
+		// and writes the operator-action audit record.
+		request := approval.Request{Plane: "operator", SessionID: "host-ask", RepoRoot: repoRoot, Scope: approval.Scope(scope),
+			Reason: "canonical operator action", Action: "web-host-" + action, Parameters: map[string]string{"scope": scope, "hosts": hostList}}
+		if _, err := approval.ApplyLocal(request, transportHostAsk); err != nil {
+			fmt.Fprintf(stderr, "guardrail: egress %s failed: %s\n", action, safetext.SingleLine(err.Error()))
+			return 2
+		}
+	} else if err := applyWebHostBatch(hosts, grant, apply); err != nil {
 		fmt.Fprintf(stderr, "guardrail: egress %s failed: %s\n", action, safetext.SingleLine(err.Error()))
 		return 2
 	}

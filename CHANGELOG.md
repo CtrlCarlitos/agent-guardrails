@@ -6,7 +6,55 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Approvals
+- **Feature (#413, ADR-0033): operator approvals default to a prompt; the
+  passkey is opt-in.** Operator config gains a top-level key,
+  `approval = "prompt" | "passkey"`. Missing means `prompt`, for everyone,
+  including operators who already enrolled a passkey; an Overlay cannot set
+  it; an unreadable Operator config means `passkey`. In prompt mode a terminal
+  run of `setup`, `plane enable|disable`, `recover` or `web-research on|off`
+  asks `Approve <summary>? [y/N]` (default No; a declined `setup`/`plane`
+  exits 3). An agent's exact canonical operator command becomes its host's
+  own ask (Claude `ask`, Antigravity `force_ask`, opencode's dialog where its
+  permission settings ask); Codex, which cannot ask from a hook, is denied
+  with the command for the operator to run in a terminal. When the human
+  approves, the TTY-less run claims an **approval ticket** the hook recorded:
+  bound to the exact command and working directory, ten minutes, single use
+  under an exclusive lock, voided by the session's next call, stored in the
+  P5-protected `guardrail/approval-tickets/` under the state root. Approved
+  actions run the same handlers as the broker and are audited with
+  `transport: host-ask` or `terminal-prompt`. `guardrail doctor` prints
+  `approval mode: …`; `guardrail next` and the bootstrap message stop asking
+  prompt-mode operators to enroll. **Breaking (default):** an operator who
+  wants to keep WebAuthn must add `approval = "passkey"`. **Downgrade:** a
+  binary older than this release reads a `waivers.toml` with the key as
+  unreadable; remove the key before downgrading. Passkey mode is unchanged.
+- **Fix: every rewrite of `waivers.toml` keeps the approval key.** Grant
+  consumption (which runs inside the hook), web-host grants and the
+  web-research switch re-serialise the file; without this they would have
+  silently turned a passkey operator into a prompt one.
+- **Fix: a canonical operator command is never answered by the engine
+  daemon.** The hook used to hand every call to a running engine daemon
+  first, whose evaluator has no broker path. Measured on `d274a8e` in a
+  sandbox with `guardrail daemon start` running: the Claude hook answered
+  `guardrail night off` with a `P5.self-config` deny (exit 2) instead of a
+  broker request.
+
 ### Engine
+- **Fix (#413): a pty wrapper can no longer fake the operator's terminal.**
+  Measured on `d274a8e`: `script -qc "guardrail setup" /dev/null`,
+  `expect -c 'spawn guardrail setup'`, `unbuffer guardrail setup`,
+  `winpty guardrail setup`, `tmux new-session -d 'guardrail setup'` and
+  `screen -dm guardrail setup` were allowed (only interpreters such as
+  `python3 -c 'import pty; pty.spawn(…)'` were denied). `script`, `expect`,
+  `unbuffer`, `winpty`, `tmux`, `screen`, `socat`, `dtach`, `abduco`,
+  `empty`, `faketty`, `mintty`, `wt` and `conhost` are now read like
+  interpreters by `P5.self-config`: command text naming guardrail and a
+  self-control subcommand is denied. `egress` (non-canonical spellings only;
+  the exact command is intercepted first) and `hook` (a session running the
+  hook could forge its host's payload) join the self-control subcommands.
+  Writes to `guardrail/approval-tickets/`, directly or named in interpreter
+  code, are `P5.self-config`. New adversarial corpus rows pin each case.
 - **Fix (#125): an egress deny leads to the fetch and the exact grant, and
   never back to a dead end.** Measured on all four planes before the fix: a
   `curl`/`wget` to an unapproved host told the agent to request a grant with

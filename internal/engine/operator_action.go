@@ -10,9 +10,152 @@ import (
 )
 
 // Action is the canonical operation a broker, not a guarded shell, may execute.
+// Command is the exact canonical command text it was recognised from.
 type Action struct {
 	Name       string
 	Parameters map[string]string
+	Command    string
+}
+
+// Brokered reports whether the action is one the hook has always filed with
+// the approval broker (night mode and web-host grants). The lifecycle actions
+// are recognised only so prompt mode can ask for them (ADR-0033); in passkey
+// mode they stay P5.self-config.
+func (a Action) Brokered() bool {
+	switch a.Name {
+	case "night-on", "night-off", "web-host-grant", "web-host-revoke":
+		return true
+	}
+	return false
+}
+
+// Summary is the operator-facing description of the action, used as the
+// question a prompt-mode ask puts to the human.
+func (a Action) Summary() string {
+	p := a.Parameters
+	switch a.Name {
+	case "setup":
+		planes := "every detected plane"
+		if p["planes"] != "" {
+			planes = "planes " + p["planes"]
+		}
+		if p["state"] == "disabled" {
+			return "remove guardrail from " + planes + " (guardrail setup --state disabled)"
+		}
+		return "register guardrail on " + planes + " (guardrail setup)"
+	case "plane-enable", "plane-disable":
+		target := "the " + p["target"] + " plane"
+		if p["target"] == "--all" {
+			target = "every detected plane"
+		}
+		if a.Name == "plane-disable" {
+			return "remove guardrail from " + target
+		}
+		return "register guardrail on " + target
+	case "recover":
+		return "repair " + p["repair"] + " (guardrail recovery: backup, then re-register)"
+	case "web-research-set":
+		if p["enforcement"] == "off" {
+			return "turn native web-research enforcement off, machine-wide"
+		}
+		return "turn native web-research enforcement on (strict), machine-wide"
+	case "night-on":
+		return "turn night mode on until " + p["until"] + " (asks become allows)"
+	case "night-off":
+		return "turn night mode off"
+	case "web-host-grant":
+		return "let guardrail fetch reach " + p["hosts"] + " (" + p["scope"] + " scope)"
+	case "web-host-revoke":
+		return "withdraw guardrail fetch access to " + p["hosts"] + " (" + p["scope"] + " scope)"
+	}
+	return a.Name
+}
+
+var lifecyclePlanes = map[string]bool{"claude": true, "opencode": true, "antigravity": true, "codex": true}
+var lifecycleRepairs = map[string]bool{"claude-settings": true, "opencode-config": true, "antigravity-hooks": true}
+
+// canonicalCommandBytes is the whitelist every canonical operator command is
+// written in: no quoting, substitution, chaining, redirection, tabs or
+// newlines can be part of one.
+func canonicalCommandBytes(command string) bool {
+	for i := 0; i < len(command); i++ {
+		c := command[i]
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == ',' || c == '=' || c == '-' || c == ':' || c == ' ') {
+			return false
+		}
+	}
+	return true
+}
+
+// parseLifecycleCommand recognises the canonical lifecycle commands prompt
+// mode can ask for (ADR-0033): setup, plane enable|disable, recover and
+// web-research on|off, as whole commands with exactly the flags each takes.
+func parseLifecycleCommand(command string) (Action, bool) {
+	if !strings.HasPrefix(command, "guardrail ") || !canonicalCommandBytes(command) {
+		return Action{}, false
+	}
+	tokens := strings.Split(command, " ")
+	for _, token := range tokens {
+		if token == "" {
+			return Action{}, false
+		}
+	}
+	switch tokens[1] {
+	case "setup":
+		values := map[string]string{}
+		for i := 2; i < len(tokens); i++ {
+			name, value, inline := strings.Cut(strings.TrimPrefix(tokens[i], "--"), "=")
+			if !strings.HasPrefix(tokens[i], "--") || (name != "state" && name != "planes") {
+				return Action{}, false
+			}
+			if !inline {
+				i++
+				if i >= len(tokens) || strings.HasPrefix(tokens[i], "-") {
+					return Action{}, false
+				}
+				value = tokens[i]
+			}
+			if _, dup := values[name]; dup || value == "" {
+				return Action{}, false
+			}
+			values[name] = value
+		}
+		state := values["state"]
+		if state == "" {
+			state = "enabled"
+		}
+		if state != "enabled" && state != "disabled" {
+			return Action{}, false
+		}
+		params := map[string]string{"state": state}
+		if list, ok := values["planes"]; ok {
+			seen := map[string]bool{}
+			for _, plane := range strings.Split(list, ",") {
+				if !lifecyclePlanes[plane] || seen[plane] {
+					return Action{}, false
+				}
+				seen[plane] = true
+			}
+			params["planes"] = list
+		}
+		return Action{Name: "setup", Parameters: params, Command: command}, true
+	case "plane":
+		if len(tokens) != 4 || (tokens[2] != "enable" && tokens[2] != "disable") || (!lifecyclePlanes[tokens[3]] && tokens[3] != "--all") {
+			return Action{}, false
+		}
+		return Action{Name: "plane-" + tokens[2], Parameters: map[string]string{"target": tokens[3]}, Command: command}, true
+	case "recover":
+		if len(tokens) != 3 || !lifecycleRepairs[tokens[2]] {
+			return Action{}, false
+		}
+		return Action{Name: "recover", Parameters: map[string]string{"repair": tokens[2]}, Command: command}, true
+	case "web-research":
+		if len(tokens) != 3 || (tokens[2] != "on" && tokens[2] != "off") {
+			return Action{}, false
+		}
+		return Action{Name: "web-research-set", Parameters: map[string]string{"enforcement": tokens[2]}, Command: command}, true
+	}
+	return Action{}, false
 }
 
 var nightUntilCommand = regexp.MustCompile(`\Aguardrail night on --until ([0-2][0-9]:[0-5][0-9])\z`)
@@ -88,20 +231,19 @@ func OperatorAction(tc ToolCall) (Action, bool) {
 		return Action{}, false
 	}
 	if tc.Command == "guardrail night off" {
-		return Action{Name: "night-off"}, true
+		return Action{Name: "night-off", Command: tc.Command}, true
 	}
 	matches := nightUntilCommand.FindStringSubmatch(tc.Command)
 	if len(matches) == 2 {
 		if _, err := time.Parse("15:04", matches[1]); err != nil {
 			return Action{}, false
 		}
-		return Action{Name: "night-on", Parameters: map[string]string{"until": matches[1]}}, true
+		return Action{Name: "night-on", Parameters: map[string]string{"until": matches[1]}, Command: tc.Command}, true
 	}
-	verb, scope, hosts, ok := parseWebHostCommand(tc.Command)
-	if !ok {
-		return Action{}, false
+	if verb, scope, hosts, ok := parseWebHostCommand(tc.Command); ok {
+		return Action{Name: "web-host-" + verb, Parameters: map[string]string{"scope": scope, "hosts": hosts}, Command: tc.Command}, true
 	}
-	return Action{Name: "web-host-" + verb, Parameters: map[string]string{"scope": scope, "hosts": hosts}}, true
+	return parseLifecycleCommand(tc.Command)
 }
 
 // OperatorActionSatisfied reports whether a web-host grant would change

@@ -11,6 +11,9 @@ import (
 func Guidance(v policy.Verdict, action string) string {
 	switch v.Decision {
 	case policy.Ask:
+		if v.RuleID == OperatorActionAskRuleID {
+			return operatorAskGuidance(v)
+		}
 		// In-session approval is gated on Windows until the ADR-0021 broker
 		// lands (step d); the operator's terminal is the working path, and
 		// the guidance must say so instead of pointing at a door that is not
@@ -61,6 +64,9 @@ func NextStep(v policy.Verdict) string {
 // added after it was written, and the broker fields are already the ground
 // truth for whether a ceremony exists.
 func askApprovalPath(v policy.Verdict) string {
+	if v.RuleID == OperatorActionAskRuleID {
+		return operatorAskNextStep
+	}
 	if v.ApprovalURL != "" {
 		return fmt.Sprintf("Approval path: this is a broker approval — open %s and complete the passkey ceremony. Telling the operator in chat will not clear it.", v.ApprovalURL)
 	}
@@ -78,6 +84,17 @@ func askApprovalPath(v policy.Verdict) string {
 	// authorizes one exact command -- so the thing to ask for is the command
 	// that was just refused, never a broader shape of it.
 	return conversational + " If the operator would rather authorize it in policy than approve it in chat, they can issue a single-use grant for this exact command from their own terminal. Ask for the command you just ran, never a broader form of it."
+}
+
+// OperatorActionAskRuleID is the prompt-mode ask for a canonical operator
+// command (ADR-0033). Its text is read by two audiences: the human, in the
+// host's permission prompt, and the agent afterwards.
+const OperatorActionAskRuleID = "operator-action-ask"
+
+const operatorAskNextStep = "If the operator approves, this exact command runs once and applies; do not run it again or another way. If they decline, or no prompt appears, do not retry or rephrase it: tell the operator what you need; they can run the command in their own terminal. Continue other work."
+
+func operatorAskGuidance(v policy.Verdict) string {
+	return "Approve this " + v.Reason + "? Approve only if you asked for it. " + operatorAskNextStep
 }
 
 // denyNextStep returns the concrete continuation for a denied call. Every
@@ -104,6 +121,8 @@ func denyNextStep(v policy.Verdict) string {
 		return "This is a secret-tier path: it is denied here, and only an authorized Overlay secret_allow can allow a matching file secret (never directory secrets). Exclude this path and continue the rest of the task."
 	case "P5.self-config":
 		return "This is Guardrail-protected machinery: never edit it from a session. If it genuinely needs repair, tell the operator to run the Guardrail terminal recovery command. Continue other work."
+	case "operator-action-terminal", "operator-action-ticket":
+		return "This is an operator action this plane cannot ask for here. Tell the operator the exact command from this message; they run it in their own terminal and answer its prompt. Do not retry it or run it another way. Continue other work."
 	case "operator-action-satisfied":
 		return "The grant already holds: do not request it again. Use it now (guardrail fetch <url>) and continue."
 	// The two egress continuations are what #125 measured agents giving up on:
@@ -114,9 +133,9 @@ func denyNextStep(v policy.Verdict) string {
 	case "P6.egress":
 		// The exact grant for a web host is in the reason (engine checkEgress),
 		// which is why this text can stay short enough to keep the rule ID.
-		return "Web pages go through `guardrail fetch <url>`, not curl or wget; for an unapproved host run `guardrail egress grant` yourself (operator passkey) and continue offline work. Do not skip a fetch because an earlier one was denied."
+		return "Web pages go through `guardrail fetch <url>`, not curl or wget; for an unapproved host run `guardrail egress grant` yourself (host prompt or passkey) and continue offline work. Do not skip a fetch because an earlier one was denied."
 	case "web-fetch-native-deny":
-		return "Run `guardrail fetch <the same URL>` as a shell command instead; if it names an unapproved host, run the `guardrail egress grant` it prints yourself (the operator approves it by passkey), then retry. Do not skip a fetch because an earlier one was denied."
+		return "Run `guardrail fetch <the same URL>` as a shell command instead; if it names an unapproved host, run the `guardrail egress grant` it prints yourself (operator approves: host prompt or passkey), then retry. Do not skip a fetch because an earlier one was denied."
 	case "P1.rm-rf", "P1.dd", "P1.mkfs", "P1.shred", "P1.privesc", "P1.docker-down", "P1.docker-prune", "P1.docker-substituted", "P1.git-push-force", "P1.git-clean":
 		return "Destructive operation: do not retry it. Use a scoped, reversible alternative, or ask the operator to run it manually; then continue the task."
 	case "P2.git-reset-hard", "P2.git-config-write", "P2.git-protected-path":

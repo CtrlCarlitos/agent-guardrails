@@ -36,8 +36,34 @@ type RepoGrant struct {
 type OperatorConfig struct {
 	GlobalWebHosts         []string
 	WebResearchEnforcement string // empty is legacy/strict; only explicit "off" relaxes native research
-	Repos                  map[string]RepoGrant
+	// Approval is the top-level `approval` key: how operator actions are
+	// approved (ADR-0033). Empty means the default, ApprovalPrompt. Only
+	// Operator config carries it; an Overlay has no such field.
+	Approval string
+	Repos    map[string]RepoGrant
 }
+
+// The two approval modes (ADR-0033). Prompt asks through the plane's native
+// ask or a terminal [y/N]; passkey is the WebAuthn broker of ADR-0021/0025.
+const (
+	ApprovalPrompt  = "prompt"
+	ApprovalPasskey = "passkey"
+)
+
+// ApprovalMode is the operator's chosen approval mode, ApprovalPrompt unless
+// the file says `approval = "passkey"`. A nil config (none on disk) is the
+// default. An unreadable config is the caller's to resolve: it must not reach
+// here as a downgrade (the CLI and hook treat it as ApprovalPasskey).
+func (o *OperatorConfig) ApprovalMode() string {
+	if o != nil && o.Approval == ApprovalPasskey {
+		return ApprovalPasskey
+	}
+	return ApprovalPrompt
+}
+
+// operatorTopLevelKeys are the Operator config keys that are not repository
+// tables.
+var operatorTopLevelKeys = map[string]bool{"web_hosts": true, "web_research": true, "approval": true}
 
 func OperatorConfigPath() string {
 	path, _ := operatorConfigPath(runtime.GOOS)
@@ -95,6 +121,7 @@ func LoadOperatorConfig() (*OperatorConfig, error) {
 	}
 
 	var global struct {
+		Approval    *string `toml:"approval"`
 		WebResearch struct {
 			Enforcement string `toml:"enforcement"`
 		} `toml:"web_research"`
@@ -105,6 +132,13 @@ func LoadOperatorConfig() (*OperatorConfig, error) {
 	if err := toml.Unmarshal(raw, &global); err != nil {
 		return emptyOperatorConfig(), fmt.Errorf("parsing operator config %s: %w", path, err)
 	}
+	approval := ""
+	if global.Approval != nil {
+		approval = *global.Approval
+		if approval != ApprovalPrompt && approval != ApprovalPasskey {
+			return emptyOperatorConfig(), fmt.Errorf("invalid approval; want %q or %q", ApprovalPrompt, ApprovalPasskey)
+		}
+	}
 	if mode := global.WebResearch.Enforcement; mode != "" && mode != "on" && mode != "off" {
 		return emptyOperatorConfig(), fmt.Errorf("invalid web_research.enforcement; want on or off")
 	}
@@ -113,12 +147,24 @@ func LoadOperatorConfig() (*OperatorConfig, error) {
 			return emptyOperatorConfig(), err
 		}
 	}
-	var repos map[string]RepoGrant
-	if err := toml.Unmarshal(raw, &repos); err != nil {
+	// Repository tables are every other top-level key. Decode each one on its
+	// own so a top-level scalar such as `approval` is not read as a table.
+	var top map[string]toml.Primitive
+	metadata, err := toml.Decode(string(raw), &top)
+	if err != nil {
 		return emptyOperatorConfig(), fmt.Errorf("parsing operator config %s: %w", path, err)
 	}
-	delete(repos, "web_hosts")
-	delete(repos, "web_research")
+	repos := make(map[string]RepoGrant, len(top))
+	for key, primitive := range top {
+		if operatorTopLevelKeys[key] {
+			continue
+		}
+		var grant RepoGrant
+		if err := metadata.PrimitiveDecode(primitive, &grant); err != nil {
+			return emptyOperatorConfig(), fmt.Errorf("parsing operator config %s: %w", path, err)
+		}
+		repos[key] = grant
+	}
 	normalized := make(map[string]RepoGrant, len(repos))
 	rawPaths := make(map[string]string, len(repos))
 	for repo, grant := range repos {
@@ -137,7 +183,7 @@ func LoadOperatorConfig() (*OperatorConfig, error) {
 		rawPaths[cleaned] = repo
 		normalized[cleaned] = grant
 	}
-	return &OperatorConfig{GlobalWebHosts: global.WebHosts.Global, WebResearchEnforcement: global.WebResearch.Enforcement, Repos: normalized}, nil
+	return &OperatorConfig{GlobalWebHosts: global.WebHosts.Global, WebResearchEnforcement: global.WebResearch.Enforcement, Approval: approval, Repos: normalized}, nil
 }
 
 func (o *OperatorConfig) grant(repoRoot string) (RepoGrant, bool) {

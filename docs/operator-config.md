@@ -26,6 +26,24 @@ The Engine reads `guardrail/waivers.toml` from the platform config directory:
 The file is optional. If it is missing, the Engine uses an empty Operator
 config: no loosening is authorized and no error is reported.
 
+## Approval Mode
+
+One top-level key, written before any table, chooses how operator actions
+(`setup`, `plane`, `recover`, `web-research`, `night`, `egress`) are approved
+([ADR-0033](adr/0033-operator-approvals-default-to-a-prompt.md),
+[operator-approvals.md](operator-approvals.md)):
+
+```toml
+approval = "passkey"
+```
+
+`"prompt"` (the default when the key is missing) approves through the agent
+host's ask or a terminal `[y/N]`; `"passkey"` requires a WebAuthn ceremony.
+Any other value makes the whole file unreadable (no loosening is authorized),
+and an unreadable file means passkey mode. An Overlay cannot set this key.
+Every rewrite guardrail makes of this file (grants, web hosts, web-research)
+keeps it.
+
 ## Repository Keys
 
 Each top-level TOML table is one repository grant, keyed by that repository's

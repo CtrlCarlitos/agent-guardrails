@@ -10,7 +10,7 @@
 
 You let an agent run shell commands, edit files and fetch web pages on your machine because that's what makes it useful. The same access lets it `rm -rf` the wrong directory, read `~/.ssh/id_ed25519` into a chat transcript, pipe a downloaded script straight into `sh`, or push to `main` while you're getting coffee. Every agent host has *some* permission system, each one different, and none of them is a policy you can read, version, and apply to all four hosts at once.
 
-`guardrail` is a single Go binary that sits between every supported agent host and the tools it runs. It reads the call, decides **allow**, **ask**, or **deny**, and — this is the part that matters day to day — when it says no, it says *what to do next*, so the agent keeps working instead of stalling. The policy is one file you can read. It's the same on Claude Code, opencode, Antigravity and Codex. A project can tighten it by committing a `guardrail.toml`; only you, with a passkey, can loosen it.
+`guardrail` is a single Go binary that sits between every supported agent host and the tools it runs. It reads the call, decides **allow**, **ask**, or **deny**, and — this is the part that matters day to day — when it says no, it says *what to do next*, so the agent keeps working instead of stalling. The policy is one file you can read. It's the same on Claude Code, opencode, Antigravity and Codex. A project can tighten it by committing a `guardrail.toml`; only you, with an approval (a prompt by default, a passkey if you choose), can loosen it.
 
 ## Sixty seconds of what it's like
 
@@ -46,7 +46,7 @@ The same engine inspects native editor tools and MCP servers before their calls 
 
 There is one binary. Releases ship it for Linux, macOS and Windows (amd64 + arm64), plus an installer script for each OS family and a `SHA256SUMS` file covering all of them. Download the installer for the tag you want, check it against that tag's `SHA256SUMS`, and run it.
 
-First install on a machine with no enrolled operator yet? Run the command below as is: with no passkey to approve against, the installer arms every detected host on its own and then tells you to enroll one (`guardrail operator enroll`, full steps below). From then on every plane change needs your passkey. Add `--no-setup` (`-NoSetup`) only if you want to run `guardrail setup` yourself.
+First install? Run the command below as is. From a terminal, setup asks `[y/N]` before it registers the hosts it detects; run unattended, it arms them on its own (only enabling is ever allowed that way). From then on every plane change needs your approval. Add `--no-setup` (`-NoSetup`) only if you want to run `guardrail setup` yourself.
 
 Linux, macOS and WSL:
 
@@ -81,23 +81,25 @@ if ((Get-FileHash -Algorithm SHA256 install.ps1).Hash -ne $want) { throw 'instal
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version $ver
 ```
 
-`v0.23.12-dev` is an example; use the tag of the release you are installing (the operator bumps it here at each release). `latest` is refused on purpose: you always install an exact, checksummed tag. Run the downloaded file as shown rather than piping it into a shell or evaluating it in-process — the scripts `exit` on failure, which would close an interactive PowerShell session, and they hand your terminal to `guardrail setup` for a passkey approval.
+`v0.23.12-dev` is an example; use the tag of the release you are installing (the operator bumps it here at each release). `latest` is refused on purpose: you always install an exact, checksummed tag. Run the downloaded file as shown rather than piping it into a shell or evaluating it in-process — the scripts `exit` on failure, which would close an interactive PowerShell session, and they hand your terminal to `guardrail setup` for its approval.
 
 What the installer does:
 
 1. Picks the binary for your OS and architecture, downloads it with `SHA256SUMS` and verifies it; any failure leaves nothing installed. If an older guardrail is already there at or above `v0.19.2-dev`, it uses `guardrail update` instead; anything older is replaced by a fresh checksum-verified download.
 2. Places it at `~/.local/bin/guardrail` (`%USERPROFILE%\.local\bin\guardrail.exe` on Windows; `--dest` / `-Dest` to change) and checks that it reports the tag you asked for.
 3. On Windows: a freshly placed binary gets `Unblock-File` and a user PATH entry for that directory; every run checks for (and adds if missing) a Microsoft Defender exclusion for that exact file (never a folder). Without an elevated shell it prints the `Add-MpPreference` command for you to run instead.
-4. Runs `guardrail setup`, which registers guardrail with every agent host it detects and then runs `selftest`. Registering a host is an operator action, so this step asks for your passkey.
+4. Runs `guardrail setup`, which registers guardrail with every agent host it detects and then runs `selftest`. Registering a host is an operator action, so this step asks for your approval (`[y/N]`, or your passkey in passkey mode).
 
 On Unix, make sure `~/.local/bin` is on your PATH (keep it in your shell profile).
 
-Some actions are the operator's alone — registering a host, granting web-host access, night mode. These require a passkey; enroll once. The first install arms the hosts without one (there is nothing to approve against yet, and only *enabling* is ever allowed that way); enrolling is what puts every later change behind your passkey:
+Some actions are the operator's alone — registering a host, granting web-host access, night mode. They need your approval: by default a `[y/N]` on your terminal, or the agent host's own permission prompt when an agent asks for one (ADR-0033). An unattended first install arms the hosts without asking (only *enabling* is ever allowed that way). For a WebAuthn passkey on every approval instead, put `approval = "passkey"` at the top of your Operator config and enroll once:
 
 ```sh
-guardrail operator enroll     # prints a localhost URL; open it and complete the passkey prompt
-guardrail setup               # later runs: re-registers drifted hosts under one approval, then runs selftest
+guardrail setup               # asks "Approve register guardrail on planes: …? [y/N]", then runs selftest
+guardrail operator enroll     # passkey mode only: prints a localhost URL; open it and complete the passkey prompt
 ```
+
+A host set to approve everything on its own (Claude Code's bypass-permissions mode, Codex full-auto) answers that prompt for you; if you run agents that way, use the passkey.
 
 Restart the agents you wired. **For Codex, run `/hooks` inside Codex to review and trust the generated hooks** — registered hooks alone are not executed by the runtime.
 
@@ -225,7 +227,7 @@ egress_allowlist = ["api.github.com"]   # needs an operator grant to take effect
 $ guardrail egress grant --scope repo --host api.github.com,cdn.jsdelivr.net
 ```
 
-The engine intercepts that, opens a passkey approval, and applies the grant the moment you approve. The agent is told to carry on and use `guardrail fetch <url>`. At a terminal the same command applies immediately. See [operator config](./docs/operator-config.md) and [operator approvals](./docs/operator-approvals.md).
+The engine intercepts that and the agent's host asks you (in passkey mode, a passkey approval page opens instead); the grant applies the moment you approve. The agent is told to carry on and use `guardrail fetch <url>`. At a terminal the same command applies immediately. See [operator config](./docs/operator-config.md) and [operator approvals](./docs/operator-approvals.md).
 
 **Per MCP family — the registry.** Adding a typed MCP server is one table entry naming its tools, their capability, and which arguments are paths ([ADR-0017](./docs/adr/0017-mcp-family-registry-and-projection.md)). Every plane picks it up.
 

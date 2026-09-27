@@ -208,7 +208,24 @@ const (
 // first-install bootstrap stopped requiring a terminal for `setup` and
 // `plane enable`, so a session cannot re-arm, disarm or re-enrol itself.
 // Read-only forms (`night status`, `plane status`) stay allowed.
-var selfControlSubcommands = []string{"night", "setup", "plane", "operator", "recover", "web-research"}
+//
+// ADR-0033 added `egress` (the canonical egress command is intercepted by the
+// hook before evaluation, so only other spellings reach this rule) and `hook`
+// (a session running the hook itself could forge its host's payload and mint
+// an approval ticket without an ask).
+var selfControlSubcommands = []string{"night", "setup", "plane", "operator", "recover", "web-research", "egress", "hook"}
+
+// isTerminalWrapper names the programs that run a command on a fresh pseudo
+// terminal or console (ADR-0033). With a prompt-mode `[y/N]` a TTY is part of
+// the approval, so their command text naming guardrail and a self-control
+// subcommand is treated like interpreter input: denied as a mention.
+func isTerminalWrapper(executable string) bool {
+	switch executable {
+	case "script", "expect", "unbuffer", "winpty", "tmux", "screen", "socat", "dtach", "abduco", "empty", "faketty", "mintty", "wt", "conhost":
+		return true
+	}
+	return false
+}
 
 func checkSelfControlInvocation(s Simple, command string) *policy.Verdict {
 	var subcommand string
@@ -226,7 +243,7 @@ func checkSelfControlInvocation(s Simple, command string) *policy.Verdict {
 		subcommand = ""
 	}
 	var opaque string
-	if len(s.Argv) >= 1 && isOpaqueExecutor(head(s.Argv)) {
+	if len(s.Argv) >= 1 && (isOpaqueExecutor(head(s.Argv)) || isTerminalWrapper(head(s.Argv))) {
 		for _, candidate := range selfControlSubcommands {
 			if mentionsCommand([]string{command}, "guardrail", candidate) {
 				opaque = candidate

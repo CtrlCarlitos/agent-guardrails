@@ -18,6 +18,7 @@ import (
 // nextSteps returns the steps in the order to take them, or none.
 func nextSteps() ([]string, error) {
 	enrolled := operatorEnrolled()
+	prompt := promptApprovalMode()
 	var steps, needWork []string
 	for _, plane := range supportedPlanes {
 		if !planeInstalled(plane) {
@@ -31,13 +32,17 @@ func nextSteps() ([]string, error) {
 			continue
 		}
 		needWork = append(needWork, plane)
+		if prompt {
+			steps = append(steps, fmt.Sprintf("%s: %s. Run `guardrail plane enable %s` from an interactive terminal and answer its prompt.", plane, reason, plane))
+			continue
+		}
 		if enrolled {
 			steps = append(steps, fmt.Sprintf("%s: %s. Run `guardrail plane enable %s` from an interactive terminal and approve it with your passkey.", plane, reason, plane))
 			continue
 		}
 		steps = append(steps, fmt.Sprintf("%s: %s. Run `guardrail setup`: with no operator enrolled it arms the plane without an approval.", plane, reason))
 	}
-	if !enrolled && anyPlaneInstalled() {
+	if !prompt && !enrolled && anyPlaneInstalled() {
 		steps = append(steps, "No operator authenticator is enrolled. Run `guardrail operator enroll` from a real terminal so every later plane change needs your passkey.")
 	}
 	if len(needWork) > 0 {

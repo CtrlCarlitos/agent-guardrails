@@ -108,7 +108,19 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 	if err != nil {
 		return failClosed(fmt.Sprintf("guardrail: unparseable hook payload (%v); failing closed", err))
 	}
-	if tc.Event != "session-start" && tc.Event != "session-completion" {
+	// A canonical operator command is answered here, never by the engine
+	// daemon, whose evaluator has no broker or ticket path (ADR-0033).
+	operatorAction, hasOperatorAction := engine.OperatorAction(tc)
+	// The command a host asked about is the session's next action. Any other
+	// pre-execution call from that session means the ask was not approved,
+	// so its ticket goes now rather than in ten minutes (ADR-0033). A
+	// re-issue of the same ask keeps (and replaces) its own ticket.
+	if tc.Event == "pre" && tc.SessionID != "" {
+		if err := approval.VoidSessionTickets(tc.SessionID, operatorAction.Command, tc.CWD); err != nil {
+			highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: could not void this session's approval tickets (%v)", err))
+		}
+	}
+	if tc.Event != "session-start" && tc.Event != "session-completion" && !hasOperatorAction {
 		if client, dialErr := daemon.Dial(""); dialErr == nil {
 			defer client.Close()
 			if v, evalErr := client.Evaluate(tc); evalErr == nil {
@@ -181,7 +193,12 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 		return adapter.EmitClaudeSessionStart(text, stdout)
 	}
 
-	operatorAction, hasOperatorAction := engine.OperatorAction(tc)
+	// Passkey mode is today's behaviour: only night and web-host commands go
+	// to the broker; lifecycle commands stay P5.self-config.
+	approvalMode := approvalModeOf(op, opErr)
+	if hasOperatorAction && approvalMode == policy.ApprovalPasskey && !operatorAction.Brokered() {
+		hasOperatorAction = false
+	}
 	approvalKey, approvalEnabled := engine.OpenCodeApprovalKey(tc)
 	approvalEnabled = approvalEnabled && !nightState.Active
 	needsP7 := tc.Event == "pre" && engine.TrifectaTrackingEnabled(merged)
@@ -203,6 +220,9 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 		}
 		if reason, satisfied := engine.OperatorActionSatisfied(operatorAction, merged, op); satisfied {
 			v = policy.Verdict{Decision: policy.Deny, RuleID: "operator-action-satisfied", Reason: reason, OperatorAction: operatorAction.Name}
+			stateApplied = true
+		} else if approvalMode == policy.ApprovalPrompt {
+			v = promptOperatorVerdict(plane, tc, operatorAction, time.Now())
 			stateApplied = true
 		} else {
 			r, createErr := approval.SubmitOnDemand(approval.Request{

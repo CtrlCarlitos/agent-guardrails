@@ -31,7 +31,7 @@ func init() { approval.RegisterAction("web-research-set", executeWebResearchAppr
 // path has to be known before the first deny, not only in it.
 func webAccessPosture() string {
 	return "Web pages: read them with `guardrail fetch <url>` (curl and wget reach only the egress allowlist). A host that is not approved yet takes one `" +
-		policy.WebHostGrantCommand("<host>") + "`, which you run yourself and the operator approves with a passkey. " +
+		policy.WebHostGrantCommand("<host>") + "`, which you run yourself and the operator approves (their host prompt, or a passkey). " +
 		"Attempt the fetch instead of assuming it will be denied. After any deny or ask, `guardrail explain` shows the record and the next step."
 }
 
@@ -48,7 +48,8 @@ func cmdWebResearch(args []string, terminal bool, stdout, stderr io.Writer) int 
 		return 2
 	}
 	mode := args[0]
-	if mode != "status" && !terminal {
+	prompt := promptApprovalMode()
+	if mode != "status" && !reachability(prompt, terminal) {
 		fmt.Fprintln(stderr, "guardrail: web-research changes require an interactive local terminal")
 		return 2
 	}
@@ -61,19 +62,42 @@ func cmdWebResearch(args []string, terminal bool, stdout, stderr io.Writer) int 
 		fmt.Fprintln(stdout, webResearchPosture(op.WebResearchEnforcement == "off"))
 		return 0
 	}
-	if !requireOperatorEnrolled("guardrail web-research "+mode, stderr) {
-		return exitNotEnrolled
-	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	r, err := submitWebResearchRequest(approval.Request{
+	request := approval.Request{
 		Plane: "operator", SessionID: "terminal", RepoRoot: cwd, Scope: approval.GlobalScope,
 		Action: "web-research-set", Reason: "operator-selected native web-research enforcement",
 		Parameters: map[string]string{"enforcement": mode},
-	})
+	}
+	if prompt {
+		transport, result := promptApproval(request.Summary(), terminal, stdout)
+		switch result {
+		case approvalUnreachable:
+			fmt.Fprintln(stderr, "guardrail: web-research changes require an interactive local terminal")
+			return 2
+		case approvalDeclined:
+			fmt.Fprintln(stderr, "guardrail: web-research change declined; enforcement unchanged")
+			return 1
+		}
+		if _, err := approval.ApplyLocal(request, transport); err != nil {
+			fmt.Fprintf(stderr, "guardrail: web-research change failed: %v\n", err)
+			return 1
+		}
+		current, err := policy.LoadOperatorConfig()
+		if err != nil || current.WebResearchEnforcement != mode {
+			fmt.Fprintln(stderr, "guardrail: approved web-research setting did not converge")
+			return 1
+		}
+		fmt.Fprintln(stdout, webResearchPosture(mode == "off"))
+		return 0
+	}
+	if !requireOperatorEnrolled("guardrail web-research "+mode, stderr) {
+		return exitNotEnrolled
+	}
+	r, err := submitWebResearchRequest(request)
 	if err != nil {
 		fmt.Fprintf(stderr, "guardrail: web-research approval failed: %v\n", err)
 		return 1

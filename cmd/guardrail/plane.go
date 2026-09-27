@@ -114,8 +114,13 @@ func bootstrapPlanes(cmd string, planes []string, stdout, stderr io.Writer) erro
 // enrollment instruction and the host-specific steps that no approval
 // ceremony would otherwise have prompted for.
 func printBootstrapInstruction(cmd string, planes []string, stdout io.Writer) {
-	fmt.Fprintf(stdout, "%s: planes armed without an approval because no operator authenticator is enrolled.\n", cmd)
-	fmt.Fprintf(stdout, "%s: run 'guardrail operator enroll' from a real terminal to take control; every later plane change needs your passkey.\n", cmd)
+	if promptApprovalMode() {
+		fmt.Fprintf(stdout, "%s: planes armed without an approval because nobody was asked.\n", cmd)
+		fmt.Fprintf(stdout, "%s: later changes ask for your approval at a terminal or in the agent's host; set approval = \"passkey\" in the operator config for WebAuthn.\n", cmd)
+	} else {
+		fmt.Fprintf(stdout, "%s: planes armed without an approval because no operator authenticator is enrolled.\n", cmd)
+		fmt.Fprintf(stdout, "%s: run 'guardrail operator enroll' from a real terminal to take control; every later plane change needs your passkey.\n", cmd)
+	}
 	if slices.Contains(planes, "codex") {
 		fmt.Fprintf(stdout, "%s: for Codex, run /hooks inside Codex to review and trust the generated hooks; restart the agents you wired.\n", cmd)
 		return
@@ -349,9 +354,14 @@ func cmdPlaneLifecycle(args []string, action, outcome string, terminal bool, std
 		return 2
 	}
 	// With no operator enrolled, enable is a bootstrap (ADR-0030): it hosts
-	// no ceremony, so it needs no terminal. Disable always does.
-	bootstrap := action == "plane-enable" && !operatorEnrolled()
-	if !terminal && !bootstrap {
+	// no ceremony, so it needs no terminal. Disable always does. In prompt
+	// mode (ADR-0033) a host-approval ticket stands in for the terminal, and
+	// an approval that can be obtained is asked for rather than bypassed.
+	prompt := promptApprovalMode()
+	reachable := reachability(prompt, terminal)
+	defer setPromptReachable(reachable)()
+	bootstrap := action == "plane-enable" && bootstrapAllowed(prompt, reachable)
+	if !reachable && !bootstrap {
 		fmt.Fprintf(stderr, "guardrail: plane %s requires an interactive local terminal\n", verb)
 		return pendingApproval(action, "no interactive terminal is attached", stderr)
 	}
@@ -404,10 +414,54 @@ func cmdPlaneLifecycle(args []string, action, outcome string, terminal bool, std
 		printBootstrapInstruction("plane enable", batch, stdout)
 		return 0
 	}
-	if !requireOperatorEnrolled("guardrail plane "+verb+" "+strings.Join(args, " "), stderr) {
+	if !prompt && !requireOperatorEnrolled("guardrail plane "+verb+" "+strings.Join(args, " "), stderr) {
 		return exitNotEnrolled
 	}
-	return planesViaApproval(batch, action, outcome, stdout, stderr)
+	return planesApproved(batch, action, outcome, terminal, stdout, stderr)
+}
+
+// planesApproved approves and applies one lifecycle batch in the operator's
+// approval mode: the broker and a passkey, or a prompt-mode approval (a host
+// ticket or the terminal's [y/N]) applied in-process by the same handler.
+func planesApproved(planes []string, action, outcome string, terminal bool, stdout, stderr io.Writer) int {
+	if !promptApprovalMode() {
+		return planesViaApproval(planes, action, outcome, stdout, stderr)
+	}
+	request, code := planeLifecycleRequest(planes, action, stdout, stderr)
+	if code != 0 {
+		return code
+	}
+	transport, result := promptApproval(planePromptSummary(request), terminal, stdout)
+	switch result {
+	case approvalUnreachable:
+		return pendingApproval(action, "no interactive terminal is attached and no host approval was recorded", stderr)
+	case approvalDeclined:
+		for _, plane := range planes {
+			fmt.Fprintf(stderr, "guardrail: %s: %s declined\n", plane, actionSuffix(action))
+		}
+		return pendingApproval(action, "the approval was declined", stderr)
+	}
+	if _, err := approval.ApplyLocal(request, transport); err != nil {
+		fmt.Fprintf(stderr, "guardrail: plane %s failed: %v\n", actionSuffix(action), err)
+		return 1
+	}
+	for _, plane := range planes {
+		fmt.Fprintf(stdout, "%s %s\n", plane, outcome)
+	}
+	return 0
+}
+
+// planePromptSummary is the terminal question for a lifecycle batch. Like the
+// passkey page, it names every plane and any floor entries the enable removes.
+func planePromptSummary(r approval.Request) string {
+	if r.Action == "plane-disable" {
+		return "remove guardrail from planes: " + r.Parameters["planes"]
+	}
+	summary := "register guardrail on planes: " + r.Parameters["planes"]
+	if prune := r.Parameters["prune_floor"]; prune != "" {
+		summary += " (also removes retired settings floor entries guardrail wrote earlier from: " + prune + ")"
+	}
+	return summary
 }
 
 func actionSuffix(action string) string {
@@ -420,58 +474,9 @@ func actionSuffix(action string) string {
 // planesViaApproval submits ONE broker request for the whole batch, so a
 // single WebAuthn ceremony covers every plane.
 func planesViaApproval(planes []string, action, outcome string, stdout, stderr io.Writer) int {
-	cwd, _ := os.Getwd()
-	parameters := map[string]string{"planes": strings.Join(planes, ",")}
-	if action == "plane-enable" {
-		var reconcile []string
-		for _, plane := range planes {
-			report, err := planeOwnershipDrift(plane)
-			if err != nil {
-				fmt.Fprintf(stderr, "guardrail: %s: reading ownership drift: %v\n", plane, err)
-				return 1
-			}
-			// Any re-enable of a registered plane may replace owned hook
-			// entries, making the old manifest records missing as part of this
-			// merge. Manifest drift already present needs the same mode even if
-			// registration itself is damaged.
-			if planeIntegrationRegistered(plane) || len(report.Missing) > 0 || len(report.Stale) > 0 {
-				reconcile = append(reconcile, plane)
-			}
-		}
-		// The operator's passkey covers the removal, so it is named in the
-		// approved parameters and announced first: `plane enable` also removes
-		// the floor guardrail used to write into this file (#357). Only the
-		// entries guardrail wrote; the operator's own are kept.
-		var prune []string
-		for _, plane := range planes {
-			n, err := legacyFloorCount(plane)
-			if err != nil {
-				fmt.Fprintf(stderr, "guardrail: %s: reading the settings floor: %v\n", plane, err)
-				return 1
-			}
-			if n > 0 {
-				fmt.Fprintf(stdout, "%s: will also remove %d floor entries guardrail wrote earlier (the Engine enforces them; your own entries are kept)\n", plane, n)
-				prune = append(prune, plane)
-				if !slices.Contains(reconcile, plane) {
-					reconcile = append(reconcile, plane)
-				}
-			}
-		}
-		if len(reconcile) > 0 {
-			parameters["reconcile_ownership"] = strings.Join(reconcile, ",")
-		}
-		if len(prune) > 0 {
-			parameters["prune_floor"] = strings.Join(prune, ",")
-		}
-	}
-	request := approval.Request{
-		Plane:      "operator",
-		SessionID:  "terminal",
-		RepoRoot:   cwd,
-		Scope:      approval.GlobalScope,
-		Reason:     "operator terminal plane " + actionSuffix(action),
-		Action:     action,
-		Parameters: parameters,
+	request, code := planeLifecycleRequest(planes, action, stdout, stderr)
+	if code != 0 {
+		return code
 	}
 	created, err := submitPlaneRequest(request)
 	if err != nil {
@@ -514,6 +519,66 @@ func planesViaApproval(planes []string, action, outcome string, stdout, stderr i
 		fmt.Fprintf(stderr, "guardrail: %s: %s approval expired\n", plane, actionSuffix(action))
 	}
 	return pendingApproval(action, "the approval expired before it was answered", stderr)
+}
+
+// planeLifecycleRequest builds the one request that covers a lifecycle batch,
+// naming the reconcile and the floor removal it carries, whichever approval
+// mode then approves it.
+func planeLifecycleRequest(planes []string, action string, stdout, stderr io.Writer) (approval.Request, int) {
+	cwd, _ := os.Getwd()
+	parameters := map[string]string{"planes": strings.Join(planes, ",")}
+	if action == "plane-enable" {
+		var reconcile []string
+		for _, plane := range planes {
+			report, err := planeOwnershipDrift(plane)
+			if err != nil {
+				fmt.Fprintf(stderr, "guardrail: %s: reading ownership drift: %v\n", plane, err)
+				return approval.Request{}, 1
+			}
+			// Any re-enable of a registered plane may replace owned hook
+			// entries, making the old manifest records missing as part of this
+			// merge. Manifest drift already present needs the same mode even if
+			// registration itself is damaged.
+			if planeIntegrationRegistered(plane) || len(report.Missing) > 0 || len(report.Stale) > 0 {
+				reconcile = append(reconcile, plane)
+			}
+		}
+		// The operator's passkey covers the removal, so it is named in the
+		// approved parameters and announced first: `plane enable` also removes
+		// the floor guardrail used to write into this file (#357). Only the
+		// entries guardrail wrote; the operator's own are kept.
+		var prune []string
+		for _, plane := range planes {
+			n, err := legacyFloorCount(plane)
+			if err != nil {
+				fmt.Fprintf(stderr, "guardrail: %s: reading the settings floor: %v\n", plane, err)
+				return approval.Request{}, 1
+			}
+			if n > 0 {
+				fmt.Fprintf(stdout, "%s: will also remove %d floor entries guardrail wrote earlier (the Engine enforces them; your own entries are kept)\n", plane, n)
+				prune = append(prune, plane)
+				if !slices.Contains(reconcile, plane) {
+					reconcile = append(reconcile, plane)
+				}
+			}
+		}
+		if len(reconcile) > 0 {
+			parameters["reconcile_ownership"] = strings.Join(reconcile, ",")
+		}
+		if len(prune) > 0 {
+			parameters["prune_floor"] = strings.Join(prune, ",")
+		}
+	}
+	request := approval.Request{
+		Plane:      "operator",
+		SessionID:  "terminal",
+		RepoRoot:   cwd,
+		Scope:      approval.GlobalScope,
+		Reason:     "operator terminal plane " + actionSuffix(action),
+		Action:     action,
+		Parameters: parameters,
+	}
+	return request, 0
 }
 
 func cmdPlaneStatus(args []string, stdout, stderr io.Writer) int {
@@ -746,6 +811,14 @@ func approvalSubmitFailure(action string, err error, stderr io.Writer) int {
 // current wiring keeps enforcing, nothing was loosened, and a passkey approval
 // from an interactive terminal finishes the change.
 func pendingApproval(action, cause string, stderr io.Writer) int {
+	if promptApprovalMode() {
+		if action == "plane-enable" {
+			fmt.Fprintf(stderr, "guardrail: operator action pending: %s, so the plane change was not applied. What is registered now keeps enforcing; nothing was loosened. To finish, run `guardrail setup` from an interactive terminal and answer its prompt, then re-run whatever provisioned this machine. Exit %d means operator action pending, not a failure.\n", cause, exitOperatorActionPending)
+			return exitOperatorActionPending
+		}
+		fmt.Fprintf(stderr, "guardrail: operator action pending: %s, so the plane change was not applied. The planes stay as they are. Re-run the same command from an interactive terminal and answer its prompt. Exit %d means operator action pending, not a failure.\n", cause, exitOperatorActionPending)
+		return exitOperatorActionPending
+	}
 	if action == "plane-enable" {
 		fmt.Fprintf(stderr, "guardrail: operator action pending: %s, so the plane change was not applied. What is registered now keeps enforcing; nothing was loosened. To finish, run `guardrail setup` from an interactive terminal, approve it with your passkey, then re-run whatever provisioned this machine. Exit %d means operator action pending, not a failure.\n", cause, exitOperatorActionPending)
 		return exitOperatorActionPending

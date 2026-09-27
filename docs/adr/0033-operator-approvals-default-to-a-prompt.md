@@ -121,11 +121,17 @@ CLI needs proof that this run was approved.
     the command it is actually running, where it is running.
 12. **Lifetime.** Ten minutes from the ask, the window the ask guidance
     already uses. Expired tickets are removed when seen.
-13. **Single use.** The CLI claims a ticket by renaming it to a
-    process-unique name; exactly one concurrent claimant wins the rename. It
-    then re-validates the contents (version, expiry, command, working
-    directory) and deletes it. A claimed ticket is gone whether or not the
-    action then succeeds.
+13. **Single use.** The CLI claims a ticket by reading and deleting it while
+    it holds the ticket directory's exclusive OS lock, so exactly one
+    concurrent claimant (thread or process) sees it. It then validates the
+    contents (version, expiry, command, working directory). A claimed ticket
+    is gone whether or not the action then succeeds. (Amended during
+    implementation: the first design claimed by renaming the file. On
+    Windows the 16-way concurrency test ended with no winner in 8 of 30
+    runs, even with retries, and nothing guarantees that two `MoveFileEx`
+    calls that opened the source before either finished cannot both
+    succeed; a rename is not a single-winner primitive there. The lock held
+    40 of 40.)
 14. **Voiding.** Any other pre-execution hook call from the same session
     deletes that session's outstanding tickets. After an approval the host
     runs the approved command next, with no hook call in between; after a
@@ -173,8 +179,8 @@ host auto-approve answered yes:
   denied (17, 18).
 - A ticket cannot be written: its directory is a P5 path (9). It cannot be
   minted without an ask: the hook is the only writer and a session cannot
-  invoke the hook (18). It cannot be replayed: it is claimed by an atomic
-  rename and deleted (13). It cannot be redirected: it binds the exact
+  invoke the hook (18). It cannot be replayed: it is read and deleted under
+  an exclusive lock (13). It cannot be redirected: it binds the exact
   command and working directory (11). A denied ask leaves it live only until
   the session's next call (14) and never past ten minutes (12).
 

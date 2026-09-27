@@ -1,7 +1,10 @@
 # Operations runbook — when it's weird, run this
 
 For the operator at a terminal, not for the agents. Every command here is safe to
-run at any hour; the ones that change anything ask for your passkey first.
+run at any hour; the ones that change anything ask for your approval first: a
+`[y/N]` on the terminal by default, or your passkey if Operator config says
+`approval = "passkey"` ([operator-approvals.md](operator-approvals.md),
+ADR-0033). Where a row below says "Passkey", read "approval".
 
 ## First 60 seconds
 
@@ -66,9 +69,10 @@ checks above is how a cell there moves up.
 |---|---|---|
 | doctor: `verdict: N problems (see above)` | Read the `WARNING` and warning-register lines above it; the rows below name each fix | The last line of doctor counts them so you do not have to (#105). `verdict: healthy` means none. |
 | Agent says it was blocked and you don't know why | `guardrail explain` from the repository (or `guardrail explain <session-id>`) | Prints the newest ask/deny for this repository: what was evaluated, the verdict and `rule_id`, the reason, the next step the agent was given, and what only you can do about it. Selftest probes are excluded. See **Why was this blocked** below. |
-| `operator action pending: …` (exit 3) from `setup`, `plane enable` or `plane disable`: the approval daemon is not running, or the request was denied or expired | Run `guardrail setup` from an interactive terminal, approve with your passkey, then re-run what provisioned the machine | Nothing is broken: the binary is installed and what is registered keeps enforcing. Only the change waited on you (#364). `guardrail next` lists what is still owed. |
-| `no operator authenticator is enrolled` from `setup --state disabled`, `plane disable` or `recover` (exit 3) | `guardrail operator enroll` from a real terminal, then re-run the command it named | No passkey is enrolled, so no approval ceremony can start, and loosening actions wait for one (ADR-0030). The daemon is fine; nothing was changed. `approval daemon unavailable` now means exactly that: nothing answered on the socket and none could be spawned (#326). |
-| doctor: `operator approvals: disabled (no authenticator enrolled; planes armed by bootstrap; …)` | `guardrail operator enroll` | The first install armed the planes without an approval (ADR-0030). They are guarding; nothing can loosen them until a passkey exists. Enrolling puts every later change behind it. |
+| `operator action pending: …` (exit 3) from `setup`, `plane enable` or `plane disable`: no terminal and no host approval, the `[y/N]` was declined, or (passkey mode) the approval daemon is not running or the request was denied or expired | Run `guardrail setup` from an interactive terminal, approve it (answer `y`, or your passkey in passkey mode), then re-run what provisioned the machine | Nothing is broken: the binary is installed and what is registered keeps enforcing. Only the change waited on you (#364). `guardrail next` lists what is still owed. |
+| An agent's host asked you to approve a `guardrail …` command | Read the action it names; approve only if you asked for it | Prompt mode (ADR-0033): the command runs once with the approval ticket the hook recorded. Declining leaves nothing usable. If the command then exits 3 saying no host approval was recorded, run it yourself from a terminal. |
+| `no operator authenticator is enrolled` from `setup --state disabled`, `plane disable` or `recover` (exit 3; passkey mode only) | `guardrail operator enroll` from a real terminal, then re-run the command it named | No passkey is enrolled, so no approval ceremony can start, and loosening actions wait for one (ADR-0030). The daemon is fine; nothing was changed. `approval daemon unavailable` now means exactly that: nothing answered on the socket and none could be spawned (#326). |
+| doctor: `operator approvals: disabled (no authenticator enrolled; planes armed by bootstrap; …)` (passkey mode) | `guardrail operator enroll` | The first install armed the planes without an approval (ADR-0030). They are guarding; nothing can loosen them until a passkey exists. Enrolling puts every later change behind it. |
 | doctor: `N unmarked guardrail-like hook entries in settings.json` | `guardrail plane enable claude` | Legacy pre-marker hook groups; enable absorbs them (ADR-0004). Passkey. |
 | doctor: `guardrail hook registered but CANNOT SPAWN` | `guardrail plane enable claude`, or `guardrail gen-config claude --merge <settings.json> --binary <path>` where plane commands are gated | The registered command cannot be spawned by a shell — an unquoted path with a backslash or a space. Nothing is being enforced while it reads this. Re-merging rewrites it (#149). |
 | doctor: `guardrail hook registered but NEVER OBSERVED FIRING` | `guardrail selftest --evidence claude` | Registered, spawnable, not yet exercised. Expected on a fresh enrolment or a freshly built binary; clears itself once a real session is mediated. Exit 1 until two pre-hook records from one real session exist. If it persists across real sessions, the hook is not being invoked — treat as #149's shape. |
@@ -84,7 +88,7 @@ checks above is how a cell there moves up.
 | `registered handlers differ from this binary` (printed by `setup`), or a plane still runs the previous release's hook command after `guardrail update` | `guardrail setup` | `update` swaps the binary but leaves registered handlers alone; `setup` compares each plane's registered hooks (and the codex wrapper / opencode plugin entry) with what this binary generates and re-merges any that differ, under one approval (#317). Seeing the line during `setup` means it is fixing it. |
 | `guardrail update` says `release assets may still be publishing; retry in a minute` | wait 60 s, run it again | You raced the release uploader; nothing was changed |
 | `update` (or the installer) exited 1 with `<step> failed on the new binary` / `already replaced` | `guardrail selftest` (read the FAILED lines) then `guardrail update <previous version>` (the message names it) | The new release drifted on a probe or doctor failed. The binary is already replaced, and the exit is 1 so automation does not read it as success (#94). Roll back with the same command; it is checksum-verified either way |
-| Agent needs a website | agent runs `guardrail egress grant --scope repo --host a.example.com,b.example.com` inside its session → you approve with passkey; or you run the same at a terminal (immediate, no passkey) | Grants live in `~/.config/guardrail/waivers.toml` plus the repo's `guardrail.toml`; **both** must agree. A grant authorizes `guardrail fetch <url>`, the sanctioned path; it does **not** let `curl`/`wget` through (they reach only `egress_allowlist`). With web-research enforcement on, native WebFetch is denied. The deny, the `guardrail fetch` ask and the session posture all name the exact grant (#125) |
+| Agent needs a website | agent runs `guardrail egress grant --scope repo --host a.example.com,b.example.com` inside its session → you approve its host's prompt (or the passkey page in passkey mode); or you run the same at a terminal (immediate) | Grants live in `~/.config/guardrail/waivers.toml` plus the repo's `guardrail.toml`; **both** must agree. A grant authorizes `guardrail fetch <url>`, the sanctioned path; it does **not** let `curl`/`wget` through (they reach only `egress_allowlist`). With web-research enforcement on, native WebFetch is denied. The deny, the `guardrail fetch` ask and the session posture all name the exact grant (#125) |
 | Agent says it "can't fetch" a page but never tried | tell it to run `guardrail fetch <url>` | Agents denied egress once tended to stop attempting fetches (#125). The session posture now says the path exists; the fetch prints the exact grant to run when the host is unapproved. |
 | Too many asks tonight | `guardrail night on --for 8h` (terminal only) | Relaxes routine asks to allow until then. External-tier asks (publishing, schedulers, unknown MCP) are never relaxed (ADR-0018). `guardrail night off` restores. `guardrail night status` works from anywhere and exits 1 when inactive — a state, not a failure. |
 | Windows: an opencode agent reports *every* tool call failing `guardrail: could not run (spawnSync … ETIMEDOUT); failing closed` | see **Windows: engine unreachable** below | Per-spawn latency (Defender scan + NTFS `CreateProcess`, #132) exceeded the opencode plugin's budget; the plugin denies everything when the engine cannot run — fail-closed by design. Other planes have larger hook budgets and keep working; opencode failing alone is expected, not evidence of a binary bug. |
@@ -135,10 +139,12 @@ since, and the record is what the agent saw.
 ## Native web research
 
 From your own terminal, `guardrail web-research status` reports the setting.
-`guardrail web-research off` requests authenticated approval to permit native
+`guardrail web-research off` requests approval to permit native
 research; `guardrail web-research on` requests strict enforcement again. Here
-**on means enforcement on**, not search enabled. Both changes require an
-enrolled authenticator; a failed or denied approval does not authorize a change.
+**on means enforcement on**, not search enabled. Both changes need an operator
+approval (the terminal `[y/N]` or a host ask by default; an enrolled
+authenticator in passkey mode); a declined, failed or denied approval does not
+authorize a change.
 The command reports success only after the approved setting is persisted.
 
 Off covers native search, image search, opening pages, following links, finding
@@ -273,8 +279,8 @@ Every release ships `install.sh` (Linux, macOS, WSL; POSIX `sh`) and
 listed in the same `SHA256SUMS`. Fetch the script for the exact tag, verify it
 against that tag's `SHA256SUMS` (the README shows both OS blocks), then run the
 file. Do not pipe the scripts into a shell or evaluate them in-process: they
-`exit` on failure and hand the terminal to `guardrail setup` for a passkey
-approval.
+`exit` on failure and hand the terminal to `guardrail setup` for its approval
+(the `[y/N]`, or a passkey in passkey mode).
 
 | Task | Unix | Windows |
 |---|---|---|
@@ -318,7 +324,12 @@ is unknown, continues through selftest and the status block, and returns
 success when selftest passes. That keeps an installer from reporting an armed
 plane as uninstalled while preserving the coverage diagnostic and the
 `guardrail doctor --coverage antigravity` hint. It ends with one status line
-per plane. `setup` refuses to run
+per plane. In prompt mode (the default, ADR-0033) `setup` asks
+`Approve register guardrail on planes: …? [y/N]` before it changes anything,
+and a host-approval ticket stands in for the terminal when an agent's host
+asked you; the paragraph below describes the rules that hold in both modes,
+with enrollment mattering only in passkey mode and for the bootstrap. `setup`
+refuses to run
 without an interactive terminal once an operator is enrolled (exit **3**,
 operator action pending: it is the operator's to fix, and the message says
 how) and refuses to register the
@@ -423,7 +434,7 @@ overlay: none
 policy warnings: none
 waivers: none
 audit log: /home/you/.local/state/guardrail/audit.jsonl
-operator approvals: WebAuthn
+approval mode: prompt (operator actions are approved in the agent host's ask or at a terminal [y/N]; …)
 claude settings: guardrail hook registered
   ↑ on a plane not yet exercised this reads "… but NEVER OBSERVED FIRING"; that is
     expected, not a fault — see "Healthy looks like" above

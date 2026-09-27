@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
@@ -14,6 +15,11 @@ import (
 // real settings through lifecycle, recover, or approval paths (the
 // guardrail.test-pollution lesson).
 func TestMain(m *testing.M) {
+	// ADR-0033 made prompt the default approval mode. Every test written
+	// before it asserts passkey behaviour, which passkey mode must keep
+	// exactly; the prompt-mode tests write `approval = "prompt"` themselves.
+	unconfiguredApprovalMode = policy.ApprovalPasskey
+
 	// Approval helpers intentionally share the parent's test-owned state root so
 	// separate processes can exercise one-shot approval consumption and locking.
 	if os.Getenv("GUARDRAIL_TEST_OPENCODE_APPROVAL_HELPER") == "1" {
