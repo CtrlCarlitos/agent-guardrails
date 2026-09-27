@@ -27,7 +27,7 @@ func TestWindowsChildProcessRootEnvUsesSharedHelper(t *testing.T) {
 			return walkErr
 		}
 		if entry.IsDir() {
-			if entry.Name() == ".git" || entry.Name() == ".worktrees" || entry.Name() == "vendor" {
+			if entry.Name() == ".git" || entry.Name() == ".worktrees" || entry.Name() == "vendor" || IsNestedCheckout(repoRoot, path) {
 				return filepath.SkipDir
 			}
 			return nil
