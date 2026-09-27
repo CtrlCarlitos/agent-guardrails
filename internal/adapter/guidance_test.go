@@ -58,7 +58,10 @@ func TestGuidanceDenyIsActionablePerRule(t *testing.T) {
 		},
 		{
 			ruleID: "P6.egress",
-			wants:  []string{"not authorized", "Batch the exact domains", "guardrail egress grant", "continue offline work"},
+			// #125 replaced the placeholder-host batch grant, which never
+			// unblocked curl, with the fetch path; the grant and the offline
+			// continuation stay.
+			wants: []string{"guardrail fetch <url>", "not curl or wget", "guardrail egress grant", "continue offline work"},
 		},
 		{
 			ruleID: "P1.rm-rf",

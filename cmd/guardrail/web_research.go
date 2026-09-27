@@ -25,6 +25,16 @@ var writeWebResearchDefaultAudit = audit.Write
 
 func init() { approval.RegisterAction("web-research-set", executeWebResearchApproval) }
 
+// webAccessPosture tells the model at session start that web access exists on
+// request (#125). Agents that had been denied egress once stopped attempting
+// fetches at all, so they never saw the guidance that names the grant; the
+// path has to be known before the first deny, not only in it.
+func webAccessPosture() string {
+	return "Web pages: read them with `guardrail fetch <url>` (curl and wget reach only the egress allowlist). A host that is not approved yet takes one `" +
+		policy.WebHostGrantCommand("<host>") + "`, which you run yourself and the operator approves with a passkey. " +
+		"Attempt the fetch instead of assuming it will be denied. After any deny or ask, `guardrail explain` shows the record and the next step."
+}
+
 func webResearchPosture(off bool) string {
 	if off {
 		return "web-research enforcement: off; native research outbound data and destinations are not enforced (other protections unchanged)"

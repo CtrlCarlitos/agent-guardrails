@@ -150,6 +150,15 @@ func ValidateWebHost(host string) error {
 	return nil
 }
 
+// WebHostGrantCommand is the exact repository-scoped egress grant for hosts:
+// the command an agent runs to file one operator approval for a web host that
+// `guardrail fetch` may then reach (#125). It is the canonical spelling the
+// broker path recognises (engine.OperatorAction), so every deny and ask that
+// names a grant names one that works as written.
+func WebHostGrantCommand(hosts ...string) string {
+	return "guardrail egress grant --scope repo --host " + strings.Join(hosts, ",")
+}
+
 // Policy is a fully merged, ready-to-evaluate policy.
 type Policy struct {
 	WebResearchOff     bool // populated only from machine-scoped Operator config

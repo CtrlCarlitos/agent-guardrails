@@ -122,8 +122,15 @@ func checkEgress(s Simple, pol *policy.Policy) *policy.Verdict {
 		if isLocalHost(host) || hostAllowed(host, pol.Slots.EgressAllowlist) {
 			continue
 		}
-		return &policy.Verdict{Decision: policy.Deny, RuleID: "P6.egress",
-			Reason: "network access to a non-allowlisted host: " + host}
+		reason := "network access to a non-allowlisted host: " + host
+		// A web client asking for a web host is the case #125 measured: name
+		// the exact grant, because an agent handed a placeholder or nothing
+		// stops trying. ssh, scp and friends get no grant: a web-host grant
+		// authorizes `guardrail fetch`, which cannot stand in for them.
+		if fetchTools[command] && policy.ValidateWebHost(host) == nil {
+			reason += "; grant: " + policy.WebHostGrantCommand(host)
+		}
+		return &policy.Verdict{Decision: policy.Deny, RuleID: "P6.egress", Reason: reason}
 	}
 	return nil
 }
