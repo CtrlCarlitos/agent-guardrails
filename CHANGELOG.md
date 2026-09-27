@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.13-dev (2026-09-27)
 
 ### Approvals
 - **Fix (#416): `guardrail approvals grant` and `approvals approve` work from
