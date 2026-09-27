@@ -67,6 +67,12 @@ operator commands documented in [OPERATIONS.md](OPERATIONS.md) (`allow-baseline`
 `help` or in the test's hidden list with a reason
 (`TestHelpListsEveryDispatchedSubcommand`, #395), so the two cannot drift.
 
+`guardrail explain` (#106, added after this policy was first checked) is part of
+the stable surface on the same terms: its selectors (`last`, a timestamp, a
+request ID, a session ID), its flags (`--last N`, `--all`, `--path`) and its
+exit codes (0 explained, 1 nothing matched, 2 usage error or unreadable log).
+What it prints is human-readable output and is not stable.
+
 **Exit-code contract.** Verified against `cmd/guardrail` (`run.go`, `plane.go`,
 `hook.go`) and by running the binary:
 
@@ -200,7 +206,9 @@ candidates for follow-up issues.
 - **A fail-closed deny has no rule ID.** An unparseable payload, an unloadable
   policy or an invalid Overlay produces a deny whose guidance reads `the rule ID
   ()`. "Every deny carries a rule_id" therefore holds for engine verdicts, not
-  for these adapter-level failures.
+  for these adapter-level failures. Since #106 they are audited with an empty
+  `rule_id` and `audit_kind: hook-fail-closed`, and `guardrail explain` says
+  that no rule decided them.
 - **Exit codes are per command.** There is no single table that every command
   follows beyond 0 and 3; `1` and `2` are used consistently as described above,
   but a few commands (`egress`, `gen-config`, `sync`, `hook`) never return 1.

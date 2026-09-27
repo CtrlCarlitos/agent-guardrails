@@ -37,6 +37,33 @@ type Record struct {
 	RequestID             string   `json:"request_id,omitempty"`
 	Transport             string   `json:"transport,omitempty"`
 	CredentialFingerprint string   `json:"credential_fingerprint,omitempty"`
+	// RepoRoot is the repository the hook evaluated the call for, so
+	// `guardrail explain` can default to "this repository" (#106). Empty on
+	// records written before it existed and on calls whose payload could not
+	// be parsed.
+	RepoRoot string `json:"repo_root,omitempty"`
+}
+
+// ReadRecords returns every well-formed record across segments, oldest first,
+// and how many lines could not be decoded. A segment that cannot be read is
+// an error: an explanation built from part of the log would silently answer
+// a different question.
+func ReadRecords(segments []string) (records []Record, malformed int, err error) {
+	for _, segment := range segments {
+		raw, err := os.ReadFile(segment)
+		if err != nil {
+			return nil, 0, err
+		}
+		for _, line := range splitLines(raw) {
+			var rec Record
+			if json.Unmarshal(line, &rec) != nil {
+				malformed++
+				continue
+			}
+			records = append(records, rec)
+		}
+	}
+	return records, malformed, nil
 }
 
 func DefaultPath(override string) string {

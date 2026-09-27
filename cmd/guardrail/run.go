@@ -48,6 +48,11 @@ usage: guardrail <command> [arguments]
       --evidence codex     check retained audit evidence after this binary's mtime (heuristic)
       --session <id> --since <time|duration> --expect-tool <name>  scope Codex evidence
   audit [--path <file>]              summarize the audit log (decisions, rules, drift)
+  explain [last|<ts>|<request-id>|<session-id>]  why a call was asked/denied and the next step
+      default: newest ask/deny for this repository (selftest probes excluded)
+      --last N             show the N newest matching records
+      --all                search every repository, not only this one
+      --path <file>        read this audit log instead of this repository's
   allow-baseline [--json|--check]   list Claude Code allow rules safe to paste (writes nothing)
       --json               print them as a permissions.allow block
       --check              compare them with your Claude settings
@@ -110,6 +115,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdOperator(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdin, stdout, stderr)
 	case "audit":
 		return cmdAudit(args[1:], stdout, stderr)
+	case "explain":
+		cwd, _ := os.Getwd()
+		return cmdExplain(args[1:], cwd, stdout, stderr)
 	case "allow-baseline":
 		return cmdAllowBaseline(args[1:], stdout, stderr)
 	case "next":

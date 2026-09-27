@@ -70,6 +70,19 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 			reason = "guardrail: handler failure: " + strings.TrimPrefix(reason, "guardrail: ")
 		}
 		highPriorityWarnings = append(highPriorityWarnings, reason)
+		// Record the deny the agent is about to see. It has no rule ID
+		// because no rule decided it, and the default audit path because the
+		// policy that could redirect the log is what may have failed to load;
+		// without a record, `guardrail explain` could only answer "nothing
+		// was denied" (#106).
+		failed := audit.Record{
+			SessionID: tc.SessionID, Plane: plane, Tool: tc.Tool, NativeTool: tc.NativeTool,
+			Event: tc.Event, Command: tc.Command, Decision: string(policy.Deny),
+			AuditKind: "hook-fail-closed", Reason: reason, RepoRoot: tc.RepoRoot,
+		}
+		if err := audit.Write(failed, audit.DefaultPath("")); err != nil {
+			highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: audit write failed (%v)", err))
+		}
 		if plane == "antigravity" {
 			v := policy.Verdict{Decision: policy.Deny, Reason: reason}
 			return adapter.EmitAntigravity(v, antigravityPhase, tc, stdout)
@@ -448,6 +461,7 @@ func auditRecord(tc engine.ToolCall, v policy.Verdict, waivers []string) audit.R
 		Waivers:        waivers,
 		OperatorAction: v.OperatorAction,
 		RequestID:      v.RequestID,
+		RepoRoot:       tc.RepoRoot,
 	}
 	if tc.Capability != policy.CapabilityUnknown {
 		rec.Command = tc.Command

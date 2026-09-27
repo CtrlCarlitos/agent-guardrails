@@ -6,6 +6,27 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### CLI
+- **Feature (#106): `guardrail explain`, one command from an audit record to
+  the fix.** With no argument it prints the newest ask or deny for the
+  repository you are in (selftest probes excluded): what was evaluated, the
+  verdict and `rule_id`, the reason, the next step the agent was given (the
+  adapter's own text, so it cannot drift from the guidance), and what only the
+  operator can do: the exact `guardrail approvals grant` line for a grantable
+  ask, why an ask can never be granted, or `guardrail approvals approve <id>`
+  and the latest status for a brokered action. `explain <session-id>`,
+  `explain <request-id>`, `explain <timestamp>`, `--last N`, `--all` and
+  `--path` select other records. Exit 0 explained, 1 nothing matched, 2 usage
+  error or unreadable log. It reads the log only and never re-evaluates.
+
+### Audit
+- **Additive (#106): records carry `repo_root`, and a fail-closed hook deny is
+  recorded.** A hook that could not parse its payload or load its policy denied
+  the call with no audit record at all, so the deny the agent saw could not be
+  found afterwards. It is now written with an empty `rule_id`, `audit_kind:
+  hook-fail-closed` and the reason the agent saw. Hook records also name the
+  repository they were evaluated for, which is what `explain` scopes by.
+
 ### Tests
 - **Fix (#406): repo guard tests no longer read another checkout's files.**
   Three guards that walk the repository skipped nested checkouts only by the
