@@ -4,6 +4,22 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Engine
+- **Fix (#422): `2>$null` no longer asks.** Every command carrying PowerShell's
+  discard asked `P3.unresolved`, even `ls 2>$null`, under the Bash and
+  PowerShell tools alike; an OpenCode agent on Windows was stopped on
+  `rg --files … 2>$null | Out-String` and worked around it. A redirect target
+  spelled exactly `$null` (any case) is now a discard. A same-command
+  assignment to `null` is still judged as the write it is, and look-alikes
+  (`$nullx`, `${null}x`, `$null/x`) stay unresolved. `rg` and `grep` were
+  already allowed; nothing changed for them.
+- **Fix (#422): `rg --pre` asks** (`P1.rg-preprocessor`). `--pre` runs a program
+  on every searched file, so `rg --pre rm x ~` deleted what a direct `rm` there
+  would be asked about. `--pre-glob`, `--no-pre` and anything after `--` are
+  unaffected.
+
 ## v0.23.14-dev (2026-09-27)
 
 ### Approvals

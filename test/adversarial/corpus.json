@@ -3194,5 +3194,30 @@
     "cwd": "/repo",
     "repo_root": "/repo",
     "want": "allow"
+  },
+  {
+    "name": "PowerShell's 2>$null discard is not an unresolved write (#422)",
+    "tool": "Bash",
+    "command": "rg --files -g '!*.zsh' scripts dot_config 2>$null | Out-String",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "an assigned $null is still judged as a write (#422)",
+    "tool": "Bash",
+    "command": "null=/etc/passwd; ls >$null",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask"
+  },
+  {
+    "name": "rg --pre runs a program unseen and asks (#422)",
+    "tool": "Bash",
+    "command": "rg --pre rm x ~",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P1.rg-preprocessor"
   }
 ]

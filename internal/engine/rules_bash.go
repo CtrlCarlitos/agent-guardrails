@@ -154,6 +154,7 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 		takeSimple(checkGhAPIProtection(s))
 		takeSimple(checkGhPorcelain(s))
 		takeSimple(checkGoToolchain(s))
+		takeSimple(checkRgPreprocessor(s))
 		takeSimple(checkCredentialedCLI(s))
 		if head(s.Argv) != "find" {
 			takeSimple(checkAskTierWithFindFSExemption(s, tc, pol, findFSExemption))
