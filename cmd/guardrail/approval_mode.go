@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -156,16 +157,53 @@ func promptApproval(summary string, terminal bool, stdout io.Writer) (string, ap
 	if !terminal {
 		return "", approvalUnreachable
 	}
-	fmt.Fprintf(stdout, "Approve %s? [y/N] ", summary)
+	// The question goes to the console the answer is read from, not stdout: a
+	// caller that pipes stdout through a line-buffered logger (the Windows
+	// dotfiles' Tee-Object) never shows a line without a newline, so the run
+	// waited on a prompt nobody could see (#419).
+	question := stdout
+	console := openPromptConsole()
+	if console != nil {
+		defer console.Close()
+		question = console
+	}
+	fmt.Fprintf(question, "Approve %s? [y/N] ", summary)
 	line, _ := bufio.NewReader(operatorInput).ReadString('\n')
 	if !strings.HasSuffix(line, "\n") {
-		fmt.Fprintln(stdout)
+		fmt.Fprintln(question)
 	}
+	outcome, transport := approvalDeclined, ""
 	switch strings.ToLower(strings.TrimSpace(line)) {
 	case "y", "yes":
-		return transportTerminalPrompt, approvalGranted
+		outcome, transport = approvalGranted, transportTerminalPrompt
 	}
-	return "", approvalDeclined
+	if console != nil {
+		answer := "declined"
+		if outcome == approvalGranted {
+			answer = "approved"
+		}
+		fmt.Fprintf(stdout, "asked at the terminal: %s: %s\n", summary, answer)
+	}
+	return transport, outcome
+}
+
+// consoleDevice is the console a terminal prompt writes its question to.
+func consoleDevice() string {
+	if runtime.GOOS == "windows" {
+		return "CONOUT$"
+	}
+	return "/dev/tty"
+}
+
+// openPromptConsole opens the console for the prompt's question, or returns
+// nil when there is none; the question then falls back to stdout. A variable
+// so tests control it: under `go test` in a real console the device opens.
+var openPromptConsole = func() io.WriteCloser {
+	f, err := os.OpenFile(consoleDevice(), os.O_WRONLY, 0)
+	if err != nil {
+		return nil
+	}
+	return f
 }
 
 // promptOperatorVerdict is the hook's prompt-mode answer to a canonical

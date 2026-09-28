@@ -4,6 +4,18 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Approvals
+- **Fix (#419): the `[y/N]` question is written to the console, not stdout.**
+  On Windows the dotfiles run the installer through `Tee-Object`, which shows
+  only complete lines, so `Approve …? [y/N] ` never appeared and the install
+  waited on a prompt nobody could see (WSL, unpiped, was fine). The question
+  now goes to the console the answer is read from (`CONOUT$` on Windows,
+  `/dev/tty` elsewhere), as `sudo` does, and stdout gets a complete line
+  recording what was asked and the answer. With no console it falls back to
+  stdout as before.
+
 ## v0.23.13-dev (2026-09-27)
 
 ### Approvals

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"testing"
 
@@ -19,6 +20,11 @@ func TestMain(m *testing.M) {
 	// before it asserts passkey behaviour, which passkey mode must keep
 	// exactly; the prompt-mode tests write `approval = "prompt"` themselves.
 	unconfiguredApprovalMode = policy.ApprovalPasskey
+
+	// A test run in a real console would open it and the prompt's question
+	// would leave stdout; pin "no console" so prompt tests read stdout on every
+	// host. The console path has its own test (#419).
+	openPromptConsole = func() io.WriteCloser { return nil }
 
 	// Approval helpers intentionally share the parent's test-owned state root so
 	// separate processes can exercise one-shot approval consumption and locking.
