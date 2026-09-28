@@ -93,10 +93,16 @@ func TestGhAccountKeyAndAuthReadsStayAllowed(t *testing.T) {
 		"gh ssh-key list",
 		"gh gpg-key list",
 		"gh auth status",
-		"gh auth token",
 	} {
 		assertGh(t, command, policy.Allow, "")
 	}
+	// `gh auth token` left this list deliberately (#436). The operator's
+	// decision of 2026-09-28 reversed #289: it prints the live token into the
+	// session, and everything a command prints is sent to the model provider.
+	// It asks unless captured by `$(...)` for another command; see
+	// rules_credential_print_test.go.
+	assertGh(t, "gh auth token", policy.Ask, "P4.credential-print")
+	assertGh(t, "GH_TOKEN=$(gh auth token) gh pr list", policy.Allow, "")
 }
 
 // A credential prefix must not become a way to spell past either new rule,

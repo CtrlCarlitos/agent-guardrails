@@ -151,6 +151,11 @@ func checkCredentialedCLI(s Simple) *policy.Verdict {
 			return ask("P6.deploy", "vercel --prod deploys to production")
 		}
 	case cloudCLIs[command]:
+		if credentialPrinter(argv) != "" {
+			// Printing a token is not a mutation; P4.credential-print owns
+			// it and knows when the output stays captured (#436).
+			return nil
+		}
 		if verb == "" || cloudReadVerbs[verb] || cloudReadOperation(argv) {
 			return nil
 		}

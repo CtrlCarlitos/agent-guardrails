@@ -46,8 +46,12 @@ type Simple struct {
 	// the repository (#377). A copy built by a later rewrite does not carry it,
 	// so anything reshaped keeps the conservative reading (an ask).
 	globTailResolved map[int]string
-	origin           *syntax.Stmt
-	shellState       cwdState
+	// stdoutFate is where this command's standard output goes (#436). The
+	// zero value is stdoutRoot, so a copy that does not carry it reads as
+	// printing into the session and is never judged contained.
+	stdoutFate stdoutFate
+	origin     *syntax.Stmt
+	shellState cwdState
 }
 
 type pipelinePosition struct {
@@ -75,6 +79,7 @@ func splitSimplesWithContext(src string, ctx *normalizeContext) ([]Simple, error
 
 func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pipelinePosition, states map[*syntax.Stmt]cwdState, replacements map[*syntax.Stmt][]Simple) []Simple {
 	var out []Simple
+	fates := stdoutFates(src, f)
 	syntax.Walk(f, func(node syntax.Node) bool {
 		stmt, ok := node.(*syntax.Stmt)
 		if !ok {
@@ -106,7 +111,7 @@ func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pip
 		if len(args) == 0 && len(stmt.Redirs) == 0 {
 			return true
 		}
-		s := Simple{pipelines: pipelines[stmt]}
+		s := Simple{pipelines: pipelines[stmt], stdoutFate: fates[stmt]}
 		if tracked {
 			s.Cwd = state.cwd
 			s.Unresolved = state.unknown
@@ -2901,6 +2906,7 @@ func commandDerivedFromAt(outer Simple, argv []string, sourceArg int) Simple {
 		cwdUnknown:            outer.cwdUnknown,
 		fsUncertain:           outer.fsUncertain || head(argv) == "find" && (outer.shellState.fsUncertain || len(outer.pipelines) > 0),
 		shellState:            outer.shellState,
+		stdoutFate:            outer.stdoutFate,
 	}
 	if sourceArg >= 0 && sourceArg+len(argv) <= len(outer.Argv) {
 		derived.literalArgs = remapProvenance(outer.literalArgs, sourceArg, len(argv))
@@ -3061,6 +3067,11 @@ loop:
 		case "env":
 			s = applyEnvGitEnvironment(s, argv)
 			rest, err = consumeEnv(argv[1:])
+			if err == nil && len(rest) == 0 {
+				// A bare `env` runs nothing: it prints the environment, and
+				// P4.credential-print has to see it (#436).
+				break loop
+			}
 		case "timeout":
 			rest, err = consumeTimeout(argv[1:])
 		case "nice":
@@ -3144,7 +3155,7 @@ loop:
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, inner...)
+		result = append(result, inheritStdoutFate(inner, s.stdoutFate, shellEnablesXtrace(argv))...)
 	}
 	if source, ok := cmdSlashC(argv); ok {
 		innerState := invalidateExpansionFacts(s.shellState)
@@ -3152,7 +3163,7 @@ loop:
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, inner...)
+		result = append(result, inheritStdoutFate(inner, s.stdoutFate, false)...)
 	}
 	remoteSources, err := sshCommandSources(argv)
 	if err != nil {
@@ -3165,7 +3176,8 @@ loop:
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, inner...)
+		// The remote command's output comes back to the local session.
+		result = append(result, inheritStdoutFate(inner, s.stdoutFate, false)...)
 	}
 	if chrooted {
 		for i := range result {

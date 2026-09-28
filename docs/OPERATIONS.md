@@ -200,6 +200,53 @@ is recorded with rule `ask-allowed-by-operator-grant` and preserves the original
 ask rule as `origin_rule_id`. See [ADR-0027](adr/0027-operator-issued-grants-authorize-one-exact-command.md)
 for the trust and transaction design.
 
+## Passing credentials to commands
+
+Everything a command prints enters the session and is sent to the model
+provider. A command whose output is a credential (`gh auth token`, `az account
+get-access-token`, `aws ecr get-login-password`, `kubectl config view --raw`,
+`git credential fill`, `op read`, `vault kv get`, …), a dump of the
+environment (`env`, `printenv`, PowerShell `gci env:`), or an echo of a
+secret-looking variable (`echo $GITHUB_TOKEN`, a name containing TOKEN,
+SECRET, PASSWORD, PASSWD, API_KEY, PRIVATE_KEY or CREDENTIAL) asks under
+`P4.credential-print` unless its output never reaches the session (#436).
+
+These shapes stay allowed, because the value goes straight to the command that
+needs it:
+
+```
+GH_TOKEN=$(gh auth token) gh pr list                     # env prefix of one command
+tool --token "$(gh auth token)"                          # argument
+docker login ghcr.io -u me --password-stdin <<< "$(gh auth token)"
+gh auth token | docker login ghcr.io -u me --password-stdin
+aws ecr get-login-password | docker login --username AWS --password-stdin <registry>
+```
+
+(An argument of a program whose operands the Engine does not know already asks
+`P3.unresolved`, as any substituted argument does.)
+
+These ask, because the value lands where the session can read it:
+
+- the bare command, or a pipe into anything but a credential consumer
+  (`--password-stdin`, `--with-token`, `gh secret set`); `tr`, `cut`, `jq` and
+  `base64` pass the value on to wherever their own output goes;
+- `echo $(gh auth token)`, `cat <<< "$(…)"`, or a substitution handed to any
+  other printing command (`printf`, `printenv`, `env`, `cat`, `tee`,
+  `Write-Output`, `Write-Host`, …) or to interpreter code (`bash -c`,
+  `python -c`);
+- a redirect to a file, or `>&2`;
+- a plain assignment (`TOKEN=$(gh auth token)`, `export …`): a later command
+  can print the variable under a name nobody reads as secret. Use the prefix
+  form on the one command that needs it;
+- anything under `set -x` or `bash -x`, which prints every expanded command.
+
+What this does not do: Guardrail judges the shape of the command, not what the
+consuming program does with the value. A program that prints its own
+arguments, its environment, or an error message that repeats a bad argument
+still leaks the value into the session. This
+narrows the channel; it does not close it. The durable fix is a credential the
+session never needs to see (#277).
+
 ## Things that look like bugs and aren't
 
 - **Writing `.env` inside the repo is denied.** `.env` is a File secret (definitive tier). Use `.env.example`, or an operator-authorised `secret_allow`.
