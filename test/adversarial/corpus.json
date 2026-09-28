@@ -3228,5 +3228,374 @@
     "repo_root": "/repo",
     "want": "ask",
     "want_rule_id": "P2.gh-auth-scope"
+  },
+  {
+    "name": "gh auth token asks: the token would enter the session (#436)",
+    "tool": "Bash",
+    "command": "gh auth token",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "gh.exe auth token asks (#436)",
+    "tool": "Bash",
+    "command": "gh.exe auth token",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "echo of a captured token asks (#436)",
+    "tool": "Bash",
+    "command": "echo $(gh auth token)",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "cat here-string of a captured token asks (#436)",
+    "tool": "Bash",
+    "command": "cat <<< \"$(gh auth token)\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "token piped to cat asks (#436)",
+    "tool": "Bash",
+    "command": "gh auth token | cat",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "token written to a file asks (#436)",
+    "tool": "Bash",
+    "command": "gh auth token > t.txt",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "token in a plain variable asks (#436)",
+    "tool": "Bash",
+    "command": "TOKEN=$(gh auth token)",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "token captured under set -x asks (#436)",
+    "tool": "Bash",
+    "command": "set -x; GH_TOKEN=$(gh auth token) gh pr list",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "token captured into env that prints it asks (#436)",
+    "tool": "Bash",
+    "command": "GH_TOKEN=$(gh auth token) env",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "bash -c body printing a token asks (#436)",
+    "tool": "Bash",
+    "command": "bash -c 'gh auth token'",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "token as env prefix of another command is allowed (#436)",
+    "tool": "Bash",
+    "command": "GH_TOKEN=$(gh auth token) gh pr list",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "token piped into a password-stdin login is allowed (#436)",
+    "tool": "Bash",
+    "command": "gh auth token | docker login ghcr.io -u me --password-stdin",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "token here-string into a password-stdin login is allowed (#436)",
+    "tool": "Bash",
+    "command": "docker login ghcr.io -u me --password-stdin <<< \"$(gh auth token)\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "ecr password piped into docker login is allowed (#436)",
+    "tool": "Bash",
+    "command": "aws ecr get-login-password | docker login --username AWS --password-stdin 1.dkr.ecr.us-east-1.amazonaws.com",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "gh auth status --show-token asks (#436)",
+    "tool": "Bash",
+    "command": "gh auth status --show-token",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "git credential fill asks (#436)",
+    "tool": "Bash",
+    "command": "printf 'protocol=https\\nhost=github.com\\n' | git credential fill",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "keychain password read asks (#436)",
+    "tool": "Bash",
+    "command": "security find-generic-password -s x -w",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "secret-tool lookup asks (#436)",
+    "tool": "Bash",
+    "command": "secret-tool lookup service gh",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "docker credential helper list asks (#436)",
+    "tool": "Bash",
+    "command": "docker-credential-desktop list",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "az access token asks (#436)",
+    "tool": "Bash",
+    "command": "az account get-access-token",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "aws secret config read asks (#436)",
+    "tool": "Bash",
+    "command": "aws configure get aws_secret_access_key",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "aws session token asks (#436)",
+    "tool": "Bash",
+    "command": "aws sts get-session-token",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "raw kubeconfig asks (#436)",
+    "tool": "Bash",
+    "command": "kubectl config view --raw",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "npm auth token read asks (#436)",
+    "tool": "Bash",
+    "command": "npm config get //registry.npmjs.org/:_authToken",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "gcloud access token asks under the credential rule (#436)",
+    "tool": "Bash",
+    "command": "gcloud auth print-access-token",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "gcloud token captured for a command is allowed (#436)",
+    "tool": "Bash",
+    "command": "CLOUDSDK_AUTH_ACCESS_TOKEN=$(gcloud auth print-access-token) gh pr list",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "op read asks (#436)",
+    "tool": "Bash",
+    "command": "op read op://vault/item/field",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "vault kv get asks (#436)",
+    "tool": "Bash",
+    "command": "vault kv get secret/x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "bare env asks (#436)",
+    "tool": "Bash",
+    "command": "env",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "bare printenv asks (#436)",
+    "tool": "Bash",
+    "command": "printenv",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "printenv of a token asks (#436)",
+    "tool": "Bash",
+    "command": "printenv GITHUB_TOKEN",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "printenv of HOME is allowed (#436)",
+    "tool": "Bash",
+    "command": "printenv HOME",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "echo of a token variable asks (#436)",
+    "tool": "Bash",
+    "command": "echo $GITHUB_TOKEN",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "printf of an api key variable asks (#436)",
+    "tool": "Bash",
+    "command": "printf '%s' \"$NPM_API_KEY\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "echo of HOME is allowed (#436)",
+    "tool": "Bash",
+    "command": "echo $HOME",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "token variable piped into a login is allowed (#436)",
+    "tool": "Bash",
+    "command": "echo $GITHUB_TOKEN | docker login ghcr.io -u me --password-stdin",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "export of a captured token asks (#436)",
+    "tool": "Bash",
+    "command": "export GH_TOKEN=$(gh auth token)",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "PowerShell spelling: env drive listing asks (#436)",
+    "tool": "Bash",
+    "command": "Get-ChildItem env:",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "PowerShell spelling: gci env drive asks (#436)",
+    "tool": "Bash",
+    "command": "gci env:",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "PowerShell spelling: dir env drive asks (#436)",
+    "tool": "Bash",
+    "command": "dir env:",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "PowerShell spelling: echo of an env token asks (#436)",
+    "tool": "Bash",
+    "command": "echo $env:GITHUB_TOKEN",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P4.credential-print"
+  },
+  {
+    "name": "PowerShell spelling: echo of env PATH is allowed (#436)",
+    "tool": "Bash",
+    "command": "echo $env:PATH",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
   }
 ]
