@@ -6,6 +6,12 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Coverage
+- **Fix (#423): `graft_check_freshness` is contracted.** graft 0.20 added the
+  MCP tool (a read-only drift check, no arguments); `doctor --coverage
+  antigravity` reported it uncontracted and `setup` ended with a coverage
+  warning. It is now read-discovery like the other graft tools.
+
 ### Engine
 - **Fix (#422): `2>$null` no longer asks.** Every command carrying PowerShell's
   discard asked `P3.unresolved`, even `ls 2>$null`, under the Bash and

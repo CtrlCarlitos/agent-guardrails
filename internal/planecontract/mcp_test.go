@@ -23,6 +23,9 @@ func TestMatchMCPToolResolvesEveryPlaneNaming(t *testing.T) {
 		{"graft_graft_find_code", "graft_find_code", policy.CapabilityReadDiscovery, "relative_path"},
 		{"mcp__graft__graft_find_code", "graft_find_code", policy.CapabilityReadDiscovery, "relative_path"},
 		{"mcp__graft__graft_repo_map", "graft_repo_map", policy.CapabilityReadDiscovery, "relative_path"},
+		// graft 0.20 added it; doctor reported it uncontracted (2026-09-27).
+		{"mcp__graft__graft_check_freshness", "graft_check_freshness", policy.CapabilityReadDiscovery, "relative_path"},
+		{"graft_graft_check_freshness", "graft_check_freshness", policy.CapabilityReadDiscovery, "relative_path"},
 	}
 	for _, tc := range cases {
 		spec, ok := MatchMCPTool(tc.name)
