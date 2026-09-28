@@ -6,6 +6,16 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Approvals
+- **Fix (#441): concurrent grants no longer fail each other on Windows.**
+  Before an operator action runs, recovery reads every other transaction's
+  journal to finish ones a crash left behind. It also met journals that live
+  sibling transactions were replacing or removing, and returned that as an
+  error: on Windows a sharing violation, anywhere a journal removed between
+  listing and reading. A journal that has vanished or is held open by
+  another process now counts as a live transaction's and is skipped; a
+  genuinely unreadable journal still fails recovery.
+
 ### Policy
 - **Fix (#435): more credential stores are secret-tier.** With the shipped
   policy an agent could read these with `cat` or the Read tool, and whatever

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -158,7 +159,14 @@ func recoverActionAuditsExcept(skip string) error {
 		if path == skip {
 			continue
 		}
-		journal, err := loadActionAudit(path)
+		journal, err := readActionAuditJournal(path)
+		if journalOfLiveTransaction(err) {
+			// Recovery finishes journals a crash left behind. One that
+			// vanished after ReadDir, or that another process holds open,
+			// belongs to a transaction still running, which finishes itself;
+			// failing here failed that sibling's concurrent grant (#441).
+			continue
+		}
 		if err != nil {
 			return err
 		}
@@ -169,6 +177,16 @@ func recoverActionAuditsExcept(skip string) error {
 		}
 	}
 	return nil
+}
+
+// readActionAuditJournal is how recovery reads a journal; a variable so tests
+// can stand in for another process holding or removing it.
+var readActionAuditJournal = loadActionAudit
+
+// journalOfLiveTransaction reports a read error that means another
+// transaction is still working on the journal, not that it is broken.
+func journalOfLiveTransaction(err error) bool {
+	return err != nil && (errors.Is(err, fs.ErrNotExist) || fileInUseByAnotherProcess(err))
 }
 
 func loadActionAudit(path string) (actionAuditJournal, error) {
