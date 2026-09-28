@@ -170,6 +170,10 @@ func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pip
 				if tracked {
 					target, resolved = resolveLocalWord(r.Word, state)
 				}
+				if !resolved && write && !read && isNullDiscard(raw) {
+					// A discard writes nothing a rule could judge (#422).
+					continue
+				}
 				if !resolved {
 					target = raw
 					s.Unresolved = true
@@ -233,6 +237,18 @@ func (s Simple) outputRedirectUnresolved(index int) bool {
 	}
 	_, literal := literalText(s.Redirects[index])
 	return !literal
+}
+
+// isNullDiscard reports a redirect target spelled exactly `$null`, in any
+// case. In PowerShell $null is a constant that cannot be reassigned, so
+// `2>$null` is its discard, the analogue of /dev/null, and every command
+// carrying it asked P3.unresolved (#422). In bash the same word only names a
+// file when a variable `null` is set: a same-command assignment is resolved
+// before this is reached and judged as the write it is (resolvedOut); an
+// inherited one needs an earlier write to shell start-up files, which is
+// itself gated.
+func isNullDiscard(target string) bool {
+	return strings.EqualFold(target, "$null")
 }
 
 func (s Simple) inputRedirectUnresolved(index int) bool {
