@@ -19,6 +19,13 @@ explicitly in **Breaking** notes.
   (`gh/config.yml`, `.gitconfig`, `.cargo/config.toml`, agent settings) stay
   readable. `.yarnrc.yml` is left alone because repositories commit it.
 
+### Engine
+- **Fix (#438): substitutions inside declarations and arithmetic are
+  evaluated.** `export X=$(rm -rf /)` allowed while `X=$(rm -rf /)` denied: the
+  commands inside a substitution in `export`, `local`, `declare`, `readonly`,
+  `typeset`, `let` or `(( ))` were never handed to any rule. They now get the
+  same verdict they get anywhere else.
+
 ## v0.23.17-dev (2026-09-28)
 
 ### Engine
