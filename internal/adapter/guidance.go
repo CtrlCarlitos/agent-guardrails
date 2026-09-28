@@ -108,7 +108,10 @@ func denyNextStep(v policy.Verdict) string {
 	case "P4.secret-in-text":
 		return "The secret-tier path was mentioned in the command's text, not accessed. Content like this belongs in the file, not a shell literal: write it with the Write or Edit tool, then continue."
 	case "call-mcp-tool-generic":
-		return "Register the MCP tool in ~/.gemini/config/mcp_config.json so its arguments can be evaluated directly, then continue."
+		// #432: the old text told the agent to register the tool in its MCP
+		// config. The server was registered; Antigravity offers only lazily
+		// loaded tools through call_mcp_tool, and eager ones by direct name.
+		return "Call it by its direct name, mcp_<server>_<tool>, if offered. If not, do not retry through call_mcp_tool: work with native tools and tell the operator the server's tools must be loaded eagerly."
 	case "capability-deny", "capability-invalid":
 		return "This tool is outside the Guardrail boundary on this plane (it moves data or control to another principal). Do not retry it: reach the outcome with in-session tools, or tell the operator this step needs them; then continue."
 	case "capability-delegation-unverified":

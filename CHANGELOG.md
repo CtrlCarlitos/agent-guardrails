@@ -12,6 +12,16 @@ explicitly in **Breaking** notes.
   involved: the same act as `gh auth switch`, which already asked. Plain
   interactive `gh auth login` and `gh auth status` stay allowed.
 
+### Antigravity
+- **Fix (#432): the `call_mcp_tool` deny gives the right next step.** It told
+  the agent to "Register the MCP tool in ~/.gemini/config/mcp_config.json",
+  which was wrong (the server was registered; Antigravity offered its tools
+  only lazily, which it routes through `call_mcp_tool`) and asked an agent to
+  edit its host's configuration. It now says to call the tool by its direct
+  name `mcp_<server>_<tool>` when offered, not to retry through
+  `call_mcp_tool` otherwise, and to tell the operator the server's tools must
+  be loaded eagerly. The deny itself is unchanged (ADR-0019).
+
 ## v0.23.16-dev (2026-09-28)
 
 ### OpenCode
