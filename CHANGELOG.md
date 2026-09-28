@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.17-dev (2026-09-28)
 
 ### Engine
 - **Fix (#430): `gh auth login --with-token` asks** (`P2.gh-auth-scope`). It
