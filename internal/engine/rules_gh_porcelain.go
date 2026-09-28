@@ -139,6 +139,19 @@ func ghGroupVerb(argv []string) (string, string) {
 	return "", ""
 }
 
+// ghHasFlag reports a boolean flag spelled bare or as `--flag=value`.
+func ghHasFlag(argv []string, flag string) bool {
+	for _, arg := range argv[1:] {
+		if arg == "--" {
+			return false
+		}
+		if arg == flag || strings.HasPrefix(arg, flag+"=") {
+			return true
+		}
+	}
+	return false
+}
+
 func ghHasScopeFlag(argv []string) bool {
 	for _, arg := range argv {
 		if ghScopeFlags[arg] {
@@ -169,6 +182,14 @@ func checkGhPorcelain(s Simple) *policy.Verdict {
 	if group == "auth" && (verb == "refresh" || verb == "login") && ghHasScopeFlag(s.Argv) {
 		return ask("P2.gh-auth-scope",
 			"widens the scopes of the token every later gh call runs under")
+	}
+
+	// A person signing in answers prompts; `--with-token` needs no person and
+	// swaps the account every later gh call runs as, the same act as
+	// `auth switch` (#430).
+	if group == "auth" && verb == "login" && ghHasFlag(s.Argv, "--with-token") {
+		return ask("P2.gh-auth-scope",
+			"logs in with a supplied token, changing which account later gh calls run as")
 	}
 
 	rule, ok := ghPorcelainRules[group+" "+verb]
