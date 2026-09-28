@@ -1286,9 +1286,18 @@ func (w *cwdWalker) command(stmt *syntax.Stmt, state cwdState) cwdOutcome {
 	case *syntax.TimeClause:
 		return w.stmt(command.Stmt, state)
 	case *syntax.DeclClause:
+		// The substitutions run before the declaration takes effect, and
+		// extractSimples emits only tracked statements: skipping this left
+		// `export X=$(rm -rf /)` unevaluated (#438).
+		if w.expansions(command, state) {
+			state.fsUncertain = true
+		}
 		state = invalidateDeclarationVariables(state, command)
 		return bothOutcome(state)
 	case *syntax.LetClause, *syntax.ArithmCmd:
+		if w.expansions(command, state) {
+			state.fsUncertain = true
+		}
 		state = withoutAllVariables(state)
 		state.namerefs = nil
 		return bothOutcome(state)

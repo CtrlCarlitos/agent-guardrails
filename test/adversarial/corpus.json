@@ -3230,6 +3230,78 @@
     "want_rule_id": "P2.gh-auth-scope"
   },
   {
+    "name": "gh hosts.yml holds the token where there is no keyring (#435)",
+    "tool": "Bash",
+    "command": "cat /home/u/.config/gh/hosts.yml",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P4.secret-path"
+  },
+  {
+    "name": "an agent's own login token is secret-tier (#435)",
+    "tool": "Bash",
+    "command": "TOKEN=$(cat /home/u/.codex/auth.json) ./tool",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P4.secret-path"
+  },
+  {
+    "name": "grep through a token cache is a read of it (#435)",
+    "tool": "Bash",
+    "command": "grep -r access_token /home/u/.azure",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P4.secret-path"
+  },
+  {
+    "name": "export of a destructive substitution denies (#438)",
+    "tool": "Bash",
+    "command": "export X=$(rm -rf /)",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P1.rm-rf"
+  },
+  {
+    "name": "local of a destructive substitution denies (#438)",
+    "tool": "Bash",
+    "command": "local X=$(rm -rf /)",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P1.rm-rf"
+  },
+  {
+    "name": "declare array of a destructive substitution denies (#438)",
+    "tool": "Bash",
+    "command": "declare -a A=($(rm -rf /))",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P1.rm-rf"
+  },
+  {
+    "name": "let with a destructive substitution denies (#438)",
+    "tool": "Bash",
+    "command": "let x=$(rm -rf /)",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P1.rm-rf"
+  },
+  {
+    "name": "arithmetic command with a destructive substitution denies (#438)",
+    "tool": "Bash",
+    "command": "(( $(rm -rf /) ))",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P1.rm-rf"
+  },
+  {
     "name": "gh auth token asks: the token would enter the session (#436)",
     "tool": "Bash",
     "command": "gh auth token",
