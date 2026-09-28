@@ -3219,5 +3219,14 @@
     "repo_root": "/repo",
     "want": "ask",
     "want_rule_id": "P1.rg-preprocessor"
+  },
+  {
+    "name": "gh auth login --with-token switches account and asks (#430)",
+    "tool": "Bash",
+    "command": "gh auth login --with-token < /repo/token.txt",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P2.gh-auth-scope"
   }
 ]

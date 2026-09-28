@@ -4,6 +4,14 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Engine
+- **Fix (#430): `gh auth login --with-token` asks** (`P2.gh-auth-scope`). It
+  logs in as whatever account the supplied token belongs to, with no person
+  involved: the same act as `gh auth switch`, which already asked. Plain
+  interactive `gh auth login` and `gh auth status` stay allowed.
+
 ## v0.23.16-dev (2026-09-28)
 
 ### OpenCode
