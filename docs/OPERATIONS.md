@@ -264,6 +264,21 @@ guardrail gen-config opencode -merge "$env:USERPROFILE\.config\opencode\opencode
 Get-Process | Sort-Object CPU -Descending | Select-Object -First 5 Id,Name,CPU,StartTime
 ```
 
+To see where the time went, read the plugin's two logs under
+`%LOCALAPPDATA%\guardrail` (`~/.local/state/guardrail` elsewhere):
+`plugin-failures.log` has one line per degraded allow, floor fallback or
+fail-closed call; `plugin-timing.jsonl` (#427) has one JSON line per call that
+took over a second or had a failed attempt, including retried calls that
+stalled once and then succeeded. Each line gives the daemon dial time, every
+spawn attempt's duration, timeout, pid and outcome, the envelope size and the
+runtime (Bun or Node). A `pid` on a timed-out attempt means the process was
+created and then hung; `ms` far below `timeout_ms` with an error means the
+spawn itself failed.
+
+```powershell
+Get-Content "$env:LOCALAPPDATA\guardrail\plugin-timing.jsonl" -Tail 20
+```
+
 The agent itself cannot run any of this — the tool that would diagnose the
 guard is gated by the guard. Recovery is an operator-terminal action by
 necessity. Two standing cautions: the Defender exclusion for the binary path
