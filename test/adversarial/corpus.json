@@ -3228,5 +3228,32 @@
     "repo_root": "/repo",
     "want": "ask",
     "want_rule_id": "P2.gh-auth-scope"
+  },
+  {
+    "name": "gh hosts.yml holds the token where there is no keyring (#435)",
+    "tool": "Bash",
+    "command": "cat /home/u/.config/gh/hosts.yml",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P4.secret-path"
+  },
+  {
+    "name": "an agent's own login token is secret-tier (#435)",
+    "tool": "Bash",
+    "command": "TOKEN=$(cat /home/u/.codex/auth.json) ./tool",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P4.secret-path"
+  },
+  {
+    "name": "grep through a token cache is a read of it (#435)",
+    "tool": "Bash",
+    "command": "grep -r access_token /home/u/.azure",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P4.secret-path"
   }
 ]
