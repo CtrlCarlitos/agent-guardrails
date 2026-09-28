@@ -83,6 +83,45 @@ function logPluginFailure(kind, tool, detail) {
 	} catch {}
 }
 
+// Timing trace (#427): one JSON line per call that was slow or had a failed
+// attempt, next to the failure log. plugin-failures.log says only that a
+// spawn timed out; this says where the time went (daemon dial, each spawn
+// attempt, whether a process was created) and records retried calls that
+// stalled once and then succeeded, which otherwise leave no trace. Fast
+// calls write nothing. Like the failure log, it must never break mediation.
+const TIMING_LOG = join(dirname(FAILURE_LOG), "plugin-timing.jsonl");
+const SLOW_CALL_MS = 1000;
+
+function logPluginTiming(trace) {
+	try {
+		mkdirSync(dirname(TIMING_LOG), { recursive: true });
+		try {
+			if (statSync(TIMING_LOG).size > 1024 * 1024) {
+				renameSync(TIMING_LOG, TIMING_LOG + ".old");
+			}
+		} catch {}
+		appendFileSync(TIMING_LOG, JSON.stringify(trace) + "\n");
+	} catch {}
+}
+
+function timedSpawn(trace, serializedEnvelope, timeout) {
+	const started = Date.now();
+	const res = spawnSync(GUARDRAIL_BIN, ["hook", "opencode"], {
+		input: serializedEnvelope,
+		encoding: "utf8",
+		timeout,
+	});
+	trace.attempts.push({
+		ms: Date.now() - started,
+		timeout_ms: timeout,
+		pid: res.pid ?? null,
+		outcome: res.error ? (res.error.code || res.error.message) : res.signal ? `signal ${res.signal}` : `exit ${res.status}`,
+		stdout_bytes: (res.stdout || "").length,
+		stderr_bytes: (res.stderr || "").length,
+	});
+	return res;
+}
+
 // Adapter contract mirrored by maxOpencodeHookEnvelopeBytes in internal/adapter/opencode.go.
 const MAX_OPENCODE_HOOK_ENVELOPE_BYTES = 8 * 1024 * 1024;
 
@@ -123,14 +162,45 @@ const degradedAllowReports = [];
 const FLOOR_FALLBACK_TOOLS = new Set("__FLOOR_FALLBACK_TOOLS__");
 
 async function callGuardrail(envelope) {
+	const trace = {
+		ts: new Date().toISOString(),
+		tool: envelope.tool,
+		call_id: envelope.call_id || "",
+		runtime: process.versions.bun ? `bun ${process.versions.bun}` : `node ${process.versions.node}`,
+		envelope_bytes: 0,
+		daemon: null,
+		attempts: [],
+		result: "pending",
+	};
+	const started = Date.now();
+	try {
+		return await callGuardrailTraced(envelope, trace);
+	} catch (e) {
+		if (trace.result === "pending") trace.result = "fail-closed";
+		throw e;
+	} finally {
+		trace.total_ms = Date.now() - started;
+		if (trace.total_ms >= SLOW_CALL_MS || trace.attempts.some((a) => !a.outcome.startsWith("exit "))) {
+			logPluginTiming(trace);
+		}
+	}
+}
+
+async function callGuardrailTraced(envelope, trace) {
+	const daemonStarted = Date.now();
 	try {
 		const verdict = await callDaemon(envelope);
+		trace.daemon = { ms: Date.now() - daemonStarted, outcome: verdict ? "verdict" : "empty" };
 		if (verdict) {
+			trace.result = "daemon";
 			return verdict;
 		}
-	} catch {}
+	} catch (e) {
+		trace.daemon = { ms: Date.now() - daemonStarted, outcome: e?.code || e?.message || "error" };
+	}
 
 	const serializedEnvelope = JSON.stringify(envelope);
+	trace.envelope_bytes = Buffer.byteLength(serializedEnvelope, "utf8");
 	if (Buffer.byteLength(serializedEnvelope, "utf8") > MAX_OPENCODE_HOOK_ENVELOPE_BYTES) {
 		throw new Error("guardrail: OpenCode hook envelope exceeds 8 MiB; failing closed");
 	}
@@ -142,12 +212,9 @@ async function callGuardrail(envelope) {
 	if (DEGRADED_ALLOW_TOOLS.has(envelope.tool)) {
 		// One short attempt: a hung engine must not stall the operator's
 		// communication channel behind the retry ladder.
-		res = spawnSync(GUARDRAIL_BIN, ["hook", "opencode"], {
-			input: serializedEnvelope,
-			encoding: "utf8",
-			timeout: DEGRADED_PROBE_TIMEOUT_MS,
-		});
+		res = timedSpawn(trace, serializedEnvelope, DEGRADED_PROBE_TIMEOUT_MS);
 		if (res.error) {
+			trace.result = "degraded-allow";
 			degradedAllowReports.push({ tool: envelope.tool, call_id: envelope.call_id || "", ts: new Date().toISOString() });
 			logPluginFailure("degraded-allow", envelope.tool, res.error.message);
 			process.stderr.write(`[guardrail: engine unreachable; degraded allow for ${envelope.tool} — enforcement is offline for this call]\n`);
@@ -157,11 +224,7 @@ async function callGuardrail(envelope) {
 		// malformed response must still fail closed, question included.
 	} else {
 		for (let attempt = 0; attempt <= SPAWN_RETRIES; attempt++) {
-			res = spawnSync(GUARDRAIL_BIN, ["hook", "opencode"], {
-				input: serializedEnvelope,
-				encoding: "utf8",
-				timeout: SPAWN_BASE_TIMEOUT_MS + attempt * 10000,
-			});
+			res = timedSpawn(trace, serializedEnvelope, SPAWN_BASE_TIMEOUT_MS + attempt * 10000);
 			if (!res.error) break;
 			if (attempt < SPAWN_RETRIES) {
 				// Brief backoff before retry — Defender scans are transient.
@@ -171,6 +234,7 @@ async function callGuardrail(envelope) {
 		}
 		if (res.error) {
 			if (FLOOR_FALLBACK_TOOLS.has(envelope.tool)) {
+				trace.result = "floor-fallback";
 				degradedAllowReports.push({ tool: envelope.tool, call_id: envelope.call_id || "", ts: new Date().toISOString() });
 				logPluginFailure("floor-fallback", envelope.tool, res.error.message);
 				process.stderr.write(`[guardrail: engine unreachable; ${envelope.tool} proceeds under the declarative floor — engine policy is offline for this call]\n`);
@@ -180,6 +244,7 @@ async function callGuardrail(envelope) {
 			throw new Error(`guardrail: could not run after ${SPAWN_RETRIES + 1} attempts (${res.error.message}); failing closed`);
 		}
 	}
+	trace.result = "engine";
 	if (flushReports) {
 		degradedAllowReports.splice(0, flushReports.length);
 	}

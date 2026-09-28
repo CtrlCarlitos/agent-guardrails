@@ -6,7 +6,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
@@ -61,6 +63,9 @@ func init() {
 	}
 	if invoked := os.Getenv("GUARDRAIL_TEST_INVOKED"); invoked != "" {
 		_ = os.WriteFile(invoked, []byte("invoked"), 0o600)
+	}
+	if ms, err := strconv.Atoi(os.Getenv("GUARDRAIL_TEST_SLEEP_MS")); err == nil && ms > 0 {
+		time.Sleep(time.Duration(ms) * time.Millisecond)
 	}
 	if os.Getenv("GUARDRAIL_TEST_WARNING") == "1" {
 		fmt.Fprintln(os.Stderr, "guardrail: session transaction committed but lock release failed (injected release forged claim)")

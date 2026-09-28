@@ -4,6 +4,20 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### OpenCode
+- **Diagnostics (#427): the plugin writes a timing trace.** On Windows every
+  real `todowrite` and `question` call ends in `degraded allow … ETIMEDOUT`,
+  and neither tool has ever reached the audit log, yet the same envelopes
+  answer in ~70 ms when replayed. `plugin-failures.log` cannot say where the
+  time goes. The plugin now appends one JSON line to `plugin-timing.jsonl`
+  (next to `plugin-failures.log`) for every call slower than 1 s or with a
+  failed attempt, including retried calls that stalled once and then
+  succeeded: daemon dial time, each spawn attempt's duration, timeout, pid and
+  outcome, envelope size, runtime and result. Fast calls write nothing. No
+  verdict changes. Restart OpenCode after updating so it loads the new plugin.
+
 ## v0.23.15-dev (2026-09-28)
 
 ### Coverage
