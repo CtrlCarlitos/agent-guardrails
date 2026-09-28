@@ -4,6 +4,21 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Policy
+- **Fix (#435): more credential stores are secret-tier.** With the shipped
+  policy an agent could read these with `cat` or the Read tool, and whatever
+  it reads goes to the model provider: gh's `hosts.yml` (the token lives there
+  in plain text where there is no OS keyring, e.g. WSL), `~/.config/hub`,
+  `_netrc`, cargo, Terraform Cloud and Vault tokens, fly's config, the Azure
+  token caches (`~/.azure`), `pass` and 1Password CLI stores, and the agents'
+  own login files (`~/.claude/.credentials.json`, `~/.codex/auth.json`,
+  OpenCode's `auth.json`, `~/.gemini/oauth_creds.json`). All now deny as
+  `P4.secret-path`, including inside `$()`. Their neighbouring config files
+  (`gh/config.yml`, `.gitconfig`, `.cargo/config.toml`, agent settings) stay
+  readable. `.yarnrc.yml` is left alone because repositories commit it.
+
 ## v0.23.17-dev (2026-09-28)
 
 ### Engine
