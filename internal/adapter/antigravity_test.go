@@ -648,11 +648,21 @@ func TestEmitAntigravityCallMcpToolGuidance(t *testing.T) {
 	for _, substr := range []string{
 		"generic MCP invoker cannot be re-dispatched safely",
 		"indirection",
-		"~/.gemini/config/mcp_config.json",
+		// #432: the direct name is the way through; lazily-loaded tools have
+		// none, so the agent stops retrying and the operator is told why.
+		"mcp_<server>_<tool>",
+		"do not retry through call_mcp_tool",
+		"loaded eagerly",
 	} {
 		if !strings.Contains(payload.Reason, substr) {
 			t.Fatalf("payload.Reason = %q does not contain %q", payload.Reason, substr)
 		}
+	}
+	// The old text told the agent to register the tool in its host's MCP
+	// config: wrong (the server was registered; its tools were lazy) and an
+	// instruction to edit agent configuration.
+	if strings.Contains(payload.Reason, "Register the MCP tool") {
+		t.Fatalf("payload.Reason = %q still tells the agent to edit its MCP config", payload.Reason)
 	}
 }
 
