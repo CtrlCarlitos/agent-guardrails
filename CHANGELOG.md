@@ -4,6 +4,14 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Coverage
+- **Fix (#423): `graft_check_freshness` is contracted.** graft 0.20 added the
+  MCP tool (a read-only drift check, no arguments); `doctor --coverage
+  antigravity` reported it uncontracted and `setup` ended with a coverage
+  warning. It is now read-discovery like the other graft tools.
+
 ## v0.23.14-dev (2026-09-27)
 
 ### Approvals

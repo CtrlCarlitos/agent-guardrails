@@ -60,6 +60,9 @@ var mcpRegistry = map[string]MCPToolSpec{
 	"graft_trace_calls": {Family: "graft", Tool: "graft_trace_calls", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path", "path", "file_path"}, DefaultPath: "."},
 	"graft_file_api":    {Family: "graft", Tool: "graft_file_api", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path", "path", "file_path"}, DefaultPath: "."},
 	"graft_repo_map":    {Family: "graft", Tool: "graft_repo_map", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path", "path", "file_path"}, DefaultPath: "."},
+	// graft 0.20: "Report whether the committed graph is in sync with the
+	// code (drift check)". Read-only and argument-less; scoped to the repo.
+	"graft_check_freshness": {Family: "graft", Tool: "graft_check_freshness", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path", "path", "file_path"}, DefaultPath: "."},
 }
 
 // MatchMCPTool resolves a native MCP tool name in any plane's naming —
