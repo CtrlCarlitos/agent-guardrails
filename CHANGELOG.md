@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.18-dev (2026-09-28)
 
 ### Approvals
 - **Fix (#441): concurrent grants no longer fail each other on Windows.**
