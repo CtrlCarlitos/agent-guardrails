@@ -25,6 +25,26 @@ explicitly in **Breaking** notes.
   commands inside a substitution in `export`, `local`, `declare`, `readonly`,
   `typeset`, `let` or `(( ))` were never handed to any rule. They now get the
   same verdict they get anywhere else.
+- **New (#436): credential-printing commands ask unless their output is
+  captured** (`P4.credential-print`). Operator decision of 2026-09-28,
+  reversing #289: everything a command prints is sent to the model provider.
+  `gh auth token`, `gh auth status --show-token`, `git credential fill`,
+  `security find-generic-password -w`, `secret-tool lookup`,
+  `docker-credential-* get|list`, `az account get-access-token`, the aws
+  token, secret and `configure get <key>` reads, `gcloud auth print-*-token`
+  (which asked under `P6.cloud-mutate` before), `kubectl config view --raw`,
+  `npm config get` of an auth key, `op read`, `vault kv get|read`, and their
+  `.exe` spellings now ask when the value would reach the session: bare, piped
+  into anything but a credential consumer, `echo $(…)`, redirected to a file,
+  stored in a plain variable, or under `set -x`/`bash -x`. They stay allowed
+  when a `$()` hands the value to a command that does not print it
+  (`GH_TOKEN=$(gh auth token) gh pr list`, `docker login --password-stdin <<<
+  "$(…)"`) or when piped into `--password-stdin`/`--with-token`. `env`, bare
+  `printenv`, `printenv`/`echo`/`printf` of a secret-looking variable
+  (`*TOKEN*`, `*SECRET*`, `*PASSWORD*`, `*API_KEY*`, …) and PowerShell's
+  `gci env:` ask under the same rule. This checks command shape: a consuming
+  program that prints its own arguments or environment can still leak the
+  value. See OPERATIONS.md, "Passing credentials to commands".
 
 ## v0.23.17-dev (2026-09-28)
 

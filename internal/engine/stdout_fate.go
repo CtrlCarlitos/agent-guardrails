@@ -127,8 +127,8 @@ func (w *fateWalker) stmt(stmt *syntax.Stmt, fate stdoutFate) {
 
 // redirectedFate applies a statement's own stdout redirects. A discard
 // contains the output and stderr exposes it; the last redirect wins, as it
-// does in the shell. A file target leaves the fate alone for the Simple's
-// Redirects to answer, except in a pipe, where nothing reaches the next stage.
+// does in the shell. A file target leaves the fate alone: the Simple's own
+// Redirects name the file, and the rule asks on any that is not a discard.
 func (w *fateWalker) redirectedFate(stmt *syntax.Stmt, fate stdoutFate) stdoutFate {
 	for _, redirect := range stmt.Redirs {
 		if redirect.Word == nil {
