@@ -4,6 +4,16 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Coverage
+- **Fix (#458): serena's `open_dashboard` is contracted.** serena 1.7.0 added
+  the MCP tool ("Opens the Serena web dashboard in the default web browser",
+  no arguments); it ran under `unknown_tool_posture` and
+  `doctor --coverage antigravity` reported it uncontracted. It is now
+  `safe_control`, like serena's other session-scope tools: no paths, no
+  writes, and the dashboard is serena's own local page.
+
 ## v0.23.22-dev (2026-09-29)
 
 ### Audit

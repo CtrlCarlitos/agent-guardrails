@@ -54,6 +54,10 @@ var mcpRegistry = map[string]MCPToolSpec{
 	"initial_instructions": {Family: "serena", Tool: "initial_instructions", Capability: policy.CapabilitySafeControl, PathArgs: nil},
 	"onboarding":           {Family: "serena", Tool: "onboarding", Capability: policy.CapabilitySafeControl, PathArgs: nil},
 	"activate_project":     {Family: "serena", Tool: "activate_project", Capability: policy.CapabilityExternal, PathArgs: nil},
+	// serena 1.7.0 (#458): "Opens the Serena web dashboard in the default web
+	// browser." No arguments, no writes, and the dashboard is serena's own
+	// local page, so nothing leaves the machine: session-scope like the rest.
+	"open_dashboard": {Family: "serena", Tool: "open_dashboard", Capability: policy.CapabilitySafeControl, PathArgs: nil},
 	// graft
 	"graft_find_code":   {Family: "graft", Tool: "graft_find_code", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path", "path", "file_path"}, DefaultPath: "."},
 	"graft_find_all":    {Family: "graft", Tool: "graft_find_all", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path", "path", "file_path"}, DefaultPath: "."},

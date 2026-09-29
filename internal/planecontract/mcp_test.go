@@ -20,6 +20,9 @@ func TestMatchMCPToolResolvesEveryPlaneNaming(t *testing.T) {
 		{"mcp__serena__write_memory", "write_memory", policy.CapabilityMutation, "memory_name"},
 		{"serena_list_memories", "list_memories", policy.CapabilitySafeControl, ""},
 		{"mcp__serena__activate_project", "activate_project", policy.CapabilityExternal, ""},
+		// serena 1.7.0 (#458): opens serena's local web dashboard; no arguments.
+		{"mcp__serena__open_dashboard", "open_dashboard", policy.CapabilitySafeControl, ""},
+		{"serena_open_dashboard", "open_dashboard", policy.CapabilitySafeControl, ""},
 		{"graft_graft_find_code", "graft_find_code", policy.CapabilityReadDiscovery, "relative_path"},
 		{"mcp__graft__graft_find_code", "graft_find_code", policy.CapabilityReadDiscovery, "relative_path"},
 		{"mcp__graft__graft_repo_map", "graft_repo_map", policy.CapabilityReadDiscovery, "relative_path"},
