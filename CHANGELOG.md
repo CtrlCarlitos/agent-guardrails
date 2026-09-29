@@ -4,7 +4,16 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.19-dev (2026-09-29)
+
+### Dependencies
+- `github.com/bmatcuk/doublestar/v4` 4.10.0 → 4.10.2 (#444): the glob
+  matcher behind path rules, including the secret-path list. 4.10.1 fixes
+  brace alternation when the pattern also has a character class (none of the
+  shipped globs use either; an operator overlay could); 4.10.2 fixes Windows
+  junction traversal in filesystem walks, which rule matching does not use.
+- `github.com/go-webauthn/webauthn` 0.18.1 → 0.18.2 (#445): attestation
+  verification fixes; affects only the opt-in `approval = "passkey"` mode.
 
 ### Guidance
 - **Fix (#446): Windows asks no longer tell the agent approval is
