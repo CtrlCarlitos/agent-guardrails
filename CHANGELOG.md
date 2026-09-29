@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.21-dev (2026-09-29)
 
 ### OpenCode
 - **Fix (#452, closes the #427 investigation): no more "engine unreachable;
