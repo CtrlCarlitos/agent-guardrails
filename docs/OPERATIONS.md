@@ -318,9 +318,11 @@ fail-closed call; `plugin-timing.jsonl` (#427) has one JSON line per call that
 took over a second or had a failed attempt, including retried calls that
 stalled once and then succeeded. Each line gives the daemon dial time, every
 spawn attempt's duration, timeout, pid and outcome, the envelope size and the
-runtime (Bun or Node). A `pid` on a timed-out attempt means the process was
-created and then hung; `ms` far below `timeout_ms` with an error means the
-spawn itself failed.
+runtime (Bun or Node). An `ETIMEDOUT` whose `ms` is close to `timeout_ms`
+is a real hang. An `ETIMEDOUT` after a few milliseconds, with a `pid` and no
+output, is the Bun runtime misreporting (#452): the plugin retries it once at
+once, so it shows as two attempts, the second answering. Any other error with
+`ms` far below `timeout_ms` means the spawn itself failed.
 
 ```powershell
 Get-Content "$env:LOCALAPPDATA\guardrail\plugin-timing.jsonl" -Tail 20
