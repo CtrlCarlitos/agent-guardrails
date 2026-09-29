@@ -4,6 +4,29 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Guidance
+- **Fix (#449): agent-facing text audited after #446.** Every string an
+  agent reads was checked against today's behaviour (prompt mode by default,
+  the Windows broker, OpenCode's exact-retry approval). Changed:
+  - The session-start posture (Claude, Codex) now says what to do: on an
+    ask, tell the operator in one sentence what and why, wait, then retry the
+    exact call on its own; on a deny, follow the message's next step.
+  - The Claude plane lifecycle line tells the agent to run
+    `guardrail plane enable claude` on its own (the host asks the operator)
+    instead of handing the operator the command.
+  - An ask naming an operator action no longer says "passkey, not through
+    chat", which was true only in passkey mode.
+  - The `P5.self-config` deny points at `guardrail doctor`, which prints the
+    exact repair, instead of an unnamed "terminal recovery command".
+  - The Codex ask (Codex cannot ask, #349) names the single-use grant and
+    `guardrail explain` instead of "authorize the relevant policy".
+  Unchanged because still accurate: passkey and WebAuthn texts (passkey
+  mode only), Codex's "cannot request approval", the OpenCode degraded
+  notices, and "ask the operator to run it manually" on destructive denies,
+  which cannot be approved.
+
 ## v0.23.19-dev (2026-09-29)
 
 ### Dependencies

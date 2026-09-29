@@ -66,7 +66,9 @@ func askApprovalPath(v policy.Verdict) string {
 		return fmt.Sprintf("Approval path: this is a broker approval — open %s and complete the passkey ceremony. Telling the operator in chat will not clear it.", v.ApprovalURL)
 	}
 	if v.OperatorAction != "" {
-		return "Approval path: this is an operator action and goes through the broker with a passkey, not through chat. Surface the approval URL from the verdict to the operator; if none is present, the operator runs this action from a terminal."
+		// #449: was "through the broker with a passkey, not through chat",
+		// true only in passkey mode; prompt mode (the default) asks in the host.
+		return "Approval path: this is an operator action. Run the exact command once on its own: the host asks the operator to approve it. If the verdict carries an approval URL, surface it instead (passkey mode). If no prompt appears, tell the operator the command; they run it in their own terminal."
 	}
 	conversational := "Approval path: this is a conversational approval. There is no approval URL, no daemon and no `guardrail approvals` command you can run for it — say what you need to the operator, and retry the exact call once they approve, on its own: a retry that adds or drops a step is a new action and asks again."
 	if policy.NeverGrantable(v.RuleID) {
@@ -118,7 +120,8 @@ func denyNextStep(v policy.Verdict) string {
 	case "P4.secret-path", "P4.secret-path-ambiguous":
 		return "This is a secret-tier path: it is denied here, and only an authorized Overlay secret_allow can allow a matching file secret (never directory secrets). Exclude this path and continue the rest of the task."
 	case "P5.self-config":
-		return "This is Guardrail-protected machinery: never edit it from a session. If it genuinely needs repair, tell the operator to run the Guardrail terminal recovery command. Continue other work."
+		// #449: "the Guardrail terminal recovery command" named no command.
+		return "This is Guardrail-protected machinery: never edit it from a session. If it genuinely needs repair, tell the operator; `guardrail doctor` prints the exact repair command. Continue other work."
 	case "operator-action-terminal", "operator-action-ticket":
 		return "This is an operator action this plane cannot ask for here. Tell the operator the exact command from this message; they run it in their own terminal and answer its prompt. Do not retry it or run it another way. Continue other work."
 	case "operator-action-satisfied":

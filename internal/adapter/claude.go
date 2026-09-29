@@ -216,7 +216,12 @@ func PostureText(waivers []string, warnings []string) string {
 	b.WriteString("guardrail is active. Operate autonomously on routine development steps — " +
 		"do not stop to ask conversational permission; guardrail enforces destructive-command " +
 		"and secret-access boundaries deterministically. Pause only when guardrail returns an " +
-		"explicit block/ask, or you face genuine ambiguity outside its scope.")
+		"explicit block/ask, or you face genuine ambiguity outside its scope. " +
+		// #449: the posture said to pause but not how to proceed; agents
+		// then handed the operator terminal commands instead of asking.
+		"On an ask: tell the operator in one sentence what you need and why, wait for their " +
+		"answer, then retry the exact call on its own. On a deny: follow the next step the " +
+		"message gives; do not work around it.")
 	waivers = sanitizeWaiverIDs(waivers)
 	if len(waivers) > 0 {
 		b.WriteString("\n\nActive policy waivers in this repo (these rules are OFF): " + strings.Join(waivers, ", "))
@@ -238,11 +243,13 @@ func PlaneLifecycleLine(plane, state string, unmarkedGroups int) string {
 	switch {
 	case strings.HasPrefix(state, "guardrail hook registered") || strings.HasPrefix(state, "guardrail integration registered"):
 		if unmarkedGroups > 0 {
-			fmt.Fprintf(&b, " %d unmarked legacy guardrail hook group%s remain (drift): the operator should run `guardrail plane enable %s` to absorb %s.",
+			fmt.Fprintf(&b, " %d unmarked legacy guardrail hook group%s remain (drift): run `guardrail plane enable %s` on its own to absorb %s; the host asks the operator to approve.",
 				unmarkedGroups, plural(unmarkedGroups), plane, pronoun(unmarkedGroups))
 		}
 	default:
-		fmt.Fprintf(&b, " This session is guarded by the hook that launched it, but future sessions may not be: tell the operator to run `guardrail plane enable %s`.", plane)
+		// #449: prompt mode (ADR-0033) lets the agent run the exact command;
+		// the host asks the operator, instead of the agent handing it over.
+		fmt.Fprintf(&b, " This session is guarded by the hook that launched it, but future sessions may not be: run `guardrail plane enable %s` on its own; the host asks the operator to approve.", plane)
 	}
 	return b.String()
 }
