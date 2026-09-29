@@ -34,6 +34,7 @@ func cmdDaemon(args []string, stdout, stderr io.Writer) int {
 
 		binPath, _ := os.Executable()
 		evaluator := func(tc engine.ToolCall) (policy.Verdict, error) {
+			started := time.Now()
 			base, err := policy.LoadBase()
 			if err != nil {
 				return policy.Verdict{}, fmt.Errorf("load base policy: %w", err)
@@ -58,6 +59,7 @@ func cmdDaemon(args []string, stdout, stderr io.Writer) int {
 			// Record audit with transport tag per ADR-0025 controller review
 			rec := auditRecord(tc, v, policy.SortedWaivers(merged))
 			rec.Transport = "named-pipe-daemon"
+			stampHookLatency(&rec, started, false)
 			_ = audit.Write(rec, audit.DefaultPath(merged.Slots.AuditLog))
 
 			return v, nil

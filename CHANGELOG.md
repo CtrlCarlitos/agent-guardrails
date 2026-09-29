@@ -4,6 +4,19 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Audit
+- **Feature (#456): every hook call records how long it took.** Hook
+  records in `audit.jsonl` gain `hook_ms`, the in-process handling time for
+  spawned and daemon-served calls alike, and, for a spawned hook,
+  `startup_ms`, from process start to handling. Both are additive fields.
+  `guardrail doctor` prints per-plane p50/p95 over the latest 200 real calls
+  (selftest probes and older records without a measurement are excluded). It
+  is data for deciding whether a long-running server is worth building;
+  nothing acts on it. The host's own cost of creating the process is not
+  visible from inside it.
+
 ## v0.23.21-dev (2026-09-29)
 
 ### OpenCode

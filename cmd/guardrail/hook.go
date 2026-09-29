@@ -29,6 +29,7 @@ import (
 var sessionTransaction = session.Transaction
 
 func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int) {
+	hookStarted := time.Now()
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "guardrail: hook needs a plane (claude, opencode, antigravity, codex)")
 		return 2
@@ -80,6 +81,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 			Event: tc.Event, Command: tc.Command, Decision: string(policy.Deny),
 			AuditKind: "hook-fail-closed", Reason: reason, RepoRoot: tc.RepoRoot,
 		}
+		stampHookLatency(&failed, hookStarted, true)
 		if err := audit.Write(failed, audit.DefaultPath("")); err != nil {
 			highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: audit write failed (%v)", err))
 		}
@@ -319,6 +321,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 	}
 
 	rec := auditRecord(tc, v, policy.SortedWaivers(merged))
+	stampHookLatency(&rec, hookStarted, true)
 	if err := audit.Write(rec, audit.DefaultPath(merged.Slots.AuditLog)); err != nil {
 		highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: audit write failed (%v)", err))
 		if nightAllowed {
