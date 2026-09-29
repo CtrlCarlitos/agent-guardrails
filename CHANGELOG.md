@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.20-dev (2026-09-29)
 
 ### Guidance
 - **Fix (#449): agent-facing text audited after #446.** Every string an
