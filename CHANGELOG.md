@@ -4,6 +4,21 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### OpenCode
+- **Fix (#452, closes the #427 investigation): no more "engine unreachable;
+  degraded allow for todowrite".** The #427 timing trace from a real session
+  (Windows, OpenCode's `bun 1.3.14`) showed the first engine spawn of 115 of
+  117 logged calls reporting `ETIMEDOUT` after 3-93 ms against a 15 s
+  budget, with a process created and no output; the next spawn answered in
+  ~120 ms, and no call ever timed out for real. `todowrite` and `question`,
+  which get one attempt, degraded every time (and never reached the audit
+  log); every other tool paid ~640 ms per call. An `ETIMEDOUT` that returns in
+  under a second and under half its budget is now retried once, immediately,
+  with no backoff. A repeated fast timeout still degrades or fails closed as
+  before. Restart OpenCode after updating so it loads the new plugin.
+
 ## v0.23.20-dev (2026-09-29)
 
 ### Guidance

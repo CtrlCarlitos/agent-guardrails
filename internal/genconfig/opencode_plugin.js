@@ -104,9 +104,34 @@ function logPluginTiming(trace) {
 	} catch {}
 }
 
+// Tests substitute the spawner to reproduce the runtime's failure shapes.
+const spawnEngine = globalThis.__GUARDRAIL_TEST_SPAWN__ || spawnSync;
+
+// #452: under OpenCode's Bun runtime on Windows, the first spawnSync of a
+// call reported ETIMEDOUT within a few milliseconds of a 15 s budget (115 of
+// 117 traced calls, never a real timeout); the next spawn answered normally.
+// An ETIMEDOUT that returns this far inside its budget is not a timeout.
+const SPURIOUS_TIMEOUT_MS = 1000;
+
+function spuriousTimeout(res, trace) {
+	const last = trace.attempts[trace.attempts.length - 1];
+	return res.error?.code === "ETIMEDOUT" && last && last.ms < Math.min(SPURIOUS_TIMEOUT_MS, last.timeout_ms / 2);
+}
+
+// spawnOnce runs one attempt, and on a spurious fast timeout exactly one
+// immediate retry with no backoff. A second fast timeout is returned as a
+// failure, so a runtime that always does this still fails closed.
+function spawnOnce(trace, serializedEnvelope, timeout) {
+	const res = timedSpawn(trace, serializedEnvelope, timeout);
+	if (spuriousTimeout(res, trace)) {
+		return timedSpawn(trace, serializedEnvelope, timeout);
+	}
+	return res;
+}
+
 function timedSpawn(trace, serializedEnvelope, timeout) {
 	const started = Date.now();
-	const res = spawnSync(GUARDRAIL_BIN, ["hook", "opencode"], {
+	const res = spawnEngine(GUARDRAIL_BIN, ["hook", "opencode"], {
 		input: serializedEnvelope,
 		encoding: "utf8",
 		timeout,
@@ -212,7 +237,7 @@ async function callGuardrailTraced(envelope, trace) {
 	if (DEGRADED_ALLOW_TOOLS.has(envelope.tool)) {
 		// One short attempt: a hung engine must not stall the operator's
 		// communication channel behind the retry ladder.
-		res = timedSpawn(trace, serializedEnvelope, DEGRADED_PROBE_TIMEOUT_MS);
+		res = spawnOnce(trace, serializedEnvelope, DEGRADED_PROBE_TIMEOUT_MS);
 		if (res.error) {
 			trace.result = "degraded-allow";
 			degradedAllowReports.push({ tool: envelope.tool, call_id: envelope.call_id || "", ts: new Date().toISOString() });
@@ -224,7 +249,7 @@ async function callGuardrailTraced(envelope, trace) {
 		// malformed response must still fail closed, question included.
 	} else {
 		for (let attempt = 0; attempt <= SPAWN_RETRIES; attempt++) {
-			res = timedSpawn(trace, serializedEnvelope, SPAWN_BASE_TIMEOUT_MS + attempt * 10000);
+			res = spawnOnce(trace, serializedEnvelope, SPAWN_BASE_TIMEOUT_MS + attempt * 10000);
 			if (!res.error) break;
 			if (attempt < SPAWN_RETRIES) {
 				// Brief backoff before retry — Defender scans are transient.
