@@ -447,6 +447,7 @@ func printDoctor(stdout, stderr io.Writer) (int, int) {
 	problems += printOwnershipDrift(stdout)
 	problems += printEngineHealth(stdout)
 	problems += printSpawnProbe(stdout)
+	printHookLatency(stdout, audit.DefaultPath(merged.Slots.AuditLog))
 	// Posture, not policy: guardrail cannot narrow the operator's credential,
 	// only notice that it is wider than the work needs (#236). Warns, never
 	// fails, and reports nothing at all when it learned nothing -- silence

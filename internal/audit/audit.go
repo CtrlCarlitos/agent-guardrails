@@ -42,6 +42,12 @@ type Record struct {
 	// records written before it existed and on calls whose payload could not
 	// be parsed.
 	RepoRoot string `json:"repo_root,omitempty"`
+	// HookMS is how long the hook took to handle the call, in milliseconds,
+	// from reading it to writing this record; StartupMS is, for a spawned
+	// hook, the time from process start to that point. Neither includes the
+	// host creating the process. Zero on records written before #456.
+	HookMS    float64 `json:"hook_ms,omitempty"`
+	StartupMS float64 `json:"startup_ms,omitempty"`
 }
 
 // ReadRecords returns every well-formed record across segments, oldest first,

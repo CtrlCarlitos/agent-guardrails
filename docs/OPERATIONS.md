@@ -328,6 +328,15 @@ once, so it shows as two attempts, the second answering. Any other error with
 Get-Content "$env:LOCALAPPDATA\guardrail\plugin-timing.jsonl" -Tail 20
 ```
 
+For every plane, each hook record in `audit.jsonl` carries `hook_ms` (how
+long guardrail took to handle the call) and, for a spawned hook,
+`startup_ms` (process start to handling) (#456); calls the engine daemon
+served are tagged `transport: named-pipe-daemon`. `guardrail doctor` prints
+per-plane p50/p95 over the latest 200 real calls. The host's cost of
+creating the process is not visible from inside it; for OpenCode it is the
+gap between an attempt's `ms` in `plugin-timing.jsonl` and the record's
+`hook_ms`.
+
 The agent itself cannot run any of this — the tool that would diagnose the
 guard is gated by the guard. Recovery is an operator-terminal action by
 necessity. Two standing cautions: the Defender exclusion for the binary path
