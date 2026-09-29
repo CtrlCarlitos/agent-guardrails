@@ -182,7 +182,7 @@ func EmitCodex(v policy.Verdict, event string, tc engine.ToolCall, stdout, stder
 		reason = "Guardrail cannot project this web.run request safely. Use a search-only request or open one explicit HTTP(S) URL per call; do not mix operations or use opaque result references. Continue independent work."
 	}
 	if v.Decision == policy.Ask {
-		reason = "Guardrail requires operator authorization: " + sanitizeForModel(v.Reason) + ". Codex PreToolUse cannot request approval. Have the operator perform this exact action outside this session, or authorize the relevant policy through Guardrail; continue independent work. Do not retry based on conversational approval."
+		reason = "Guardrail requires operator authorization: " + sanitizeForModel(v.Reason) + ". Codex PreToolUse cannot request approval. Tell the operator this exact action: they can run it outside this session, or issue a single-use grant for this exact command from their terminal (`guardrail explain` prints it); continue independent work. Do not retry based on conversational approval."
 	}
 	if v.Decision == policy.Complete {
 		reason = fmt.Sprintf("Operator action pending: %s; request %s; open %s. Wait for completion before continuing this action.", v.OperatorAction, v.RequestID, v.ApprovalURL)
