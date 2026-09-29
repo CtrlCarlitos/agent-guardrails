@@ -7,7 +7,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/bmatcuk/doublestar/v4 v4.10.2
 	github.com/fxamacker/cbor/v2 v2.9.4
-	github.com/go-webauthn/webauthn v0.18.1
+	github.com/go-webauthn/webauthn v0.18.2
 	github.com/gofrs/flock v0.13.1
 	golang.org/x/sys v0.48.0
 	golang.org/x/term v0.46.0
