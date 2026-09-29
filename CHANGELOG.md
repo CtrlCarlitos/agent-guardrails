@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.23-dev (2026-09-29)
 
 ### Coverage
 - **Fix (#458): serena's `open_dashboard` is contracted.** serena 1.7.0 added
