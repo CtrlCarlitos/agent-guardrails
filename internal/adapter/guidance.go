@@ -2,7 +2,6 @@ package adapter
 
 import (
 	"fmt"
-	"runtime"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -14,15 +13,11 @@ func Guidance(v policy.Verdict, action string) string {
 		if v.RuleID == OperatorActionAskRuleID {
 			return operatorAskGuidance(v)
 		}
-		// In-session approval is gated on Windows until the ADR-0021 broker
-		// lands (step d); the operator's terminal is the working path, and
-		// the guidance must say so instead of pointing at a door that is not
-		// there yet. Remove this suffix with the step (d) gate.
-		windowsApprovalNote := ""
-		if runtime.GOOS == "windows" {
-			windowsApprovalNote = " On Windows, in-session approval is not yet available: the operator can run this exact action from a terminal instead."
-		}
-		return fmt.Sprintf("Operator authorization required: %s. Request authorization for this exact action: %s. If the operator approves, retry this exact tool call within 10 minutes. If the authorization expires, stop and wait for the operator to return — say what you were doing and that approval expired; do not keep retrying. Do not alter or broaden the action. %s%s", v.Reason, action, askApprovalPath(v), windowsApprovalNote)
+		// #446: a Windows-only suffix here ("in-session approval is not yet
+		// available … run it from a terminal") outlived the ADR-0021 broker it
+		// waited on and sent agents to the operator's terminal instead of
+		// asking. The exact-retry approval works on every OS.
+		return fmt.Sprintf("Operator authorization required: %s. Request authorization for this exact action: %s. If the operator approves, retry this exact tool call within 10 minutes. If the authorization expires, stop and wait for the operator to return — say what you were doing and that approval expired; do not keep retrying. Do not alter or broaden the action. %s", v.Reason, action, askApprovalPath(v))
 	case policy.Deny:
 		return fmt.Sprintf("Guardrail denied this action: %s. %s If this verdict seems wrong or blocks legitimate work, report it to the operator with: the exact tool call, the rule ID (%s), your guardrail version, what you were trying to do, and what you did instead. Do not work around it silently.", v.Reason, denyNextStep(v), v.RuleID)
 	default:
@@ -73,7 +68,7 @@ func askApprovalPath(v policy.Verdict) string {
 	if v.OperatorAction != "" {
 		return "Approval path: this is an operator action and goes through the broker with a passkey, not through chat. Surface the approval URL from the verdict to the operator; if none is present, the operator runs this action from a terminal."
 	}
-	conversational := "Approval path: this is a conversational approval. There is no approval URL, no daemon and no `guardrail approvals` command you can run for it — say what you need to the operator, and retry the exact call once they approve."
+	conversational := "Approval path: this is a conversational approval. There is no approval URL, no daemon and no `guardrail approvals` command you can run for it — say what you need to the operator, and retry the exact call once they approve, on its own: a retry that adds or drops a step is a new action and asks again."
 	if policy.NeverGrantable(v.RuleID) {
 		return conversational
 	}

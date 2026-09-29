@@ -4,6 +4,19 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Guidance
+- **Fix (#446): Windows asks no longer tell the agent approval is
+  unavailable.** Every ask on Windows ended "in-session approval is not yet
+  available: the operator can run this exact action from a terminal
+  instead", a stopgap that was meant to go when the Windows approval broker
+  landed, and never did. An OpenCode agent read it, sent the operator to a
+  terminal instead of asking, and after "approved" retried a longer command,
+  which asked again. The sentence is gone, and the approval path now says the
+  retry must be the exact call on its own: adding or dropping a step makes it
+  a new action.
+
 ## v0.23.18-dev (2026-09-28)
 
 ### Approvals
