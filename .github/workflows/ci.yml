@@ -24,6 +24,13 @@ jobs:
           check-latest: true
       - run: go build ./...
       - run: go vet ./...
+      # The Codex probe helpers (test/smoke) are Python 3.11+; a bare `python`
+      # is not on every runner image, so the interpreter is pinned here.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Codex probe unit tests
+        run: python -B -m unittest discover -s test/smoke -p 'test_codex_*.py'
       # The unfiltered Windows suite remains visible in windows-portability.
       # Packages whose host coordinates and platform-only semantics have been
       # bounded are promoted to mandatory steps below.
