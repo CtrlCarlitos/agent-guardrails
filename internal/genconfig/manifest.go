@@ -380,6 +380,32 @@ type RemovalReport struct {
 	Fallback bool
 }
 
+// matchesRecorded reports whether a list element is the recorded entry value.
+// Claude Code's serializer drops the `id` key from hook groups when it
+// rewrites settings.json (plugin installs do), so a recorded guardrail- group
+// also matches the identical group with only its id missing (#475). Any other
+// difference means the value is no longer the one guardrail wrote.
+func matchesRecorded(recorded, v any) bool {
+	if jsonKey(v) == jsonKey(recorded) {
+		return true
+	}
+	rm, ok := recorded.(map[string]any)
+	vm, vok := v.(map[string]any)
+	if !ok || !vok || !ownedByGuardrail(rm) {
+		return false
+	}
+	if _, has := vm["id"]; has {
+		return false
+	}
+	withoutID := make(map[string]any, len(rm))
+	for k, val := range rm {
+		if k != "id" {
+			withoutID[k] = val
+		}
+	}
+	return jsonKey(v) == jsonKey(withoutID)
+}
+
 // applyManifestRemoval undoes exactly what the manifest records.
 func applyManifestRemoval(doc map[string]any, m *Manifest) RemovalReport {
 	report := RemovalReport{}
@@ -395,10 +421,9 @@ func applyManifestRemoval(doc map[string]any, m *Manifest) RemovalReport {
 			if !ok {
 				continue
 			}
-			want := jsonKey(entry.Value)
 			kept := make([]any, 0, len(list))
 			for _, v := range list {
-				if jsonKey(v) == want {
+				if matchesRecorded(entry.Value, v) {
 					report.Removed++
 					continue
 				}

@@ -105,10 +105,9 @@ func currentValue(doc map[string]any, entry ManifestEntry) (any, bool) {
 		if !ok {
 			return nil, false
 		}
-		want := jsonKey(entry.Value)
 		for _, v := range list {
-			if jsonKey(v) == want {
-				return v, true
+			if matchesRecorded(entry.Value, v) {
+				return entry.Value, true
 			}
 		}
 		return nil, false
