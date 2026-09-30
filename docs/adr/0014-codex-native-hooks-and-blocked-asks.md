@@ -91,8 +91,11 @@ OneDrive cloud-files folders are reparse points. It exits 1 with the same
 guidance on a mismatch. Paths are single-quoted with `'` doubled. Any other
 shell, a missing or foreign transcript, or no shell tag keeps the refusal. A
 wrong record fails closed, because a PowerShell precondition does not parse
-in another shell. The Windows claim stays "unenforced" until a runtime probe
-shows Codex applying the rewrite.
+in another shell. A runtime probe on Codex 0.159.0 with pwsh 7 (2026-09-30)
+showed Codex applying the rewrite. The command ran in the evaluated
+directory, and a `workdir` elsewhere exited 1 with the guidance. The model
+then used an explicit `Set-Location`, which guardrail evaluated. The Windows
+line therefore reports observed mediation instead of "unenforced".
 
 Hook diagnostics keep three failure classes distinct. A known Codex session
 with no selected-session hook records is a transport miss. A handler that

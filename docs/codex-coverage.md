@@ -39,9 +39,11 @@ commands go back behind a PowerShell working-directory check when the session
 transcript Codex hands the hook proves the shell is PowerShell, and fail
 closed for any other shell
 ([#454](https://github.com/CtrlCarlitos/agent-guardrails/issues/454),
-ADR-0014 amendment). Until a runtime probe shows Codex applying that rewrite,
-doctor exits 1 on Windows and its rows are contract inventory only—never a
-runtime coverage claim.
+ADR-0014 amendment). A runtime probe on Codex 0.159 showed Codex applying
+that rewrite in pwsh: the command ran in the evaluated directory and stopped
+with the guidance anywhere else. Doctor no longer forces exit 1 on Windows;
+its schema rows remain contract inventory, never a full runtime coverage
+claim, and hosted tools and `write_stdin` still bypass pre-hooks.
 
 | Classification | Meaning |
 | --- | --- |

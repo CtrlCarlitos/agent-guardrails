@@ -831,6 +831,8 @@ func pendingApproval(action, cause string, stderr io.Writer) int {
 // did not dispatch PreToolUse there (openai/codex#24453); from 0.159 it does.
 // Allowed commands then carry a PowerShell working-directory precondition
 // when the session transcript proves PowerShell, and fail closed otherwise
-// (#454, ADR-0014). It stays "unenforced" until a runtime probe shows Codex
-// applies the rewrite on Windows. Not counted as a problem: known, tracked.
-const codexWindowsPlaneState = "guardrail hooks registered, unenforced on Windows until runtime mediation is confirmed: Codex 0.159+ runs PreToolUse hooks; allowed commands go back behind a PowerShell working-directory check when the session transcript proves PowerShell, and guardrail fails closed for any other shell (#454; older Codex did not dispatch them, openai/codex#24453); verify trust in /hooks"
+// (#454, ADR-0014). A runtime probe on Codex 0.159 (2026-09-30) showed Codex
+// applying the rewrite in pwsh: the command ran in the evaluated directory
+// and stopped with the guidance elsewhere, so the line no longer says
+// "unenforced".
+const codexWindowsPlaneState = "guardrail hooks registered; on Windows allowed commands run behind a PowerShell working-directory check proven by the session transcript (runtime mediation observed on Codex 0.159, #454) and other shells fail closed; verify trust in /hooks; hosted tools and write_stdin bypass pre-hooks (ADR-0014)"

@@ -30,7 +30,7 @@ that every tool call reached it (see `Live-mediation evidence` in
 | Claude Code | **Enforced, observed** [E1] [E2] | CI-tested only [E7] | Registered only [E9] [E11]; enforcement operator-reported, not recorded [E10] | CI-tested only [E7] |
 | opencode | **Enforced, observed** [E2] [E3] | CI-tested only [E7] | Registered only [E11]; enforcement operator-reported, not recorded [E10] | CI-tested only [E7] |
 | Antigravity | **Enforced, observed** [E2] [E4] | CI-tested only [E7] | Unknown; operator-reported, not recorded [E10] | CI-tested only [E7] |
-| Codex | **Unenforced** [E5]: Codex 0.159+ dispatches PreToolUse, allowed commands run behind a PowerShell working-directory check when the transcript proves PowerShell, pending a runtime probe ([#454](https://github.com/CtrlCarlitos/agent-guardrails/issues/454)); before 0.159 no dispatch ([openai/codex#24453](https://github.com/openai/codex/issues/24453)) | Registered only; pre-hooks observed in a fixture harness, known bypasses [E6] | Registered only [E11]; enforcement unknown [E12] | CI-tested only [E7] |
+| Codex | **Enforced, observed** [E5] on Codex 0.159+ with PowerShell: allowed commands run behind a PowerShell working-directory check proven by the session transcript; other shells fail closed; known bypasses [E6] ([#454](https://github.com/CtrlCarlitos/agent-guardrails/issues/454)). Before 0.159 no dispatch ([openai/codex#24453](https://github.com/openai/codex/issues/24453)) | Registered only; pre-hooks observed in a fixture harness, known bypasses [E6] | Registered only [E11]; enforcement unknown [E12] | CI-tested only [E7] |
 
 Notes on the Codex row:
 
@@ -111,14 +111,17 @@ run.
 - **[E4]** An Antigravity session on 2026-09-26 recorded 10 `ask` and 1
   `deny` verdicts for `run_command`, with PowerShell (`Test-Path`) and
   `cmd.exe /c` command text.
-- **[E5]** Codex 0.159.0 on Windows (operator's machine, 2026-09-29): the
-  guardrail audit log has `plane: codex`, `native_tool: Bash`, `event: pre`
-  records with `decision: allow` from real `codex exec` runs, so dispatch is
-  observed; the command is then refused at emit time with `cannot prove the
-  Windows command shell` (#454, ADR-0014). `guardrail doctor` prints this
-  state since #454's first release; earlier releases printed "dispatch not
-  observed (external blocker openai/codex#24453)", which was true before
-  Codex 0.159.
+- **[E5]** Codex 0.159.0 on Windows (operator's machine, pwsh 7,
+  v0.23.25-dev, 2026-09-30). `codex exec "…: echo probe"`: Codex ran
+  `pwsh.exe -Command '<guardrail precondition>\necho probe'` in the repo and
+  printed `probe`. A call with `workdir: C:\Users\carlitos\Documents` ran the
+  same rewrite there and exited 1 with `guardrail: Codex workdir differs …`;
+  the model then retried with an explicit `Set-Location -LiteralPath …`,
+  which guardrail evaluated and allowed. Audit records: `plane: codex`,
+  `event: pre`, `decision: allow`, `input_keys: ["command"]`. Before
+  v0.23.25-dev every allowed command was refused with `cannot prove the
+  Windows command shell` (#454); before Codex 0.159 PreToolUse did not
+  dispatch at all (openai/codex#24453).
   `guardrail selftest --evidence codex` exited 1: `codex: live mediation not
   yet observed; approval-proposal gate remains closed`. The same result on
   Codex 0.154.0 is in the

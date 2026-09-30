@@ -53,7 +53,7 @@ func cmdDoctorCodexCoverage(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "codex coverage: captured schema %s\nsha256: %s\n", safetext.SingleLine(schema), inv.SHA256)
 	fmt.Fprintln(stdout, "scope: supplied configuration only; not a complete runtime inventory or evidence that hooks fire")
 	if runtime.GOOS == "windows" {
-		fmt.Fprintln(stdout, "runtime status: registered, unenforced on Windows until runtime mediation is confirmed; Codex 0.159+ dispatches PreToolUse, and allowed commands carry a PowerShell working-directory check when the session transcript proves PowerShell (#454); schema rows are contract inventory, not runtime coverage")
+		fmt.Fprintln(stdout, "runtime status: on Windows, Codex 0.159+ dispatches PreToolUse and allowed commands run behind a PowerShell working-directory check proven by the session transcript (runtime mediation observed, #454); schema rows are contract inventory, not runtime coverage")
 	}
 	fmt.Fprintln(stdout, "tool\thook identity\tcapability\tclassification")
 	exit := 0
@@ -76,8 +76,7 @@ func cmdDoctorCodexCoverage(args []string, stdout, stderr io.Writer) int {
 	if len(inv.Unobserved) > 0 {
 		fmt.Fprintf(stdout, "unobserved contract entries (not proven retired): %s\n", strings.Join(inv.Unobserved, ", "))
 	}
-	if runtime.GOOS == "windows" {
-		exit = 1
-	}
+	// Windows no longer forces exit 1: Codex 0.159 mediation was observed at
+	// runtime (#454). Uncontracted or hosted rows still set it above.
 	return exit
 }

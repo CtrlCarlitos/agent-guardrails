@@ -4,6 +4,22 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Codex
+- **Closes #454: Codex on Windows is mediated, observed at runtime.** On
+  Codex 0.159.0 with pwsh 7, v0.23.25-dev's rewrite was applied by Codex:
+  `echo probe` ran behind the working-directory check and printed `probe`,
+  and a call sent to `C:\Users\carlitos\Documents` exited 1 with the
+  guidance. The model then retried with an explicit `Set-Location`, which
+  guardrail evaluated and allowed. So:
+  - The doctor and `plane status` line no longer says "unenforced".
+  - `doctor --coverage codex` no longer forces exit 1 on Windows.
+  - The compatibility matrix marks Codex on Windows "enforced, observed"
+    (PowerShell, 0.159+).
+  - The ADR-0014 bypasses (hosted tools, `write_stdin`) and the fail-closed
+    handling of non-PowerShell shells are unchanged.
+
 ## v0.23.25-dev (2026-09-30)
 
 ### Codex
