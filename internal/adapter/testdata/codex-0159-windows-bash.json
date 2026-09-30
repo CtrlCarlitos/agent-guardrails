@@ -1,0 +1,1 @@
+{"session_id":"01a0f057-e2f9-7580-bc6e-5df92bc2b9e5","turn_id":"01a0f057-e2fa-7000-8000-000000000001","transcript_path":"__TRANSCRIPT__","cwd":"__CWD__","hook_event_name":"PreToolUse","model":"gpt-6.1-sol","permission_mode":"default","tool_name":"Bash","tool_input":{"command":"echo probe2"},"tool_use_id":"call_probe2"}

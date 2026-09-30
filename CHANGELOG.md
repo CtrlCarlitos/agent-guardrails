@@ -4,6 +4,30 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Codex
+- **Fix (#454): allowed Codex commands can run on Windows.** Step 1's probe
+  settled the question. Codex 0.159 still hides a command's working directory
+  from the hook: the model sent `workdir: C:\Users\…\Documents`, and the hook
+  got `tool_input {"command"}` with the repo as cwd. So guardrail keeps its
+  directory precondition, and it can now write that precondition for Windows.
+  The hook payload's `transcript_path` names Codex's session transcript, which
+  records the shell (`<shell>powershell</shell>`). When that transcript is
+  under Codex's sessions directory and names `powershell` or `pwsh`, the
+  allowed command goes back behind a PowerShell check. The command runs only
+  if the current directory is the one guardrail evaluated; anywhere else it
+  exits 1 with guidance.
+  - The check compares both the plain and the resolved spelling,
+    case-insensitively. That handles OneDrive's redirected cloud-files
+    folders, and any path is single-quoted, so spaces, apostrophes and `$()`
+    stay inert.
+  - Any other shell, or a missing or foreign transcript, keeps the old
+    fail-closed refusal.
+  - Doctor keeps calling Codex on Windows "unenforced" until a runtime probe
+    shows Codex applying the rewrite.
+  - ADR-0014 has the amendment.
+
 ## v0.23.24-dev (2026-09-29)
 
 ### Codex

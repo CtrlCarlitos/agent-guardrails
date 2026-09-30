@@ -828,8 +828,9 @@ func pendingApproval(action, cause string, stderr io.Writer) int {
 }
 
 // codexWindowsPlaneState is the Codex line on Windows. Before 0.159 Codex
-// did not dispatch PreToolUse there (openai/codex#24453); from 0.159 it does,
-// and guardrail then fails closed on every allowed command because it cannot
-// yet pin the command's working directory on an unproven Windows shell
-// (#454, ADR-0014). Not counted as a problem: it is a known, tracked state.
-const codexWindowsPlaneState = "guardrail hooks registered, unenforced on Windows: Codex 0.159+ runs PreToolUse hooks, but guardrail fails closed on every allowed command until it can pin the command's working directory (#454; older Codex did not dispatch them, openai/codex#24453); verify trust in /hooks"
+// did not dispatch PreToolUse there (openai/codex#24453); from 0.159 it does.
+// Allowed commands then carry a PowerShell working-directory precondition
+// when the session transcript proves PowerShell, and fail closed otherwise
+// (#454, ADR-0014). It stays "unenforced" until a runtime probe shows Codex
+// applies the rewrite on Windows. Not counted as a problem: known, tracked.
+const codexWindowsPlaneState = "guardrail hooks registered, unenforced on Windows until runtime mediation is confirmed: Codex 0.159+ runs PreToolUse hooks; allowed commands go back behind a PowerShell working-directory check when the session transcript proves PowerShell, and guardrail fails closed for any other shell (#454; older Codex did not dispatch them, openai/codex#24453); verify trust in /hooks"

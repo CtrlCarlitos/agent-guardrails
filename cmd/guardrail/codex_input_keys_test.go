@@ -45,7 +45,7 @@ func TestWindowsCodexPlaneStatusNamesTheCurrentBlocker(t *testing.T) {
 	if !strings.HasPrefix(state, "guardrail hooks registered, unenforced") {
 		t.Fatalf("state lost its classification prefix: %q", state)
 	}
-	for _, want := range []string{"#454", "runs PreToolUse hooks", "fails closed"} {
+	for _, want := range []string{"#454", "runs PreToolUse hooks", "PowerShell working-directory check", "fails closed for any other shell"} {
 		if !strings.Contains(state, want) {
 			t.Errorf("state lacks %q: %q", want, state)
 		}

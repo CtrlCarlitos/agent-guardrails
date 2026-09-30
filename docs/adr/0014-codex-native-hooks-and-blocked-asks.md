@@ -76,6 +76,24 @@ whether the effective command interpreter is PowerShell or `cmd.exe`, so an
 otherwise allowed command hook exits 2 without emitting `updatedInput`. A
 POSIX-shaped rewrite must never reach an unproven Windows shell.
 
+**Amendment (#454, Codex 0.159.0).** Codex 0.159 dispatches `PreToolUse` on
+Windows. It still omits the effective directory: a model call
+`exec_command({cmd:"echo probe2", workdir:"C:\\Users\\…\\Documents"})` reached
+the hook as `tool_input {"command"}` with the session cwd (measured with the
+`input_keys` audit field). The hook payload's `transcript_path` names the
+session transcript, whose environment block records the shell
+(`<shell>powershell</shell>`). That record is the proof the rule above asks
+for. When the transcript lies under Codex's sessions directory and names
+`powershell` or `pwsh`, the allowed command goes back as `updatedInput` behind
+a PowerShell precondition: it compares `(Get-Location).ProviderPath` with the
+evaluated cwd, and with its resolved spelling when that differs, since
+OneDrive cloud-files folders are reparse points. It exits 1 with the same
+guidance on a mismatch. Paths are single-quoted with `'` doubled. Any other
+shell, a missing or foreign transcript, or no shell tag keeps the refusal. A
+wrong record fails closed, because a PowerShell precondition does not parse
+in another shell. The Windows claim stays "unenforced" until a runtime probe
+shows Codex applying the rewrite.
+
 Hook diagnostics keep three failure classes distinct. A known Codex session
 with no selected-session hook records is a transport miss. A handler that
 starts but cannot parse or evaluate the payload, or exits abnormally, is a

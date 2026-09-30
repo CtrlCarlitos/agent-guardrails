@@ -149,25 +149,7 @@ func codexPatchPaths(patch, cwd string, post bool) ([]string, error) {
 func EmitCodex(v policy.Verdict, event string, tc engine.ToolCall, stdout, stderr io.Writer) int {
 	if v.Decision == policy.Allow {
 		if event == "pre" && tc.Capability == policy.CapabilityCommand {
-			if runtime.GOOS == "windows" {
-				reason := "guardrail: cannot prove the Windows command shell; refusing to emit a POSIX updatedInput rewrite and failing closed"
-				fmt.Fprintln(stderr, reason)
-				if codexStructuredWindowsEnabled() {
-					return emitCodexBlock("pre", reason, stdout)
-				}
-				return 2
-			}
-			cwd, err := filepath.EvalSymlinks(tc.CWD)
-			if err != nil {
-				fmt.Fprintln(stderr, "guardrail: cannot verify Codex working directory; failing closed")
-				return 2
-			}
-			quoted := "'" + strings.ReplaceAll(cwd, "'", "'\"'\"'") + "'"
-			command := "if [ \"$(pwd -P)\" != " + quoted + " ]; then printf '%s\\n' 'guardrail: Codex workdir differs from the evaluated directory. Use the session working directory and an explicit cd in the command so Guardrail can evaluate path changes.' >&2; exit 1; fi\n" + tc.Command
-			payload := map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": map[string]any{"command": command}}}
-			if err := json.NewEncoder(stdout).Encode(payload); err != nil {
-				return 2
-			}
+			return emitCodexAllowedCommand(runtime.GOOS, tc, stdout, stderr)
 		}
 		return 0
 	}
