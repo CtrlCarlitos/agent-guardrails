@@ -4,6 +4,22 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Claude
+- **Fix (#475): no more "ownership manifest drifted (5 missing)" on every
+  setup, and `plane disable claude` removes hooks whose id Claude Code
+  dropped.** When Claude Code changes plugins (`claude plugin marketplace
+  add`, `claude plugin install`, both run by `dot up`), it rewrites
+  `settings.json` and drops the `id` key from every hook group. The group
+  itself stays, and the hooks keep firing (measured on Claude Code 2.1.285).
+  The ownership manifest matched entries by exact value, so setup reported
+  the five guardrail hooks as missing and asked to re-enable each time, and a
+  disable would have left them registered. A recorded `guardrail-` hook group
+  now also matches the identical group with only its `id` missing. A group
+  that differs in any other way, such as an operator-edited matcher, is still
+  the operator's.
+
 ## v0.23.27-dev (2026-09-30)
 
 ### Codex
