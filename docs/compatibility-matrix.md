@@ -30,7 +30,7 @@ that every tool call reached it (see `Live-mediation evidence` in
 | Claude Code | **Enforced, observed** [E1] [E2] | CI-tested only [E7] | Registered only [E9] [E11]; enforcement operator-reported, not recorded [E10] | CI-tested only [E7] |
 | opencode | **Enforced, observed** [E2] [E3] | CI-tested only [E7] | Registered only [E11]; enforcement operator-reported, not recorded [E10] | CI-tested only [E7] |
 | Antigravity | **Enforced, observed** [E2] [E4] | CI-tested only [E7] | Unknown; operator-reported, not recorded [E10] | CI-tested only [E7] |
-| Codex | **Unenforced** [E5]: Codex 0.159+ dispatches PreToolUse, guardrail fails closed on every allowed command ([#454](https://github.com/CtrlCarlitos/agent-guardrails/issues/454)); before 0.159 no dispatch ([openai/codex#24453](https://github.com/openai/codex/issues/24453)) | Registered only; pre-hooks observed in a fixture harness, known bypasses [E6] | Registered only [E11]; enforcement unknown [E12] | CI-tested only [E7] |
+| Codex | **Unenforced** [E5]: Codex 0.159+ dispatches PreToolUse, allowed commands run behind a PowerShell working-directory check when the transcript proves PowerShell, pending a runtime probe ([#454](https://github.com/CtrlCarlitos/agent-guardrails/issues/454)); before 0.159 no dispatch ([openai/codex#24453](https://github.com/openai/codex/issues/24453)) | Registered only; pre-hooks observed in a fixture harness, known bypasses [E6] | Registered only [E11]; enforcement unknown [E12] | CI-tested only [E7] |
 
 Notes on the Codex row:
 

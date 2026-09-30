@@ -53,7 +53,7 @@ func cmdDoctorCodexCoverage(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "codex coverage: captured schema %s\nsha256: %s\n", safetext.SingleLine(schema), inv.SHA256)
 	fmt.Fprintln(stdout, "scope: supplied configuration only; not a complete runtime inventory or evidence that hooks fire")
 	if runtime.GOOS == "windows" {
-		fmt.Fprintln(stdout, "runtime status: registered, unenforced on Windows; Codex 0.159+ dispatches PreToolUse but guardrail fails closed on every allowed command (#454); schema rows are contract inventory, not runtime coverage")
+		fmt.Fprintln(stdout, "runtime status: registered, unenforced on Windows until runtime mediation is confirmed; Codex 0.159+ dispatches PreToolUse, and allowed commands carry a PowerShell working-directory check when the session transcript proves PowerShell (#454); schema rows are contract inventory, not runtime coverage")
 	}
 	fmt.Fprintln(stdout, "tool\thook identity\tcapability\tclassification")
 	exit := 0

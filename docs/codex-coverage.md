@@ -34,11 +34,14 @@ export command; automatic installed-runtime discovery is not provided here.
 On Windows, the Codex plane is **registered, unenforced**. Before Codex 0.159,
 `command_execution` did not dispatch `PreToolUse`
 ([`openai/codex#24453`](https://github.com/openai/codex/issues/24453)). From
-0.159 it does, and guardrail then fails closed on every allowed command: it
-cannot yet pin the command's working directory on an unproven Windows shell
+0.159 it does, but it still hides the command's effective directory. Allowed
+commands go back behind a PowerShell working-directory check when the session
+transcript Codex hands the hook proves the shell is PowerShell, and fail
+closed for any other shell
 ([#454](https://github.com/CtrlCarlitos/agent-guardrails/issues/454),
-ADR-0014). Until #454 is fixed, doctor exits 1 on Windows and its rows are
-contract inventory only—never a runtime coverage claim.
+ADR-0014 amendment). Until a runtime probe shows Codex applying that rewrite,
+doctor exits 1 on Windows and its rows are contract inventory only—never a
+runtime coverage claim.
 
 | Classification | Meaning |
 | --- | --- |
