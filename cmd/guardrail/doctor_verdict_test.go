@@ -67,6 +67,7 @@ func TestPlaneStateIsProblem(t *testing.T) {
 		"guardrail hook registered": false,
 		"guardrail hook registered but NEVER OBSERVED FIRING — x":                                            false,
 		"guardrail hooks registered, unenforced: Windows command_execution PreToolUse dispatch not observed": false,
+		codexWindowsPlaneState:                              false, // #454: known, tracked; not counted
 		"present, hook NOT registered":                      true,
 		"present, integration NOT registered":               true,
 		"present, disabled":                                 true,

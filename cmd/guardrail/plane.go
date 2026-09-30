@@ -762,7 +762,7 @@ func planeStatusState(plane string) string {
 	if planeIntegrationRegistered(plane) {
 		if plane == "codex" {
 			if runtime.GOOS == "windows" {
-				return "guardrail hooks registered, unenforced: Windows command_execution PreToolUse dispatch not observed (external blocker openai/codex#24453); verify trust in /hooks; no runtime coverage claim"
+				return codexWindowsPlaneState
 			}
 			return "guardrail hooks registered; verify trust in /hooks; hosted tools and write_stdin bypass pre-hooks (ADR-0014)"
 		}
@@ -826,3 +826,10 @@ func pendingApproval(action, cause string, stderr io.Writer) int {
 	fmt.Fprintf(stderr, "guardrail: operator action pending: %s, so the plane change was not applied. The planes stay as they are. Re-run the same command from an interactive terminal and approve it with your passkey. Exit %d means operator action pending, not a failure.\n", cause, exitOperatorActionPending)
 	return exitOperatorActionPending
 }
+
+// codexWindowsPlaneState is the Codex line on Windows. Before 0.159 Codex
+// did not dispatch PreToolUse there (openai/codex#24453); from 0.159 it does,
+// and guardrail then fails closed on every allowed command because it cannot
+// yet pin the command's working directory on an unproven Windows shell
+// (#454, ADR-0014). Not counted as a problem: it is a known, tracked state.
+const codexWindowsPlaneState = "guardrail hooks registered, unenforced on Windows: Codex 0.159+ runs PreToolUse hooks, but guardrail fails closed on every allowed command until it can pin the command's working directory (#454; older Codex did not dispatch them, openai/codex#24453); verify trust in /hooks"

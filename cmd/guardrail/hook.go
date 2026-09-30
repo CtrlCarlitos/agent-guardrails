@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -491,7 +492,25 @@ func auditRecord(tc engine.ToolCall, v policy.Verdict, waivers []string) audit.R
 		rec.Command = tc.Command
 		rec.Paths = tc.Paths
 	}
+	if tc.Plane == "codex" {
+		rec.InputKeys = toolInputKeys(tc.Arguments)
+	}
 	return rec
+}
+
+// toolInputKeys returns the sorted field names of a tool_input object, or nil
+// when it is not one. Names only: values can carry anything (#454).
+func toolInputKeys(raw json.RawMessage) []string {
+	var input map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &input) != nil || len(input) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(input))
+	for k := range input {
+		keys = append(keys, safetext.SingleLine(k))
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func prependVerdictReason(v policy.Verdict, prefix string) policy.Verdict {

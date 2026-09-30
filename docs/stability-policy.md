@@ -175,7 +175,7 @@ leaving a hole; it says so in the CHANGELOG.
 | Claude Code | Supported |
 | opencode | Supported |
 | Antigravity | Supported |
-| Codex | **Experimental**: registered but unenforced on Windows ([openai/codex#24453](https://github.com/openai/codex/issues/24453)); hosted tools and `write_stdin` bypass pre-hooks on every OS ([ADR-0014](adr/0014-codex-native-hooks-and-blocked-asks.md)) |
+| Codex | **Experimental**: registered but unenforced on Windows (Codex 0.159+ dispatches hooks, guardrail fails closed on allowed commands: [#454](https://github.com/CtrlCarlitos/agent-guardrails/issues/454); earlier Codex did not dispatch: [openai/codex#24453](https://github.com/openai/codex/issues/24453)); hosted tools and `write_stdin` bypass pre-hooks on every OS ([ADR-0014](adr/0014-codex-native-hooks-and-blocked-asks.md)) |
 
 The status is a policy decision. What is actually verified on each OS and
 shell, with the evidence for each cell, is in the

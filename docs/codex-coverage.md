@@ -31,12 +31,14 @@ schemas do not enumerate inner tools. Recollect schemas after runtime or
 configuration changes. The installed CLI currently has no complete tool-schema
 export command; automatic installed-runtime discovery is not provided here.
 
-On Windows, the Codex plane is **registered, unenforced**: the generated hooks
-can be present and trusted while `command_execution` still does not dispatch
-`PreToolUse`. This is tracked upstream as
-[`openai/codex#24453`](https://github.com/openai/codex/issues/24453). Until that
-blocker is resolved and runtime dispatch is observed, doctor exits 1 on Windows
-and its rows are contract inventory only—never a runtime coverage claim.
+On Windows, the Codex plane is **registered, unenforced**. Before Codex 0.159,
+`command_execution` did not dispatch `PreToolUse`
+([`openai/codex#24453`](https://github.com/openai/codex/issues/24453)). From
+0.159 it does, and guardrail then fails closed on every allowed command: it
+cannot yet pin the command's working directory on an unproven Windows shell
+([#454](https://github.com/CtrlCarlitos/agent-guardrails/issues/454),
+ADR-0014). Until #454 is fixed, doctor exits 1 on Windows and its rows are
+contract inventory only—never a runtime coverage claim.
 
 | Classification | Meaning |
 | --- | --- |
