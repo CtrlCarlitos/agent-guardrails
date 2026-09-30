@@ -48,6 +48,11 @@ type Record struct {
 	// host creating the process. Zero on records written before #456.
 	HookMS    float64 `json:"hook_ms,omitempty"`
 	StartupMS float64 `json:"startup_ms,omitempty"`
+	// InputKeys lists the field names of a Codex call's tool_input, sorted,
+	// never their values (#454): whether Codex sends a working directory
+	// decides how its Windows commands can be mediated, and new fields show
+	// contract drift.
+	InputKeys []string `json:"input_keys,omitempty"`
 }
 
 // ReadRecords returns every well-formed record across segments, oldest first,

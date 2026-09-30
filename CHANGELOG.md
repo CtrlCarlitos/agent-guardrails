@@ -4,6 +4,24 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Codex
+- **Step 1 of #454: record what Codex 0.159 sends, and say what is really
+  happening.** Codex 0.159 dispatches `PreToolUse` on Windows (the old
+  blocker, openai/codex#24453, is fixed upstream), and guardrail then fails
+  closed on every allowed command: on Windows it cannot pin the command's
+  working directory, because the shell is unproven (ADR-0014). The fix depends
+  on whether Codex's hook input now carries that directory, which neither
+  Codex's schema nor its logs show. So:
+  - Codex audit records gain `input_keys`: the sorted field names of
+    `tool_input`, never their values.
+  - The doctor and `plane status` line for Codex on Windows no longer says
+    "dispatch not observed"; it says Codex 0.159+ runs the hooks and guardrail
+    fails closed on allowed commands (#454).
+  Enforcement is unchanged: still fail-closed. The fix itself follows once a
+  0.159 probe shows the fields.
+
 ## v0.23.23-dev (2026-09-29)
 
 ### Coverage

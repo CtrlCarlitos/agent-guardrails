@@ -30,7 +30,7 @@ that every tool call reached it (see `Live-mediation evidence` in
 | Claude Code | **Enforced, observed** [E1] [E2] | CI-tested only [E7] | Registered only [E9] [E11]; enforcement operator-reported, not recorded [E10] | CI-tested only [E7] |
 | opencode | **Enforced, observed** [E2] [E3] | CI-tested only [E7] | Registered only [E11]; enforcement operator-reported, not recorded [E10] | CI-tested only [E7] |
 | Antigravity | **Enforced, observed** [E2] [E4] | CI-tested only [E7] | Unknown; operator-reported, not recorded [E10] | CI-tested only [E7] |
-| Codex | **Unenforced** [E5] ([openai/codex#24453](https://github.com/openai/codex/issues/24453)) | Registered only; pre-hooks observed in a fixture harness, known bypasses [E6] | Registered only [E11]; enforcement unknown [E12] | CI-tested only [E7] |
+| Codex | **Unenforced** [E5]: Codex 0.159+ dispatches PreToolUse, guardrail fails closed on every allowed command ([#454](https://github.com/CtrlCarlitos/agent-guardrails/issues/454)); before 0.159 no dispatch ([openai/codex#24453](https://github.com/openai/codex/issues/24453)) | Registered only; pre-hooks observed in a fixture harness, known bypasses [E6] | Registered only [E11]; enforcement unknown [E12] | CI-tested only [E7] |
 
 Notes on the Codex row:
 
@@ -111,9 +111,14 @@ run.
 - **[E4]** An Antigravity session on 2026-09-26 recorded 10 `ask` and 1
   `deny` verdicts for `run_command`, with PowerShell (`Test-Path`) and
   `cmd.exe /c` command text.
-- **[E5]** `guardrail doctor` and `guardrail plane status` print `codex:
-  guardrail hooks registered, unenforced: Windows command_execution
-  PreToolUse dispatch not observed (external blocker openai/codex#24453)`.
+- **[E5]** Codex 0.159.0 on Windows (operator's machine, 2026-09-29): the
+  guardrail audit log has `plane: codex`, `native_tool: Bash`, `event: pre`
+  records with `decision: allow` from real `codex exec` runs, so dispatch is
+  observed; the command is then refused at emit time with `cannot prove the
+  Windows command shell` (#454, ADR-0014). `guardrail doctor` prints this
+  state since #454's first release; earlier releases printed "dispatch not
+  observed (external blocker openai/codex#24453)", which was true before
+  Codex 0.159.
   `guardrail selftest --evidence codex` exited 1: `codex: live mediation not
   yet observed; approval-proposal gate remains closed`. The same result on
   Codex 0.154.0 is in the
