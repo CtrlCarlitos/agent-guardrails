@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.25-dev (2026-09-30)
 
 ### Codex
 - **Fix (#454): allowed Codex commands can run on Windows.** Step 1's probe
