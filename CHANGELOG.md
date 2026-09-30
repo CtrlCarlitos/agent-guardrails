@@ -4,6 +4,20 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Codex
+- **Fix (#472): the Windows working-directory check prints its guidance
+  under ConstrainedLanguage.** Codex's sandboxed PowerShell runs in
+  ConstrainedLanguage mode, which refuses method calls on non-core .NET
+  types. When a command ran outside the evaluated directory, the #454
+  precondition still stopped it (exit 1). But its `[Console]::Error.WriteLine`
+  threw "Cannot invoke method", so the agent never saw the instruction to use
+  the session directory and an explicit `Set-Location`. The guidance is now
+  written with `Write-Host`. The Windows test runs the precondition in real
+  `powershell.exe` and `pwsh.exe` in both language modes, and a portable test
+  rejects any .NET static member in it.
+
 ## v0.23.26-dev (2026-09-30)
 
 ### Antigravity

@@ -98,6 +98,11 @@ func TestCodexWindowsProvenPowerShellGetsADirectoryPrecondition(t *testing.T) {
 		if !strings.Contains(cmd, "'"+windowsPathKey(cwd)+"'") {
 			t.Errorf("%s: precondition does not compare against the evaluated cwd %q: %q", shell, cwd, cmd)
 		}
+		// #472: Codex's PowerShell is ConstrainedLanguage, where a static
+		// .NET member such as [Console]::Error throws.
+		if strings.Contains(cmd[:strings.LastIndex(cmd, "\n")], "]::") {
+			t.Errorf("%s: precondition calls a .NET static member, which ConstrainedLanguage refuses: %q", shell, cmd)
+		}
 	}
 }
 
