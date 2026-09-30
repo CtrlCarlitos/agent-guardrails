@@ -57,7 +57,7 @@ func TestCodexLifecycleRoundTrip(t *testing.T) {
 	}
 }
 
-func TestCodexWindowsStatusReportsRegisteredUnenforced(t *testing.T) {
+func TestCodexWindowsStatusReportsObservedMediation(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows runtime dispatch boundary")
 	}
@@ -79,12 +79,17 @@ func TestCodexWindowsStatusReportsRegisteredUnenforced(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// #454: Codex 0.159 mediation on Windows was observed at runtime, so the
+	// line names what is enforced and how, keeps the ADR-0014 bypasses, and
+	// still never claims full coverage.
 	status := planeStatusState("codex")
-	if !strings.Contains(status, "registered, unenforced") || !strings.Contains(status, "#24453") {
-		t.Fatal(status)
+	for _, want := range []string{"registered", "PowerShell working-directory check", "#454", "hosted tools and write_stdin bypass pre-hooks"} {
+		if !strings.Contains(status, want) {
+			t.Fatalf("status lacks %q: %s", want, status)
+		}
 	}
-	if strings.Contains(status, "coverage confirmed") || strings.Contains(status, "enforced") && !strings.Contains(status, "unenforced") {
-		t.Fatalf("status overclaims coverage: %s", status)
+	if strings.Contains(status, "coverage confirmed") || strings.Contains(status, "unenforced") {
+		t.Fatalf("status overclaims coverage or is stale: %s", status)
 	}
 }
 

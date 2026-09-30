@@ -42,10 +42,10 @@ func TestCodexAuditRecordsNameToolInputFields(t *testing.T) {
 // every allowed command instead; the line must say that.
 func TestWindowsCodexPlaneStatusNamesTheCurrentBlocker(t *testing.T) {
 	state := codexWindowsPlaneState
-	if !strings.HasPrefix(state, "guardrail hooks registered, unenforced") {
+	if !strings.HasPrefix(state, "guardrail hooks registered;") {
 		t.Fatalf("state lost its classification prefix: %q", state)
 	}
-	for _, want := range []string{"#454", "runs PreToolUse hooks", "PowerShell working-directory check", "fails closed for any other shell"} {
+	for _, want := range []string{"#454", "PowerShell working-directory check", "runtime mediation observed", "other shells fail closed"} {
 		if !strings.Contains(state, want) {
 			t.Errorf("state lacks %q: %q", want, state)
 		}

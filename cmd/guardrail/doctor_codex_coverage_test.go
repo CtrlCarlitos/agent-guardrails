@@ -28,15 +28,13 @@ func TestDoctorCodexCoverage(t *testing.T) {
 			}
 			var out, errb bytes.Buffer
 			code := run([]string{"doctor", "--coverage", "codex", "--schema", path}, strings.NewReader(""), &out, &errb)
-			wantExit := tc.exit
-			if runtime.GOOS == "windows" && wantExit == 0 {
-				wantExit = 1
-			}
-			if code != wantExit || !strings.Contains(out.String()+errb.String(), tc.want) {
+			// #454: Windows no longer forces exit 1; its runtime line names
+			// the observed mediation instead.
+			if code != tc.exit || !strings.Contains(out.String()+errb.String(), tc.want) {
 				t.Fatalf("exit %d; stdout %s; stderr %s", code, &out, &errb)
 			}
-			if runtime.GOOS == "windows" && code != 2 && !strings.Contains(out.String(), "registered, unenforced") {
-				t.Fatalf("missing Windows runtime boundary: %s", &out)
+			if runtime.GOOS == "windows" && code != 2 && !strings.Contains(out.String(), "PowerShell working-directory check") {
+				t.Fatalf("missing Windows runtime line: %s", &out)
 			}
 			if code != 2 && (!strings.Contains(out.String(), "not a complete runtime inventory") || !strings.Contains(out.String(), "not proven retired")) {
 				t.Fatalf("missing scope: %s", &out)
