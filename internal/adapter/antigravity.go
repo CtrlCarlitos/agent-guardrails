@@ -34,16 +34,21 @@ type antigravityPayload struct {
 type antigravityPathSchema struct {
 	key     string
 	allowed map[string]struct{}
+	// aliases name the same path under another argument. One may stand in
+	// for key; when both are present they must agree, or which file the tool
+	// uses is ambiguous and the call fails closed.
+	aliases []string
 }
 
 var antigravityPathSchemas = map[string]antigravityPathSchema{
-	"view_file":                  {"AbsolutePath", allowedFields("AbsolutePath", "StartLine", "EndLine", "ContentOffset", "IsSkillFile")},
-	"write_to_file":              {"TargetFile", allowedFields("TargetFile", "Overwrite", "CodeContent", "Description", "IsArtifact", "ArtifactMetadata")},
-	"replace_file_content":       {"TargetFile", allowedFields("TargetFile", "Instruction", "Description", "AllowMultiple", "TargetContent", "ReplacementContent", "StartLine", "EndLine", "TargetLintErrorIds")},
-	"multi_replace_file_content": {"TargetFile", allowedFields("TargetFile", "Instruction", "Description", "ReplacementChunks", "TargetLintErrorIds", "ArtifactMetadata")},
-	"list_dir":                   {"DirectoryPath", allowedFields("DirectoryPath")},
-	"find_by_name":               {"SearchDirectory", allowedFields("SearchDirectory", "Pattern", "Type", "Excludes", "Extensions", "FullPath", "MaxDepth")},
-	"grep_search":                {"SearchPath", allowedFields("SearchPath", "Query", "IsRegex", "CaseInsensitive", "Includes", "MatchPerLine")},
+	// #469: Antigravity sometimes sends view_file with TargetFile.
+	"view_file":                  {"AbsolutePath", allowedFields("AbsolutePath", "TargetFile", "StartLine", "EndLine", "ContentOffset", "IsSkillFile"), []string{"TargetFile"}},
+	"write_to_file":              {"TargetFile", allowedFields("TargetFile", "Overwrite", "CodeContent", "Description", "IsArtifact", "ArtifactMetadata"), nil},
+	"replace_file_content":       {"TargetFile", allowedFields("TargetFile", "Instruction", "Description", "AllowMultiple", "TargetContent", "ReplacementContent", "StartLine", "EndLine", "TargetLintErrorIds"), nil},
+	"multi_replace_file_content": {"TargetFile", allowedFields("TargetFile", "Instruction", "Description", "ReplacementChunks", "TargetLintErrorIds", "ArtifactMetadata"), nil},
+	"list_dir":                   {"DirectoryPath", allowedFields("DirectoryPath"), nil},
+	"find_by_name":               {"SearchDirectory", allowedFields("SearchDirectory", "Pattern", "Type", "Excludes", "Extensions", "FullPath", "MaxDepth"), nil},
+	"grep_search":                {"SearchPath", allowedFields("SearchPath", "Query", "IsRegex", "CaseInsensitive", "Includes", "MatchPerLine"), nil},
 }
 
 func allowedFields(fields ...string) map[string]struct{} {
@@ -95,8 +100,18 @@ func documentedAntigravityPaths(tool string, input map[string]any) ([]string, er
 		}
 	}
 
-	path, ok := input[schema.key].(string)
-	if !ok || path == "" {
+	path, _ := input[schema.key].(string)
+	for _, alias := range schema.aliases {
+		other, _ := input[alias].(string)
+		switch {
+		case other == "":
+		case path == "":
+			path = other
+		case other != path:
+			return nil, fmt.Errorf("%s names two different paths (%s and %s); failing closed", tool, schema.key, alias)
+		}
+	}
+	if path == "" {
 		return nil, fmt.Errorf("%s requires string argument %q", tool, schema.key)
 	}
 	return []string{path}, nil

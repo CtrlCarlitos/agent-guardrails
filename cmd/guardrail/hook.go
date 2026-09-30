@@ -31,6 +31,10 @@ var sessionTransaction = session.Transaction
 
 func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int) {
 	hookStarted := time.Now()
+	// A copy of what the parser reads, so a fail-closed record can name the
+	// payload's argument fields (#469). Only names are ever taken from it.
+	rawPayload := &cappedBuffer{limit: 1 << 20}
+	stdin = io.TeeReader(stdin, rawPayload)
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "guardrail: hook needs a plane (claude, opencode, antigravity, codex)")
 		return 2
@@ -81,6 +85,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 			SessionID: tc.SessionID, Plane: plane, Tool: tc.Tool, NativeTool: tc.NativeTool,
 			Event: tc.Event, Command: tc.Command, Decision: string(policy.Deny),
 			AuditKind: "hook-fail-closed", Reason: reason, RepoRoot: tc.RepoRoot,
+			InputKeys: payloadArgumentKeys(plane, []byte(rawPayload.String())),
 		}
 		stampHookLatency(&failed, hookStarted, true)
 		if err := audit.Write(failed, audit.DefaultPath("")); err != nil {
@@ -528,4 +533,27 @@ func loadNightState(now time.Time) (night.State, error) {
 		return night.State{}, err
 	}
 	return night.Load(path, now)
+}
+
+// payloadArgumentKeys returns the argument field names of a raw hook payload
+// in the plane's envelope, or nil when it cannot be read. Names only.
+func payloadArgumentKeys(plane string, raw []byte) []string {
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(raw, &envelope) != nil {
+		return nil
+	}
+	switch plane {
+	case "antigravity":
+		var call struct {
+			Args json.RawMessage `json:"args"`
+		}
+		if json.Unmarshal(envelope["toolCall"], &call) != nil {
+			return nil
+		}
+		return toolInputKeys(call.Args)
+	case "opencode":
+		return toolInputKeys(envelope["arguments"])
+	default: // claude, codex
+		return toolInputKeys(envelope["tool_input"])
+	}
 }
