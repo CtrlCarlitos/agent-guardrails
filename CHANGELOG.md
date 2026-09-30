@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.26-dev (2026-09-30)
 
 ### Antigravity
 - **Fix (#469): `view_file` with `TargetFile` no longer fails closed.** Six
