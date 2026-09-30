@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.24-dev (2026-09-29)
 
 ### Codex
 - **Step 1 of #454: record what Codex 0.159 sends, and say what is really
