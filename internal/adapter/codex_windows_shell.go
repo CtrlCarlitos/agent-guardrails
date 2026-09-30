@@ -66,7 +66,9 @@ func emitCodexAllowedCommand(goos string, tc engine.ToolCall, stdout, stderr io.
 // cloud-files folders are reparse points that may not resolve, or resolve to
 // another spelling. PowerShell's -ne on strings ignores case, as Windows paths
 // do. Paths are single-quoted with ' doubled, so nothing in them is
-// interpreted.
+// interpreted. Codex's sandboxed PowerShell runs in ConstrainedLanguage, so
+// the script uses only cmdlets and core-type members: a call such as
+// [Console]::Error.WriteLine throws there and loses the guidance (#472).
 func powershellWorkdirPrecondition(cwd string) string {
 	candidates := []string{windowsPathKey(cwd)}
 	if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
@@ -79,7 +81,7 @@ func powershellWorkdirPrecondition(cwd string) string {
 		conds = append(conds, "$__guardrailCwd -ne '"+strings.ReplaceAll(c, "'", "''")+"'")
 	}
 	return "$__guardrailCwd = (Get-Location).ProviderPath.TrimEnd('\\'); if (" + strings.Join(conds, " -and ") +
-		") { [Console]::Error.WriteLine('guardrail: Codex workdir differs from the evaluated directory. Use the session working directory and an explicit Set-Location in the command so Guardrail can evaluate path changes.'); exit 1 }"
+		") { Write-Host 'guardrail: Codex workdir differs from the evaluated directory. Use the session working directory and an explicit Set-Location in the command so Guardrail can evaluate path changes.'; exit 1 }"
 }
 
 // windowsPathKey is the spelling PowerShell's ProviderPath is compared with:
