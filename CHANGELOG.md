@@ -6,6 +6,19 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Antigravity
+- **Fix (#469): `view_file` with `TargetFile` no longer fails closed.** Six
+  Antigravity reads in three days were refused with `view_file argument
+  "TargetFile" is not documented`, because the adapter checks each tool's
+  arguments against a strict list. `TargetFile` is now accepted as
+  `view_file`'s path when it is the only path argument, or when it names the
+  same file as `AbsolutePath`. Two different paths still fail closed, since
+  which file the tool reads would be ambiguous, and any other unknown
+  argument still fails closed.
+- **Every fail-closed hook record names the payload's arguments**
+  (`input_keys`, names only, never values), for every plane. The raw call
+  behind #469 was never found; next time the record itself shows the shape.
+
 ### Codex
 - **Closes #454: Codex on Windows is mediated, observed at runtime.** On
   Codex 0.159.0 with pwsh 7, v0.23.25-dev's rewrite was applied by Codex:
