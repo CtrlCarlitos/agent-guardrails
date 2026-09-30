@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.27-dev (2026-09-30)
 
 ### Codex
 - **Fix (#472): the Windows working-directory check prints its guidance
