@@ -4,6 +4,27 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### OpenCode
+- **Fix (#480): `apply_patch` no longer fails closed with
+  `capability-input-missing`.** OpenCode sends the patch as `patchText`
+  (OpenCode 1.18.33), but the adapter read a `patch` argument. It projected no
+  paths, so every patch was refused. The fixtures used the same invented key,
+  so no test exercised the real shape. The adapter now reads `patchText` and
+  shares the Codex adapter's strict parser. The parser requires the
+  `*** Begin Patch` / `*** End Patch` envelope and at least one file operation.
+  It evaluates every Add, Update and Delete path and both sides of a
+  `*** Move to:`, resolves relative paths against the session directory, and
+  accepts CRLF. A missing, empty or malformed patch still fails closed. The
+  OpenCode fixture contract now also pins the recorded rule, so a secret deny
+  can no longer pass for a projection failure.
+- **Hardening (Codex and OpenCode, Windows):** a patch path rooted without a
+  drive (`\Users\me\.ssh\id_ed25519`) is no longer joined to the cwd. That
+  join turned it into an in-repo path. Measured: the Engine still denied the
+  secret and guardrail-config targets tested by name, but it now sees the
+  path as written.
+
 ## v0.23.28-dev (2026-09-30)
 
 ### Claude

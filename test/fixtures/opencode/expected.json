@@ -1,9 +1,29 @@
 {
- "apply-patch-secret.json": {
+ "apply-patch-malformed.json": {
   "exit": 2
  },
+ "apply-patch-move-secret.json": {
+  "exit": 2,
+  "decision": "deny",
+  "rule": "P4.secret-path"
+ },
+ "apply-patch-multi-secret.json": {
+  "exit": 2,
+  "decision": "deny",
+  "rule": "P4.secret-path"
+ },
+ "apply-patch-relative.json": {
+  "exit": 0,
+  "decision": "allow"
+ },
+ "apply-patch-secret.json": {
+  "exit": 2,
+  "decision": "deny",
+  "rule": "P4.secret-path"
+ },
  "apply-patch.json": {
-  "exit": 0
+  "exit": 0,
+  "decision": "allow"
  },
  "bash-ls.json": {
   "exit": 0
