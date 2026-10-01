@@ -53,7 +53,7 @@ func pinnedGit(repo string, args ...string) *exec.Cmd {
 }
 
 func commitInitial(repo string) error {
-	commit := pinnedGit(repo, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "init")
+	commit := pinnedGit(repo, "-c", "user.name=test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "init")
 	if output, err := commit.CombinedOutput(); err != nil {
 		return fmt.Errorf("git commit: %w: %s", err, output)
 	}
