@@ -199,12 +199,38 @@ func checkPowerShell(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict 
 	case psDynamicEval[command]:
 		return ask("P6.dynamic-eval",
 			command+" evaluates source at runtime, so the command that runs is not the command shown")
+	case (command == "powershell" || command == "pwsh") && psEncodedCommand(s.Argv):
+		// #404: base64 code is as opaque as Invoke-Expression, and a way to
+		// reach the binary without naming it.
+		return ask("P6.dynamic-eval",
+			command+" -EncodedCommand runs base64-encoded code, so the command that runs is not the command shown. "+
+				"Write it out with -Command so it can be evaluated")
 	case command == "set-executionpolicy":
 		return checkPSExecutionPolicy(s)
 	case removeItemAliases[command]:
 		return checkPSRemoveItem(s, tc, pol)
 	}
 	return nil
+}
+
+// psEncodedCommand reports a powershell/pwsh host invocation carrying
+// -EncodedCommand. The host binds any prefix of the name and resolves the
+// ambiguous `-e` and `-ec` to it; `-ex` is -ExecutionPolicy. Scanning stops at
+// -Command or -File: what follows is the command's own arguments.
+func psEncodedCommand(argv []string) bool {
+	for _, arg := range argv[1:] {
+		if !strings.HasPrefix(arg, "-") {
+			continue
+		}
+		name, _, _ := strings.Cut(strings.ToLower(strings.TrimLeft(arg, "-")), ":")
+		switch {
+		case name == "e" || name == "ec" || len(name) >= 2 && strings.HasPrefix("encodedcommand", name):
+			return true
+		case name == "c" || name == "f" || strings.HasPrefix("command", name) && len(name) >= 2 || strings.HasPrefix("file", name) && len(name) >= 2:
+			return false
+		}
+	}
+	return false
 }
 
 func checkPSRemoveItem(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict {

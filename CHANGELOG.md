@@ -4,6 +4,25 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Engine
+- **Fix (#404): the remaining ways to reach the installed binary.** Measured
+  on v0.23.32-dev, then closed:
+  - **`deno eval` / `bun -e` naming the binary:** were allowed; now denied
+    `P5.self-config`, like `node -e`.
+  - **`powershell` / `pwsh -EncodedCommand` (and `-enc`, `-ec`, `-e`):** were
+    allowed. Base64 code is as opaque as `Invoke-Expression`, so it now asks
+    `P6.dynamic-eval`.
+  - **Deleting the install directory** with `rmdir`, `rm -d`, or
+    `Remove-Item`/`rd` without `-Recurse`: was allowed or asked; now denied
+    `P5.self-config`.
+  - **`GOBIN=<install dir> go install …/cmd/guardrail`** (inline or via `env`,
+    including `GOBIN=~/.local/bin`): asked; now denied `P5.self-config`.
+  - **Left as documented boundaries:** paths built at runtime inside
+    interpreter code, and script files, are unseen execution paths
+    (ADR-0033). A write spelled `$env:USERPROFILE\…\guardrail.exe` still asks.
+
 ## v0.23.32-dev (2026-10-02)
 
 ### Codex
