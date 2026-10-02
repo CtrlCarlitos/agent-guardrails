@@ -13,6 +13,25 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
+// waitForDaemon returns once the daemon started in a goroutine accepts a
+// connection (#507). A fixed sleep raced the listener under load: on a busy
+// Windows machine 150 ms was not enough and Dial timed out.
+func waitForDaemon(t *testing.T, endpoint string) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		client, err := daemon.Dial(endpoint)
+		if err == nil {
+			_ = client.Close()
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("daemon never accepted a connection: %v", err)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
 func TestCmdDaemonStatusNotRunning(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	endpoint := daemon.TestEndpoint(t, t.TempDir()) + "-missing"
@@ -36,7 +55,7 @@ func TestCmdDaemonLifecycleRoundTrip(t *testing.T) {
 		done <- cmdDaemon([]string{"start", "--endpoint", endpoint, "--idle", "5s"}, &sOut, &sErr)
 	}()
 
-	time.Sleep(150 * time.Millisecond)
+	waitForDaemon(t, endpoint)
 
 	// Check status
 	out.Reset()
@@ -79,7 +98,7 @@ func TestCmdDaemonEvaluationWritesNamedPipeTransportAuditRecord(t *testing.T) {
 		done <- cmdDaemon([]string{"start", "--endpoint", endpoint, "--idle", "5s"}, &sOut, &sErr)
 	}()
 
-	time.Sleep(150 * time.Millisecond)
+	waitForDaemon(t, endpoint)
 
 	client, err := daemon.Dial(endpoint)
 	if err != nil {
