@@ -23,6 +23,25 @@ explicitly in **Breaking** notes.
     interpreter code, and script files, are unseen execution paths
     (ADR-0033). A write spelled `$env:USERPROFILE\…\guardrail.exe` still asks.
 
+### Doctor
+- **Feat (#463): `doctor --coverage <claude|codex|opencode> --mcp`
+  inventories MCP tools on every plane.** Only Antigravity's coverage saw MCP
+  tools, so a new tool (#423, #458) was flagged on one plane and got
+  different verdicts on the others.
+  - **How it works:** reads the plane's MCP configuration (`~/.claude.json`
+    user and project servers, `~/.codex/config.toml` `[mcp_servers]`,
+    `opencode.json` `mcp`), starts each stdio server, and runs MCP
+    `initialize` + `tools/list`, paginated and bounded at 45 s per server. It
+    then diffs the tools against the registry under the plane's naming
+    (`mcp__<server>__<tool>`, or `<server>_<tool>` for OpenCode).
+  - **Results:** a server that cannot be listed, or a remote one, is reported
+    `unknown` and is never counted as covered. Only server and tool names are
+    printed. Exit 1 on any uncontracted or unknown entry.
+  - **Codex:** `--mcp` lifts its `--schema` requirement.
+  - **First live run (Windows):** found `mcp__serena__search_for_pattern`
+    uncontracted on Codex, and OpenCode's graft server unlisted within the
+    timeout.
+
 ## v0.23.32-dev (2026-10-02)
 
 ### Codex
