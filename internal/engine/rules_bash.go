@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"mvdan.cc/sh/v3/syntax"
@@ -893,7 +894,49 @@ func unresolvedReason(s Simple) string {
 	if s.cwdUnknown && !s.gitEnvironmentUnknown && !s.anyWordUnresolved() && !redirectsUnresolved(s) {
 		return "the working directory is uncertain here: an earlier `cd` may fail (for example into a directory this same command creates), and a following `;` runs either way, so this command's relative paths cannot be resolved. Join the steps with `&&` so a failed `cd` stops the chain, use `git -C <dir>` or absolute paths instead of `cd`, or split the work into separate tool calls"
 	}
-	return "command contains an unresolved value in a policy-bearing position"
+	reason := "command contains an unresolved value in a policy-bearing position"
+	if word := firstUnresolvedWord(s); word != "" {
+		// #491: name the value and how to write the command so it resolves.
+		// Without it an agent cannot tell what to change and keeps asking.
+		reason += ": `" + capReasonWord(word) + "`. Guardrail cannot see what it expands to, so the operator is asked. " +
+			"To run without asking, write it out: a literal absolute path instead of a variable, and no `$(...)` result " +
+			"as a path, redirect target or command name. If the value truly cannot be known in advance, asking is right"
+	}
+	return reason
+}
+
+// firstUnresolvedWord is the value an unresolved ask is about, as written:
+// the command name, then a redirect target, then an operand.
+func firstUnresolvedWord(s Simple) string {
+	if len(s.Argv) > 0 && s.wordUnresolved(0) {
+		return s.Argv[0]
+	}
+	for index, target := range s.Redirects {
+		if s.outputRedirectUnresolved(index) {
+			return target
+		}
+	}
+	for index, target := range s.ReadRedirects {
+		if s.inputRedirectUnresolved(index) {
+			return target
+		}
+	}
+	for index := 1; index < len(s.Argv); index++ {
+		if s.wordUnresolved(index) {
+			return s.Argv[index]
+		}
+	}
+	return ""
+}
+
+// capReasonWord keeps a named value short: it sits in a model-facing reason
+// and in the audit record.
+func capReasonWord(word string) string {
+	const limit = 80
+	if utf8.RuneCountInString(word) <= limit {
+		return word
+	}
+	return string([]rune(word)[:limit]) + "…"
 }
 
 func (s Simple) anyWordUnresolved() bool {

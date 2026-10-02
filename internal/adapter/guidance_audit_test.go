@@ -44,6 +44,12 @@ func TestGuidanceAuditSteersAgentsToTheirNextStep(t *testing.T) {
 	// C: the session posture says what to do on an ask and on a deny.
 	c := PostureText(nil, nil)
 	must("posture", c, "On an ask", "retry the exact call on its own", "On a deny", "next step")
+	// #491: and how to write commands that do not ask at all. It must not
+	// suggest moving logic into a script file: a script's contents are an
+	// unseen execution path (ADR-0033), so that would step around the
+	// analysis rather than satisfy it.
+	must("posture", c, "literal absolute paths", "`git -C <dir>`")
+	mustNot("posture", c, "script file", "script")
 
 	// D: the self-config deny names a concrete command.
 	d := NextStep(policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config"})
