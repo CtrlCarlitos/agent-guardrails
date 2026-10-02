@@ -1,0 +1,1 @@
+{"session_id":"s1","event":"pre","tool":"apply_patch","cwd":"/tmp","arguments":{"patchText":"*** Update File: /tmp/a.txt\n@@\n-x\n+y"}}

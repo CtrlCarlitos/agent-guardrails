@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/planecontract"
@@ -90,7 +89,7 @@ func ParseCodex(r io.Reader) (engine.ToolCall, error) {
 		patch, err = stringField("command")
 		tc.InputShape = "patch"
 		if err == nil {
-			tc.Paths, err = codexPatchPaths(patch, p.CWD, event == "post")
+			tc.Paths, err = applyPatchPaths(patch, p.CWD, event == "post")
 			if err == nil && event == "post" && len(tc.Paths) == 0 {
 				tc.Capability = policy.CapabilitySafeControl
 			}
@@ -107,43 +106,6 @@ func ParseCodex(r io.Reader) (engine.ToolCall, error) {
 		return tc, err
 	}
 	return tc, nil
-}
-
-// Include move destinations as well as sources. Deleted files are evaluated
-// before execution but omitted after execution so recipes never format them.
-func codexPatchPaths(patch, cwd string, post bool) ([]string, error) {
-	lines := strings.Split(strings.TrimSpace(patch), "\n")
-	if len(lines) < 3 || lines[0] != "*** Begin Patch" || lines[len(lines)-1] != "*** End Patch" {
-		return nil, fmt.Errorf("invalid Codex patch envelope")
-	}
-	var paths []string
-	headers := 0
-	for _, line := range lines[1 : len(lines)-1] {
-		for _, header := range []string{"*** Add File: ", "*** Update File: ", "*** Delete File: ", "*** Move to: "} {
-			if !strings.HasPrefix(line, header) {
-				continue
-			}
-			headers++
-			path := strings.TrimPrefix(line, header)
-			if strings.TrimSpace(path) == "" {
-				return nil, fmt.Errorf("empty Codex patch path")
-			}
-			if post && header == "*** Delete File: " {
-				continue
-			}
-			if post && header == "*** Move to: " && len(paths) > 0 {
-				paths = paths[:len(paths)-1]
-			}
-			if !filepath.IsAbs(path) {
-				path = filepath.Join(cwd, path)
-			}
-			paths = append(paths, path)
-		}
-	}
-	if headers == 0 {
-		return nil, fmt.Errorf("Codex patch has no file operations")
-	}
-	return paths, nil
 }
 
 func EmitCodex(v policy.Verdict, event string, tc engine.ToolCall, stdout, stderr io.Writer) int {

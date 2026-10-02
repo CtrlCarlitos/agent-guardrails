@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
@@ -85,13 +84,23 @@ func ParseOpencode(r io.Reader) (engine.ToolCall, error) {
 		tc.Paths = append(tc.Paths, mcpPaths...)
 	}
 	if p.Tool == "apply_patch" {
+		// OpenCode's schema names the patch `patchText` (#480). A missing,
+		// empty or non-string value, or a patch that does not parse, fails
+		// closed rather than reaching the Engine without paths.
 		var input struct {
-			Patch string `json:"patch"`
+			PatchText *string `json:"patchText"`
 		}
 		if err := json.Unmarshal(p.Arguments, &input); err != nil {
 			return engine.ToolCall{}, err
 		}
-		tc.Paths = append(tc.Paths, patchPaths(input.Patch)...)
+		if input.PatchText == nil || *input.PatchText == "" {
+			return engine.ToolCall{}, errors.New("OpenCode apply_patch has no patchText")
+		}
+		paths, err := applyPatchPaths(*input.PatchText, p.CWD, event == "post")
+		if err != nil {
+			return engine.ToolCall{}, err
+		}
+		tc.Paths = append(tc.Paths, paths...)
 	}
 	if tc.Capability == policy.CapabilityWebFetch {
 		var input struct {
@@ -153,22 +162,4 @@ func EmitOpencode(v policy.Verdict, tc engine.ToolCall, stdout, stderr io.Writer
 		return 2
 	}
 	return 0
-}
-
-// patchPaths extracts the file paths named by an apply_patch payload
-// (*** Update File:, *** Add File:, *** Delete File:). Unparseable patches
-// yield no paths, and the engine fails closed on a path capability without
-// paths.
-func patchPaths(patch string) []string {
-	var paths []string
-	for _, line := range strings.Split(patch, "\n") {
-		for _, header := range []string{"*** Update File: ", "*** Add File: ", "*** Delete File: "} {
-			if strings.HasPrefix(line, header) {
-				if p := strings.TrimSpace(strings.TrimPrefix(line, header)); p != "" {
-					paths = append(paths, p)
-				}
-			}
-		}
-	}
-	return paths
 }

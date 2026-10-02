@@ -67,7 +67,7 @@ func TestParseOpencodeClassifiesAndExtractsTypedInputs(t *testing.T) {
 		{"glob", `{"tool":"glob","paths":["/repo/.env"],"arguments":{"path":"/repo/.env"}}`, policy.CapabilityReadDiscovery, "", "/repo/.env"},
 		{"lsp", `{"tool":"lsp","paths":["/repo/a.go"],"arguments":{"filePath":"/repo/a.go","operation":"goToDefinition"}}`, policy.CapabilityReadDiscovery, "", "/repo/a.go"},
 		{"webfetch", `{"tool":"webfetch","arguments":{"url":"https://example.test/docs"}}`, policy.CapabilityWebFetch, "https://example.test/docs", ""},
-		{"apply patch", `{"tool":"apply_patch","arguments":{"patch":"*** Update File: /repo/a.go"}}`, policy.CapabilityMutation, "", "/repo/a.go"},
+		{"apply patch", `{"tool":"apply_patch","arguments":{"patchText":"*** Begin Patch\n*** Update File: /repo/a.go\n@@\n-x\n+y\n*** End Patch"}}`, policy.CapabilityMutation, "", "/repo/a.go"},
 		{"custom", `{"tool":"custom","arguments":{}}`, policy.CapabilityDeny, "", ""},
 		{"task", `{"tool":"task","arguments":{}}`, policy.CapabilityDelegation, "", ""},
 	} {

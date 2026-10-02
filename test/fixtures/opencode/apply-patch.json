@@ -1,1 +1,1 @@
-{"session_id":"s1","event":"pre","tool":"apply_patch","cwd":"/tmp","arguments":{"patch":"*** Update File: /tmp/a.txt"}}
+{"session_id":"s1","event":"pre","tool":"apply_patch","cwd":"/tmp","arguments":{"patchText":"*** Begin Patch\n*** Update File: /tmp/a.txt\n@@\n-x\n+y\n*** End Patch"}}

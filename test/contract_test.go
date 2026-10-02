@@ -125,8 +125,13 @@ func TestOpencodeContractFixtures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Exit alone cannot tell a secret deny from a call that failed to project
+	// (#480: apply_patch exited 2 either way), so a fixture may also pin the
+	// recorded decision and rule.
 	var expected map[string]struct {
-		Exit int `json:"exit"`
+		Exit     int    `json:"exit"`
+		Decision string `json:"decision"`
+		Rule     string `json:"rule"`
 	}
 	if err := json.Unmarshal(raw, &expected); err != nil {
 		t.Fatal(err)
@@ -144,6 +149,16 @@ func TestOpencodeContractFixtures(t *testing.T) {
 			_ = cmd.Run()
 			if got := cmd.ProcessState.ExitCode(); got != want.Exit {
 				t.Fatalf("%s: exit %d, want %d", name, got, want.Exit)
+			}
+			if want.Decision == "" && want.Rule == "" {
+				return
+			}
+			rec := lastAuditRecord(t, filepath.Join(roots.State, "guardrail", "audit.jsonl"))
+			if want.Decision != "" && rec.Decision != want.Decision {
+				t.Fatalf("%s: decision %q, want %q", name, rec.Decision, want.Decision)
+			}
+			if want.Rule != "" && rec.RuleID != want.Rule {
+				t.Fatalf("%s: rule %q, want %q", name, rec.RuleID, want.Rule)
 			}
 		})
 	}
