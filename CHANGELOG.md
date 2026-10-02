@@ -38,6 +38,20 @@ explicitly in **Breaking** notes.
   - **`XDG_*` is not included:** shell profiles commonly set it, and the hook
     does not load the profile.
 
+### Guidance
+- **Feat (#491): a `P3.unresolved` ask names the value and how to avoid it.**
+  The reason used to say only "command contains an unresolved value in a
+  policy-bearing position", so an agent could not tell what to change and
+  kept asking the operator. That was 460 of about 690 Claude asks in a week.
+  - **The ask now:** names the first unresolved word (command name, redirect
+    target or operand, capped at 80 characters) and says to write a literal
+    absolute path instead of a variable, with no `$(...)` result as a path,
+    redirect target or command name.
+  - **Claude's session posture:** adds one sentence on writing commands
+    guardrail can resolve.
+  - **Not suggested:** moving logic into a script file. Its contents are an
+    unseen execution path (ADR-0033), so that would step around the analysis.
+
 ## v0.23.29-dev (2026-10-01)
 
 ### OpenCode

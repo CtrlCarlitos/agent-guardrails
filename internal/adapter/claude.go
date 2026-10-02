@@ -221,7 +221,14 @@ func PostureText(waivers []string, warnings []string) string {
 		// then handed the operator terminal commands instead of asking.
 		"On an ask: tell the operator in one sentence what you need and why, wait for their " +
 		"answer, then retry the exact call on its own. On a deny: follow the next step the " +
-		"message gives; do not work around it.")
+		"message gives; do not work around it. " +
+		// #491: most asks were P3.unresolved on commands the agent could
+		// have written so they resolve. Never suggest a script file here: its
+		// contents are an unseen execution path (ADR-0033).
+		"Write shell commands guardrail can resolve, or each one asks the operator: literal " +
+		"absolute paths rather than variables or `$(...)` results as paths, redirect targets or " +
+		"command names; `&&` or `git -C <dir>` rather than `cd dir;`; separate tool calls rather " +
+		"than one long chain.")
 	waivers = sanitizeWaiverIDs(waivers)
 	if len(waivers) > 0 {
 		b.WriteString("\n\nActive policy waivers in this repo (these rules are OFF): " + strings.Join(waivers, ", "))
