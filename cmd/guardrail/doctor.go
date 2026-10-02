@@ -49,12 +49,14 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		return finishDoctor(stdout, diagnosticCode, problems)
 	}
 	var covCode int
-	switch opts.coverage {
-	case "codex":
+	switch {
+	case opts.mcp:
+		covCode = printMCPCoverage(opts.coverage, opts.config, stdout, stderr)
+	case opts.coverage == "codex":
 		covCode = cmdDoctorCodexCoverage(args, stdout, stderr)
-	case "claude":
+	case opts.coverage == "claude":
 		covCode = printClaudeCoverage(opts.bundle, stdout, stderr)
-	case "antigravity":
+	case opts.coverage == "antigravity":
 		covCode = printAntigravityCoverage(opts.config, opts.schemas, stdout, stderr)
 	}
 	if covCode == 1 {
@@ -106,6 +108,7 @@ type doctorOptions struct {
 	config     string // explicit mcp_config.json path; "" resolves default (antigravity)
 	schemas    string // explicit mcp schemas dir; "" resolves default (antigravity)
 	codexHooks bool   // inspect trust, direct execution, and observed Codex runtime evidence
+	mcp        bool   // inventory the plane's MCP servers (claude, codex, opencode; #463)
 }
 
 func parseDoctorArgs(args []string, stderr io.Writer) (doctorOptions, bool) {
@@ -153,17 +156,40 @@ func parseDoctorArgs(args []string, stderr io.Writer) (doctorOptions, bool) {
 				return opts, false
 			}
 			opts.codexHooks = true
+		case "--mcp":
+			if opts.mcp {
+				fmt.Fprintln(stderr, "guardrail: duplicate --mcp")
+				return opts, false
+			}
+			opts.mcp = true
 		default:
 			fmt.Fprintf(stderr, "guardrail: doctor: unknown argument %q\n", safetext.SingleLine(args[i]))
 			return opts, false
 		}
+	}
+	if opts.mcp {
+		// MCP inventory for the planes that cache no tool schemas (#463).
+		// Antigravity's own coverage already reads its MCP tools.
+		if opts.coverage != "claude" && opts.coverage != "codex" && opts.coverage != "opencode" {
+			fmt.Fprintln(stderr, "guardrail: doctor --mcp applies with --coverage claude, codex or opencode")
+			return opts, false
+		}
+		if opts.bundle != "" || opts.schema != "" || opts.schemas != "" {
+			fmt.Fprintln(stderr, "guardrail: doctor --mcp takes only --config")
+			return opts, false
+		}
+		return opts, !opts.codexHooks || mcpWithCodexHooks(stderr)
+	}
+	if opts.coverage == "opencode" {
+		fmt.Fprintln(stderr, "guardrail: doctor --coverage opencode requires --mcp")
+		return opts, false
 	}
 	if opts.schema != "" && opts.coverage != "codex" {
 		fmt.Fprintln(stderr, "guardrail: doctor --schema only applies with --coverage codex")
 		return opts, false
 	}
 	if opts.coverage == "codex" && opts.schema == "" {
-		fmt.Fprintln(stderr, "guardrail: doctor --coverage codex requires --schema <Responses-tools.json>")
+		fmt.Fprintln(stderr, "guardrail: doctor --coverage codex requires --schema <Responses-tools.json> (or --mcp)")
 		return opts, false
 	}
 	if opts.bundle != "" && opts.coverage != "claude" {
@@ -171,11 +197,11 @@ func parseDoctorArgs(args []string, stderr io.Writer) (doctorOptions, bool) {
 		return opts, false
 	}
 	if (opts.config != "" || opts.schemas != "") && opts.coverage != "antigravity" {
-		fmt.Fprintln(stderr, "guardrail: doctor --config and --schemas only apply with --coverage antigravity")
+		fmt.Fprintln(stderr, "guardrail: doctor --config and --schemas only apply with --coverage antigravity (or --config with --mcp)")
 		return opts, false
 	}
 	if opts.coverage != "" && opts.coverage != "claude" && opts.coverage != "antigravity" && opts.coverage != "codex" {
-		fmt.Fprintf(stderr, "guardrail: doctor --coverage supports claude, antigravity, codex (got %q)\n", safetext.SingleLine(opts.coverage))
+		fmt.Fprintf(stderr, "guardrail: doctor --coverage supports claude, antigravity, codex, and opencode with --mcp (got %q)\n", safetext.SingleLine(opts.coverage))
 		return opts, false
 	}
 	if opts.codexHooks && (opts.coverage != "" || opts.bundle != "" || opts.config != "" || opts.schema != "" || opts.schemas != "") {
@@ -183,6 +209,11 @@ func parseDoctorArgs(args []string, stderr io.Writer) (doctorOptions, bool) {
 		return opts, false
 	}
 	return opts, true
+}
+
+func mcpWithCodexHooks(stderr io.Writer) bool {
+	fmt.Fprintln(stderr, "guardrail: doctor --codex-hooks cannot be combined with coverage options")
+	return false
 }
 
 // claudeContracted is the coverage seam: the set of native names the Claude
