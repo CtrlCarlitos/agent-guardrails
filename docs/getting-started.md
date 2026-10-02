@@ -8,7 +8,7 @@ this page walks you through the first day with it.
 
 Pick an exact release tag from the
 [releases page](https://github.com/CtrlCarlitos/agent-guardrails/releases).
-The installer refuses `latest`. The examples use `v0.23.31-dev`; put your tag
+The installer refuses `latest`. The examples use `v0.23.32-dev`; put your tag
 in its place.
 
 Linux, macOS and WSL:
@@ -16,7 +16,7 @@ Linux, macOS and WSL:
 ```sh
 (
   set -eu
-  ver=v0.23.31-dev   # the release you want
+  ver=v0.23.32-dev   # the release you want
   url="https://github.com/CtrlCarlitos/agent-guardrails/releases/download/$ver"
   tmp="$(mktemp -d)"; cd "$tmp"
 
@@ -32,7 +32,7 @@ Windows (Windows PowerShell 5.1 or PowerShell 7):
 
 ```powershell
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12  # Windows PowerShell 5.1 may default to TLS 1.0/1.1
-$ver = 'v0.23.31-dev'   # the release you want
+$ver = 'v0.23.32-dev'   # the release you want
 $url = "https://github.com/CtrlCarlitos/agent-guardrails/releases/download/$ver"
 Set-Location (New-Item -ItemType Directory -Force -Path (Join-Path $env:TEMP "guardrail-$ver"))
 
