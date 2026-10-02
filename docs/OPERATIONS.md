@@ -343,7 +343,10 @@ guard is gated by the guard. Recovery is an operator-terminal action by
 necessity. Two standing cautions: the Defender exclusion for the binary path
 must stay scoped to the exact file (#146), and never hand-copy a new binary
 over the installed one except as a deliberate terminal recovery (#146) —
-`guardrail update` is the only sanctioned replacement.
+`guardrail update` is the only sanctioned replacement. A session may run it
+to move to a **newer** release; a downgrade below the running release, and
+`guardrail rollback`, are denied from sessions (`P5.self-config`, #512) and
+run from your own terminal.
 
 ## Install, update, disable, uninstall
 

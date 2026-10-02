@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/fetch"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"golang.org/x/term"
@@ -89,6 +90,9 @@ var operatorTerminal = func(stdin io.Reader) bool {
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	// The Engine judges `guardrail update <version>` against the release
+	// enforcing the call (#512).
+	engine.RunningVersion = version
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
 		return 2

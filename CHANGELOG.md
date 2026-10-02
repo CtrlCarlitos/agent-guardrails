@@ -14,6 +14,17 @@ explicitly in **Breaking** notes.
     (default: the working directory) and by `paths_include_glob`, so a search
     aimed at a secret is denied.
 
+### Self-protection
+- **Fix (#512): a session can no longer downgrade guardrail.**
+  `guardrail update v0.1.0-dev` was allowed from an agent session, so it
+  could install an old release that enforces far less.
+  - **Now denied `P5.self-config`:** an update below the running release,
+    `guardrail rollback`, and interpreter or PTY-wrapper spellings of either.
+  - **Still allowed:** updating to a newer release, the sanctioned path the
+    binary-protection guidance points to.
+  - **Unaffected:** the operator's own `dot up` and terminal runs (hooks don't
+    see them).
+
 ### Engine
 - **Fix (#404): the remaining ways to reach the installed binary.** Measured
   on v0.23.32-dev, then closed:
