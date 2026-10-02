@@ -795,7 +795,7 @@ func TestGitConfigIdentityIgnoresAmbientPathAtInitialization(t *testing.T) {
 func TestGitConfigFilesystemIdentityHandlesLinkedWorktree(t *testing.T) {
 	repo := t.TempDir()
 	initGitRepository(t, repo, false)
-	commit := exec.Command("git", "-C", repo, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "init")
+	commit := exec.Command("git", "-C", repo, "-c", "user.name=test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "init")
 	if output, err := commit.CombinedOutput(); err != nil {
 		t.Fatalf("git commit: %v: %s", err, output)
 	}
