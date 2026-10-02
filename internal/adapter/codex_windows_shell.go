@@ -36,7 +36,11 @@ var codexShellTag = regexp.MustCompile(`<shell>([A-Za-z0-9_.\-]{1,32})</shell>`)
 func emitCodexAllowedCommand(goos string, tc engine.ToolCall, stdout, stderr io.Writer) int {
 	var command string
 	if goos == "windows" {
-		if shell := codexProvenShell(tc.Raw); shell != "powershell" && shell != "pwsh" {
+		shell := tc.Shell
+		if shell == "" {
+			shell = codexCommandShell(tc.Raw)
+		}
+		if shell != engine.ShellPowerShell {
 			fmt.Fprintln(stderr, codexWindowsUnprovenShell)
 			if codexStructuredWindowsEnabled() {
 				return emitCodexBlock("pre", codexWindowsUnprovenShell, stdout)
@@ -88,6 +92,18 @@ func powershellWorkdirPrecondition(cwd string) string {
 // cleaned, backslashes, no trailing separator.
 func windowsPathKey(p string) string {
 	return strings.TrimRight(strings.ReplaceAll(filepath.Clean(p), "/", `\`), `\`)
+}
+
+// codexCommandShell is engine.ShellPowerShell when the session transcript
+// proves Windows PowerShell or pwsh runs Codex's commands, and "" otherwise.
+// ParseCodex records it on the call and the emit reuses it, so the
+// transcript is read once per call (#498).
+func codexCommandShell(raw []byte) string {
+	switch codexProvenShell(raw) {
+	case "powershell", "pwsh":
+		return engine.ShellPowerShell
+	}
+	return ""
 }
 
 // codexProvenShell returns the shell recorded in the session transcript the

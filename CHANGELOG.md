@@ -4,6 +4,20 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Codex
+- **Fix (#498): commands proven to run in PowerShell get the PowerShell
+  reading.** On Windows the session transcript proves Codex's shell (#454).
+  When it is PowerShell or pwsh, `$true`, `$false` and `$null` are values, as
+  for Claude's PowerShell tool (#495).
+  - **Mechanics:** a new `ToolCall.Shell` carries the proof, and it is never
+    taken from model input. The emit step reuses it, so the transcript is read
+    once per call.
+  - **Unchanged:** an unproven shell keeps the bash reading.
+  - **Not included:** OpenCode and Antigravity don't tell the hook which shell
+    runs a command, so they keep the bash reading.
+
 ## v0.23.31-dev (2026-10-02)
 
 ### Engine

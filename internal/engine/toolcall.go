@@ -20,15 +20,19 @@ type ToolCall struct {
 	URL               string
 	InputShape        string
 	Command           string // shell command, when the tool is a shell
-	Paths             []string
-	Arguments         json.RawMessage // complete native argument payload when the plane exposes it
-	SessionID         string
-	CallID            string // plane-native per-call identity when the plane exposes one
-	HostApproved      bool   // host-owned dialog approval evidence supplied by our adapter
-	CWD               string
-	RepoRoot          string // git top-level for CWD, or CWD if not a repo
-	Raw               json.RawMessage
-	PermittedRoots    []string // plane-owned writable roots for this call (e.g. Antigravity session brain dir)
+	// Shell is the shell that will run Command when the adapter can prove it
+	// (ShellPowerShell), and empty otherwise. Never set from model input:
+	// for Codex it comes from the session transcript (#454, #498).
+	Shell          string
+	Paths          []string
+	Arguments      json.RawMessage // complete native argument payload when the plane exposes it
+	SessionID      string
+	CallID         string // plane-native per-call identity when the plane exposes one
+	HostApproved   bool   // host-owned dialog approval evidence supplied by our adapter
+	CWD            string
+	RepoRoot       string // git top-level for CWD, or CWD if not a repo
+	Raw            json.RawMessage
+	PermittedRoots []string // plane-owned writable roots for this call (e.g. Antigravity session brain dir)
 
 	// DegradedAllows carries adapter-reported records of calls that were
 	// allowed locally while the engine was unreachable (the B+ communication
@@ -46,12 +50,16 @@ type DegradedAllowReport struct {
 	TS     string `json:"ts"`
 }
 
-// PowerShellCommand reports a command a plane documents as PowerShell source:
-// Claude Code's PowerShell tool (planecontract). Other shells, and planes
-// that do not say which shell runs a command, keep the bash reading (#495).
+// PowerShellCommand reports a command known to be PowerShell source: Claude
+// Code's PowerShell tool (planecontract), or a call whose adapter proved the
+// shell (Shell, #498). Everything else keeps the bash reading (#495).
 func (tc ToolCall) PowerShellCommand() bool {
-	return tc.Plane == "claude" && tc.NativeTool == "PowerShell"
+	return tc.Shell == ShellPowerShell || tc.Plane == "claude" && tc.NativeTool == "PowerShell"
 }
+
+// ShellPowerShell is the Shell value for proven PowerShell (Windows
+// PowerShell or pwsh).
+const ShellPowerShell = "powershell"
 
 func (tc ToolCall) IsBash() bool {
 	return strings.EqualFold(tc.Tool, "bash") || tc.Command != ""

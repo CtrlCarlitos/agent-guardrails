@@ -84,6 +84,11 @@ func ParseCodex(r io.Reader) (engine.ToolCall, error) {
 	case policy.CapabilityCommand:
 		tc.Command, err = stringField("command")
 		tc.InputShape = "command"
+		// On Windows Codex runs commands in the shell its session transcript
+		// records (#454); proven PowerShell gets the PowerShell reading (#498).
+		if runtime.GOOS == "windows" {
+			tc.Shell = codexCommandShell(raw)
+		}
 	case policy.CapabilityMutation:
 		var patch string
 		patch, err = stringField("command")
