@@ -67,7 +67,6 @@ func TestResolvedOSDirectoriesStillMeetThePathRules(t *testing.T) {
 		`cat "$USERPROFILE/.ssh/id_ed25519"`:         {policy.Deny, "P4.secret-path"},
 		`cd "$USERPROFILE/.ssh" && cat id_ed25519`:   {policy.Deny, "P4.secret-path"},
 		`echo x > "$APPDATA/guardrail/waivers.toml"`: {policy.Deny, "P5.self-config"},
-		`rm -rf "$LOCALAPPDATA"`:                     {policy.Deny, "P1.rm-rf"},
 	} {
 		v := evalWithOSDirectories(t, cmd)
 		// A secret can be refused by its resolved path or, first, by its
@@ -99,6 +98,23 @@ func TestOSDirectoryVariablesStayUnresolvedWhenUnknowable(t *testing.T) {
 	os.Unsetenv("LOCALAPPDATA")
 	if v := evalWithOSDirectories(t, `cat "$LOCALAPPDATA/a"`); v.Decision == policy.Allow {
 		t.Errorf("unset LOCALAPPDATA: allowed; want it held")
+	}
+}
+
+// The resolved variable is judged exactly as the literal path it names, on
+// every OS: whatever a platform decides for `rm -rf <dir>` or a write there,
+// the variable spelling gets the same verdict.
+func TestAResolvedOSDirectoryGetsTheLiteralPathsVerdict(t *testing.T) {
+	dirs := osDirectories(t)
+	for _, name := range []string{"LOCALAPPDATA", "TEMP", "APPDATA"} {
+		literal := filepath.ToSlash(dirs[name])
+		for _, shape := range []string{`rm -rf %s`, `echo x > %s/out.txt`, `cat %s/notes.txt`} {
+			viaVariable := evalWithOSDirectories(t, strings.ReplaceAll(shape, "%s", `"$`+name+`"`))
+			viaLiteral := evalWithOSDirectories(t, strings.ReplaceAll(shape, "%s", `"`+literal+`"`))
+			if viaVariable.Decision != viaLiteral.Decision || viaVariable.RuleID != viaLiteral.RuleID {
+				t.Errorf("%s via $%s: %s %s; the literal path gets %s %s", shape, name, viaVariable.Decision, viaVariable.RuleID, viaLiteral.Decision, viaLiteral.RuleID)
+			}
+		}
 	}
 }
 
