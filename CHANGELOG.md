@@ -25,6 +25,22 @@ explicitly in **Breaking** notes.
   secret and guardrail-config targets tested by name, but it now sees the
   path as written.
 
+### Recipes
+- **Perf (#481): Claude's Stop hook skips a recipe's session checks when none
+  of its files changed since they last passed.** In this repository the Go
+  tier (`go build`, `go test`, `golangci-lint`, `govulncheck`) took 343 s at
+  the end of every turn, including turns that touched no Go file.
+  - **What counts as a change:** after a pass, guardrail records a
+    fingerprint of the recipe's files: their blob ids at `HEAD`, the content
+    of any that are modified, deleted or untracked, and the recipe's
+    commands. For Go the files are `.go`, `go.mod`, `go.work`, `go.sum` and
+    `go.work.sum`.
+  - **When the checks still run:** if nothing changed, they are skipped with
+    an allow that says so. A commit or edit that touches only other files
+    keeps them skipped. A failure is never recorded, so a red repository is
+    checked again on the next Stop. Without git, the checks run every time.
+  - **Where it's stored:** `~/.local/state/guardrail/session-checks/`.
+
 ## v0.23.28-dev (2026-09-30)
 
 ### Claude

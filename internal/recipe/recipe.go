@@ -18,6 +18,9 @@ type Recipe struct {
 	PerExtensionEdit map[string][][]string
 	Session          [][]string
 	RootMarkers      []string
+	// SessionInputs are further file names, beyond Extensions and
+	// RootMarkers, whose change makes the session tier run again (#481).
+	SessionInputs []string
 }
 
 var Registry = []Recipe{
@@ -31,7 +34,8 @@ var Registry = []Recipe{
 			{"golangci-lint", "run"},
 			{"govulncheck", "./..."},
 		},
-		RootMarkers: []string{"go.mod", "go.work"},
+		RootMarkers:   []string{"go.mod", "go.work"},
+		SessionInputs: []string{"go.sum", "go.work.sum"},
 	},
 	{
 		Name:       "python",
@@ -159,19 +163,35 @@ func Check(tc engine.ToolCall, pol *policy.Policy) *policy.Verdict {
 
 // CheckSession runs every installed session tier whose project marker exists
 // at the repository root. The hook pipeline invokes it only for Claude
-// Stop/SubagentStop events.
+// Stop/SubagentStop events. A tier whose files are unchanged since it last
+// passed is skipped (#481); when every applicable tier was skipped the
+// result is an allow that says so, otherwise nil means all passed.
 func CheckSession(root string, pol *policy.Policy) *policy.Verdict {
 	configured := append([]Recipe{}, Registry...)
 	if pol != nil && pol.Recipes.Odoo != nil {
 		configured = append(configured, odooRecipe(*pol.Recipes.Odoo, root))
 	}
+	var skipped []string
+	ran := false
 	for _, r := range configured {
 		if len(r.Session) == 0 || (len(r.RootMarkers) > 0 && !hasRootMarker(root, r.RootMarkers)) {
 			continue
 		}
+		fingerprint, err := sessionFingerprint(root, r)
+		if err == nil && sessionPassed(root, r, fingerprint) {
+			skipped = append(skipped, r.Name)
+			continue
+		}
+		ran = true
 		if v := runCommands(r.Session, root, "", r.Name+" session checks"); v != nil {
 			return v
 		}
+		if err == nil {
+			recordSessionPass(root, r, fingerprint)
+		}
+	}
+	if len(skipped) > 0 && !ran {
+		return &policy.Verdict{Decision: policy.Allow, RuleID: "P8.recipe-lint", Reason: "session checks skipped: no " + strings.Join(skipped, ", ") + " changes since they last passed"}
 	}
 	return nil
 }

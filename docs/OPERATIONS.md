@@ -548,7 +548,7 @@ enabled` for the rest.
 | Installers | `install.sh`, `install.ps1` — release assets next to the binaries, listed in the release's `SHA256SUMS`; source at the repo root |
 | Operator config (grants, waivers, night marker) | `~/.config/guardrail/` — `waivers.toml`, `night.toml` |
 | Audit log (rotates at 20 MB, 3 segments) | `~/.local/state/guardrail/audit.jsonl` |
-| Session state, coverage cache, selftest marker | `~/.local/state/guardrail/{sessions,coverage,selftest-passed}` |
+| Session state, coverage cache, selftest marker, last-passed session checks | `~/.local/state/guardrail/{sessions,coverage,selftest-passed,session-checks}` |
 | Approval broker socket (on demand; dies with `update`) | `~/.local/state/guardrail/approval/broker.sock` |
 | Repo overlay | `<repo>/guardrail.toml` — requests; only operator config grants |
 | Claude hooks + floor | `~/.claude/settings.json` (owned groups carry `id: guardrail-*`) |
