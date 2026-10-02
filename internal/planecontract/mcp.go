@@ -42,6 +42,9 @@ var mcpRegistry = map[string]MCPToolSpec{
 	"find_referencing_symbols": {Family: "serena", Tool: "find_referencing_symbols", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path"}, DefaultPath: "."},
 	"get_symbols_overview":     {Family: "serena", Tool: "get_symbols_overview", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path"}, DefaultPath: "."},
 	"get_diagnostics_for_file": {Family: "serena", Tool: "get_diagnostics_for_file", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path", "filePath"}, DefaultPath: "."},
+	// A content search like Grep (#510). The include glob is projected too, so
+	// a search aimed at a secret (`**/.env`) meets the path rules.
+	"search_for_pattern": {Family: "serena", Tool: "search_for_pattern", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path", "paths_include_glob"}, DefaultPath: "."},
 	// serena memories
 	"write_memory":  {Family: "serena", Tool: "write_memory", Capability: policy.CapabilityMutation, PathArgs: []string{"memory_name"}, PathPrefix: ".serena/memories/"},
 	"edit_memory":   {Family: "serena", Tool: "edit_memory", Capability: policy.CapabilityMutation, PathArgs: []string{"memory_name"}, PathPrefix: ".serena/memories/"},
