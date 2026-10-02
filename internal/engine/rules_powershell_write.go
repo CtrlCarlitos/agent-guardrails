@@ -241,6 +241,59 @@ func movedAwayBinary(tc ToolCall, bash *bashAnalysis) string {
 	return ""
 }
 
+// deletedInstallDirectory returns the install directory (`.local/bin`, the
+// location binaryWildcardExpansions recognises) when a directory delete takes
+// it as a target: POSIX `rmdir` or `rm` (any flags), or PowerShell's
+// Remove-Item and its aliases (#404). On a non-empty directory these fail,
+// but the binary's own directory is never a session's to delete.
+func deletedInstallDirectory(tc ToolCall, bash *bashAnalysis) string {
+	if bash == nil || bash.err != nil {
+		return ""
+	}
+	for _, s := range bash.orderedSimples {
+		var targets []string
+		switch command := head(s.Argv); {
+		case command == "rm" || command == "rmdir" && !psCmdletShaped(s.Argv, removeItemParams):
+			targets = posixOperands(s.Argv)
+		case removeItemAliases[command]:
+			targets = bindPS(s.Argv, removeItemParams).operands
+		default:
+			continue
+		}
+		for _, target := range targets {
+			if isInstallDirectory(target, s.Cwd) {
+				return target
+			}
+		}
+	}
+	return ""
+}
+
+func posixOperands(argv []string) []string {
+	var out []string
+	options := true
+	for _, arg := range argv[1:] {
+		if options && arg == "--" {
+			options = false
+			continue
+		}
+		if options && strings.HasPrefix(arg, "-") && arg != "-" {
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out
+}
+
+func isInstallDirectory(target, cwd string) bool {
+	slashed := strings.ReplaceAll(strings.Trim(target, `'"`), `\`, "/")
+	if !strings.HasPrefix(slashed, "~") && !path.IsAbs(slashed) && !isWindowsDrivePath(slashed) && cwd != "" {
+		slashed = strings.ReplaceAll(cwd, `\`, "/") + "/" + slashed
+	}
+	cleaned := strings.ToLower(path.Clean(slashed))
+	return cleaned == "~/.local/bin" || strings.HasSuffix(cleaned, "/.local/bin")
+}
+
 // binaryWildcardExpansions returns the installed binary's path when a
 // wildcard target would match it: `Remove-Item ~\.local\bin\*.exe` and
 // `rm ~/.local/bin/guardrail*` delete it without naming it. The expansion is

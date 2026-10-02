@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"path"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -200,6 +201,35 @@ func checkGoInstall(rest []string) *policy.Verdict {
 	}
 	return ask("P1.out-of-repo-write",
 		"go install writes an executable into GOBIN, on PATH and outside the repository; use go build -o <path in the repo> to build in place")
+}
+
+// goInstallsGuardrailInto returns the install directory when `go install`
+// would write a guardrail binary over the installed one: an inline GOBIN
+// naming the install directory (`.local/bin`) and a package whose binary is
+// `guardrail`, or a `...` pattern that can include it (#404).
+func goInstallsGuardrailInto(bash *bashAnalysis) string {
+	if bash == nil || bash.err != nil {
+		return ""
+	}
+	for _, s := range bash.orderedSimples {
+		if head(s.Argv) != "go" || s.goBin == "" || !isInstallDirectory(s.goBin, s.Cwd) {
+			continue
+		}
+		subcommand, rest, ok := goSubcommand(s.Argv)
+		if !ok || subcommand != "install" {
+			continue
+		}
+		for _, arg := range rest {
+			if strings.HasPrefix(arg, "-") {
+				continue
+			}
+			pkg, _, _ := strings.Cut(strings.ReplaceAll(arg, `\`, "/"), "@")
+			if base := path.Base(pkg); base == "guardrail" || base == "..." {
+				return s.goBin
+			}
+		}
+	}
+	return ""
 }
 
 // goEnvWriteAssignment returns the first `-w NAME=value` assignment that

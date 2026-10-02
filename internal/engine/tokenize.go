@@ -14,20 +14,23 @@ import (
 )
 
 type Simple struct {
-	Argv                  []string
-	Redirects             []string
-	ReadRedirects         []string
-	Cwd                   string
-	Unresolved            bool
-	findCallback          bool
-	literalArgs           map[int]bool
-	literalOut            map[int]bool
-	literalIn             map[int]bool
-	resolvedArgs          map[int]bool
-	resolvedOut           map[int]bool
-	resolvedIn            map[int]bool
-	gitEnvironment        map[string]string
-	goEnvironment         map[string]string
+	Argv           []string
+	Redirects      []string
+	ReadRedirects  []string
+	Cwd            string
+	Unresolved     bool
+	findCallback   bool
+	literalArgs    map[int]bool
+	literalOut     map[int]bool
+	literalIn      map[int]bool
+	resolvedArgs   map[int]bool
+	resolvedOut    map[int]bool
+	resolvedIn     map[int]bool
+	gitEnvironment map[string]string
+	goEnvironment  map[string]string
+	// goBin is an inline GOBIN assignment's value, where `go install` writes
+	// (#404); empty when the command does not set one.
+	goBin                 string
 	gitEnvironmentUnknown bool
 	gitInitExpected       bool
 	fsUncertain           bool
@@ -104,6 +107,7 @@ func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pip
 		}
 		var args []*syntax.Word
 		plainCall := false
+		goBin := ""
 		if stmt.Cmd != nil {
 			ce, ok := stmt.Cmd.(*syntax.CallExpr)
 			if !ok {
@@ -113,12 +117,20 @@ func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pip
 			} else {
 				args = ce.Args
 				plainCall = len(ce.Assigns) == 0 && len(stmt.Redirs) == 0
+				for _, assign := range ce.Assigns {
+					// The raw text of an inline GOBIN (`GOBIN=~/.local/bin`):
+					// a tilde or variable value may not resolve, and the
+					// install-directory check reads the spelling (#404).
+					if assign.Name != nil && assign.Name.Value == "GOBIN" && assign.Value != nil {
+						goBin = src[assign.Value.Pos().Offset():assign.Value.End().Offset()]
+					}
+				}
 			}
 		}
 		if len(args) == 0 && len(stmt.Redirs) == 0 {
 			return true
 		}
-		s := Simple{pipelines: pipelines[stmt], stdoutFate: fates[stmt]}
+		s := Simple{pipelines: pipelines[stmt], stdoutFate: fates[stmt], goBin: goBin}
 		if _, replaced := replacements[stmt]; plainCall && !replaced {
 			s.plainCall = true
 		}
@@ -2895,6 +2907,9 @@ func normalizeWithState(command string, state cwdState, ctx *normalizeContext, f
 			s.shellState = recursiveState
 			s.gitEnvironment = gitRepositoryEnvironment(recursiveState.variables)
 			s.goEnvironment = goRedirectEnvironmentValues(recursiveState.variables)
+			if value, ok := recursiveState.variables["GOBIN"]; ok {
+				s.goBin = value // resolved; otherwise keep the raw assignment text
+			}
 			s.gitEnvironmentUnknown = recursiveState.gitEnvironmentUnknown
 			if s.gitEnvironmentUnknown && head(s.Argv) == "git" {
 				s.Unresolved = true
@@ -2973,6 +2988,7 @@ func commandDerivedFromAt(outer Simple, argv []string, sourceArg int) Simple {
 		resolvedIn:            outer.resolvedIn,
 		gitEnvironment:        outer.gitEnvironment,
 		goEnvironment:         outer.goEnvironment,
+		goBin:                 outer.goBin,
 		gitEnvironmentUnknown: outer.gitEnvironmentUnknown,
 		gitInitExpected:       outer.gitInitExpected,
 		pipelines:             outer.pipelines,
@@ -3141,6 +3157,13 @@ loop:
 		case "env":
 			s = applyEnvGitEnvironment(s, argv)
 			rest, err = consumeEnv(argv[1:])
+			if err == nil {
+				for _, assignment := range argv[1 : len(argv)-len(rest)] {
+					if value, ok := strings.CutPrefix(assignment, "GOBIN="); ok {
+						s.goBin = value // `env GOBIN=dir go install` (#404)
+					}
+				}
+			}
 			if err == nil && len(rest) == 0 {
 				// A bare `env` runs nothing: it prints the environment, and
 				// P4.credential-print has to see it (#436).

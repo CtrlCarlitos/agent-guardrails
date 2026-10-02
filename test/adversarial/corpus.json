@@ -3730,5 +3730,50 @@
     "cwd": "/repo",
     "repo_root": "/repo",
     "want": "deny"
+  },
+  {
+    "name": "deno eval writing the installed binary (#404)",
+    "tool": "Bash",
+    "command": "deno eval \"Deno.writeFileSync('/home/u/.local/bin/guardrail', new Uint8Array())\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "bun -e deleting the installed binary (#404)",
+    "tool": "Bash",
+    "command": "bun -e \"require('fs').unlinkSync('/home/u/.local/bin/guardrail')\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "pwsh -EncodedCommand is opaque code (#404)",
+    "tool": "Bash",
+    "command": "pwsh -NoProfile -enc SQBuAHYAbwBrAGUA",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P6.dynamic-eval"
+  },
+  {
+    "name": "rmdir of the install directory (#404)",
+    "tool": "Bash",
+    "command": "rmdir /home/u/.local/bin",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "go install of guardrail into the install directory (#404)",
+    "tool": "Bash",
+    "command": "GOBIN=/home/u/.local/bin go install ./cmd/guardrail",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
   }
 ]

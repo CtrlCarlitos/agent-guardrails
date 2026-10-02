@@ -731,6 +731,14 @@ func checkSelfConfigCandidatesAnalysis(tc ToolCall, candidates []pathCandidate, 
 		return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
 			Reason: "moves the installed guardrail binary away: " + moved + "; replace it with `guardrail update`"}
 	}
+	if dir := deletedInstallDirectory(tc, bash); dir != "" {
+		return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
+			Reason: "deletes the guardrail install directory: " + dir + "; the binary's directory is the operator's"}
+	}
+	if dir := goInstallsGuardrailInto(bash); dir != "" {
+		return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
+			Reason: "go install writes a guardrail binary over the installed one in " + dir + "; replace it with `guardrail update`"}
+	}
 	if bash != nil && bash.err == nil {
 		for _, s := range bash.orderedSimples {
 			if !isOpaqueExecutor(head(s.Argv)) {
@@ -849,7 +857,8 @@ func matchesNormalizedOperatorConfigPath(candidate string) bool {
 }
 
 func isOpaqueExecutor(executable string) bool {
-	for _, base := range []string{"python", "node", "perl", "ruby", "php", "lua", "awk", "powershell", "pwsh"} {
+	// deno and bun run JavaScript like node (#404).
+	for _, base := range []string{"python", "node", "deno", "bun", "perl", "ruby", "php", "lua", "awk", "powershell", "pwsh"} {
 		if executable == base || strings.HasPrefix(executable, base) && isVersionSuffix(executable[len(base):]) {
 			return true
 		}
