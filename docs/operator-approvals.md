@@ -122,8 +122,10 @@ initial enrollment. Recovery is never available through the broker socket.
 ## Windows plus WSL, and why a phone cannot approve
 
 A machine can run two guardrail instances: one on Windows and one inside WSL.
-Each has its **own** credential store (`%LOCALAPPDATA%` on Windows,
-`~/.local/state/guardrail` in WSL), and both ceremonies use the WebAuthn rpId
+Each has its **own** credential store (`%USERPROFILE%\.local\state\guardrail`
+on Windows, `~/.local/state/guardrail` in WSL; unlike the audit log and
+sessions, the credential store is not under `%LOCALAPPDATA%`), and both
+ceremonies use the WebAuthn rpId
 `localhost` on a loopback port. The approval page opens in the browser on the
 Windows host, so a WSL approval is a Windows browser talking to a daemon inside
 WSL. What that means for you:
