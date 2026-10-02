@@ -23,6 +23,20 @@ explicitly in **Breaking** notes.
     Engine models what an echo feeds the next command. So do `PATH=. echo`,
     `$E`, `/bin/echo`, `eval` and an unresolved or `-v` printf format.
   - **Tests:** pinned in the adversarial corpus.
+- **Fix (#489): OS-provided directory variables resolve from the hook's
+  environment.** `cd "$LOCALAPPDATA/guardrail" && cat audit.jsonl` asked
+  `P3.unresolved`, although the hook runs with the same environment as the
+  agent's shell.
+  - **Which variables:** `USERPROFILE`, `LOCALAPPDATA`, `APPDATA`, `TEMP`,
+    `TMP` and `TMPDIR` are now taken from the hook's environment, as `HOME`
+    already was. Only absolute values count.
+  - **Reassignment:** a command that reassigns one wins, whether to a literal
+    or to something unknown.
+  - **Path rules still apply:** the resolved path meets the normal path
+    families. `$USERPROFILE/.ssh/…` is still a secret, `$APPDATA/guardrail/…`
+    is still `P5.self-config`, and `rm -rf "$LOCALAPPDATA"` is still denied.
+  - **`XDG_*` is not included:** shell profiles commonly set it, and the hook
+    does not load the profile.
 
 ## v0.23.29-dev (2026-10-01)
 

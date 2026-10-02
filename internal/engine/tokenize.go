@@ -2768,6 +2768,16 @@ func Normalize(command, cwd string) ([]Simple, error) {
 	return normalizeWithContext(command, cwd, &normalizeContext{})
 }
 
+// osDirectoryVariables are the OS-provided directory variables the Engine
+// takes from its own environment, as it does HOME (#489). The hook runs with
+// the agent's environment, so `$LOCALAPPDATA/x` names the same directory for
+// both, and the resolved path meets the normal path families. Only absolute
+// values are taken; a command that reassigns one wins, literally or by making
+// it unknown. XDG_* is deliberately absent: shell profiles commonly set it,
+// and the hook does not load the profile, so its value could name another
+// directory.
+var osDirectoryVariables = []string{"USERPROFILE", "LOCALAPPDATA", "APPDATA", "TEMP", "TMP", "TMPDIR"}
+
 func normalizeWithContext(command, cwd string, ctx *normalizeContext) ([]Simple, error) {
 	state := cwdState{cwd: cwd, variables: make(map[string]string, 2)}
 	if cwd != "" {
@@ -2775,6 +2785,11 @@ func normalizeWithContext(command, cwd string, ctx *normalizeContext) ([]Simple,
 	}
 	if home, ok := os.LookupEnv("HOME"); ok {
 		state.variables["HOME"] = home
+	}
+	for _, name := range osDirectoryVariables {
+		if value, ok := os.LookupEnv(name); ok && filepath.IsAbs(value) {
+			state.variables[name] = value
+		}
 	}
 	if cdpath, ok := os.LookupEnv("CDPATH"); ok {
 		state.cdpath = cdpath
