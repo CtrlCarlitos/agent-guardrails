@@ -3775,5 +3775,23 @@
     "repo_root": "/repo",
     "want": "deny",
     "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "guardrail rollback from a session (#512)",
+    "tool": "Bash",
+    "command": "guardrail rollback",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "guardrail update through a PTY wrapper (#512)",
+    "tool": "Bash",
+    "command": "script -qc \"guardrail update v0.1.0-dev\" /dev/null",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.self-config"
   }
 ]
