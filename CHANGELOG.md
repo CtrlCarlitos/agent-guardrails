@@ -71,6 +71,22 @@ explicitly in **Breaking** notes.
   - **Production impact was already bounded:** the daemon process exits when
     it is marked closed, which happens before the listener is closed.
 
+### Update
+- **Feat (#94): `guardrail rollback` restores the binary the last update
+  replaced.**
+  - **What `update` keeps:** the binary it replaces, beside the installed one
+    (`guardrail.previous[.exe]`), with a record in
+    `~/.local/state/guardrail/previous.json` (path, release, SHA-256). Both
+    are protected like the binary itself.
+  - **What `rollback` does:** checks the kept file against the record and
+    that it runs as the recorded release, and exits 1 with nothing changed if
+    either check fails. It then swaps, so it can be undone, shuts down the
+    approval daemon, and runs `doctor` and `selftest`, exiting 1 with the
+    binary already restored if they fail. Exit 2 when nothing is kept.
+    Sessions cannot run it (#512).
+  - **Fix:** on Windows, a failed final move after the running binary was set
+    aside left no `guardrail.exe` at all. The binary is now put back.
+
 ## v0.23.32-dev (2026-10-02)
 
 ### Codex

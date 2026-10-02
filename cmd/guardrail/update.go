@@ -109,31 +109,30 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "guardrail: refusing update: %v\n", err)
 		return 1
 	}
-	// The running image cannot be overwritten on Windows, but its path can
-	// be renamed aside: rename the superseded binary out of the way, move
-	// the staged binary into the freed name, and leave the superseded copy
-	// for the next update's cleanup (it is unremovable while this process
-	// still runs from it). The rename can transiently fail while a scanner
-	// holds the fresh file from a prior cycle — bounded retry (#205 flake).
-	if runtime.GOOS == "windows" {
-		var asideErr error
-		for attempt := 0; attempt < 3; attempt++ {
-			asideErr = os.Rename(exe, superseded)
-			if asideErr == nil {
-				break
-			}
-			time.Sleep(time.Duration(250*(attempt+1)) * time.Millisecond)
-		}
-		if asideErr != nil {
-			_ = os.Remove(staged)
-			fmt.Fprintf(stderr, "guardrail: cannot set aside %s: %v\n", exe, asideErr)
-			return 1
-		}
+	// Keep the binary being replaced so `guardrail rollback` can restore it
+	// (#94). Staged first and committed only after the swap, so a failed swap
+	// never loses an older kept binary. Failing to keep it does not fail the
+	// update; it only means there is nothing to roll back to.
+	keep, keepErr := stagePrevious(exe)
+	if keepErr != nil {
+		fmt.Fprintf(stderr, "guardrail: warning: the current binary was not kept (%v); `guardrail rollback` will be unavailable\n", keepErr)
 	}
-	if err := os.Rename(staged, exe); err != nil {
-		_ = os.Remove(staged)
-		fmt.Fprintf(stderr, "guardrail: cannot replace %s: %v\n", exe, err)
+	// The running image cannot be overwritten on Windows, but its path can
+	// be renamed aside: replaceInstalledBinary moves it out of the way, moves
+	// the staged binary into the freed name, and puts it back if that fails.
+	// The superseded copy is left for the next update's cleanup (it is
+	// unremovable while this process still runs from it).
+	if err := replaceInstalledBinary(exe, staged); err != nil {
+		if keep != "" {
+			_ = os.Remove(keep)
+		}
+		fmt.Fprintf(stderr, "guardrail: %v\n", err)
 		return 1
+	}
+	if keep != "" {
+		if err := commitPrevious(keep, exe, safeVersionString()); err != nil {
+			fmt.Fprintf(stderr, "guardrail: warning: the replaced binary was not kept (%v); `guardrail rollback` will be unavailable\n", err)
+		}
 	}
 	// A live approval daemon would keep serving superseded code; shut it down
 	// so the next approval spawns a daemon from the new binary.
@@ -174,6 +173,9 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		rollback := "guardrail update <previous version>"
 		if prev := safeVersionString(); prev != "" {
 			rollback = "guardrail update " + prev
+		}
+		if keep != "" {
+			rollback = "guardrail rollback (or " + rollback + ")"
 		}
 		fmt.Fprintf(stderr, "guardrail: %s already replaced by %s and post-install verification failed (%s); "+
 			"investigate, or roll back with: %s\n", exe, version, strings.Join(failed, ", "), rollback)
