@@ -2,7 +2,6 @@ package adapter
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,19 +15,6 @@ import (
 // transcript (#454). Those commands now get the PowerShell reading #495 gave
 // Claude's PowerShell tool: `$true`, `$false` and `$null` are values. A
 // transcript naming another shell, or none, keeps the bash reading.
-func codexCommandPayload(t *testing.T, cwd, shell, command string) []byte {
-	t.Helper()
-	var p map[string]any
-	if err := json.Unmarshal(codexPayload(t, cwd, shell, false), &p); err != nil {
-		t.Fatal(err)
-	}
-	p["tool_input"] = map[string]any{"command": command}
-	raw, err := json.Marshal(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return raw
-}
 
 func TestWindowsCodexProvenPowerShellReadsConstantsAsValues(t *testing.T) {
 	pol, err := policy.LoadBase()
