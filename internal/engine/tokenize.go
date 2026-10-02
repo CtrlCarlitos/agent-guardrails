@@ -39,6 +39,12 @@ type Simple struct {
 	// Copies built by later rewrites do not carry it, so anything reshaped
 	// keeps the conservative reading.
 	cwdOnlyUnresolved bool
+	// plainCall marks a call as written in the source: no assignments, no
+	// redirects (heredocs included), and not replaced by a function, alias or
+	// eval body (#488). Copies built by later rewrites (`command`, `env`,
+	// `chroot`, ...) do not carry it, so anything reshaped keeps the
+	// conservative reading.
+	plainCall bool
 	// globTailResolved holds, for an operand left unresolved only because a
 	// literal glob follows a tracked variable (`$T/x*`), the word as it would be
 	// typed out. The word stays unresolved for every rule; only the
@@ -112,6 +118,9 @@ func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pip
 			return true
 		}
 		s := Simple{pipelines: pipelines[stmt], stdoutFate: fates[stmt]}
+		if _, replaced := replacements[stmt]; plainCall && !replaced {
+			s.plainCall = true
+		}
 		if tracked {
 			s.Cwd = state.cwd
 			s.Unresolved = state.unknown
@@ -2843,6 +2852,7 @@ func normalizeWithState(command string, state cwdState, ctx *normalizeContext, f
 			degraded := s
 			degraded.Unresolved = true
 			degraded.cwdOnlyUnresolved = false
+			degraded.plainCall = false
 			degraded.origin = nil
 			degraded.shellState = cwdState{}
 			out = append(out, degraded)
@@ -2916,6 +2926,7 @@ func commandDerivedFromAt(outer Simple, argv []string, sourceArg int) Simple {
 	// Only a call whose argv survived unwrapped keeps the cwd-only marker: a
 	// stripped `env`, `command` or `sudo` changed which command runs.
 	derived.cwdOnlyUnresolved = outer.cwdOnlyUnresolved && sourceArg == 0 && len(argv) == len(outer.Argv)
+	derived.plainCall = outer.plainCall && sourceArg == 0 && len(argv) == len(outer.Argv)
 	return derived
 }
 
@@ -3127,6 +3138,7 @@ loop:
 		}
 		s.Argv = argv
 		s.Unresolved = s.Unresolved || chrooted
+		s.plainCall = false
 		return []Simple{s}, nil
 	}
 	command := commandDerivedFrom(s, argv)

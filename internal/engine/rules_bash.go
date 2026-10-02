@@ -797,6 +797,9 @@ func unresolvedPolicyPosition(s Simple) bool {
 		// secret tail denied; writes are excluded and keep the ask.
 		return false
 	}
+	if printsOnlyToSession(s) {
+		return false
+	}
 
 	parsed := parseOperandRolesWithSources(s.Argv)
 	knownGrammar := knownInertOperandGrammar(head(s.Argv))
@@ -817,6 +820,36 @@ func unresolvedPolicyPosition(s Simple) bool {
 	}
 	if len(unresolved) == 0 && s.Unresolved {
 		return !cwdIndependentBuiltin(s)
+	}
+	return false
+}
+
+// printsOnlyToSession reports a literal `echo`, or `printf` with a literal
+// format, written as a plain call and not in a pipeline (#488). Its operands
+// are only printed to the session, so an unresolved one, typically the text
+// of a `$(...)` whose command the Engine judges on its own, is not
+// policy-bearing.
+//
+// Every other condition keeps the ask, and each is load-bearing:
+//   - plainCall: no assignment (`PATH=. echo` may run another echo), no
+//     redirect or heredoc (a write, or a substitution in its body), no alias,
+//     function or eval standing in for the name, no rewrite through
+//     `command`, `env` or `chroot`.
+//   - a known working directory and git environment: only operand unknowns
+//     are forgiven, never an unknown that came from the shell state.
+//   - not in a pipeline: there the operands are content, since the Engine
+//     models what an echo feeds `sh` or `xargs`.
+//   - a literal name: `$E` and `/bin/echo` keep the ask.
+//   - printf's format literal and not an option: `-v` assigns a variable.
+func printsOnlyToSession(s Simple) bool {
+	if !s.plainCall || s.cwdUnknown || s.gitEnvironmentUnknown || len(s.Argv) == 0 || len(s.pipelines) > 0 || s.resolvedArgs[0] || s.wordUnresolved(0) {
+		return false
+	}
+	switch s.Argv[0] {
+	case "echo":
+		return true
+	case "printf":
+		return len(s.Argv) > 1 && !s.wordUnresolved(1) && !strings.HasPrefix(s.Argv[1], "-")
 	}
 	return false
 }

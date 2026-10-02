@@ -3669,5 +3669,66 @@
     "cwd": "/repo",
     "repo_root": "/repo",
     "want": "allow"
+  },
+  {
+    "name": "echo of a substitution only prints (#488)",
+    "tool": "Bash",
+    "command": "echo \"n: $(grep -c x /repo/a.txt)\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "echo of a substitution piped into sh is content, not output (#488)",
+    "tool": "Bash",
+    "command": "echo \"$(grep -c x /repo/a.txt)\" | sh",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P3.unresolved"
+  },
+  {
+    "name": "bash -c echo of a substitution piped into sh (#488)",
+    "tool": "Bash",
+    "command": "bash -c 'echo \"$(grep -c x /repo/a.txt)\"' | sh",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P3.unresolved"
+  },
+  {
+    "name": "echo of a substitution piped into xargs rm (#488)",
+    "tool": "Bash",
+    "command": "echo \"$(grep -c x /repo/a.txt)\" | xargs rm -rf",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P3.unresolved"
+  },
+  {
+    "name": "PATH override can swap the echo (#488)",
+    "tool": "Bash",
+    "command": "PATH=. echo \"$(grep -c x /repo/a.txt)\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P3.unresolved"
+  },
+  {
+    "name": "printf with an unresolved format (#488)",
+    "tool": "Bash",
+    "command": "printf \"$(grep -c x /repo/a.txt)\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "ask",
+    "want_rule_id": "P3.unresolved"
+  },
+  {
+    "name": "echo of a substitution that reads a secret (#488)",
+    "tool": "Bash",
+    "command": "echo \"$(cat /home/u/.ssh/id_ed25519)\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny"
   }
 ]

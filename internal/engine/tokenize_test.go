@@ -1984,23 +1984,23 @@ func TestNormalizeCompoundStatementRedirects(t *testing.T) {
 	}{
 		{
 			`{ :; } > /repo/CLAUDE.md`,
-			[]Simple{{Redirects: []string{"/repo/CLAUDE.md"}}, {Argv: []string{":"}}},
+			[]Simple{{Redirects: []string{"/repo/CLAUDE.md"}}, {Argv: []string{":"}, plainCall: true}},
 		},
 		{
 			`( :) < /repo/input`,
-			[]Simple{{ReadRedirects: []string{"/repo/input"}}, {Argv: []string{":"}}},
+			[]Simple{{ReadRedirects: []string{"/repo/input"}}, {Argv: []string{":"}, plainCall: true}},
 		},
 		{
 			`if true; then :; fi <> /repo/state`,
 			[]Simple{
 				{Redirects: []string{"/repo/state"}, ReadRedirects: []string{"/repo/state"}},
-				{Argv: []string{"true"}},
-				{Argv: []string{":"}},
+				{Argv: []string{"true"}, plainCall: true},
+				{Argv: []string{":"}, plainCall: true},
 			},
 		},
 		{
 			`{ :; } > "$TARGET"`,
-			[]Simple{{Redirects: []string{`"$TARGET"`}, Unresolved: true}, {Argv: []string{":"}}},
+			[]Simple{{Redirects: []string{`"$TARGET"`}, Unresolved: true}, {Argv: []string{":"}, plainCall: true}},
 		},
 		{
 			`{ : > /repo/inner; } > /repo/outer`,
@@ -2205,11 +2205,11 @@ func TestNormalizeWatchTreatsCommandAsShellSource(t *testing.T) {
 	}{
 		{
 			`watch 'rm -rf /'`,
-			[]Simple{{Argv: []string{"rm", "-rf", "/"}, gitEnvironmentUnknown: true}},
+			[]Simple{{Argv: []string{"rm", "-rf", "/"}, gitEnvironmentUnknown: true, plainCall: true}},
 		},
 		{
 			`watch 'printf ok; rm -rf /'`,
-			[]Simple{{Argv: []string{"printf", "ok"}, gitEnvironmentUnknown: true}, {Argv: []string{"rm", "-rf", "/"}, gitEnvironmentUnknown: true}},
+			[]Simple{{Argv: []string{"printf", "ok"}, gitEnvironmentUnknown: true, plainCall: true}, {Argv: []string{"rm", "-rf", "/"}, gitEnvironmentUnknown: true, plainCall: true}},
 		},
 		{
 			`watch 'printf ok > /etc/passwd'`,
@@ -2219,7 +2219,7 @@ func TestNormalizeWatchTreatsCommandAsShellSource(t *testing.T) {
 			`watch 'printf ok; cat < inner-input' < outer-input > outer-output`,
 			[]Simple{
 				{Redirects: []string{"outer-output"}, ReadRedirects: []string{"outer-input"}},
-				{Argv: []string{"printf", "ok"}, gitEnvironmentUnknown: true},
+				{Argv: []string{"printf", "ok"}, gitEnvironmentUnknown: true, plainCall: true},
 				{Argv: []string{"cat"}, ReadRedirects: []string{"inner-input"}, gitEnvironmentUnknown: true},
 			},
 		},
@@ -2227,7 +2227,7 @@ func TestNormalizeWatchTreatsCommandAsShellSource(t *testing.T) {
 			`watch 'printf ok' > "$TARGET"`,
 			[]Simple{
 				{Redirects: []string{`"$TARGET"`}, Unresolved: true},
-				{Argv: []string{"printf", "ok"}, Unresolved: true, gitEnvironmentUnknown: true},
+				{Argv: []string{"printf", "ok"}, Unresolved: true, gitEnvironmentUnknown: true, plainCall: true},
 			},
 		},
 	}
@@ -2884,9 +2884,9 @@ func TestNormalizeTracksLiteralCdCwd(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Simple{
-		{Argv: []string{"cd", "src"}, Cwd: repo},
-		{Argv: []string{"cd", "nested"}, Cwd: filepath.Join(repo, "src")},
-		{Argv: []string{"rm", "-rf", "build"}, Cwd: filepath.Join(repo, "src", "nested")},
+		{Argv: []string{"cd", "src"}, Cwd: repo, plainCall: true},
+		{Argv: []string{"cd", "nested"}, Cwd: filepath.Join(repo, "src"), plainCall: true},
+		{Argv: []string{"rm", "-rf", "build"}, Cwd: filepath.Join(repo, "src", "nested"), plainCall: true},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Normalize cd chain = %+v, want %+v", got, want)
