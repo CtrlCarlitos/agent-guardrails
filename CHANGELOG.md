@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.29-dev (2026-10-01)
 
 ### OpenCode
 - **Fix (#480): `apply_patch` no longer fails closed with
