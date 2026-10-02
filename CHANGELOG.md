@@ -4,6 +4,24 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Engine
+- **Fix (#495): PowerShell's `$true`, `$false` and `$null` are values.** For
+  Claude's PowerShell tool, `Remove-Item … -Confirm:$false`, `Write-Output
+  $true` and `git status; $null` asked `P3.unresolved`.
+  - **Why it asked:** the Engine reads PowerShell with a POSIX parser, so the
+    three constants looked like unknown variables.
+  - **Denies were weakened too:** a switch's inline `$false` was also added
+    to `Remove-Item`'s path operands, so a recursive delete outside the repo
+    asked instead of being denied.
+  - **Now:** a word that is exactly one of the constants, or `-Name:` one of
+    them, is a value, and a switch's `$true`/`$false` is not a path. Such
+    deletes are `P1.rm-rf` again, and `-Recurse:$false` is still read as
+    recursive.
+  - **Unchanged:** bash (where `false` is an ordinary variable name) and any
+    longer word (`$true/x`, `$true.Path`).
+
 ## v0.23.30-dev (2026-10-01)
 
 ### Engine

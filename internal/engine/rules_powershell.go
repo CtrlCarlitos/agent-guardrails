@@ -93,7 +93,10 @@ func bindPS(argv []string, spec psParams) psBinding {
 		}
 		if len(values) != 1 || len(switches) > 0 {
 			// Unknown, switch, or ambiguous: nothing follows that belongs to it.
-			if hasInline {
+			// A known switch's `$true`/`$false` (`-Confirm:$false`) is its
+			// state, not a path (#495). The switch still counts as present,
+			// so `-Recurse:$false` keeps the conservative, recursive reading.
+			if hasInline && !(len(switches) > 0 && len(values) == 0 && psBooleanArgument(inline)) {
 				binding.operands = append(binding.operands, inline)
 			}
 			continue
@@ -126,6 +129,14 @@ func psParameter(arg string) (name, inline string, hasInline bool) {
 		return strings.ToLower(head), rest, true
 	}
 	return strings.ToLower(trimmed), "", false
+}
+
+func psBooleanArgument(value string) bool {
+	switch strings.ToLower(value) {
+	case "$true", "$false":
+		return true
+	}
+	return false
 }
 
 func psMatches(name string, full []string) []string {

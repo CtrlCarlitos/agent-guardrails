@@ -24,7 +24,7 @@ func IsNetworkAttempt(tc ToolCall) bool {
 	if !tc.IsBash() {
 		return false
 	}
-	simples, err := Normalize(tc.Command, tc.CWD)
+	simples, err := normalizeToolCall(tc)
 	if err != nil {
 		return false
 	}

@@ -68,6 +68,7 @@ type pipelinePosition struct {
 type normalizeContext struct {
 	nextPipelineID int
 	loopDepth      int
+	powerShell     bool
 }
 
 func splitSimples(src string) ([]Simple, error) {
@@ -142,6 +143,14 @@ func extractSimples(src string, f *syntax.File, pipelines map[*syntax.Stmt][]pip
 				}
 			} else if resolved, ok := resolveLocalWord(w, state); tracked && ok {
 				s.Argv = append(s.Argv, resolved)
+				if s.resolvedArgs == nil {
+					s.resolvedArgs = make(map[int]bool)
+				}
+				s.resolvedArgs[index] = true
+			} else if tracked && state.powerShell && psConstantWord(raw) {
+				// A PowerShell constant, bare or as a parameter's inline
+				// argument (`-Confirm:$false`): a value, not a variable (#495).
+				s.Argv = append(s.Argv, raw)
 				if s.resolvedArgs == nil {
 					s.resolvedArgs = make(map[int]bool)
 				}
@@ -251,6 +260,37 @@ func (s Simple) outputRedirectUnresolved(index int) bool {
 	}
 	_, literal := literalText(s.Redirects[index])
 	return !literal
+}
+
+// psConstantWord reports a word that is exactly a PowerShell constant
+// (`$true`, `$false`, `$null`, any case) or a parameter whose inline argument
+// is one (`-Confirm:$false`). Anything longer (`$true/x`, `$true.Path`,
+// `"$false"`) is not: only the bare constant has a fixed value (#495).
+func psConstantWord(raw string) bool {
+	word := raw
+	if name, value, ok := strings.Cut(raw, ":"); ok && strings.HasPrefix(name, "-") {
+		if !psParameterName(strings.TrimLeft(name, "-")) {
+			return false
+		}
+		word = value
+	}
+	switch strings.ToLower(word) {
+	case "$true", "$false", "$null":
+		return true
+	}
+	return false
+}
+
+func psParameterName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
 }
 
 // isNullDiscard reports a redirect target spelled exactly `$null`, in any
@@ -1042,6 +1082,9 @@ type cwdState struct {
 	assignmentAttributes  map[string]bool
 	attributesUnknown     bool
 	gitEnvironmentUnknown bool
+	// powerShell marks source run by PowerShell, where `$true`, `$false` and
+	// `$null` are constants (#495). Bash source never sets it.
+	powerShell bool
 }
 
 type cwdOutcome struct {
@@ -2768,6 +2811,11 @@ func Normalize(command, cwd string) ([]Simple, error) {
 	return normalizeWithContext(command, cwd, &normalizeContext{})
 }
 
+// normalizeToolCall normalizes a tool call's command in its shell's dialect.
+func normalizeToolCall(tc ToolCall) ([]Simple, error) {
+	return normalizeWithContext(tc.Command, tc.CWD, &normalizeContext{powerShell: tc.PowerShellCommand()})
+}
+
 // osDirectoryVariables are the OS-provided directory variables the Engine
 // takes from its own environment, as it does HOME (#489). The hook runs with
 // the agent's environment, so `$LOCALAPPDATA/x` names the same directory for
@@ -2779,7 +2827,7 @@ func Normalize(command, cwd string) ([]Simple, error) {
 var osDirectoryVariables = []string{"USERPROFILE", "LOCALAPPDATA", "APPDATA", "TEMP", "TMP", "TMPDIR"}
 
 func normalizeWithContext(command, cwd string, ctx *normalizeContext) ([]Simple, error) {
-	state := cwdState{cwd: cwd, variables: make(map[string]string, 2)}
+	state := cwdState{cwd: cwd, variables: make(map[string]string, 2), powerShell: ctx.powerShell}
 	if cwd != "" {
 		state.variables["PWD"] = cwd
 	}
