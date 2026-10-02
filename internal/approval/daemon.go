@@ -43,6 +43,11 @@ type Daemon struct {
 
 func DefaultSocketPath() string { return defaultPrivateEndpoint() }
 
+// daemonListenerCloseTimeout bounds Daemon.Close's wait for the platform
+// listener (#504). go-winio's pipe listener can leave Close waiting forever;
+// past this bound Close returns an error instead of hanging its caller.
+const daemonListenerCloseTimeout = 5 * time.Second
+
 // EndpointFor is the broker endpoint a process started with the given state
 // root (XDG_STATE_HOME on Unix, LOCALAPPDATA on Windows, the pair
 // testenv.ChildRootEnv sets) would use. A test that runs the real binary in an
@@ -144,7 +149,15 @@ func (d *Daemon) Close() error {
 	var err error
 	d.once.Do(func() {
 		close(d.closed)
-		err = d.listener.Close()
+		// The listener may never return from Close (#504): wait a bounded
+		// time, then go on closing the rest and report it.
+		closed := make(chan error, 1)
+		go func() { closed <- d.listener.Close() }()
+		select {
+		case err = <-closed:
+		case <-time.After(daemonListenerCloseTimeout):
+			err = errors.New("approval daemon: the listener did not close within " + daemonListenerCloseTimeout.String())
+		}
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		for _, browser := range d.browsers {

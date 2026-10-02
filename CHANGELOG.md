@@ -42,6 +42,16 @@ explicitly in **Breaking** notes.
     uncontracted on Codex, and OpenCode's graft server unlisted within the
     timeout.
 
+### Approvals
+- **Fix (#504): `Daemon.Close` no longer hangs forever on Windows.**
+  go-winio's pipe listener can leave `Close` waiting for a goroutine that
+  never exits. This hung an approval-daemon test for 10 minutes on Windows
+  CI (1 run in 40).
+  - **Now:** `Close` waits for the listener for at most 5 s, then finishes
+    closing and reports an error.
+  - **Production impact was already bounded:** the daemon process exits when
+    it is marked closed, which happens before the listener is closed.
+
 ## v0.23.32-dev (2026-10-02)
 
 ### Codex
