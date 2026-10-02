@@ -6,6 +6,14 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### MCP contract
+- **Fix (#510): serena `search_for_pattern` is contracted.** The new
+  `doctor --coverage codex --mcp` (#463) found it on Codex. Until now, Claude
+  asked and Codex denied for the same call.
+  - **Now:** it is a read-discovery tool like Grep, scoped by `relative_path`
+    (default: the working directory) and by `paths_include_glob`, so a search
+    aimed at a secret is denied.
+
 ### Engine
 - **Fix (#404): the remaining ways to reach the installed binary.** Measured
   on v0.23.32-dev, then closed:
