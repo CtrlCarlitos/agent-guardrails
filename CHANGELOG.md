@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.33-dev (2026-10-02)
 
 ### MCP contract
 - **Fix (#510): serena `search_for_pattern` is contracted.** The new
