@@ -2901,8 +2901,8 @@ func TestNormalizeTracksLiteralCdCwd(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := []Simple{
-			{Argv: []string{"cd", "--", "/etc"}, Cwd: "/repo"},
-			{Argv: []string{"rm", "-rf", "."}, Cwd: "/etc"},
+			{Argv: []string{"cd", "--", "/etc"}, Cwd: "/repo", plainCall: true},
+			{Argv: []string{"rm", "-rf", "."}, Cwd: "/etc", plainCall: true},
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("Normalize cd -- = %+v, want %+v", got, want)
