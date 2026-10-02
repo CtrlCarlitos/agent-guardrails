@@ -46,6 +46,13 @@ type DegradedAllowReport struct {
 	TS     string `json:"ts"`
 }
 
+// PowerShellCommand reports a command a plane documents as PowerShell source:
+// Claude Code's PowerShell tool (planecontract). Other shells, and planes
+// that do not say which shell runs a command, keep the bash reading (#495).
+func (tc ToolCall) PowerShellCommand() bool {
+	return tc.Plane == "claude" && tc.NativeTool == "PowerShell"
+}
+
 func (tc ToolCall) IsBash() bool {
 	return strings.EqualFold(tc.Tool, "bash") || tc.Command != ""
 }

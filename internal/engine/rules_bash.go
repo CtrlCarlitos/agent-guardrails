@@ -73,7 +73,7 @@ type findEvaluation struct {
 }
 
 func analyzeBash(tc ToolCall) *bashAnalysis {
-	simples, err := Normalize(tc.Command, tc.CWD)
+	simples, err := normalizeToolCall(tc)
 	analysis := &bashAnalysis{simples: simples, err: err}
 	if err != nil {
 		return analysis
