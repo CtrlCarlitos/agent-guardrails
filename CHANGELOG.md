@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.30-dev (2026-10-01)
 
 ### Engine
 - **Fix (#488): printing a command substitution no longer asks the
