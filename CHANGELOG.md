@@ -4,6 +4,26 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Engine
+- **Fix (#488): printing a command substitution no longer asks the
+  operator.** `echo "n: $(wc -l < /tmp/f)"` asked `P3.unresolved` even
+  though the inner command is judged on its own and allowed.
+  - **Why it asked:** the outer word still holds the unexpanded `$(...)`
+    text. It contains a `/`, so the operand parser treated it as an
+    unresolved path.
+  - **Now allowed:** a literal `echo`, or `printf` with a literal format,
+    written as a plain call (no assignment, redirect, heredoc, alias,
+    function or wrapper), outside any pipeline, with a known working
+    directory, only prints. Its operands are no longer policy-bearing.
+  - **Unchanged:** the substitution's own command is still judged, so
+    `echo "$(cat ~/.ssh/id_ed25519)"` is still denied. Piped output keeps the
+    ask (`… | sh`, `… | xargs rm`, including `bash -c '…' | sh`), because the
+    Engine models what an echo feeds the next command. So do `PATH=. echo`,
+    `$E`, `/bin/echo`, `eval` and an unresolved or `-v` printf format.
+  - **Tests:** pinned in the adversarial corpus.
+
 ## v0.23.29-dev (2026-10-01)
 
 ### OpenCode
