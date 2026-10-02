@@ -689,6 +689,11 @@ var selfConfigGlobs = []string{
 	"**/.gemini/config/hooks.json",
 	"**/.local/bin/guardrail", "**/bin/guardrail",
 	"**/.local/bin/guardrail.exe", "**/bin/guardrail.exe",
+	// The binary an update keeps for `guardrail rollback`, and the record
+	// that vouches for it (#94).
+	"**/.local/bin/guardrail.previous", "**/bin/guardrail.previous",
+	"**/.local/bin/guardrail.previous.exe", "**/bin/guardrail.previous.exe",
+	"**/guardrail/previous.json",
 }
 
 var selfConfigRootOnly = []string{"CLAUDE.md", "AGENTS.md", ".mcp.json"}

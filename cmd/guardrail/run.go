@@ -73,6 +73,7 @@ usage: guardrail <command> [arguments]
       no operator enrolled: enable arms without approval (ADR-0030); --state disabled: exit 3 (plane disable, recover too)
   fetch <URL>                       fetch normalized text through Guardrail
   update <version>                  self-update to an exact checksum-verified release
+  rollback                          restore the binary the last update replaced
   recover <repair>                  repair Guardrail-protected machinery (operator approval)
       repair: claude-settings | opencode-config | antigravity-hooks
   daemon start|stop|status          resident engine daemon that hook calls use when it runs (ADR-0025)
@@ -155,6 +156,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdSetup(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdout, stderr)
 	case "update":
 		return cmdUpdate(args[1:], stdout, stderr)
+	case "rollback":
+		return cmdRollback(args[1:], stdout, stderr)
 	case "recover":
 		file, terminal := stdin.(*os.File)
 		return cmdRecover(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdout, stderr)

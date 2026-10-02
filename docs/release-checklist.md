@@ -86,7 +86,7 @@ provenance, and runs `gh release create --verify-tag` with nine assets.
       passed`, the selftest marker holds the new version, and the next session
       start has no selftest or coverage line.
 - [ ] If post-update `doctor` or `selftest` fails, roll back with
-      `guardrail update <previous version>`. Nothing rolls back
+      `guardrail rollback` (or `guardrail update <previous version>`). Nothing rolls back
       automatically, by design; the binary is already replaced
       ([OPERATIONS.md](OPERATIONS.md), `update` exit codes).
 - [ ] Remove local leftovers: the merged release branch, `dist/` if you built
