@@ -123,6 +123,41 @@ func TestExplainNeverOffersAGrantForAnUngrantableAsk(t *testing.T) {
 	}
 }
 
+func TestWindowsAndPOSIXExplainCodexNeverPromisesConversationalApproval(t *testing.T) {
+	repo := t.TempDir()
+	for _, rec := range []audit.Record{
+		{Plane: "codex", Tool: "Bash", Event: "pre", Command: "unparseable", Decision: "ask", RuleID: "tokenize-failed", RepoRoot: repo},
+		{Plane: "codex", Tool: "Edit", Event: "pre", Decision: "ask", RuleID: "P5.ci-infra-lockfile", RequestID: strings.Repeat("a", 64), RepoRoot: repo},
+	} {
+		path := writeExplainLog(t, rec)
+		code, out, _ := runExplain(t, repo, "--path", path)
+		if code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+		if strings.Contains(out, "conversational approval.") || strings.Contains(out, "once they approve") {
+			t.Fatalf("unsupported approval: %s", out)
+		}
+		if rec.RequestID != "" && !strings.Contains(out, "guardrail approvals grant --record "+rec.RequestID) {
+			t.Fatalf("missing exact request: %s", out)
+		}
+		if rec.RuleID == "tokenize-failed" && strings.Contains(out, "single-use grant") {
+			t.Fatalf("backstop grant offered: %s", out)
+		}
+	}
+}
+
+func TestWindowsAndPOSIXExplainCodexPostFindingCannotOfferApproval(t *testing.T) {
+	repo := t.TempDir()
+	path := writeExplainLog(t, audit.Record{Plane: "codex", Tool: "Edit", Event: "post", Decision: "ask", RuleID: "P5.ci-infra-lockfile", RepoRoot: repo})
+	code, out, _ := runExplain(t, repo, "--path", path)
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(out, "tool already ran") || strings.Contains(out, "approvals grant") || strings.Contains(out, "retry the exact call once they approve") {
+		t.Fatalf("post finding advertised approval: %s", out)
+	}
+}
+
 func TestExplainRedactedCommandIsNotOfferedAsAGrant(t *testing.T) {
 	repo := t.TempDir()
 	path := writeExplainLog(t,

@@ -42,6 +42,9 @@ func cmdApprovalsInput(args []string, operatorTerminal bool, input io.Reader, st
 		return cmdApprovalsGrant(args[1:], operatorTerminal, input, stdout, stderr)
 	}
 	if len(args) >= 1 && args[0] == "revoke" {
+		if len(args) > 1 && args[1] == "--record" {
+			return cmdRecordRevoke(args[1:], operatorTerminal, stdout, stderr)
+		}
 		return cmdApprovalsRevoke(args[1:], stdout, stderr)
 	}
 	if len(args) == 2 && args[1] != "" && args[0] == "approve" {
@@ -88,6 +91,10 @@ func cmdApprovalsApprove(id string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintln(stdout, "approval page opened; complete the passkey to approve")
+	return cmdApprovalsWait(id, stdout, stderr)
+}
+
+func cmdApprovalsWait(id string, stdout, stderr io.Writer) int {
 	deadline := time.Now().Add(15 * time.Minute)
 	for time.Now().Before(deadline) {
 		time.Sleep(500 * time.Millisecond)

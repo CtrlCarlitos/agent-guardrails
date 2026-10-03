@@ -684,6 +684,7 @@ var selfConfigGlobs = []string{
 	// Prompt-mode approval tickets are honoured because agents cannot write
 	// here (ADR-0033).
 	"**/guardrail/approval-tickets", "**/guardrail/approval-tickets/**",
+	"**/guardrail/actions", "**/guardrail/actions/**",
 	"**/opencode.json",
 	"**/.agents/hooks.json",
 	"**/.gemini/config/hooks.json",
@@ -858,7 +859,8 @@ func isASCIILetter(c byte) bool {
 func matchesNormalizedOperatorConfigPath(candidate string) bool {
 	cleaned := strings.ToLower(path.Clean(strings.ReplaceAll(candidate, `\`, "/")))
 	return strings.Contains(cleaned, "/.config/guardrail/") || strings.Contains(cleaned, "/guardrail/waivers.toml") || strings.Contains(cleaned, "/guardrail/night.toml") ||
-		strings.HasSuffix(cleaned, "/guardrail/approval-tickets") || strings.Contains(cleaned, "/guardrail/approval-tickets/")
+		strings.HasSuffix(cleaned, "/guardrail/approval-tickets") || strings.Contains(cleaned, "/guardrail/approval-tickets/") ||
+		strings.HasSuffix(cleaned, "/guardrail/actions") || strings.Contains(cleaned, "/guardrail/actions/")
 }
 
 func isOpaqueExecutor(executable string) bool {
