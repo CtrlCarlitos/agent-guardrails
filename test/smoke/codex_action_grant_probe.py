@@ -20,6 +20,41 @@ from codex_probe_support import (
 )
 
 
+def pre_hook_decisions(events, *, structured):
+    """Decode the selected native transport, rejecting unexpected output."""
+    decisions = []
+    for event in events:
+        if not structured:
+            decisions.append({0: "allow", 2: "deny"}.get(event["exit"], "invalid"))
+            continue
+        if event["exit"] != 0:
+            decisions.append("invalid")
+            continue
+        raw = event.get("stdout", "").strip()
+        if not raw:
+            decisions.append("allow")
+            continue
+        try:
+            output = json.loads(raw).get("hookSpecificOutput", {})
+            valid = output.get("hookEventName") == "PreToolUse" and output.get("permissionDecision") == "deny"
+        except (ValueError, AttributeError):
+            valid = False
+        decisions.append("deny" if valid else "invalid")
+    return decisions
+
+
+def post_hook_feedback(event, *, structured):
+    if not structured:
+        return event["exit"] == 2 and "malformed.go" in event["stderr"]
+    if event["exit"] != 0:
+        return False
+    try:
+        output = json.loads(event.get("stdout", ""))
+        return output.get("decision") == "block" and "malformed.go" in output.get("reason", "")
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
@@ -178,7 +213,9 @@ def main():
         errors.append(f"Expected {len(patches) + 1} provider requests, got {len(requests)}")
     hooks = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
     pre = [event for event in hooks if event["input"]["hook_event_name"] == "PreToolUse"]
-    if [event["exit"] for event in pre] != [2, 2, 0, 2, 0, 2]:
+    structured = windows and env.get("GUARDRAIL_CODEX_STRUCTURED_WINDOWS") == "1"
+    decisions = pre_hook_decisions(pre, structured=structured)
+    if decisions != ["deny", "deny", "allow", "deny", "allow", "deny"]:
         errors.append("Native patch pre-hook verdict sequence did not match exact one-use approval")
     outputs = {}
     for request in requests:
@@ -198,14 +235,15 @@ def main():
     else:
         errors.append("Native patch snapshots are incomplete")
     post = [event for event in hooks if event["input"]["hook_event_name"] == "PostToolUse"]
-    if not (workspace / "malformed.go").exists() or not any(event["exit"] == 2 and "malformed.go" in event["stderr"] for event in post):
+    if not (workspace / "malformed.go").exists() or not any(post_hook_feedback(event, structured=structured) for event in post):
         errors.append("Post-edit lint feedback did not leave the already-written file visible")
     if (workspace / ".codex/blocked.txt").exists():
         errors.append("Denied self-configuration patch executed")
     report = {"codex": subprocess.check_output([codex, "--version"], text=True).strip(),
               "platform": sys.platform, "codex_exit": result.returncode,
               "ceremony": ceremony, "snapshots": snapshots,
-              "pre_hooks": len(pre), "post_hooks": len(post), "errors": errors,
+              "pre_hooks": len(pre), "pre_decisions": decisions,
+              "post_hooks": len(post), "errors": errors,
               "artifacts": str(root), "operator_fixture": str(operator)}
     (root / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
