@@ -6,6 +6,18 @@ explicitly in **Breaking** notes.
 
 ## v0.23.33-dev (2026-10-02)
 
+### Codex approvals
+- **Feature (#349): exact-action requests for grantable pre-tool Asks.**
+  The operator reviews a complete command or patch with `approvals grant
+  --record <id>`, using the configured terminal prompt or enrolled passkey.
+  One identical retry is authorized for the original 15-minute lifetime;
+  changed text, paths, session or execution context does not spend the grant.
+  Bodies remain in the private operator store. Denies and fail-closed
+  backstops cannot be granted; failed auditing keeps retries blocked.
+- **Fix (#349): `explain` uses Codex's actual approval and post-tool guidance.**
+  It no longer promises conversational approval or an unavailable patch
+  command grant, and post-tool findings say the action already ran.
+
 ### MCP contract
 - **Fix (#510): serena `search_for_pattern` is contracted.** The new
   `doctor --coverage codex --mcp` (#463) found it on Codex. Until now, Claude

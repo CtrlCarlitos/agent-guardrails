@@ -131,7 +131,7 @@ func EmitCodex(v policy.Verdict, event string, tc engine.ToolCall, stdout, stder
 		reason = "Guardrail cannot project this web.run request safely. Use a search-only request or open one explicit HTTP(S) URL per call; do not mix operations or use opaque result references. Continue independent work."
 	}
 	if v.Decision == policy.Ask {
-		reason = "Guardrail requires operator authorization: " + sanitizeForModel(v.Reason) + ". Codex PreToolUse cannot request approval. Tell the operator this exact action: they can run it outside this session, or issue a single-use grant for this exact command from their terminal (`guardrail explain` prints it); continue independent work. Do not retry based on conversational approval."
+		reason = CodexAskGuidance(v, tc.Tool == "Bash" && tc.Command != "")
 	}
 	if v.Decision == policy.Complete {
 		reason = fmt.Sprintf("Operator action pending: %s; request %s; open %s. Wait for completion before continuing this action.", v.OperatorAction, v.RequestID, v.ApprovalURL)
@@ -139,13 +139,34 @@ func EmitCodex(v policy.Verdict, event string, tc engine.ToolCall, stdout, stder
 	if event == "post" {
 		// Post-tool policy evaluation reports effects; it cannot gate execution
 		// or submit an operator request. Never reuse pre-execution guidance here.
-		reason = "Guardrail PostToolUse feedback: the tool already ran; its effects were not prevented or undone by this hook. Policy finding: " + sanitizeForModel(v.Reason) + ". No approval request was created by this post-tool check. Report the finding to the operator and inspect the resulting state. Do not automatically repeat or undo the action, or treat conversational approval as recorded authorization; continue independent work."
+		reason = CodexPostGuidance(v)
 	}
 	fmt.Fprintln(stderr, "guardrail: policy denial: "+reason)
 	if codexStructuredWindowsEnabled() {
 		return emitCodexBlock(event, reason, stdout)
 	}
 	return 2 // Native blocking status; never emit unsupported permissionDecision: ask.
+}
+
+// CodexAskGuidance is also used by explain: Codex has no native Ask ceremony,
+// and fail-closed backstops must never advertise an operator grant.
+func CodexAskGuidance(v policy.Verdict, command bool) string {
+	prefix := "Guardrail requires operator authorization: " + sanitizeForModel(v.Reason) + ". Codex PreToolUse cannot request approval. "
+	if policy.NeverGrantable(v.RuleID) {
+		return prefix + "This rule cannot be granted. Report the finding to the operator and follow the rule's diagnostic guidance before retrying; continue independent work. Chat approval cannot clear this verdict."
+	}
+	if v.RequestID != "" {
+		return prefix + "Exact action request " + v.RequestID + " is pending. Tell the operator to run `guardrail approvals grant --record " + v.RequestID + "` in their terminal to review the complete action and approve or decline it. After recorded approval, retry this identical action once; changed actions need a new approval. Conversational approval is not authorization; continue independent work."
+	}
+	if command {
+		return prefix + "Tell the operator this exact action: they can run it outside this session, or issue a single-use grant for this exact command from their terminal (`guardrail explain` prints it); continue independent work. Do not retry based on conversational approval."
+	}
+	return prefix + "No exact-action approval request was recorded. Report the complete action and this finding to the operator; they can perform it outside this session. Continue independent work. Chat approval cannot clear this verdict."
+}
+
+// CodexPostGuidance reports an observed effect without implying prevention.
+func CodexPostGuidance(v policy.Verdict) string {
+	return "Guardrail PostToolUse feedback: the tool already ran; its effects were not prevented or undone by this hook. Policy finding: " + sanitizeForModel(v.Reason) + ". No approval request was created by this post-tool check. Report the finding to the operator and inspect the resulting state. Do not automatically repeat or undo the action, or treat conversational approval as recorded authorization; continue independent work."
 }
 
 func codexStructuredWindowsEnabled() bool {

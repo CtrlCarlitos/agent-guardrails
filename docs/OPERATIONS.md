@@ -201,6 +201,34 @@ is recorded with rule `ask-allowed-by-operator-grant` and preserves the original
 ask rule as `origin_rule_id`. See [ADR-0027](adr/0027-operator-issued-grants-authorize-one-exact-command.md)
 for the trust and transaction design.
 
+## Approve a Codex exact-action request
+
+When Codex reports a pending exact-action request, run this in your own
+interactive terminal:
+
+```
+guardrail approvals grant --record <request-id>
+```
+
+Review the entire command or patch, affected paths, repository, working
+directory, session and quoted text. Prompt mode requires `yes`; passkey mode
+uses the enrolled authenticator and does not bypass enrollment. Chat approval
+cannot authorize the retry. The approval covers one identical action before
+the request's original 15-minute expiry. Changed text, paths, rule, working
+directory or session requires a separate approval. An identical pending
+request does not extend its lifetime.
+
+To cancel a pending or approved request:
+
+```
+guardrail approvals revoke --record <request-id>
+```
+
+Requests are stored privately under the operator configuration's `actions`
+directory; full bodies are absent from audit and broker state. Denies and
+fail-closed backstops such as `tokenize-failed` cannot be granted. A post-tool
+finding reports an action that already ran; it is not a pending approval.
+
 ## Passing credentials to commands
 
 Everything a command prints enters the session and is sent to the model

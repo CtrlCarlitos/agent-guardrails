@@ -205,11 +205,20 @@ func printExplanation(rec audit.Record, records []audit.Record, stdout io.Writer
 		Decision: policy.Decision(rec.Decision), RuleID: rec.RuleID, Reason: rec.Reason,
 		OperatorAction: rec.OperatorAction, RequestID: rec.RequestID,
 	}
+	if rec.Plane == "codex" && rec.Event == "post" {
+		line("next step", adapter.CodexPostGuidance(v))
+		return
+	}
 	if rec.RuleID == "" && v.Decision == policy.Deny {
 		// Guidance would render this as "the rule ID ()", which reads as a
 		// rule with an empty name. There is no rule: say what happened.
 		line("next step", noRuleNextStep(rec))
 		line("agent saw", rec.Reason)
+		return
+	}
+	if rec.Plane == "codex" && rec.Event == "pre" && v.Decision == policy.Ask {
+		line("next step", adapter.CodexAskGuidance(v, rec.Tool == "Bash" && rec.Command != ""))
+		line("operator", operatorNextStep(rec, records))
 		return
 	}
 	line("next step", adapter.NextStep(v))
@@ -248,6 +257,8 @@ func operatorNextStep(rec audit.Record, records []audit.Record) string {
 			return rec.RuleID + " can never be granted: it stays a per-call operator decision (ADR-0018)"
 		case policy.NeverGrantable(rec.RuleID):
 			return rec.RuleID + " can never be granted: it is a fail-closed backstop"
+		case rec.Plane == "codex" && rec.RequestID != "":
+			return "review and authorize the exact action from the operator's own terminal: guardrail approvals grant --record " + rec.RequestID
 		case rec.Command == "" || rec.RepoRoot == "":
 			return ""
 		case strings.Contains(rec.Command, "«redacted»"):

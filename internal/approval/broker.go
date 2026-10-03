@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/actiongrant"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/session"
 )
@@ -75,6 +76,13 @@ type Request struct {
 // the exact plane batch for lifecycle actions and the exact host batch for
 // egress actions, empty otherwise.
 func (r Request) Summary() string {
+	if r.Action == "exact-action-grant" {
+		summary, err := r.ReviewSummary()
+		if err != nil {
+			return "action request unavailable or changed"
+		}
+		return summary
+	}
 	if r.Action == "web-research-set" {
 		return "native web-research enforcement: " + r.Parameters["enforcement"] + " (machine-wide; off does not enforce outbound data or destinations)"
 	}
@@ -105,6 +113,26 @@ func (r Request) Summary() string {
 		}
 	}
 	return ""
+}
+
+// ReviewSummary refuses an exact-action ceremony unless its complete pending
+// body can be retrieved and verified. A placeholder is not reviewable consent.
+func (r Request) ReviewSummary() (string, error) {
+	if r.Action != "exact-action-grant" {
+		return r.Summary(), nil
+	}
+	s, err := actiongrant.Default()
+	if err != nil {
+		return "", err
+	}
+	pending, err := s.Read(r.Parameters["record"], time.Now())
+	if err != nil {
+		return "", err
+	}
+	if pending.Status != "pending" || pending.Digest != r.Parameters["digest"] || pending.Action.Repo != r.RepoRoot {
+		return "", errors.New("action request unavailable or changed")
+	}
+	return pending.Summary(), nil
 }
 
 type CompletionAttribution struct {
@@ -325,8 +353,21 @@ func validateRequest(r Request) error {
 	if r.Host != "" && policy.ValidateWebHost(r.Host) != nil {
 		return ErrMalformed
 	}
-	if r.Action != "" && r.Action != "night-on" && r.Action != "night-off" && r.Action != "web-host-grant" && r.Action != "web-host-revoke" && r.Action != "plane-enable" && r.Action != "plane-disable" && r.Action != "recover" && r.Action != "web-research-set" {
+	if r.Action != "" && r.Action != "night-on" && r.Action != "night-off" && r.Action != "web-host-grant" && r.Action != "web-host-revoke" && r.Action != "plane-enable" && r.Action != "plane-disable" && r.Action != "recover" && r.Action != "web-research-set" && r.Action != "exact-action-grant" {
 		return ErrMalformed
+	}
+	if r.Action == "exact-action-grant" {
+		if r.Plane != "operator" || r.Scope != OnceScope || r.Host != "" || len(r.Parameters) != 2 {
+			return ErrMalformed
+		}
+		s, err := actiongrant.Default()
+		if err != nil {
+			return ErrMalformed
+		}
+		pending, err := s.Read(r.Parameters["record"], time.Now())
+		if err != nil || pending.Status != "pending" || pending.Digest != r.Parameters["digest"] || pending.Action.Repo != r.RepoRoot || r.ExpiresAt.IsZero() || r.ExpiresAt.After(pending.Expires) {
+			return ErrMalformed
+		}
 	}
 	if r.Action == "night-on" && (len(r.Parameters) != 1 || r.Parameters["until"] == "") {
 		return ErrMalformed
@@ -463,6 +504,10 @@ func canonicalNightExpiry(until string, now time.Time) (string, error) {
 
 func durable(r Request) session.ApprovalRequest {
 	params := make(map[string]string)
+	if r.Action == "exact-action-grant" {
+		params["record"] = r.Parameters["record"]
+		params["digest"] = r.Parameters["digest"]
+	}
 	if r.Action == "web-research-set" {
 		params["enforcement"] = r.Parameters["enforcement"]
 	}
