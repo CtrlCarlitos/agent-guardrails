@@ -1,6 +1,7 @@
 """Cross-platform construction helpers for the deterministic Codex probe."""
 
 import json
+import re
 from pathlib import Path
 import shlex
 import shutil
@@ -125,6 +126,7 @@ def render_codex_config(
     python_executable: Path,
     mcp_script: Path,
     mcp_marker: Path,
+    windows: bool = False,
 ) -> str:
     """Render the disposable Codex config with TOML-safe absolute paths."""
     return f'''model = "codex-fixture"
@@ -136,6 +138,7 @@ name = "Deterministic local fixture"
 base_url = "http://127.0.0.1:{server_port}/v1"
 wire_api = "responses"
 requires_openai_auth = false
+{('[windows]\nsandbox = "unelevated"\n' if windows else '')}
 [features]
 shell_snapshot = false
 shell_tool = {'false' if restricted else 'true'}
@@ -148,5 +151,23 @@ args = [{toml_string(mcp_script)}, {toml_string(mcp_marker)}]
 def interactive_probe_controls(*, windows: bool) -> Tuple[str, str]:
     """Return an interactive capture command and the host's terminal EOF input."""
     if windows:
-        return ("$input | Set-Content stdin.txt", "\x1a\r\n")
+        return ('cmd.exe /d /s /c "findstr . > stdin.txt"', "\x1a\r\n")
     return ("cat > stdin.txt", "\x04")
+
+
+def interactive_session_id(output: str) -> Optional[int]:
+    """Return a live unified-exec session, never a fabricated fallback ID."""
+    if output.startswith("Script completed\n"):
+        output = output.partition("\nOutput:\n")[2].strip()
+    metadata = output.partition("\nOutput:\n")[0]
+    match = re.search(r"^Process running with session ID (\d+)\s*$", metadata, re.MULTILINE)
+    if match:
+        return int(match.group(1))
+    try:
+        result = json.loads(output)
+    except (ValueError, TypeError):
+        return None
+    if (isinstance(result, dict) and type(result.get("session_id")) is int
+            and result.get("exit_code") is None and not result.get("error")):
+        return result["session_id"]
+    return None

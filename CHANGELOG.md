@@ -6,6 +6,13 @@ explicitly in **Breaking** notes.
 
 ## v0.23.33-dev (2026-10-02)
 
+### Codex probe
+- **Fix (#169): the stdin comparison uses the actual live process ID.**
+  An exited or rejected startup now produces an inconclusive, failing report
+  and skips stdin delivery. The Windows text fixture avoids PowerShell's
+  `$input` pipeline; artifacts and transcripts are retained under the checkout.
+  The `write_stdin` enforcement contract remains unchanged.
+
 ### MCP contract
 - **Fix (#510): serena `search_for_pattern` is contracted.** The new
   `doctor --coverage codex --mcp` (#463) found it on Codex. Until now, Claude
