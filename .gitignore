@@ -5,6 +5,8 @@
 *.out
 .DS_Store
 node_modules/
+/test/smoke/.test-tmp/
+/.probe-tmp/
 # local tool artifacts - never commit (the #48 lesson)
 /graft/
 .serena/

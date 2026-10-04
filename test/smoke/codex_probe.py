@@ -7,7 +7,6 @@ import argparse
 import http.server
 import json
 import os
-import re
 from pathlib import Path
 import subprocess
 import sys
@@ -16,6 +15,7 @@ import threading
 
 from codex_probe_support import (
     interactive_probe_controls,
+    interactive_session_id,
     render_codex_config,
     resolve_command,
     run_probe_command,
@@ -35,6 +35,7 @@ parser.add_argument("binary", help="Guardrail executable")
 parser.add_argument("--code-mode", action="store_true", help="Exercise nested tools")
 parser.add_argument("--mediation", action="store_true", help="Check stdin hook coverage and hosted web-search availability")
 parser.add_argument("--restricted", action="store_true", help="With --mediation, disable shell tools and web search")
+parser.add_argument("--artifacts-dir", type=Path, default=Path(__file__).resolve().parent / ".test-tmp", help="Parent directory for retained disposable probe files (outside system temp so Codex can create helper aliases)")
 options = parser.parse_args()
 binary = str(Path(options.binary).resolve())
 code_mode = options.code_mode
@@ -42,7 +43,9 @@ mediation = options.mediation
 restricted = options.restricted
 if restricted and not mediation:
     parser.error("--restricted requires --mediation")
-root = Path(tempfile.mkdtemp(prefix="guardrail-codex-native-"))
+if options.artifacts_dir:
+    options.artifacts_dir.mkdir(parents=True, exist_ok=True)
+root = Path(tempfile.mkdtemp(prefix="guardrail-codex-native-", dir=options.artifacts_dir))
 workspace = root / "workspace"
 workspace.mkdir()
 config = root / "codex"
@@ -81,7 +84,7 @@ if code_mode:
 if mediation:
     interactive_command, interactive_eof = interactive_probe_controls(windows=os.name == "nt")
     calls = [
-        ("exec_command", {"cmd": interactive_command, "tty": True, "yield_time_ms": 1000}, None if restricted else 0),
+        ("exec_command", {"cmd": interactive_command, "tty": True, "login": False, "yield_time_ms": 1000}, None if restricted else 0),
         ("write_stdin", {"session_id": 0, "chars": "codex-stdin-fixture\n", "yield_time_ms": 1000}, None),
         ("write_stdin", {"session_id": 0, "chars": "", "yield_time_ms": 1000}, None),
         ("write_stdin", {"session_id": 0, "chars": interactive_eof, "yield_time_ms": 1000}, None),
@@ -94,20 +97,33 @@ def output_text(item):
     return str(output)
 
 requests = []
+sent_calls = []
+skipped_calls = []
+next_case = 0
+live_session = None
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
     def do_POST(self):
+        global next_case, live_session
         request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         requests.append(request)
-        index = len(requests) - 1
+        index = next_case
+        if mediation and not restricted and index == 1:
+            startup = next((output_text(i) for i in request.get("input", [])
+                            if i.get("call_id") == "call_0" and i.get("type", "").endswith("_output")), "")
+            live_session = interactive_session_id(startup)
+            if live_session is None:
+                skipped_calls.extend([1, 2, 3])
+                index = 4
         if index < len(calls):
+            sent_calls.append(index)
+            next_case = index + 1
             name, args, _ = calls[index]
             if name == "write_stdin":
-                outputs = "\n".join(output_text(i) for i in request.get("input", [])
-                                    if i.get("type", "").endswith("_output"))
-                matches = re.findall(r'(?:session ID |"session_id":\s*)(\d+)', outputs)
-                args = {**args, "session_id": int(matches[-1]) if matches else 0}
+                # Restricted mode deliberately forces unsupported calls. The
+                # live comparison must never fabricate process ID zero.
+                args = {**args, "session_id": 0 if restricted else live_session}
             if code_mode:
                 code = "text(await tools." + name + "(" + json.dumps(args) + "));"
                 item = {"type": "custom_tool_call", "id": f"item_{index}", "call_id": f"call_{index}", "name": "exec", "input": code, "status": "completed"}
@@ -146,13 +162,16 @@ catalog_path.write_text(json.dumps(catalog))
         python_executable=Path(sys.executable),
         mcp_script=Path(__file__).resolve().parents[1] / "fixtures/codex/mcp_server.py",
         mcp_marker=root / "mcp-executed",
+        windows=os.name == "nt",
     ),
     encoding="utf-8",
 )
-env = dict(os.environ, CODEX_HOME=str(config), XDG_STATE_HOME=str(root / "state"), XDG_CONFIG_HOME=str(root / "xdg"), GUARDRAIL_CONFIG="")
+env = dict(os.environ, CODEX_HOME=str(config), XDG_STATE_HOME=str(root / "state"),
+           LOCALAPPDATA=str(root / "state"), XDG_CONFIG_HOME=str(root / "xdg"),
+           APPDATA=str(root / "xdg"), GUARDRAIL_CONFIG="")
 # The only trust override is for the generated, vetted fixture hook definitions.
 # Codex's command sandbox remains enabled throughout.
-command = [codex_executable, "exec", "--ephemeral", "--dangerously-bypass-hook-trust", "--sandbox", "workspace-write", "-C", str(workspace), "Run the supplied deterministic tool probe sequence."]
+command = [codex_executable, "exec", "--dangerously-bypass-hook-trust", "--sandbox", "workspace-write", "-C", str(workspace), "Run the supplied deterministic tool probe sequence."]
 try:
     result = run_probe_command(command, env=env, timeout=probe_timeout(windows=os.name == "nt"))
     (root / "stdout.txt").write_text(result.stdout)
@@ -175,6 +194,8 @@ try:
     if result.returncode != 0:
         errors.append(f"Codex exited {result.returncode}: {result.stderr[-2000:]}")
     if mediation:
+        if "hook: PreToolUse Failed" in result.stderr:
+            errors.append("An allowed native pre-hook failed; handler logs alone do not establish completed dispatch")
         # Hosted execution happens at the provider. Inspect the outgoing request;
         # do not fabricate a hosted result and call it an enforcement test.
         advertised = requests[0].get("tools", []) if requests else []
@@ -194,8 +215,8 @@ try:
             for item in request.get("input", []):
                 if item.get("type", "").endswith("_output"):
                     outputs[item.get("call_id")] = output_text(item)
-        if len(requests) != len(calls) + 1:
-            errors.append(f"Expected {len(calls) + 1} provider requests, got {len(requests)}")
+        if len(requests) != len(sent_calls) + 1:
+            errors.append(f"Expected {len(sent_calls) + 1} provider requests, got {len(requests)}")
         expected_names = ["apply_patch"] if restricted else ["Bash", "apply_patch"]
         if [event["input"]["tool_name"] for event in pre] != expected_names or any(event["exit"] != 0 for event in pre):
             errors.append(f"Expected allowed hooks {expected_names}, got {pre}")
@@ -212,7 +233,9 @@ try:
             if (workspace / "stdin.txt").exists():
                 errors.append("Disabled shell tool executed")
         else:
-            for i in range(4):
+            if live_session is None:
+                errors.append("Interactive command produced no live session; stdin comparison is inconclusive: " + outputs.get("call_0", "")[-1500:])
+            for i in ([0] if live_session is None else range(4)):
                 output = outputs.get(f"call_{i}", "")
                 if ('"chunk_id"' if code_mode else "Chunk ID:") not in output:
                     errors.append(f"Stdin case {i} did not execute: {output}")
@@ -229,6 +252,8 @@ try:
             "codex": subprocess.check_output([codex_executable, "--version"], text=True).strip(),
             "code_mode": code_mode, "restricted": restricted, "cases": len(calls),
             "pre_hooks": len(pre), "stdin_pre_hooks": sum(e["input"]["tool_name"] == "write_stdin" for e in pre),
+            "stdin_process_started": live_session is not None,
+            "skipped_calls": skipped_calls,
             "web_search_advertised": web_enabled, "hosted_execution_tested": False,
             "errors": errors, "artifacts": str(root),
         }

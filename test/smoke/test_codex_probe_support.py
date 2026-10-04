@@ -64,13 +64,44 @@ class CodexProbeSupportTests(unittest.TestCase):
         self.assertEqual(parsed["mcp_servers"]["fixture"]["command"], r"C:\Program Files\Python\python.exe")
         self.assertEqual(parsed["mcp_servers"]["fixture"]["args"][1], r"C:\Temp\probe marker")
 
+    def test_windows_fixture_selects_an_explicit_native_sandbox(self):
+        rendered = support.render_codex_config(
+            catalog_path=Path("catalog.json"), server_port=1234,
+            restricted=False, python_executable=Path(sys.executable),
+            mcp_script=Path("server.py"), mcp_marker=Path("marker"),
+            windows=True,
+        )
+        self.assertEqual(tomllib.loads(rendered)["windows"]["sandbox"], "unelevated")
+
     def test_windows_interactive_control_uses_ctrl_z_not_ctrl_d(self):
         command, eof = support.interactive_probe_controls(windows=True)
-        self.assertIn("$input | Set-Content", command)
-        self.assertNotIn("cmd.exe", command.lower())
         self.assertEqual(eof, "\x1a\r\n")
         self.assertNotIn("\x04", eof)
         self.assertEqual(support.interactive_probe_controls(windows=False), ("cat > stdin.txt", "\x04"))
+
+    def test_windows_capture_does_not_depend_on_pipeline_input_expansion(self):
+        command, _ = support.interactive_probe_controls(windows=True)
+        self.assertNotIn("$input", command)
+
+    def test_live_session_requires_a_running_process_result(self):
+        self.assertEqual(support.interactive_session_id("Process running with session ID 123\n"), 123)
+        self.assertEqual(support.interactive_session_id('{"session_id":456,"output":"ready"}'), 456)
+        self.assertIsNone(support.interactive_session_id("write_stdin failed: Unknown process id 0"))
+        self.assertIsNone(support.interactive_session_id("Process exited with code 1\n"))
+        self.assertIsNone(support.interactive_session_id('{"session_id":123,"exit_code":0,"output":"done"}'))
+        self.assertIsNone(support.interactive_session_id("Process exited with code 1\nOutput:\nProcess running with session ID 123\n"))
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows native command")
+    def test_windows_capture_receives_stdin_and_exits_on_eof(self):
+        with self.temporary_directory() as raw:
+            command, _ = support.interactive_probe_controls(windows=True)
+            result = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-Command", command],
+                cwd=raw, input="fixture bytes\n", text=True,
+                capture_output=True, timeout=15,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((Path(raw) / "stdin.txt").read_text(), "fixture bytes\n")
 
     def test_windows_command_resolution_skips_extensionless_posix_shim(self):
         paths = {
