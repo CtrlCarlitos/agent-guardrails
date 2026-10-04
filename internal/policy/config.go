@@ -63,11 +63,12 @@ func FindRepoRoot(cwd string) (string, bool) {
 	return findRepoRootWithCeilings(cwd, systemTempRoots())
 }
 
-// findRepoRootWithCeilings resolves the repository enclosing cwd. Discovery
+// gitRepoRoot asks git itself for the repository enclosing cwd. Discovery
 // ceilings stop git's upward walk at the System temp root boundary so a stray
 // repository at the root itself cannot capture resolution for strict
-// descendants (the /tmp/.git lesson).
-func findRepoRootWithCeilings(cwd string, ceilings []string) (string, bool) {
+// descendants (the /tmp/.git lesson). It is the authority; walkRepoRoot
+// (reporoot.go) answers the common cases without the process spawn.
+func gitRepoRoot(cwd string, ceilings []string) (string, bool) {
 	if cwd == "" {
 		return "", false
 	}
