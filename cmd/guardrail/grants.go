@@ -77,6 +77,9 @@ func parseGrantFlags(name string, args []string, stderr io.Writer) (grantRequest
 // other control character visible instead of invisible. Nothing is truncated
 // and no summary stands in for the string that will actually be matched.
 func cmdApprovalsGrant(args []string, operatorTerminal bool, input io.Reader, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "--record" {
+		return cmdRecordGrant(args, operatorTerminal, input, stdout, stderr)
+	}
 	if !operatorTerminal {
 		fmt.Fprintln(stderr, "guardrail: approvals grant requires an interactive local terminal")
 		return 2

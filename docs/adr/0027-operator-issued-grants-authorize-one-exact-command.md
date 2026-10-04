@@ -68,6 +68,30 @@ all three, plus two follow-ups recorded during implementation (#272).
 
 ## Consequences
 
+### Codex exact-action requests (#349)
+
+Codex PreToolUse cannot return Ask or accept conversational approval. A
+grantable pre-execution Ask therefore records the complete command or patch
+in an owner-only `OperatorConfigDir/actions` request. The operator reviews
+it with `guardrail approvals grant --record <id>` from an interactive
+terminal, using the configured prompt or enrolled passkey ceremony.
+
+This request binds plane, session, repository, working directory, canonical
+tool, rule, action kind, complete text and affected paths. SHA-256 identifies
+the canonical JSON tuple; text is not trimmed or normalized. An identical
+pending retry reuses its request without extending the 15-minute lifetime.
+Each approval permits one exact retry, consumed under the request-store lock
+before an Allow verdict. Issuance auditing runs under that lock before the
+approval becomes consumable; audit failure leaves the request pending.
+
+Full action bodies are deliberately kept out of the repo Overlay, broker
+state and audit log. The private store holds at most 128 live requests, is
+protected against agent reads and writes, and supports terminal revocation
+with `guardrail approvals revoke --record <id>`. Existing command grants
+retain their original storage and matching contract. Deny, NeverGrantable
+and outward-reach exclusions still apply. PostToolUse feedback cannot
+create an approval request or imply that an edit was prevented.
+
 - The deadlock class converts into a working ceremony: ask, operator grants
   the exact command from a terminal, the call proceeds once.
 - ADR-0018's exclusion list is now load-bearing for two relaxation

@@ -12,3 +12,5 @@ node_modules/
 .serena/
 .superpowers/
 /internal/engine/guardrail-worktree-tests-*/
+/test/smoke/.test-tmp/
+/test/smoke/__pycache__/

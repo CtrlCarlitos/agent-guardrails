@@ -3,12 +3,40 @@ import subprocess
 import tempfile
 import tomllib
 import unittest
+import os
+import shutil
 from pathlib import Path
 
 import codex_probe_support as support
 
 
 class CodexProbeSupportTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "native Windows ACL check")
+    def test_windows_workspace_fixture_inherits_explicit_owner_access(self):
+        with self.temporary_directory(prefix="acl-parent-") as raw:
+            parent = Path(raw)
+            pwsh = support.resolve_command("pwsh", windows=True)
+            # The hosted runner may grant checkout access via groups. Make
+            # this test's explicit-owner precondition deterministic without
+            # changing the existing checkout ACL or the assertion below.
+            identity = subprocess.run([pwsh, "-NoProfile", "-Command", "[Security.Principal.WindowsIdentity]::GetCurrent().User.Value"], capture_output=True, text=True, check=True)
+            sid = identity.stdout.strip()
+            # Change only the DACL. Set-Acl also tries to write security
+            # descriptor fields that can require SeSecurityPrivilege.
+            granted = subprocess.run(["icacls", str(parent), "/grant", "*" + sid + ":(OI)(CI)F"], capture_output=True, text=True)
+            self.assertEqual(granted.returncode, 0, granted.stderr)
+            root = support.create_probe_directory(parent, prefix="owner-acl-", windows=True)
+            try:
+                script = (
+                    "$sid = [Security.Principal.WindowsIdentity]::GetCurrent().User; "
+                    "$rules = (Get-Acl -LiteralPath '" + str(root).replace("'", "''") + "').GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]); "
+                    "if (-not ($rules | Where-Object { $_.IdentityReference -eq $sid -and $_.AccessControlType -eq 'Allow' -and ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Modify) -eq [Security.AccessControl.FileSystemRights]::Modify })) { exit 1 }"
+                )
+                result = subprocess.run([pwsh, "-NoProfile", "-Command", script], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            finally:
+                shutil.rmtree(root)
+
     @staticmethod
     def temporary_directory(prefix="probe-"):
         parent = Path(__file__).resolve().parent / ".test-tmp"

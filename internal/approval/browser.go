@@ -53,6 +53,9 @@ func StartBrowser(broker *Broker, authStore AssertionStore, requestID string) (*
 	if err != nil {
 		return nil, "", err
 	}
+	if _, err := req.ReviewSummary(); err != nil {
+		return nil, "", err
+	}
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		return nil, "", err
@@ -151,6 +154,12 @@ func browserHandler(browser *Browser) http.Handler {
 				browser.closeAfterResponse()
 				return
 			}
+			summary, err := req.ReviewSummary()
+			if err != nil {
+				http.Error(w, "complete action unavailable for review", http.StatusConflict)
+				browser.closeAfterResponse()
+				return
+			}
 			optionsJSON, err := json.Marshal(publicKeyOptions(browser.currentCeremony().Options))
 			if err != nil {
 				http.Error(w, "request unavailable", http.StatusGone)
@@ -162,7 +171,8 @@ func browserHandler(browser *Browser) http.Handler {
 				Options         template.JS
 				RequestIDPrefix string
 				Instance        string
-			}{req, template.JS(optionsJSON), req.ID[:12], InstanceLabel()})
+				Summary         string
+			}{req, template.JS(optionsJSON), req.ID[:12], InstanceLabel(), summary})
 			return
 		case r.Method != http.MethodPost || r.URL.Path != "/assertion":
 			http.NotFound(w, r)

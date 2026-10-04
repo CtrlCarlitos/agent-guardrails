@@ -322,6 +322,15 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 			}
 		}
 	}
+	if !hasOperatorAction {
+		updated, spent, err := exactActionVerdict(tc, v)
+		if err != nil {
+			highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: exact-action approval unavailable (%v); the rule remains ENFORCED", err))
+		} else {
+			v = updated
+			grantAllowed = grantAllowed || spent
+		}
+	}
 	if announceNight {
 		v = prependVerdictReason(v, nightState.Banner())
 	}
