@@ -11,9 +11,10 @@ Spec: ../specs/2026-10-02-codex-exact-action-grants-design.md
 - [x] Extend terminal grant/revoke with --record. Reuse prompt/passkey approval
   machinery and preserve enrollment requirements. Keep full action bodies out
   of audit and broker state; show them from the verified private request.
-- [ ] Add real-runtime action/patch snapshots and approval retry probes on both
+- [x] Add real-runtime action/patch snapshots and approval retry probes on both
   OSes. Diagnose the edit-before-block report by event rather than tool result.
-  Linux native snapshots passed. Windows remains blocked; see
+  Linux and actual operator-terminal Windows snapshots passed after repairing
+  the disposable root ACL and child-only transport decoder; see
   ../../verification/2026-10-03-issue-349-codex.md.
 - [ ] Amend ADR-0027, operations and changelog; vet and full tests on both OSes;
   review, push one PR, merge on green, clean and report a release tag if cut.

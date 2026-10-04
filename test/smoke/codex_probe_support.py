@@ -8,7 +8,30 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
+import secrets
 from typing import Optional, Tuple
+
+
+def create_probe_directory(parent: Path, *, prefix: str, windows: bool) -> Path:
+    """Create a fixture workspace root; private operator state is secured separately.
+
+    Windows tempfile.mkdtemp uses mkdir(0700), replacing inherited explicit
+    user access with OWNER RIGHTS. That prevents Codex's restricted token
+    from entering/writing the fixture. Ordinary mkdir inherits the enclosing
+    checkout's ACL; it does not grant Everyone or change existing paths.
+    POSIX keeps tempfile's owner-only permissions.
+    """
+    if not windows:
+        return Path(tempfile.mkdtemp(prefix=prefix, dir=parent)).resolve()
+    for _ in range(100):
+        root = parent / (prefix + secrets.token_hex(16))
+        try:
+            root.mkdir(mode=0o777)
+        except FileExistsError:
+            continue
+        return root.resolve()
+    raise FileExistsError("Unable to allocate a unique probe directory")
 
 
 def resolve_command(name: str, *, windows: bool, which=shutil.which) -> Optional[str]:

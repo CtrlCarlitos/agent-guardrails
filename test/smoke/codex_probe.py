@@ -10,10 +10,10 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
 import threading
 
 from codex_probe_support import (
+    create_probe_directory,
     interactive_probe_controls,
     interactive_session_id,
     render_codex_config,
@@ -45,7 +45,7 @@ if restricted and not mediation:
     parser.error("--restricted requires --mediation")
 if options.artifacts_dir:
     options.artifacts_dir.mkdir(parents=True, exist_ok=True)
-root = Path(tempfile.mkdtemp(prefix="guardrail-codex-native-", dir=options.artifacts_dir))
+root = create_probe_directory(options.artifacts_dir, prefix="guardrail-codex-native-", windows=os.name == "nt")
 workspace = root / "workspace"
 workspace.mkdir()
 config = root / "codex"

@@ -16,7 +16,7 @@ import threading
 
 from codex_probe_support import (
     probe_timeout, render_codex_config, resolve_command, run_probe_command,
-    write_guardrail_wrapper,
+    write_guardrail_wrapper, create_probe_directory,
 )
 
 
@@ -55,6 +55,17 @@ def post_hook_feedback(event, *, structured):
         return False
 
 
+def native_hook_findings(pre, post, *, windows, workspace):
+    # gen-config sets the flag in each Windows hook process, not its parent.
+    structured = windows
+    errors = []
+    if pre_hook_decisions(pre, structured=structured) != ["deny", "deny", "allow", "deny", "allow", "deny"]:
+        errors.append("Native patch pre-hook verdict sequence did not match exact one-use approval")
+    if not (workspace / "malformed.go").exists() or not any(post_hook_feedback(event, structured=structured) for event in post):
+        errors.append("Post-edit lint feedback did not leave the already-written file visible")
+    return errors
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
@@ -73,7 +84,7 @@ def main():
         print("SKIP: codex and git are required", file=sys.stderr)
         return 77
     options.artifacts_dir.mkdir(parents=True, exist_ok=True)
-    root = Path(tempfile.mkdtemp(prefix="codex-action-grant-", dir=options.artifacts_dir)).resolve()
+    root = create_probe_directory(options.artifacts_dir, prefix="codex-action-grant-", windows=windows)
     workspace, config = root / "workspace", root / "codex"
     # DrvFS without metadata cannot enforce POSIX 0700/0600. Keep the private
     # operator fixture on the native filesystem; never relax privatefs checks.
@@ -213,10 +224,8 @@ def main():
         errors.append(f"Expected {len(patches) + 1} provider requests, got {len(requests)}")
     hooks = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
     pre = [event for event in hooks if event["input"]["hook_event_name"] == "PreToolUse"]
-    structured = windows and env.get("GUARDRAIL_CODEX_STRUCTURED_WINDOWS") == "1"
+    structured = windows
     decisions = pre_hook_decisions(pre, structured=structured)
-    if decisions != ["deny", "deny", "allow", "deny", "allow", "deny"]:
-        errors.append("Native patch pre-hook verdict sequence did not match exact one-use approval")
     outputs = {}
     for request in requests:
         for item in request.get("input", []):
@@ -235,8 +244,7 @@ def main():
     else:
         errors.append("Native patch snapshots are incomplete")
     post = [event for event in hooks if event["input"]["hook_event_name"] == "PostToolUse"]
-    if not (workspace / "malformed.go").exists() or not any(post_hook_feedback(event, structured=structured) for event in post):
-        errors.append("Post-edit lint feedback did not leave the already-written file visible")
+    errors.extend(native_hook_findings(pre, post, windows=windows, workspace=workspace))
     if (workspace / ".codex/blocked.txt").exists():
         errors.append("Denied self-configuration patch executed")
     report = {"codex": subprocess.check_output([codex, "--version"], text=True).strip(),

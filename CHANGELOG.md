@@ -19,6 +19,11 @@ explicitly in **Breaking** notes.
   command grant, and post-tool findings say the action already ran.
 
 ### Codex probe
+- **Fix (#349, #169): Windows fixture roots inherit explicit user access.**
+  Python's owner-only temporary root prevented Codex's restricted token from
+  entering and writing the disposable workspace. Ordinary inherited directory
+  creation repairs the native comparison; private operator state and sandbox
+  checks remain enforced separately.
 - **Fix (#169): the stdin comparison uses the actual live process ID.**
   An exited or rejected startup now produces an inconclusive, failing report
   and skips stdin delivery. The Windows text fixture avoids PowerShell's

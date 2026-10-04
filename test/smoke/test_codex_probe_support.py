@@ -3,12 +3,30 @@ import subprocess
 import tempfile
 import tomllib
 import unittest
+import os
+import shutil
 from pathlib import Path
 
 import codex_probe_support as support
 
 
 class CodexProbeSupportTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "native Windows ACL check")
+    def test_windows_workspace_fixture_inherits_explicit_owner_access(self):
+        parent = Path(__file__).resolve().parent / ".test-tmp"
+        parent.mkdir(exist_ok=True)
+        root = support.create_probe_directory(parent, prefix="owner-acl-", windows=True)
+        try:
+            script = (
+                "$sid = [Security.Principal.WindowsIdentity]::GetCurrent().User; "
+                "$rules = (Get-Acl -LiteralPath '" + str(root).replace("'", "''") + "').GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]); "
+                "if (-not ($rules | Where-Object { $_.IdentityReference -eq $sid -and $_.AccessControlType -eq 'Allow' -and ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Modify) -eq [Security.AccessControl.FileSystemRights]::Modify })) { exit 1 }"
+            )
+            result = subprocess.run([support.resolve_command("pwsh", windows=True), "-NoProfile", "-Command", script], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        finally:
+            shutil.rmtree(root)
+
     @staticmethod
     def temporary_directory(prefix="probe-"):
         parent = Path(__file__).resolve().parent / ".test-tmp"
