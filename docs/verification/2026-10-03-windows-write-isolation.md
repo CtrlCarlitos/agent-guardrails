@@ -78,6 +78,13 @@ correct shell location, both without hooks and with hooks:
 - `without-hooks-f09b9bf5c836a4704dc9dae6e4dcc5da`
 - `with-hooks-51a71ca0589c752ab5faef128576285b`
 
+The hosted Windows checkout did not contain the test's assumed explicit
+owner ACE. The regression now seeds that precondition in its own disposable
+parent using a DACL-only current-user grant. Its child-access assertion is
+unchanged: substituting the old allocator still fails that assertion, while
+all 25 tests pass with the fixed allocator. No hosted checkout permissions,
+sandbox policy, protected credentials or CI workflow were changed.
+
 ## Correction to the initial inference
 
 The initial failures reproduced without Guardrail, but that did not establish
