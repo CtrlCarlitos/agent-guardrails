@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## v0.23.33-dev (2026-10-02)
+## v0.23.34-dev (2026-10-04)
 
 ### Codex approvals
 - **Feature (#349): exact-action requests for grantable pre-tool Asks.**
@@ -29,6 +29,8 @@ explicitly in **Breaking** notes.
   and skips stdin delivery. The Windows text fixture avoids PowerShell's
   `$input` pipeline; artifacts and transcripts are retained under the checkout.
   The `write_stdin` enforcement contract remains unchanged.
+
+## v0.23.33-dev (2026-10-02)
 
 ### MCP contract
 - **Fix (#510): serena `search_for_pattern` is contracted.** The new
