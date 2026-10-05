@@ -4,6 +4,13 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Codex probe
+- **Fix (#526): Windows stdin capture preserves blank lines.** The fixture's
+  match now includes empty lines. The original EOF check and timeout remain
+  enforced.
+
 ## v0.23.35-dev (2026-10-04)
 
 ### Hook performance

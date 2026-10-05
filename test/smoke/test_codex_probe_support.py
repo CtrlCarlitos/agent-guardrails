@@ -120,6 +120,19 @@ class CodexProbeSupportTests(unittest.TestCase):
         self.assertIsNone(support.interactive_session_id("Process exited with code 1\nOutput:\nProcess running with session ID 123\n"))
 
     @unittest.skipUnless(sys.platform == "win32", "Windows native command")
+    def test_windows_capture_preserves_blank_lines(self):
+        with self.temporary_directory() as raw:
+            command, _ = support.interactive_probe_controls(windows=True)
+            payload = "fixture bytes\n\nsecond line\n"
+            result = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-Command", command],
+                cwd=raw, input=payload, text=True,
+                capture_output=True, timeout=15,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((Path(raw) / "stdin.txt").read_text(), payload)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows native command")
     def test_windows_capture_receives_stdin_and_exits_on_eof(self):
         with self.temporary_directory() as raw:
             command, _ = support.interactive_probe_controls(windows=True)
