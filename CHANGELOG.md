@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.36-dev (2026-10-04)
 
 ### Codex probe
 - **Fix (#526): Windows stdin capture preserves blank lines.** The fixture's
