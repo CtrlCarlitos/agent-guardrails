@@ -175,7 +175,8 @@ args = [{toml_string(mcp_script)}, {toml_string(mcp_marker)}]
 def interactive_probe_controls(*, windows: bool) -> Tuple[str, str]:
     """Return an interactive capture command and the host's terminal EOF input."""
     if windows:
-        return ('cmd.exe /d /s /c "findstr . > stdin.txt"', "\x1a\r\n")
+        # Match empty lines too: a bare dot silently filters them out.
+        return ('cmd.exe /d /s /c "findstr .* > stdin.txt"', "\x1a\r\n")
     return ("cat > stdin.txt", "\x04")
 
 
