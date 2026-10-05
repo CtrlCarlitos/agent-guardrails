@@ -4,6 +4,16 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## v0.23.35-dev (2026-10-04)
+
+### Hook performance
+- **Performance (#523): repository-root discovery avoids spawning Git for
+  ordinary repositories.** An in-process walk honors discovery ceilings,
+  mount boundaries and repository ownership. Worktrees, submodules,
+  Git environment overrides and uncertain layouts retain Git discovery.
+  The merged change measured Windows hook time at 13.3 ms median, down from
+  105.7 ms; policy scope and overlay selection retain their existing checks.
+
 ## v0.23.34-dev (2026-10-04)
 
 ### Codex approvals
