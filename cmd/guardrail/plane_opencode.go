@@ -151,8 +151,11 @@ func noteOpencodeMajorUnknown(planes []string, stderr io.Writer) {
 
 // opencodeMajorChoice resolves the emission major for gen-config and sync:
 // an explicit --major (already validated as 1 or 2) wins; otherwise the
-// installed binary is probed; an undetectable major degrades to the V1 shape
-// with a loud note, because V2 silently skips single-file plugin entries.
+// installed binary is probed; an undetectable major degrades to the V1
+// shape. Deliberately silent — these are scripted commands whose output
+// callers parse, and an undetectable major is the ordinary case on machines
+// without an opencode binary; the loud signal for the assumption lives in
+// plane enable/setup (noteOpencodeMajorUnknown) and doctor's status line.
 func opencodeMajorChoice(requested int, stderr io.Writer) int {
 	if requested == 1 || requested == 2 {
 		return requested
@@ -160,7 +163,6 @@ func opencodeMajorChoice(requested int, stderr io.Writer) int {
 	if major := opencodeMajor(); major != 0 {
 		return major
 	}
-	noteOpencodeMajorUnknown([]string{"opencode"}, stderr)
 	return 1
 }
 

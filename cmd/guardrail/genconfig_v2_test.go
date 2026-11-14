@@ -132,8 +132,11 @@ func TestGenConfigOpencodeAutoDetectsMajor(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errb.String())
 	}
-	if !strings.Contains(errb.String(), "major not detected") {
-		t.Fatalf("undetectable major must note the V1 assumption: %q", errb.String())
+	// gen-config is a scripted command: an undetectable major silently
+	// assumes V1 (today's behavior); the loud note belongs to plane
+	// enable/setup and doctor, so callers parsing stderr see no new noise.
+	if strings.Contains(errb.String(), "major not detected") {
+		t.Fatalf("gen-config must not print the major note on stderr: %q", errb.String())
 	}
 	if _, err := os.Stat(filepath.Join(dir3, "guardrail.js")); err != nil {
 		t.Fatal("undetectable major must assume V1")
