@@ -68,7 +68,10 @@ func TestOperatorActionRejectsLifecycleNearMisses(t *testing.T) {
 		"guardrail web-research off --now",
 		"guardrail operator enroll",
 		"guardrail operator recover-reset",
-		"/usr/local/bin/guardrail setup",
+		// Path spellings of the binary became canonical with #533 (the deny
+		// matcher already resolved them; the exact-prefix requirement turned
+		// the documented ask ceremony into a hard deny). The bare and
+		// re-cased names stay near-misses.
 		"guardrail.exe setup",
 		"GUARDRAIL setup",
 		"guardrail setup\n",

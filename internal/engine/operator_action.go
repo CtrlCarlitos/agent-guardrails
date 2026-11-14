@@ -224,26 +224,79 @@ func parseWebHostCommand(command string) (verb, scope, hosts string, ok bool) {
 	return verb, scope, hosts, true
 }
 
+// canonicalGuardrailCommand normalizes the command's head to the literal
+// `guardrail`: the first token may be the bare name or any unquoted,
+// path-safe token whose basename is exactly guardrail(.exe) — the same
+// spellings the P5.self-config deny matcher resolves (#533; before this, a
+// path-spelled canonical command skipped the operator-action interception
+// and hard-denied instead of asking). Everything after the head keeps the
+// canonical-byte whitelist unchanged. The returned text is the canonical
+// spelling Action.Command — and the ticket — binds, matching the CLI's
+// invocationCommand() reconstruction so any retry spelling claims it.
+// Quoting, substitution, env prefixes and other executables are not
+// canonical; they keep falling to the engine's mention deny.
+func canonicalGuardrailCommand(command string) (string, bool) {
+	space := strings.IndexByte(command, ' ')
+	if space <= 0 {
+		return "", false // a bare head (or empty) has no subcommand
+	}
+	head := command[:space]
+	if head == "guardrail" {
+		return command, true
+	}
+	if !pathSpelledGuardrail(head) {
+		return "", false
+	}
+	return "guardrail" + command[space:], true
+}
+
+// pathSpelledGuardrail reports whether token is an unquoted, path-safe
+// spelling of the guardrail executable: it must carry a path separator, and
+// its basename must be exactly guardrail(.exe) — suffix relatives like
+// notguardrail are not it, and the bare names (guardrail, guardrail.exe)
+// are handled — or rejected — by the exact head check instead.
+func pathSpelledGuardrail(token string) bool {
+	if !strings.ContainsAny(token, `/\`) {
+		return false
+	}
+	for i := 0; i < len(token); i++ {
+		c := token[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+			c == '.' || c == '-' || c == '_' || c == '/' || c == '\\' || c == '~' || c == ':') {
+			return false
+		}
+	}
+	base := token
+	if i := strings.LastIndexAny(base, `/\`); i >= 0 {
+		base = base[i+1:]
+	}
+	return base == "guardrail" || base == "guardrail.exe"
+}
+
 // OperatorAction accepts only a complete canonical command with no shell syntax.
 // Everything else remains subject to the unconditional self-configuration deny.
 func OperatorAction(tc ToolCall) (Action, bool) {
 	if !tc.IsBash() {
 		return Action{}, false
 	}
-	if tc.Command == "guardrail night off" {
-		return Action{Name: "night-off", Command: tc.Command}, true
+	command, ok := canonicalGuardrailCommand(tc.Command)
+	if !ok {
+		return Action{}, false
 	}
-	matches := nightUntilCommand.FindStringSubmatch(tc.Command)
+	if command == "guardrail night off" {
+		return Action{Name: "night-off", Command: command}, true
+	}
+	matches := nightUntilCommand.FindStringSubmatch(command)
 	if len(matches) == 2 {
 		if _, err := time.Parse("15:04", matches[1]); err != nil {
 			return Action{}, false
 		}
-		return Action{Name: "night-on", Parameters: map[string]string{"until": matches[1]}, Command: tc.Command}, true
+		return Action{Name: "night-on", Parameters: map[string]string{"until": matches[1]}, Command: command}, true
 	}
-	if verb, scope, hosts, ok := parseWebHostCommand(tc.Command); ok {
-		return Action{Name: "web-host-" + verb, Parameters: map[string]string{"scope": scope, "hosts": hosts}, Command: tc.Command}, true
+	if verb, scope, hosts, ok := parseWebHostCommand(command); ok {
+		return Action{Name: "web-host-" + verb, Parameters: map[string]string{"scope": scope, "hosts": hosts}, Command: command}, true
 	}
-	return parseLifecycleCommand(tc.Command)
+	return parseLifecycleCommand(command)
 }
 
 // OperatorActionSatisfied reports whether a web-host grant would change
