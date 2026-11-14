@@ -6,6 +6,16 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Claude plane
+- **Fix (#532): SessionStart no longer calls id-stripped hooks drift.**
+  Claude Code's serializer strips the undocumented `id` from every guardrail
+  hook group during normal sessions, so an all-unmarked file matching
+  current output — the ordinary steady state — was reported on every
+  session start as "N unmarked legacy guardrail hook groups remain (drift)"
+  while doctor said "manifest matches settings" and setup said "already
+  enabled". The lifecycle line now counts true duplicates only (unmarked
+  entries alongside marked ones), the same definition doctor and setup use.
+
 ### Git safety
 - **Fix (#542): writes into a `core.hooksPath` directory now deny.** A
   global `core.hooksPath` makes every repository on the machine — including

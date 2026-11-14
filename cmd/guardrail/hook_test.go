@@ -2565,3 +2565,24 @@ func TestHookPathSpelledEgressGrantAsksAndMintsClaimableTicket(t *testing.T) {
 		}
 	}
 }
+
+// #532: Claude Code's serializer strips the undocumented id field from every
+// guardrail hook group during normal sessions. A settings file whose
+// guardrail groups are ALL unmarked and match current output is that
+// id-stripped state — owned, not drift (the definition doctor and setup
+// already use) — so the SessionStart lifecycle line must not tell every
+// session to run a plane enable that setup will answer "already enabled" to.
+func TestHookSessionStartTreatsIdStrippedHooksAsOwned(t *testing.T) {
+	const stripped = `{"hooks":{` +
+		`"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"guardrail hook claude"}]}],` +
+		`"PostToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"guardrail hook claude"}]}],` +
+		`"SessionStart":[{"matcher":"*","hooks":[{"type":"command","command":"guardrail hook claude"}]}]}}`
+	setClaudeHome(t, stripped)
+	ctx := sessionStartContext(t)
+	if !strings.Contains(ctx, "Claude plane lifecycle: guardrail hook registered") {
+		t.Fatalf("registered posture = %q", ctx)
+	}
+	if strings.Contains(ctx, "unmarked legacy") || strings.Contains(ctx, "drift") {
+		t.Fatalf("id-stripped guardrail hooks are owned, not drift: %q", ctx)
+	}
+}
