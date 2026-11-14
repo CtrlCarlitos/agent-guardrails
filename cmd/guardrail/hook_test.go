@@ -2529,3 +2529,39 @@ func TestHookSessionStartSelftestMarkerFailsOpen(t *testing.T) {
 		t.Fatalf("unreadable marker must still yield the ordinary posture plus the nudge: %q", ctx)
 	}
 }
+
+// #533: a session spelling the binary as a path (`~/.local/bin/guardrail
+// egress grant ...`) hard-denied P5.self-config instead of asking, because
+// the operator-action matchers required the literal `guardrail ` prefix
+// while the deny matcher resolves any path spelling. The ask must surface,
+// and the ticket it mints must bind the canonical spelling the CLI claims
+// (invocationCommand reconstructs `guardrail ` + args), or an approved ask
+// could never be spent.
+func TestHookPathSpelledEgressGrantAsksAndMintsClaimableTicket(t *testing.T) {
+	stateHome := t.TempDir()
+	testenv.SetState(t, stateHome)
+	testenv.SetConfig(t, t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+	useApprovalMode(t, policy.ApprovalPrompt)
+	repo := webHostProbeRepo(t)
+
+	for _, spelling := range []string{
+		"~/.local/bin/guardrail egress grant --scope repo --host a.example.test",
+		"/usr/local/bin/guardrail egress grant --scope repo --host a.example.test",
+		`C:\Users\c\.local\bin\guardrail.exe egress grant --scope repo --host a.example.test`,
+	} {
+		payload := fmt.Sprintf(`{"session_id":"s1","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":%q}}`, repo, spelling)
+		var stdout, stderr bytes.Buffer
+		code := run([]string{"hook", "claude"}, strings.NewReader(payload), &stdout, &stderr)
+		if code != 0 || !strings.Contains(stdout.String(), `"permissionDecision":"ask"`) {
+			t.Errorf("%q: exit = %d, stdout %q, stderr %q; want the operator-action ask", spelling, code, stdout.String(), stderr.String())
+			continue
+		}
+		if strings.Contains(stdout.String()+stderr.String(), "P5.self-config") {
+			t.Errorf("%q: denied as self-config instead of asking", spelling)
+		}
+		if !approval.PeekTicket("guardrail egress grant --scope repo --host a.example.test", repo, time.Now()) {
+			t.Errorf("%q: no ticket for the canonical command the CLI claims", spelling)
+		}
+	}
+}

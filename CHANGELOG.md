@@ -4,6 +4,19 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Operator actions
+- **Fix (#533): a path-spelled canonical operator command asks instead of
+  hard-denying.** `~/.local/bin/guardrail egress grant --scope repo --host
+  …` (any unquoted path spelling of the binary) hit `P5.self-config`
+  because the operator-action matchers required the literal `guardrail `
+  prefix while the deny matcher resolves every path spelling — turning the
+  documented agent-runs-it ceremony (ADR-0033) into a silent deny. The head
+  of a canonical command may now name the binary as a path; everything
+  after it keeps the canonical-byte whitelist, and the minted ticket binds
+  the canonical spelling the CLI claims, so an approved ask is spendable
+  whichever way the session spells the retry.
 ## v0.23.37-dev (2026-11-14)
 
 ### OpenCode 2
