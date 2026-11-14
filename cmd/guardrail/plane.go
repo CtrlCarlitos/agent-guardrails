@@ -292,14 +292,19 @@ func enablePlaneIntegrationMode(plane string, reconcileOwnership, pruneFloor boo
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
-		pluginPath := filepath.Join(dir, "guardrail.js")
-		if err := os.WriteFile(pluginPath, genconfig.OpencodePluginFor(binary), 0o644); err != nil {
+		wiring := opencodeWiringFor(dir)
+		if err := os.MkdirAll(filepath.Dir(wiring.artifact), 0o755); err != nil {
 			return err
 		}
-		if abs, err := filepath.Abs(pluginPath); err == nil {
-			pluginPath = abs
+		if err := os.WriteFile(wiring.artifact, genconfig.OpencodePluginFor(binary), 0o644); err != nil {
+			return err
 		}
-		return merge(path, plane, genconfig.OpencodeConfig(base, pluginPath))
+		entry := wiring.entryPath
+		if abs, err := filepath.Abs(entry); err == nil {
+			entry = abs
+		}
+		wiring.entryPath = entry
+		return merge(path, plane, opencodeFragment(wiring, base))
 	case "antigravity":
 		return merge(path, plane, genconfig.AntigravityConfig(binary))
 	default:
@@ -405,6 +410,9 @@ func cmdPlaneLifecycle(args []string, action, outcome string, terminal bool, std
 	}
 	if len(batch) == 0 {
 		return 0
+	}
+	if action == "plane-enable" {
+		noteOpencodeMajorUnknown(batch, stderr)
 	}
 	if bootstrap {
 		if err := bootstrapPlanes("plane enable", batch, stdout, stderr); err != nil {
@@ -631,14 +639,7 @@ func planeIntegrationRegistered(plane string) bool {
 		return genconfig.CodexHooksRegistered(doc) && genconfig.CodexRulesRegistered(path)
 	}
 	if plane == "opencode" {
-		if plugins, ok := doc["plugin"].([]any); ok {
-			for _, entry := range plugins {
-				if s, ok := entry.(string); ok && filepath.Base(s) == "guardrail.js" {
-					return true
-				}
-			}
-		}
-		return false
+		return opencodeRegisteredMajorAware(doc)
 	}
 	if plane == "antigravity" {
 		guardrail, ok := doc["guardrail"].(map[string]any)
@@ -758,6 +759,9 @@ func planeStatusState(plane string) string {
 				return "present, disabled"
 			}
 		}
+	}
+	if plane == "opencode" {
+		return opencodeStatusState(doc)
 	}
 	if planeIntegrationRegistered(plane) {
 		if plane == "codex" {
