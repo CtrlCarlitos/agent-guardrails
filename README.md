@@ -164,7 +164,7 @@ It also protects secrets from being *read* without, by itself, stopping ambient 
 | Plane | How it's wired | Worth knowing |
 |---|---|---|
 | **Claude Code** | `PreToolUse`/`PostToolUse`/`SessionStart` hooks in `~/.claude/settings.json` plus a declarative permission floor that survives even if the binary is missing | The session posture tells the agent to work autonomously and pauses only on a real ask. Subagents inherit enforcement. `guardrail doctor --coverage claude` diffs the installed Claude Code's tool surface against the contract, reporting any tools missing from it. |
-| **opencode** | A generated plugin that spawns the engine, plus a permission floor in `opencode.json` | Asks remembered for ten minutes, one shot, exact call. |
+| **opencode** | A generated plugin that spawns the engine; one file serves OpenCode 1 and 2, wired per detected major (V2: directory plugin + native `permissions` with `external_directory: ask`) | Asks remembered for ten minutes, one shot, exact call. |
 | **Antigravity** | `PreToolUse`/`PostToolUse` in `~/.gemini/config/hooks.json` | No native permission floor exists, so the hook *is* the boundary ([ADR-0008](./docs/adr/0008-antigravity-no-declarative-floor.md)). Subagents (`invoke_subagent`) inherit enforcement in-process ([ADR-0013](./docs/adr/0013-delegation-inherits-enforcement-in-process.md)); `guardrail doctor --coverage antigravity` inventories MCP tool drift. |
 | **Codex** | Native synchronous hooks in `~/.codex/hooks.json` plus an escalation-rules floor | Codex can't prompt from a hook, so asks block with guidance. Delegation remains denied. Hosted tools and `write_stdin` bypass pre-hooks; treat registration as wiring, not proof ([ADR-0014](./docs/adr/0014-codex-native-hooks-and-blocked-asks.md)). |
 

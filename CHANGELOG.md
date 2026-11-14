@@ -4,6 +4,37 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### OpenCode 2
+
+- **Feature (#534): the opencode plane now runs on OpenCode 2 as well as
+  1.x, with V1 unchanged (ADR-0034).** OpenCode 2 replaces the 1.x binary in
+  place, does not run V1 plugin implementations, and skips configured
+  single-file plugin paths — a machine upgraded to V2 was silently
+  unguarded. Now:
+  - **Dual-major plugin.** The generated plugin serves both majors from one
+    file: V1 via the `GuardrailPlugin` named export (`server()`), V2 via
+    `setup(ctx)` registering `ctx.tool.hook("execute.before", …)`. Throw-to-
+    block is preserved; the ADR-0007 wire envelope does not change (V2's
+    `shell`/`patch`/`subagent` and `path` args are translated onto the
+    contract's names). ADR-0015 host-approval correlation runs on V2's
+    `permission.asked`/`permission.replied` events.
+  - **Emission by detected major.** `plane enable`, `setup`, `gen-config`
+    and `sync` read `opencode --version`: V1 keeps today's single-file
+    artifact and `plugin` entry byte-for-byte; V2 writes a directory
+    artifact (`guardrail/index.js`) with a `plugins` entry plus the native
+    `permissions` array carrying `{action: "external_directory", resource:
+    "*", effect: "ask"}` — V2 allows external directories by default where
+    V1 asked, and this restores that default rather than resurrecting the
+    retired floor (ADR-0028). An undetectable major assumes V1 and says so
+    loudly. `--major 1|2` forces gen-config/sync.
+  - **Doctor/status.** The opencode line names the detected major and entry
+    shape; cross-major wiring reports NOT-registered with the remedy and
+    counts as a doctor problem; a major flip converges on the next enable.
+    `doctor --coverage opencode --mcp` inventories V2's `mcp.servers`
+    (`disabled`) alongside V1's `mcp` (`enabled`).
+
 ## v0.23.36-dev (2026-10-04)
 
 ### Codex probe

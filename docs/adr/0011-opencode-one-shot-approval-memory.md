@@ -1,5 +1,8 @@
 # OpenCode asks use one-shot approval memory
 
+> **OpenCode 2:** unchanged — retry inference remains the ask fallback on
+> both majors ([ADR-0034](./0034-opencode-dual-major-port.md)).
+
 OpenCode's `tool.execute.before` extension point can only return normally or
 throw. Its `permission.asked` and `permission.replied` events are observers;
 they do not let this Adapter create a native permission request or correlate a
