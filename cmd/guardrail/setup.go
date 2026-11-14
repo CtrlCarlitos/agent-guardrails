@@ -272,6 +272,15 @@ func setupEnableReason(plane string) (string, error) {
 	if drifted {
 		return "registered handlers differ from this binary; re-enabling", nil
 	}
+	// Last and quietest: a registered plane with no ownership manifest at
+	// all is a pre-manifest install (#521) — the entries match generated
+	// output but nothing claims them, so doctor keeps promising a fallback
+	// removal that never resolves while setup answers "already enabled".
+	// Re-enable reconciles, and reconcile mode adopts exactly the entries
+	// that match current output; the operator's own stay theirs.
+	if report, err := planeOwnershipDrift(plane); err == nil && report.NoManifest {
+		return "ownership manifest missing (entries predate it); re-enabling adopts them", nil
+	}
 	return "", nil
 }
 

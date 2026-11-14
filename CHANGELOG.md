@@ -6,6 +6,17 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Setup
+- **Fix (#521): `setup` adopts entries that predate the ownership
+  manifest.** A registered plane with no manifest (codex, antigravity on
+  WSL in the report) made doctor permanently promise a fallback removal
+  while setup answered `already enabled` — the reason rule treated "no
+  manifest" as consistent. It is now the last, quietest reason to
+  re-enable: the reconcile merge adopts exactly the entries matching
+  current generated output (the operator's own stay theirs) and writes the
+  manifest, converging doctor to `manifest matches settings`. Every
+  existing reason keeps its priority and text.
+
 ### Claude plane
 - **Fix (#532): SessionStart no longer calls id-stripped hooks drift.**
   Claude Code's serializer strips the undocumented `id` from every guardrail
