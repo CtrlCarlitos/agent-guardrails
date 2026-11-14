@@ -49,7 +49,9 @@ func resolveGlobalHooksPath() (string, bool) {
 	resolved := ""
 	for _, path := range globalGitConfigPaths() {
 		if value, ok := scanGitConfigHooksPath(path); ok {
-			resolved = expandHome(value)
+			if expanded := expandHome(value); isAbsoluteish(expanded) {
+				resolved = expanded
+			}
 		}
 	}
 	globalHooksPathcell = &resolved
@@ -132,19 +134,28 @@ func repoHooksPathDir(repoRoot string) string {
 		return ""
 	}
 	expanded := expandHome(value)
-	if !filepath.IsAbs(expanded) {
+	if !isAbsoluteish(expanded) {
 		expanded = filepath.Join(repoRoot, expanded)
 	}
 	return filepath.Clean(expanded)
 }
 
+// expandHome expands a leading ~ and canonicalizes to host separators: git
+// config values legitimately carry forward slashes on every platform.
 func expandHome(path string) string {
 	if path == "~" || strings.HasPrefix(path, "~/") {
 		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(path, "~"), "/"))
+			path = filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(path, "~"), "/"))
 		}
 	}
-	return path
+	return filepath.Clean(filepath.FromSlash(path))
+}
+
+// isAbsoluteish reports whether a path is absolute under either separator
+// convention: filepath.IsAbs covers the host's own, and a leading "/" covers
+// POSIX-style values (Git-for-Windows accepts them, rooting at a drive).
+func isAbsoluteish(path string) bool {
+	return filepath.IsAbs(path) || strings.HasPrefix(path, "/")
 }
 
 // candidateInsideHooksDir reports whether a write candidate lands inside dir.
@@ -154,13 +165,14 @@ func candidateInsideHooksDir(candidate pathCandidate, dir string) bool {
 	}
 	p := strings.TrimPrefix(candidate.path, "./")
 	p = expandHome(p)
-	if !filepath.IsAbs(p) {
+	if !isAbsoluteish(p) {
 		if candidate.cwdUnknown || candidate.cwd == "" {
 			return false
 		}
 		p = filepath.Join(candidate.cwd, p)
 	}
-	p = filepath.Clean(p)
+	p = filepath.Clean(filepath.FromSlash(p))
+	dir = filepath.Clean(filepath.FromSlash(dir))
 	return p == dir || strings.HasPrefix(p, dir+string(filepath.Separator))
 }
 
