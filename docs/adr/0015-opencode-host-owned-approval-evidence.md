@@ -1,5 +1,11 @@
 # ADR-0015: OpenCode asks are answered by the host permission dialog
 
+> **OpenCode 2:** the model ports; the event shapes changed. V2 publishes
+> `permission.asked` (flat fields; the tool callID rides in `source.id`)
+> and `permission.replied` `{sessionID, requestID, reply}` — V1's
+> `permission.updated` is gone. The plugin correlates both majors'
+> shapes ([ADR-0034](./0034-opencode-dual-major-port.md)).
+
 ## Status
 
 Accepted (amends ADR-0011; retry inference remains only as fallback)

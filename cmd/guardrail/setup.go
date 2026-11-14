@@ -168,6 +168,7 @@ func setupEnable(planes []string, terminal bool, stdout, stderr io.Writer) int {
 	prompt := promptApprovalMode()
 	bootstrap := len(batch) > 0 && bootstrapAllowed(prompt, promptApprovalReachable)
 	if len(batch) > 0 {
+		noteOpencodeMajorUnknown(batch, stderr)
 		if bootstrap {
 			// First install: no passkey exists, so arm without an approval
 			// (ADR-0030). Enable only; everything that loosens still needs

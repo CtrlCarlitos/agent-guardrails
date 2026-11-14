@@ -41,7 +41,7 @@ globalThis.__GUARDRAIL_TEST_SPAWN__ = () => {
 	return { pid: 100 + calls, stdout: '{"decision":"allow","reason":""}', stderr: "", status: 0, signal: null };
 };
 const loaded = await import(pathToFileURL(process.argv[1]).href);
-const plugin = await loaded.default({ directory: "/repo" });
+const plugin = await loaded.GuardrailPlugin({ directory: "/repo" });
 const before = plugin["tool.execute.before"];
 for (const tool of ["todowrite", "bash"]) {
 	calls = 0;

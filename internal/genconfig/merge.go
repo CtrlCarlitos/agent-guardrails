@@ -132,10 +132,12 @@ func removeByInBandMarkers(existing map[string]any, plane string) RemovalReport 
 	case "claude", "codex":
 		report.Removed += removeGuardrailHookGroups(existing, plane)
 	case "opencode":
-		before, _ := toAnySlice(existing["plugin"])
-		absorbGuardrailPluginEntries(existing)
-		after, _ := toAnySlice(existing["plugin"])
-		report.Removed += len(before) - len(after)
+		for _, key := range []string{"plugin", "plugins"} {
+			before, _ := toAnySlice(existing[key])
+			absorbGuardrailKey(existing, key, map[string]string{"plugin": "guardrail.js", "plugins": "guardrail"}[key])
+			after, _ := toAnySlice(existing[key])
+			report.Removed += len(before) - len(after)
+		}
 	case "antigravity":
 		if _, ok := existing["guardrail"]; ok {
 			delete(existing, "guardrail")
@@ -275,6 +277,15 @@ func mergeInto(path, plane string, frag Fragment, reconcileOwnership bool) error
 			}
 		}
 		deepMerge(existing, withoutPermission)
+	} else if permissions, ok := toAnySlice(frag["permissions"]); ok {
+		mergeOpencodeV2Permissions(existing, permissions)
+		withoutPermissions := make(Fragment, len(frag)-1)
+		for key, value := range frag {
+			if key != "permissions" {
+				withoutPermissions[key] = value
+			}
+		}
+		deepMerge(existing, withoutPermissions)
 	} else {
 		deepMerge(existing, frag)
 	}
@@ -372,8 +383,18 @@ func retiredBashFloorRule(value any, wrapped bool) bool {
 // dir, repository .guardrail/), and opencode loads the first-listed entry —
 // a stale earlier deployment would silently win over the fresh one. Foreign
 // plugins are untouched; the incoming fragment's entry lands last.
+//
+// Both config keys are absorbed (#534): `plugin` (V1) holds single-file
+// entries named guardrail.js, `plugins` (V2) holds directory entries named
+// guardrail. A machine that switched majors converges to the incoming
+// fragment's shape instead of stacking entries for both.
 func absorbGuardrailPluginEntries(existing map[string]any) {
-	plugins, ok := toAnySlice(existing["plugin"])
+	absorbGuardrailKey(existing, "plugin", "guardrail.js")
+	absorbGuardrailKey(existing, "plugins", "guardrail")
+}
+
+func absorbGuardrailKey(existing map[string]any, key, basename string) {
+	plugins, ok := toAnySlice(existing[key])
 	if !ok {
 		return
 	}
@@ -383,16 +404,53 @@ func absorbGuardrailPluginEntries(existing map[string]any) {
 		// Match the plugin file name regardless of host separator spelling:
 		// a backslashed Windows path in a merged file must absorb on POSIX
 		// CI hosts too, so normalize before Base.
-		if entryPath != "" && strings.EqualFold(path.Base(strings.ReplaceAll(entryPath, "\\", "/")), "guardrail.js") {
+		if entryPath != "" && strings.EqualFold(path.Base(strings.ReplaceAll(entryPath, "\\", "/")), basename) {
 			continue
 		}
 		kept = append(kept, entry)
 	}
 	if len(kept) == 0 {
-		delete(existing, "plugin")
+		delete(existing, key)
 		return
 	}
-	existing["plugin"] = kept
+	existing[key] = kept
+}
+
+// mergeOpencodeV2Permissions merges the V2 `permissions` array. The operator
+// owns their array: guardrail appends its external_directory ask only when
+// the merged document has no rule for that action, and never reorders or
+// overrides rules it did not write (V2 resolves the last matching rule, so
+// appending beside an operator rule would silently outrank it).
+func mergeOpencodeV2Permissions(existing map[string]any, generated []any) {
+	for _, rule := range generated {
+		action, _ := rule.(map[string]any)["action"].(string)
+		if action == "" {
+			continue
+		}
+		if opencodePermissionRuleExists(existing, action) {
+			continue
+		}
+		list, _ := toAnySlice(existing["permissions"])
+		list = append(list, rule)
+		existing["permissions"] = list
+	}
+}
+
+func opencodePermissionRuleExists(existing map[string]any, action string) bool {
+	list, ok := toAnySlice(existing["permissions"])
+	if !ok {
+		return false
+	}
+	for _, entry := range list {
+		rule, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		if rule["action"] == action {
+			return true
+		}
+	}
+	return false
 }
 
 type orderedPermissionRules map[string]any

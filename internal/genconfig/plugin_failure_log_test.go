@@ -31,7 +31,7 @@ func TestOpencodePluginLeavesFailureTrail(t *testing.T) {
 	runner := `
 import { pathToFileURL } from "node:url";
 const loaded = await import(pathToFileURL(process.argv[1]).href);
-const plugin = await loaded.default({ directory: "/repo" });
+const plugin = await loaded.GuardrailPlugin({ directory: "/repo" });
 const before = plugin["tool.execute.before"];
 try { await before({ tool: "question", sessionID: "s" }, { args: {} }); } catch {}
 try { await before({ tool: "read", sessionID: "s" }, { args: { filePath: "/repo/a.txt" } }); } catch {}

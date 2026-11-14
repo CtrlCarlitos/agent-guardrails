@@ -299,6 +299,7 @@ async function callGuardrailTraced(envelope, trace) {
 // Host-owned approval correlation (ADR-0015): opencode's permission dialog
 // is the Approve control; our plugin observes the reply and attributes it to
 // the exact call. In-memory only — evidence never crosses processes.
+// V1 shape: events arrive as {type, properties:{...}}.
 const permissionCallIDs = new Map();
 const hostApprovedCallIDs = new Set();
 const allowResponses = new Set(["once", "always"]);
@@ -322,82 +323,177 @@ async function trackHostApprovals(client) {
 	}
 }
 
+// buildEnvelope projects a tool call onto the ADR-0007 wire format. Shared by
+// both majors so the {session_id, event, tool, command, paths, cwd} shape the
+// Go adapter parses cannot diverge between them. `tool` is the engine
+// contract name (V1-native); `nativeArgs` carries either major's arg
+// spellings (V1 read/edit/write use filePath, V2 uses path).
+function buildEnvelope(tool, nativeArgs, cwd, sessionID, callID) {
+	const args = nativeArgs ?? {};
+	const envelope = {
+		session_id: sessionID,
+		event: "pre",
+		tool,
+		cwd,
+		arguments: args,
+	};
+	if (callID) {
+		envelope.call_id = callID;
+		if (hostApprovedCallIDs.delete(callID)) {
+			// Consumed exactly once, for this call only.
+			envelope.host_approved = true;
+		}
+	}
+	if (tool === "bash") {
+		envelope.command = args.command;
+	} else if (["read", "edit", "write"].includes(tool)) {
+		const p = args.filePath ?? args.path;
+		if (p) envelope.paths = [p];
+	} else if (tool === "grep") {
+		// grep with no path searches the CWD — project that (#132).
+		const p = args.path ?? ".";
+		envelope.paths = [p];
+	} else if (tool === "glob") {
+		// Glob with brace expansion projects the base directory before the
+		// braces so the engine evaluates the containing path (#132).
+		const p = args.path;
+		if (p) {
+			const braceIndex = p.indexOf("{");
+			envelope.paths = [braceIndex > 0 ? p.slice(0, braceIndex) : p];
+		} else {
+			envelope.paths = ["."];
+		}
+	} else if (tool === "lsp") {
+		const p = args.filePath;
+		if (p) envelope.paths = [p];
+	} else if (tool === "webfetch") {
+		envelope.url = args.url;
+	}
+	return envelope;
+}
+
+// deliverVerdict applies the post-engine notice policy shared by both majors.
+// `toast` is nullable: V1 passes the host's tui.showToast when the client
+// exposes one; V2's server context has no toast API (desktop-GUI plugins
+// own those), so it passes null and notices go to stderr — the same shape as
+// a V1 host without a toast API. A pending operator action always throws.
+async function deliverVerdict(decision, toast) {
+	if (isPendingOperatorAction(decision)) {
+		const message = `WebAuthn approval required for ${decision.operator_action}. Open ${decision.approval_url}`;
+		if (toast) {
+			try {
+				await toast({ body: { title: "Guardrail Approval Required", message, variant: "warning", duration: 15000 } });
+			} catch {
+				process.stderr.write(`${message}\n`);
+			}
+		}
+		throw new Error(`guardrail: ${message}`);
+	}
+	if (decision.reason?.startsWith("NIGHT MODE until ")) {
+		const message = decision.reason.split(";", 1)[0];
+		if (toast) {
+			try {
+				await toast({ body: { title: "Guardrail Night Mode", message, variant: "warning", duration: 7000 } });
+			} catch {
+				process.stderr.write(`${message}\n`);
+			}
+		} else {
+			process.stderr.write(`${message}\n`);
+		}
+	}
+}
+
 export const GuardrailPlugin = async ({ directory, client }) => {
 	trackHostApprovals(client);
+	const toast = client?.tui?.showToast ? (body) => client.tui.showToast({ body }) : null;
 	return {
 		"tool.execute.before": async (input, output) => {
-			const tool = input.tool;
-			const args = output.args ?? {};
-			const envelope = {
-				session_id: input.sessionID ?? input.session_id,
-				event: "pre",
-				tool,
-				cwd: directory,
-				arguments: args,
-			};
-			if (input.callID) {
-				envelope.call_id = input.callID;
-				if (hostApprovedCallIDs.delete(input.callID)) {
-					// Consumed exactly once, for this call only.
-					envelope.host_approved = true;
-				}
-			}
-			if (tool === "bash") {
-				envelope.command = args.command;
-			} else if (["read", "edit", "write"].includes(tool)) {
-				const p = args.filePath;
-				if (p) envelope.paths = [p];
-			} else if (tool === "grep") {
-				// grep with no path searches the CWD — project that (#132).
-				const p = args.path ?? ".";
-				envelope.paths = [p];
-			} else if (tool === "glob") {
-				// Glob with brace expansion projects the base directory
-				// before the braces so the engine evaluates the containing
-				// path (#132).
-				const p = args.path;
-				if (p) {
-					const braceIndex = p.indexOf("{");
-					envelope.paths = [braceIndex > 0 ? p.slice(0, braceIndex) : p];
-				} else {
-					envelope.paths = ["."];
-				}
-			} else if (tool === "lsp") {
-				const p = args.filePath;
-				if (p) envelope.paths = [p];
-			} else if (tool === "webfetch") {
-				envelope.url = args.url;
-			}
+			const envelope = buildEnvelope(
+				input.tool,
+				output.args ?? {},
+				directory,
+				input.sessionID ?? input.session_id,
+				input.callID,
+			);
 			const decision = await callGuardrail(envelope);
-			if (isPendingOperatorAction(decision)) {
-				const message = `WebAuthn approval required for ${decision.operator_action}. Open ${decision.approval_url}`;
-				if (client?.tui?.showToast) {
-					try {
-						await client.tui.showToast({
-							body: { title: "Guardrail Approval Required", message, variant: "warning", duration: 15000 },
-						});
-					} catch {
-						process.stderr.write(`${message}\n`);
-					}
-				}
-				throw new Error(`guardrail: ${message}`);
-			}
-			if (decision.reason?.startsWith("NIGHT MODE until ")) {
-				const message = decision.reason.split(";", 1)[0];
-				if (client?.tui?.showToast) {
-					try {
-						await client.tui.showToast({
-							body: { title: "Guardrail Night Mode", message, variant: "warning", duration: 7000 },
-						});
-					} catch {
-						process.stderr.write(`${message}\n`);
-					}
-				} else {
-					process.stderr.write(`${message}\n`);
-				}
-			}
+			await deliverVerdict(decision, toast);
 		},
 	};
 };
 
-export default GuardrailPlugin;
+// --- OpenCode 2 (V2), #534 / ADR-0034 -------------------------------------
+//
+// V2 default-exports {id, setup}; V2's PluginSupervisor reads id and calls
+// setup(ctx). The V2 execute.before event carries one mutable object
+// {tool, sessionID, agent, messageID, id (the callID), input (the args)}
+// instead of V1's (input, output) pair, and throwing still blocks.
+//
+// V2 renamed tools; the engine contract keeps the V1-native names, so the
+// translation happens here — the wire format (ADR-0007 decision 1) is ours
+// and the Go side does not change.
+const V2_TOOL_NAMES = {
+	shell: "bash", // V2 action/tool rename
+	patch: "apply_patch", // V1's multi-file patch tool under a new name
+	subagent: "task", // V1's delegation tool under a new name
+};
+
+// V2 permission events are flat ({type, ...fields}) and the correlation
+// keys moved: permission.asked carries the tool callID in source.id, and
+// permission.replied answers by requestID (ADR-0015 ported).
+async function trackHostApprovalsV2(ctx) {
+	const controller = new AbortController();
+	void (async () => {
+		try {
+			for await (const event of ctx.event.subscribe({
+				types: ["permission.asked", "permission.replied"],
+				signal: controller.signal,
+			})) {
+				if (event?.type === "permission.asked" && event.id) {
+					const callID = event.source?.id;
+					if (callID) permissionCallIDs.set(event.id, callID);
+				} else if (event?.type === "permission.replied" && event.requestID) {
+					const callID = permissionCallIDs.get(event.requestID);
+					if (callID && allowResponses.has(String(event.reply).toLowerCase())) {
+						hostApprovedCallIDs.add(callID);
+					}
+				}
+			}
+		} catch {
+			// Event stream unavailable: fall back to retry-inference guidance.
+		}
+	})();
+	return () => controller.abort();
+}
+
+async function setup(ctx) {
+	// V1 (observed on 1.18.x) also invokes default.setup with a V1-shaped ctx
+	// that has no tool domain; detect it and return quietly — V1 is served
+	// entirely by the GuardrailPlugin named export.
+	if (!ctx || !ctx.tool || typeof ctx.tool.hook !== "function" || !ctx.location) {
+		return;
+	}
+	const cwd = ctx.location.directory;
+	const stopTracking = ctx.event?.subscribe ? await Promise.resolve(trackHostApprovalsV2(ctx)) : null;
+	await ctx.tool.hook("execute.before", async (event) => {
+		const nativeTool = event.tool;
+		const tool = V2_TOOL_NAMES[nativeTool] ?? nativeTool;
+		const envelope = buildEnvelope(tool, event.input, cwd, event.sessionID, event.id);
+		const decision = await callGuardrail(envelope);
+		await deliverVerdict(decision, null);
+	});
+	return () => {
+		try {
+			stopTracking?.();
+		} catch {}
+	};
+}
+
+// Dual-major default export (#534): V1 calls server() (>= 1.18.29; the
+// dotfiles fleet is on 1.19.x) or discovers the named export; V2 reads id
+// and calls setup(). The APIs stay separate — this shape does not translate
+// hooks automatically.
+export default {
+	id: "guardrail",
+	server: GuardrailPlugin,
+	setup,
+};

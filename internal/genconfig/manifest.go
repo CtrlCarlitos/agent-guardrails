@@ -279,7 +279,7 @@ func manifestKind(path []string) string {
 		return "permission"
 	case "hooks", "guardrail":
 		return "hook"
-	case "plugin":
+	case "plugin", "plugins":
 		return "plugin"
 	}
 	return "other"

@@ -173,25 +173,73 @@ func readCodexMCP(raw []byte) ([]MCPServerConfig, error) {
 }
 
 func readOpencodeMCP(raw []byte) ([]MCPServerConfig, error) {
+	// Both majors' shapes: V1 mcp.<name> with `enabled` (absent = enabled),
+	// V2 mcp.servers.<name> with the inverse `disabled` (#534). A server
+	// named by both resolves to the V1 entry, matching V2's own
+	// normalization precedence for mixed members. `mcp` is decoded raw
+	// because the two shapes disagree about what its members are.
 	var doc struct {
-		MCP map[string]struct {
-			Type        string            `json:"type"`
-			Command     []string          `json:"command"`
-			Environment map[string]string `json:"environment"`
-			URL         string            `json:"url"`
-			Enabled     *bool             `json:"enabled"`
-		} `json:"mcp"`
+		MCP json.RawMessage `json:"mcp"`
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("parsing OpenCode configuration: %w", err)
 	}
-	var out []MCPServerConfig
-	for name, s := range doc.MCP {
-		server := MCPServerConfig{Name: name, Env: s.Environment, Remote: s.Type == "remote" || s.URL != "",
-			Disabled: s.Enabled != nil && !*s.Enabled}
+	var mcp map[string]json.RawMessage
+	if len(doc.MCP) > 0 {
+		if err := json.Unmarshal(doc.MCP, &mcp); err != nil {
+			return nil, fmt.Errorf("parsing OpenCode configuration: %w", err)
+		}
+	}
+	type serverEntry struct {
+		Type        string            `json:"type"`
+		Command     []string          `json:"command"`
+		Environment map[string]string `json:"environment"`
+		URL         string            `json:"url"`
+		Enabled     *bool             `json:"enabled"`
+		Disabled    bool              `json:"disabled"`
+	}
+	decode := func(raw json.RawMessage, v2 bool) (MCPServerConfig, error) {
+		var s serverEntry
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return MCPServerConfig{}, err
+		}
+		server := MCPServerConfig{Env: s.Environment, Remote: s.Type == "remote" || s.URL != ""}
+		if v2 {
+			server.Disabled = s.Disabled
+		} else {
+			server.Disabled = s.Enabled != nil && !*s.Enabled
+		}
 		if len(s.Command) > 0 {
 			server.Command, server.Args = s.Command[0], s.Command[1:]
 		}
+		return server, nil
+	}
+	var out []MCPServerConfig
+	for name, raw := range mcp {
+		if name == "servers" {
+			var servers map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &servers); err != nil {
+				return nil, fmt.Errorf("parsing OpenCode configuration: %w", err)
+			}
+			for serverName, serverRaw := range servers {
+				// A V1 entry with the same name wins (normalization order).
+				if _, v1 := mcp[serverName]; v1 {
+					continue
+				}
+				server, err := decode(serverRaw, true)
+				if err != nil {
+					return nil, fmt.Errorf("parsing OpenCode configuration: %w", err)
+				}
+				server.Name = serverName
+				out = append(out, server)
+			}
+			continue
+		}
+		server, err := decode(raw, false)
+		if err != nil {
+			return nil, fmt.Errorf("parsing OpenCode configuration: %w", err)
+		}
+		server.Name = name
 		out = append(out, server)
 	}
 	return sortedServers(out), nil

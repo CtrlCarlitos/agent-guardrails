@@ -57,7 +57,7 @@ func TestOpencodePluginDegradedAllowOnTransportFailure(t *testing.T) {
 	runner := `
 import { pathToFileURL } from "node:url";
 const loaded = await import(pathToFileURL(process.argv[1]).href);
-const plugin = await loaded.default({ directory: "/repo" });
+const plugin = await loaded.GuardrailPlugin({ directory: "/repo" });
 const before = plugin["tool.execute.before"];
 async function attempt(tool, args) {
 	try { await before({ tool, sessionID: "s" }, { args }); return false; }
@@ -121,7 +121,7 @@ printf '%s' 'not-json'
 	runner := `
 import { pathToFileURL } from "node:url";
 const loaded = await import(pathToFileURL(process.argv[1]).href);
-const plugin = await loaded.default({ directory: "/repo" });
+const plugin = await loaded.GuardrailPlugin({ directory: "/repo" });
 const before = plugin["tool.execute.before"];
 try {
 	await before({ tool: "question", sessionID: "s" }, { args: { question: "reachable but broken" } });
@@ -181,7 +181,7 @@ func TestOpencodePluginDialsDaemonWhenAvailable(t *testing.T) {
 	runner := `
 import { pathToFileURL } from "node:url";
 const loaded = await import(pathToFileURL(process.argv[1]).href);
-const plugin = await loaded.default({ directory: "/repo" });
+const plugin = await loaded.GuardrailPlugin({ directory: "/repo" });
 const before = plugin["tool.execute.before"];
 let threw = false;
 try {

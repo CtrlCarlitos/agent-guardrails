@@ -67,18 +67,22 @@ func planeHandlerDrift(plane string) (drifted bool, err error) {
 		if err != nil {
 			return false, err
 		}
-		pluginPath := filepath.Join(dir, "guardrail.js")
-		if abs, err := filepath.Abs(pluginPath); err == nil {
-			pluginPath = abs
+		wiring := opencodeWiringFor(dir)
+		if abs, err := filepath.Abs(wiring.entryPath); err == nil {
+			wiring.entryPath = abs
 		}
+		// A guardrail-named entry under this major's key must be the path
+		// this binary generates (a stale deployment would silently win —
+		// opencode loads the first-listed entry).
+		basename := filepath.Base(wiring.entryPath)
 		registered := false
-		plugins, _ := doc["plugin"].([]any)
-		for _, entry := range plugins {
+		entries, _ := doc[wiring.configKey].([]any)
+		for _, entry := range entries {
 			s, ok := entry.(string)
-			if !ok || filepath.Base(s) != "guardrail.js" {
+			if !ok || filepath.Base(s) != basename {
 				continue
 			}
-			if filepath.Clean(s) != pluginPath {
+			if filepath.Clean(s) != wiring.entryPath {
 				return true, nil
 			}
 			registered = true
@@ -86,7 +90,7 @@ func planeHandlerDrift(plane string) (drifted bool, err error) {
 		if !registered {
 			return true, nil
 		}
-		return fileDiffers(pluginPath, genconfig.OpencodePluginFor(binary))
+		return fileDiffers(wiring.artifact, genconfig.OpencodePluginFor(binary))
 	default:
 		return false, fmt.Errorf("unsupported plane %q", plane)
 	}

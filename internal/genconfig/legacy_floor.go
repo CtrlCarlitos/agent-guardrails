@@ -24,6 +24,28 @@ func OpencodeConfig(pol *policy.Policy, pluginPath string) Fragment {
 	return Fragment{"plugin": []string{pluginPath}}
 }
 
+// OpencodeV2PermissionRules is the one permissions entry guardrail emits on
+// OpenCode 2. V2 allows `external_directory` by default where V1 asked before
+// accessing paths outside the project; this entry restores that host default.
+// It is not a declarative floor (ADR-0028 stands): the Engine still enforces
+// policy through the plugin, and nothing else is mirrored into the array.
+func OpencodeV2PermissionRules() []any {
+	return []any{
+		map[string]any{"action": "external_directory", "resource": "*", "effect": "ask"},
+	}
+}
+
+// OpencodeConfigV2 is the fragment merged into opencode.json on a detected
+// OpenCode 2 binary: the `plugins` directory entry (V2 skips configured
+// single-file plugin paths) plus the native `permissions` array holding
+// OpencodeV2PermissionRules.
+func OpencodeConfigV2(pluginDir string) Fragment {
+	return Fragment{
+		"plugins":     []string{pluginDir},
+		"permissions": OpencodeV2PermissionRules(),
+	}
+}
+
 // retiredClaudeDeny are entries an earlier release generated that the current
 // generators no longer list, so a settings file can still hold them. `dd` and
 // the five `git clean` globs were retired as no-op floor classes in #297
@@ -108,6 +130,9 @@ func legacyFloorFragment(plane string) (Fragment, bool) {
 	case "opencode":
 		frag := OpencodeConfig(base, "guardrail.js")
 		frag["permission"] = legacyOpencodeFragment(base, "guardrail.js")["permission"]
+		// The V2 permissions entry this binary can also write, so drift and
+		// the fallback removal recognise it without a manifest.
+		frag["permissions"] = OpencodeV2PermissionRules()
 		return frag, true
 	}
 	return nil, false

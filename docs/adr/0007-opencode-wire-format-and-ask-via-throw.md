@@ -1,5 +1,10 @@
 # opencode: our own plugin↔binary wire format; ask delivered as a throw
 
+> **OpenCode 2:** both decisions carry over — the V2 hook
+> (`ctx.tool.hook("execute.before", …)`) keeps our wire format (the plugin
+> translates V2's renamed tools/args onto these names) and throwing still
+> blocks. See [ADR-0034](./0034-opencode-dual-major-port.md).
+
 opencode's `tool.execute.before` hook has exactly two outcomes: return
 normally (allow) or throw (block) — there is no third "ask" outcome at the
 plugin level (confirmed against the installed `@opencode-ai/plugin` types,

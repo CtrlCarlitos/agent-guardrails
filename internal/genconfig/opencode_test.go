@@ -216,7 +216,7 @@ func TestOpencodePluginForEscapesAndUsesExactBinaryPath(t *testing.T) {
 	runner := `
 import { pathToFileURL } from "node:url";
 const loaded = await import(pathToFileURL(process.argv[1]).href);
-const instance = await loaded.default({ directory: process.cwd() });
+const instance = await loaded.GuardrailPlugin({ directory: process.cwd() });
 await instance["tool.execute.before"](
 	{ tool: "bash", sessionID: "test-session" },
 	{ args: { command: "true" } },
@@ -251,7 +251,7 @@ func TestOpencodePluginCarriesCompleteArguments(t *testing.T) {
 	runner := `
 import { pathToFileURL } from "node:url";
 const loaded = await import(pathToFileURL(process.argv[1]).href);
-const plugin = await loaded.default({ directory: "/repo" });
+const plugin = await loaded.GuardrailPlugin({ directory: "/repo" });
 const before = plugin["tool.execute.before"];
 	for (const [tool, args] of [
 		["bash", { command: "printf '%s\\n' hi", timeout: 30 }],
@@ -350,7 +350,7 @@ func TestOpencodePluginRequiresExplicitAllow(t *testing.T) {
 	runner := `
 import { pathToFileURL } from "node:url";
 const loaded = await import(pathToFileURL(process.argv[1]).href);
-const plugin = await loaded.default({ directory: process.cwd() });
+const plugin = await loaded.GuardrailPlugin({ directory: process.cwd() });
 try {
 	await plugin["tool.execute.before"](
 		{ tool: "bash", sessionID: "test-session" },
@@ -423,7 +423,7 @@ func TestOpencodePluginForwardsHookWarnings(t *testing.T) {
 	runner := `
 import { pathToFileURL } from "node:url";
 const loaded = await import(pathToFileURL(process.argv[1]).href);
-const plugin = await loaded.default({ directory: process.cwd() });
+const plugin = await loaded.GuardrailPlugin({ directory: process.cwd() });
 try {
 	await plugin["tool.execute.before"](
 		{ tool: "bash", sessionID: "test-session" },
@@ -487,7 +487,7 @@ import { pathToFileURL } from "node:url";
 const loaded = await import(pathToFileURL(process.argv[1]).href);
 let toast;
 const client = { tui: { showToast: async (input) => { toast = input; } } };
-const plugin = await loaded.default({ directory: "/repo", client });
+const plugin = await loaded.GuardrailPlugin({ directory: "/repo", client });
 await plugin["tool.execute.before"](
   { tool: "bash", sessionID: "night-plugin" },
   { args: { command: "true" } },
@@ -522,7 +522,7 @@ func TestOpencodePluginRejectsOversizeEnvelopeBeforeSpawningEngine(t *testing.T)
 	runner := `
 import { pathToFileURL } from "node:url";
 const loaded = await import(pathToFileURL(process.argv[1]).href);
-const plugin = await loaded.default({ directory: "/repo" });
+const plugin = await loaded.GuardrailPlugin({ directory: "/repo" });
 try {
 	await plugin["tool.execute.before"](
 		{ tool: "write", sessionID: "test-session" },

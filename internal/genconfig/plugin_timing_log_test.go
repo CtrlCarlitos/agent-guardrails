@@ -36,7 +36,7 @@ func TestOpencodePluginWritesTimingTraceForFailedCalls(t *testing.T) {
 	runner := `
 import { pathToFileURL } from "node:url";
 const loaded = await import(pathToFileURL(process.argv[1]).href);
-const plugin = await loaded.default({ directory: "/repo" });
+const plugin = await loaded.GuardrailPlugin({ directory: "/repo" });
 const before = plugin["tool.execute.before"];
 try { await before({ tool: "todowrite", sessionID: "s", callID: "c1" }, { args: { todos: [] } }); } catch {}
 try { await before({ tool: "bash", sessionID: "s", callID: "c2" }, { args: { command: "ls" } }); } catch {}
@@ -113,7 +113,7 @@ func TestOpencodePluginTimingTraceSkipsFastAndRecordsSlowCalls(t *testing.T) {
 	runner := `
 import { pathToFileURL } from "node:url";
 const loaded = await import(pathToFileURL(process.argv[1]).href);
-const plugin = await loaded.default({ directory: "/repo" });
+const plugin = await loaded.GuardrailPlugin({ directory: "/repo" });
 await plugin["tool.execute.before"]({ tool: "todowrite", sessionID: "s", callID: "c1" }, { args: { todos: [] } });
 `
 	run := func(sleepMS string) []string {
