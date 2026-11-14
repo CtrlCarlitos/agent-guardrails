@@ -472,12 +472,17 @@ func claudeCoveragePosture() string {
 }
 
 // claudePlanePosture reads the plane's lifecycle state the same way doctor
-// and plane status do; read-only, never an approval.
+// and plane status do; read-only, never an approval. Unmarked groups count
+// as drift only when they are true duplicates (unmarked entries alongside
+// marked ones): Claude Code's serializer strips the undocumented id from
+// every guardrail group during normal sessions, and an all-unmarked file
+// matching current output is that owned, id-stripped state — the one
+// definition of intended state doctor and setup already use (#532).
 func claudePlanePosture() string {
 	unmarked := 0
 	if home, err := os.UserHomeDir(); err == nil {
 		if doc, err := genconfig.ReadJSONObject(filepath.Join(home, ".claude", "settings.json")); err == nil {
-			unmarked = genconfig.CountUnmarkedGuardrailGroups(doc)
+			unmarked = genconfig.CountUnmarkedGuardrailDuplicates(doc)
 		}
 	}
 	return adapter.PlaneLifecycleLine("claude", claudeSettingsState(), unmarked)
