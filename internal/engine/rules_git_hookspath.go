@@ -152,10 +152,12 @@ func expandHome(path string) string {
 }
 
 // isAbsoluteish reports whether a path is absolute under either separator
-// convention: filepath.IsAbs covers the host's own, and a leading "/" covers
-// POSIX-style values (Git-for-Windows accepts them, rooting at a drive).
+// convention: filepath.IsAbs covers the host's own, and a leading "/" or "\"
+// covers POSIX-style values (Git-for-Windows accepts them, rooting them at
+// the current drive — and Go's IsAbs on Windows rejects a volume-less "\"
+// root, so the leading-separator check has to be explicit).
 func isAbsoluteish(path string) bool {
-	return filepath.IsAbs(path) || strings.HasPrefix(path, "/")
+	return filepath.IsAbs(path) || strings.HasPrefix(path, "/") || strings.HasPrefix(path, `\`)
 }
 
 // candidateInsideHooksDir reports whether a write candidate lands inside dir.
