@@ -29,8 +29,17 @@ func cmdGenConfig(args []string, stdout, stderr io.Writer) int {
 	doPrint := fs.Bool("print", true, "write the config fragment to stdout")
 	mergePath := fs.String("merge", "", "merge the fragment into this settings file in place")
 	binary := fs.String("binary", "guardrail", "path to the guardrail binary to register in the hook command")
-	pluginDir := fs.String("plugin-dir", "", "(opencode only) directory to write guardrail.js into; default: alongside --merge's file")
+	pluginDir := fs.String("plugin-dir", "", "(opencode only) directory to write the plugin into; default: alongside --merge's file")
+	major := fs.Int("major", 0, "(opencode only) emit for OpenCode major 1 or 2; default: detect from the installed binary")
 	if err := fs.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if plane != "opencode" && *major != 0 {
+		fmt.Fprintln(stderr, "guardrail: --major applies to the opencode plane only")
+		return 2
+	}
+	if *major != 0 && *major != 1 && *major != 2 {
+		fmt.Fprintln(stderr, "guardrail: --major must be 1 or 2")
 		return 2
 	}
 	if *floor {
@@ -62,6 +71,33 @@ func cmdGenConfig(args []string, stdout, stderr io.Writer) int {
 				dir = "."
 			}
 		}
+		if opencodeMajorChoice(*major, stderr) == 2 {
+			// V2 skips configured single-file plugin paths; the artifact is
+			// a directory with index.js (#534).
+			pluginDir2 := filepath.Join(dir, "guardrail")
+			artifact := filepath.Join(pluginDir2, "index.js")
+			entry := pluginDir2
+			if *mergePath != "" {
+				absBinary, err := resolveBinaryPath(*binary)
+				if err != nil {
+					fmt.Fprintf(stderr, "guardrail: gen-config: cannot resolve --binary: %v\n", err)
+					return 2
+				}
+				if err := os.MkdirAll(pluginDir2, 0o755); err != nil {
+					fmt.Fprintf(stderr, "guardrail: gen-config: cannot create plugin dir: %v\n", err)
+					return 2
+				}
+				if err := os.WriteFile(artifact, genconfig.OpencodePluginFor(absBinary), 0o644); err != nil {
+					fmt.Fprintf(stderr, "guardrail: gen-config: cannot write plugin file: %v\n", err)
+					return 2
+				}
+				if abs, err := filepath.Abs(entry); err == nil {
+					entry = abs
+				}
+			}
+			frag = genconfig.OpencodeConfigV2(entry)
+			break
+		}
 		pluginPath := filepath.Join(dir, "guardrail.js")
 		if *mergePath != "" {
 			absBinary, err := resolveBinaryPath(*binary)
@@ -70,11 +106,11 @@ func cmdGenConfig(args []string, stdout, stderr io.Writer) int {
 				return 2
 			}
 			if err := os.MkdirAll(dir, 0o755); err != nil {
-				fmt.Fprintf(stderr, "guardrail: cannot create plugin dir: %v\n", err)
+				fmt.Fprintf(stderr, "guardrail: gen-config: cannot create plugin dir: %v\n", err)
 				return 2
 			}
 			if err := os.WriteFile(pluginPath, genconfig.OpencodePluginFor(absBinary), 0o644); err != nil {
-				fmt.Fprintf(stderr, "guardrail: cannot write plugin file: %v\n", err)
+				fmt.Fprintf(stderr, "guardrail: gen-config: cannot write plugin file: %v\n", err)
 				return 2
 			}
 			abs, err := filepath.Abs(pluginPath)

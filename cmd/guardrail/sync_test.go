@@ -384,7 +384,7 @@ func TestSyncSanitizesEverySuccessfulTargetPath(t *testing.T) {
 			}
 
 			var out, errb bytes.Buffer
-			syncPlane(plane, dir, "/opt/guardrail", &policy.Policy{Waived: map[string]bool{}}, &out, &errb)
+			syncPlane(plane, dir, "/opt/guardrail", &policy.Policy{Waived: map[string]bool{}}, &out, &errb, 0)
 			records := assertTerminalRecords(t, out.String(), 1)
 			if !strings.HasPrefix(records[0], "synced "+plane+" -> ") {
 				t.Fatalf("status prefix was altered: %q", out.String())
@@ -415,7 +415,7 @@ func TestSyncSanitizesSyncPlaneErrorsAndUnknownName(t *testing.T) {
 			}
 
 			var out, errb bytes.Buffer
-			syncPlane(tt.plane, dir, "guardrail", &policy.Policy{Waived: map[string]bool{}}, &out, &errb)
+			syncPlane(tt.plane, dir, "guardrail", &policy.Policy{Waived: map[string]bool{}}, &out, &errb, 0)
 			records := assertTerminalRecords(t, errb.String(), 1)
 			if !strings.HasPrefix(records[0], "guardrail: sync "+tt.plane+" failed: ") {
 				t.Fatalf("error prefix was altered: %q", errb.String())
@@ -427,7 +427,7 @@ func TestSyncSanitizesSyncPlaneErrorsAndUnknownName(t *testing.T) {
 	}
 
 	var out, errb bytes.Buffer
-	syncPlane("evil\nsynced forged\t\x1b[31m\x7f\u0080\u009b31m\u009f", t.TempDir(), "guardrail", &policy.Policy{}, &out, &errb)
+	syncPlane("evil\nsynced forged\t\x1b[31m\x7f\u0080\u009b31m\u009f", t.TempDir(), "guardrail", &policy.Policy{}, &out, &errb, 0)
 	records := assertTerminalRecords(t, errb.String(), 1)
 	if records[0] != `guardrail: sync: unknown plane "evil synced forged [31m 31m", skipping` {
 		t.Fatalf("unknown plane diagnostic = %q", errb.String())

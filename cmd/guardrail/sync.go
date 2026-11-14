@@ -20,12 +20,17 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 	dir := fs.String("dir", ".", "repo directory to sync")
 	binary := fs.String("binary", "guardrail", "path to the guardrail binary to register in hook commands")
 	planesFlag := fs.String("planes", "claude,opencode,antigravity,codex", "comma-separated planes to sync")
+	major := fs.Int("major", 0, "(opencode only) emit for OpenCode major 1 or 2; default: detect from the installed binary")
 	if err := fs.Parse(args); err != nil {
 		message := flagOutput.String()
 		if message == "" {
 			message = err.Error()
 		}
 		fmt.Fprintln(stderr, safetext.SingleLine(message))
+		return 2
+	}
+	if *major != 0 && *major != 1 && *major != 2 {
+		fmt.Fprintln(stderr, "guardrail: sync: --major must be 1 or 2")
 		return 2
 	}
 
@@ -91,12 +96,12 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 		if plane == "opencode" {
 			planeBinary = resolvedBinary
 		}
-		syncPlane(plane, absDir, planeBinary, merged, stdout, stderr)
+		syncPlane(plane, absDir, planeBinary, merged, stdout, stderr, opencodeMajorChoice(*major, stderr))
 	}
 	return 0
 }
 
-func syncPlane(plane, dir, binary string, merged *policy.Policy, stdout, stderr io.Writer) {
+func syncPlane(plane, dir, binary string, merged *policy.Policy, stdout, stderr io.Writer, opencodeMajor int) {
 	switch plane {
 	case "codex":
 		target := filepath.Join(dir, ".codex", "hooks.json")
@@ -123,6 +128,30 @@ func syncPlane(plane, dir, binary string, merged *policy.Policy, stdout, stderr 
 		fmt.Fprintf(stdout, "synced claude -> %s\n", safetext.SingleLine(target))
 
 	case "opencode":
+		if opencodeMajor == 2 {
+			// V2 skips configured single-file plugin paths (#534): the
+			// artifact is a directory and the entry is native.
+			pluginDir := filepath.Join(dir, ".guardrail", "guardrail")
+			if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+				fmt.Fprintf(stderr, "guardrail: sync opencode failed: %s\n", safetext.SingleLine(err.Error()))
+				return
+			}
+			if err := os.WriteFile(filepath.Join(pluginDir, "index.js"), genconfig.OpencodePluginFor(binary), 0o644); err != nil {
+				fmt.Fprintf(stderr, "guardrail: sync opencode failed: %s\n", safetext.SingleLine(err.Error()))
+				return
+			}
+			absPlugin, err := filepath.Abs(pluginDir)
+			if err != nil {
+				absPlugin = pluginDir
+			}
+			target := filepath.Join(dir, "opencode.json")
+			if err := genconfig.MergePlaneInto(target, plane, genconfig.OpencodeConfigV2(absPlugin)); err != nil {
+				fmt.Fprintf(stderr, "guardrail: sync opencode failed: %s\n", safetext.SingleLine(err.Error()))
+				return
+			}
+			fmt.Fprintf(stdout, "synced opencode -> %s\n", safetext.SingleLine(target))
+			return
+		}
 		pluginDir := filepath.Join(dir, ".guardrail")
 		if err := os.MkdirAll(pluginDir, 0o755); err != nil {
 			fmt.Fprintf(stderr, "guardrail: sync opencode failed: %s\n", safetext.SingleLine(err.Error()))
