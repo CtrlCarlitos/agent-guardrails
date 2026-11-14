@@ -6,6 +6,20 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Git safety
+- **Fix (#542): writes into a `core.hooksPath` directory now deny.** A
+  global `core.hooksPath` makes every repository on the machine — including
+  throwaway tmp-dir fixture repos a session creates — resolve its hooks
+  directory to one shared, real location outside any repository
+  (`~/.config/git/hooks` here). Writing a "fixture" hook there planted code
+  git runs from every repo, and the write wasn't covered by any rule
+  (`**/.git/hooks/**` only matches inside a repository). The directory is
+  resolved in-process from git's global config (no `git config` spawn,
+  cached per process) and from a repository's own `.git/config` when it
+  points outside that repository; writes into it deny as
+  `P2.git-protected-path`. Relative global values are repo-dependent and
+  deliberately unresolved.
+
 ### Operator actions
 - **Fix (#533): a path-spelled canonical operator command asks instead of
   hard-denying.** `~/.local/bin/guardrail egress grant --scope repo --host

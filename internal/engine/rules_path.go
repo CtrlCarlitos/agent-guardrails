@@ -658,6 +658,9 @@ func checkGitProtectedPathCandidates(candidates []pathCandidate) *policy.Verdict
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P2.git-protected-path",
 				Reason: "write to a protected git-internal path: " + candidate.path}
 		}
+		if v := checkHooksPathCandidate(candidate); v != nil {
+			return v
+		}
 	}
 	return nil
 }
