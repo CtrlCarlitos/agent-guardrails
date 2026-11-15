@@ -50,11 +50,6 @@
     "decision": "allow",
     "exit": 0
   },
-  "bash-printf-secret-in-text.json": {
-    "decision": "deny",
-    "exit": 2,
-    "rule": "P4.secret-in-text"
-  },
   "bash-rm-rf.json": {
     "decision": "deny",
     "exit": 2,
@@ -248,5 +243,10 @@
   "write-claude-md.json": {
     "decision": "deny",
     "exit": 2
+  },
+  "bash-printf-inert-redirect.json": {
+    "exit": 0,
+    "verdict": "allow",
+    "reason": "inert redirect body (#112): data copier into an allowed path; the body is not scanned"
   }
 }

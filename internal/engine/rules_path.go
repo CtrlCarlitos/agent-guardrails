@@ -131,7 +131,14 @@ func parsePrivatePathsAnalysis(tc ToolCall, bash *bashAnalysis) privatePathParse
 			if uncertaintyReason == "" && parsed.uncertaintyReason != "" {
 				uncertaintyReason = parsed.uncertaintyReason
 			}
+			// #112: an inert data copier's operands are data literals bound
+			// for a redirect, never paths or interpreter input; the redirect
+			// target below keeps its full classification.
+			inert := inertDataCopier(s)
 			for _, operand := range parsed.operands {
+				if inert {
+					continue
+				}
 				if operand.role == operandNonPath || parsed.uncertaintyReason != "" && operand.role == operandUncertain {
 					continue
 				}
@@ -1168,4 +1175,42 @@ func checkSymlinkEscape(candidate pathCandidate, tc ToolCall) *policy.Verdict {
 			Reason: "a path inside the repo resolves outside it via symlink: " + cand}
 	}
 	return nil
+}
+
+// inertDataCopier reports whether a simple command's only effect is copying
+// data literals into a redirect (#112): the head is a pure data copier, it
+// has a redirect and no pipeline stage, and every operand is data —
+// text-shaped for cat (a bare path operand is a real read, which keeps its
+// classification), inherently data for echo/printf (format strings and
+// words, never paths), and for tee an operand naming its write target (the
+// target itself stays classified via the redirect/write-target walk). The
+// body never reaches an interpreter, so its text is not scanned for
+// secret-path mentions; everything else keeps today's behavior.
+func inertDataCopier(s Simple) bool {
+	var echoLike bool
+	switch head(s.Argv) {
+	case "cat", "tee":
+	case "echo", "printf":
+		echoLike = true
+	default:
+		return false
+	}
+	if len(s.Redirects) == 0 || len(s.pipelines) > 0 {
+		return false
+	}
+	targets := map[string]bool{}
+	if head(s.Argv) == "tee" {
+		for _, target := range writeTargets(s) {
+			targets[target] = true
+		}
+	}
+	for _, operand := range parseOperandRoles(s.Argv).operands {
+		if operand.role == operandNonPath || targets[operand.value] {
+			continue
+		}
+		if !echoLike && !textShapedOperand(operand.value) {
+			return false
+		}
+	}
+	return true
 }

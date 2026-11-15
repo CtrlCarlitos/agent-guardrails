@@ -12,27 +12,30 @@ import (
 // operand. It stays denied, but the verdict must say so and name the
 // fragment, so the model's next step is the editor tool rather than
 // "exclude this path".
+// #112 flipped the printf-into-a-redirect family from text-mention deny to
+// allow: a pure data copier whose only effect is a redirect into an allowed
+// path carries inert data, and these were the exact shapes that false-fired
+// on real sessions writing fixtures and docs. The text-mention rule keeps
+// its scope where the text can matter — opaque interpreter input.
 func TestSecretPathInsideCommandTextIsATextMention(t *testing.T) {
-	cases := []struct {
-		name     string
-		command  string
-		fragment string
-	}{
-		{"json object", `printf '%s\n' '{"tool_input":{"file_path":"/home/u/.ssh/id_ed25519","x":1}}' > fixture.json`, "/home/u/.ssh/id_ed25519"},
-		{"json array", `printf '%s' '["/home/u/.aws/credentials","/home/u/other"]' > fixture.json`, "/home/u/.aws/credentials"},
-		{"multi-line literal", "printf '%s' 'line one\nkey: /home/u/.aws/credentials' > note.txt", "/home/u/.aws/credentials"},
+	// Inert data copier: the body is data bound for a file, allowed.
+	for _, command := range []string{
+		`printf '%s\n' '{"tool_input":{"file_path":"/home/u/.ssh/id_ed25519","x":1}}' > fixture.json`,
+		`printf '%s' '["/home/u/.aws/credentials","/home/u/.other"]' > fixture.json`,
+		"printf '%s' 'line one\nkey: /home/u/.aws/credentials' > note.txt",
+	} {
+		if v := Evaluate(ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, pathPol()); v.Decision != policy.Allow {
+			t.Errorf("%q -> %+v, want allow (inert redirect body, #112)", command, v)
+		}
 	}
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			v := Evaluate(ToolCall{Tool: "Bash", Command: tt.command, CWD: "/repo", RepoRoot: "/repo"}, pathPol())
-			if v.Decision != policy.Deny || v.RuleID != "P4.secret-in-text" {
-				t.Fatalf("%q -> %+v, want deny/P4.secret-in-text", tt.command, v)
-			}
-			want := "command text mentions a secret-tier path: " + tt.fragment
-			if v.Reason != want {
-				t.Fatalf("reason = %q, want %q", v.Reason, want)
-			}
-		})
+	// The rule itself keeps its scope: opaque interpreter input mentioning a
+	// secret path still denies as a text mention.
+	v := Evaluate(ToolCall{Tool: "Bash", Command: `python3 -c 'open("/home/u/.ssh/id_ed25519")'`, CWD: "/repo", RepoRoot: "/repo"}, pathPol())
+	if v.Decision != policy.Deny || v.RuleID != "P4.secret-in-text" {
+		t.Fatalf("opaque interpreter -> %+v, want deny/P4.secret-in-text", v)
+	}
+	if want := "command text mentions a secret-tier path: /home/u/.ssh/id_ed25519"; v.Reason != want {
+		t.Fatalf("reason = %q, want %q", v.Reason, want)
 	}
 }
 
