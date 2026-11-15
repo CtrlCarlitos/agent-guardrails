@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.39-dev (2026-11-14)
 
 ### Claude plane
 - **Fix (#541): `SendMessage` to a spawned subagent is delegation, not a
