@@ -73,7 +73,7 @@ Usage:
   --no-setup          Stop once the binary is installed and verified; do not run `guardrail setup`.
                       With --uninstall: do not run `guardrail setup --state disabled` first.
   --uninstall         Disable every plane (`guardrail setup --state disabled`), then remove
-                      the binary and the plugin file guardrail.js.
+                      the binary and the opencode plugin directory under the data root.
   --purge             With --uninstall: also remove guardrail's state, config and data directories.
 USAGE
 }
@@ -356,11 +356,24 @@ uninstall() {
 			fi
 		fi
 		rm -f "$dest/guardrail" || die 1 "cannot remove $dest/guardrail"
-		# What `guardrail update` and bootstrap leave beside the binary.
-		rm -f "$dest/guardrail.old" "$dest/.guardrail-update" "$dest/.guardrail.install" ||
+		# What `guardrail update` and bootstrap leave beside the binary: the
+		# single .old aside, the #94 rollback keep (.previous), staging files,
+		# and pre-#94 timestamped .old-* asides (#522). Hand-made backups
+		# (.before-* and the like) are the operator's and stay.
+		rm -f "$dest/guardrail.old" "$dest/guardrail.previous" \
+			"$dest/.guardrail-update" "$dest/.guardrail.install" \
+			"$dest"/guardrail.old-* ||
 			die 1 "cannot remove the update leftovers in $dest"
-		plugin=$(xdg_root "${XDG_DATA_HOME:-}" "$HOME/.local/share")/guardrail/guardrail.js
-		rm -f "$plugin" || die 1 "cannot remove $plugin"
+		# The opencode plugin: the whole guardrail-owned directory. V1
+		# wrote guardrail.js directly in it; OpenCode 2 wiring (ADR-0034)
+		# adds the guardrail/ directory artifact. Nothing operator-owned
+		# lives under it. Reported like purge reports its roots, so the
+		# data root's removal line exists whether or not --purge follows.
+		plugin_dir=$(xdg_root "${XDG_DATA_HOME:-}" "$HOME/.local/share")/guardrail
+		if [ -e "$plugin_dir" ]; then
+			rm -rf "$plugin_dir" || die 1 "cannot remove $plugin_dir"
+			say "removed $plugin_dir"
+		fi
 		say "guardrail removed from $dest"
 	fi
 	if [ "$purge" -eq 1 ]; then

@@ -16,6 +16,32 @@ explicitly in **Breaking** notes.
   internals and the other path protections remain guarded. Fake layouts,
   forged pointers, unrelated repositories and symlink escapes do not qualify.
 
+### Tests
+- **Fix (#519): the WebAuthn browser e2e no longer leaves a "guardrail"
+  agent-browser daemon behind.** The `guardrail-<12 hex>` session that
+  `agent-browser doctor` flagged with a version-mismatch warning after
+  upgrades was not a guardrail runtime component: it was
+  `TestBrowserLoopbackFailurePath`'s, orphaned whenever a run died before
+  `t.Cleanup` (a `-timeout` panic, an interrupt). Every agent-browser command
+  the test runs now sets `AGENT_BROWSER_IDLE_TIMEOUT_MS=120000`, so an orphan
+  shuts itself down after two idle minutes, and the session is named
+  `guardrail-e2e-<12 hex>` so its owner is obvious. No runtime lifecycle
+  changed; `guardrail fetch` never used agent-browser.
+
+### Installer / update
+- **Fix (#522): a documented retention policy for set-aside binaries, and a
+  sweep for the legacy ones.** A `guardrail.old` dated the day before an
+  update is that update's own rename-aside (the mtime travels with the
+  replaced file; it is unremovable while the updating process runs and the
+  next update removes it) — one slot, by design, now documented in
+  docs/OPERATIONS.md with the full name table. Pre-#94 timestamped
+  `guardrail.old-*` set-asides are no longer produced and are swept by the
+  first update at or past this release; `--uninstall` additionally removes
+  the rollback keep (`guardrail.previous`) and — a V2-port leftover — the
+  whole opencode plugin directory, whose OpenCode 2 `guardrail/index.js`
+  `guardrail.js`-only removal used to miss. Hand-made backups
+  (`.before-*` and friends) are never touched.
+
 ### MCP contract
 - **Feature (#543): Codex apps-connector GitHub repository search is
   classified, not unsupported.** The connector surfaces repository discovery
@@ -39,6 +65,17 @@ explicitly in **Breaking** notes.
   says which, without claiming a cause), and inconclusive (timeout or
   failure to run — never labeled unauthenticated). A machine without gh
   stays silent, per the posture section's pinned contract.
+- **Fix (#520): an update no longer reads as "NEVER OBSERVED FIRING".** The
+  claude evidence scan starts at the running binary's mtime, so right after
+  every update all real Claude records counted as `stale` and doctor printed
+  the same warning it prints for a hook that never ran. Doctor and
+  `selftest --evidence claude` now split on the scan: when real-session
+  records exist but every one predates this binary, they say `evidence window
+  reset by the recent update (N earlier real-session records predate this
+  binary): start a Claude session, then re-run …`; with no qualifying records
+  at all, today's warning stays verbatim. The selftest still exits 1 in both
+  until this binary is seen mediating a session: evidence is deliberately not
+  carried across binaries, since a new binary is a new handler.
 
 ### Codex plane
 - **Fix (#540): recognize flattened collaboration hook identities.**
