@@ -147,6 +147,10 @@ func redact(s string) string {
 	return s
 }
 
+// auditNow is the clock rotations name segments from; a seam so tests can
+// freeze it and prove name collisions cannot lose records (#575).
+var auditNow = time.Now
+
 // auditRotateBytes is the per-segment size limit; on crossing it the current
 // segment rotates to audit-<utc>.jsonl and audit.jsonl starts fresh. The
 // audit log is telemetry: unbounded growth is a slow-burn problem, and
@@ -175,7 +179,26 @@ func rotateIfOverLimit(path string) error {
 	if err != nil || info.Size() <= auditRotateBytes {
 		return err
 	}
-	segment := fmt.Sprintf("%s-%s.jsonl", path[:len(path)-len(".jsonl")], time.Now().UTC().Format("20060102-150405.000000000"))
+	segment := fmt.Sprintf("%s-%s.jsonl", path[:len(path)-len(".jsonl")], auditNow().UTC().Format("20060102-150405.000000000"))
+	// Windows' clock ticks are coarse (#575): consecutive rotations within
+	// one tick mint the same name, and renaming onto an existing segment
+	// silently replaces it — its records are lost. Never overwrite: take the
+	// first free name.
+	base := strings.TrimSuffix(segment, ".jsonl")
+	for attempt := 0; ; attempt++ {
+		name := segment
+		if attempt > 0 {
+			// The counter stays inside the .jsonl suffix so the segment
+			// family glob (audit-*.jsonl) keeps covering every spelling.
+			name = fmt.Sprintf("%s.%d.jsonl", base, attempt)
+		}
+		if _, err := os.Lstat(name); os.IsNotExist(err) {
+			segment = name
+			break
+		} else if err != nil {
+			return err
+		}
+	}
 	if err := os.Rename(path, segment); err != nil {
 		return err
 	}
