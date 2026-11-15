@@ -121,6 +121,15 @@ A long-running daemon holding open a pipe must never evaluate policy using stale
    - This provides instantaneous policy updates with zero process downtime.
 3. **No Elevation:** The daemon runs with the standard developer token (medium integrity level) and never requests or inherits administrative elevation.
 
+### 5. Verdict Parity with the In-Process Hook (amended, #151)
+
+The #151 sweep measured the daemon answering hooks with a weaker verdict than the in-process path: it dropped an overlay it could not parse (a project deny rule became an allow), never applied P7, and lost the adapter's degraded-allow reports. A session can start the daemon itself, so that was a way around policy. The contract now is:
+
+1. **A layer the daemon cannot load declines the call.** An overlay that fails to load, an overlay lookup that warns, or an unreadable operator configuration returns an error, and the hook evaluates in-process, where it fails closed or warns. Merge warnings do not decline: they name loosenings that were refused, or waivers in force, and the verdict is the same.
+2. **P7 runs with the same session state.** The daemon applies the trifecta inside the session transaction, and falls back to `P7.tracking-unavailable` when there is no session ID or the state cannot be locked, exactly as the hook does.
+3. **Degraded-allow reports stay in-process.** A call that carries them never goes to the daemon.
+4. **Relaxations stay in-process only.** Night mode, command grants, exact-action approvals and opencode approval memory are not applied by the daemon. A daemon verdict can therefore be stricter than the in-process one, never weaker.
+
 ---
 
 ## Consequences

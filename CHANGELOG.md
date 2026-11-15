@@ -4,6 +4,21 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Engine
+- **Fix (#151): a hook answered by the engine daemon never gets a weaker
+  verdict than in-process.** With `guardrail daemon start` running
+  (ADR-0025, and a session can start it), the hook took the daemon's verdict
+  as final. Measured on `main`: an overlay with a deny rule and a syntax
+  error was **allowed** (in-process fails closed, exit 2), and the second
+  leg of the P7 trifecta was **allowed** (in-process asks). The daemon also
+  dropped the adapter's degraded-allow reports. Now an overlay or operator
+  config the daemon cannot load hands the call back to the in-process hook,
+  the daemon applies P7 with the session's state (or
+  `P7.tracking-unavailable`), and calls carrying degraded-allow reports stay
+  in-process. ADR-0025 gains a parity section.
+
 ## v0.23.40-dev (2026-11-15)
 
 ### Audit

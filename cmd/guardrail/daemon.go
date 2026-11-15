@@ -14,6 +14,7 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/recipe"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/session"
 )
 
 func cmdDaemon(args []string, stdout, stderr io.Writer) int {
@@ -39,17 +40,57 @@ func cmdDaemon(args []string, stdout, stderr io.Writer) int {
 			if err != nil {
 				return policy.Verdict{}, fmt.Errorf("load base policy: %w", err)
 			}
+			// The daemon answers only when it would reach the in-process
+			// verdict (#151). A policy layer it cannot load is declined, so
+			// the hook evaluates in-process and the agent sees that path's
+			// fail-closed deny or warning instead of a quiet allow that
+			// dropped the layer.
 			var ov *policy.Overlay
-			if pth, ok, _ := policy.FindOverlayPath(tc.CWD); ok {
-				ov, _ = policy.LoadOverlay(pth)
+			pth, ok, warn := policy.FindOverlayPath(tc.CWD)
+			if warn != "" {
+				return policy.Verdict{}, errors.New("overlay lookup warned; declining to the in-process hook")
 			}
-			op, _ := policy.LoadOperatorConfig()
+			if ok {
+				if ov, err = policy.LoadOverlay(pth); err != nil {
+					return policy.Verdict{}, fmt.Errorf("load overlay: %w", err)
+				}
+			}
+			op, err := policy.LoadOperatorConfig()
+			if err != nil {
+				return policy.Verdict{}, fmt.Errorf("load operator config: %w", err)
+			}
+			// Merge warnings name loosenings it refused (the stricter
+			// direction) or waivers in force; the verdict is the same either
+			// way, so they do not decline the call.
 			merged, _, err := policy.Merge(base, ov, version, op, tc.RepoRoot)
 			if err != nil {
 				return policy.Verdict{}, fmt.Errorf("merge policy: %w", err)
 			}
 
 			v := engine.Evaluate(tc, merged)
+			// P7 needs the session's state exactly as the in-process hook
+			// keeps it: a transaction when the session is known, the
+			// tracking-unavailable reading when it is not or the state
+			// cannot be locked.
+			if tc.Event == "pre" && engine.TrifectaTrackingEnabled(merged) {
+				var esc *policy.Verdict
+				stateErr := errors.New("no session")
+				if tc.SessionID != "" {
+					stateErr = sessionTransaction(tc.SessionID, func(st *session.State) error {
+						esc = engine.ApplyTrifecta(v, tc, st, merged)
+						return nil
+					})
+					if errors.Is(stateErr, session.ErrTransactionCommitted) {
+						stateErr = nil
+					}
+				}
+				if stateErr != nil {
+					esc = engine.ApplyTrifecta(v, tc, nil, merged)
+				}
+				if esc != nil {
+					v = *esc
+				}
+			}
 			if v.Decision == policy.Allow {
 				if rv := recipe.Check(tc, merged); rv != nil {
 					v = *rv
