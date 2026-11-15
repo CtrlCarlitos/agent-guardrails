@@ -670,7 +670,6 @@ func checkGitProtectedPathCandidates(candidates []pathCandidate) *policy.Verdict
 // documentation, not the plane's instruction file). `.envrc` is deliberately
 // "anywhere": direnv executes the .envrc of every directory entered.
 var selfConfigGlobs = []string{
-	"**/.codex", "**/.codex/**",
 	"**/.claude",
 	"**/.claude/settings.json", "**/.claude/settings.local.json",
 	"**/.claude/hooks/**", "**/.claude/plugins/**", "**/.claude/agents/**",
@@ -731,7 +730,7 @@ func checkSelfConfigCandidatesAnalysis(tc ToolCall, candidates []pathCandidate, 
 		}
 	}
 	for _, candidate := range candidates {
-		if matchesScoped(candidate, selfConfigGlobs, selfConfigRootOnly) {
+		if matchesScoped(candidate, selfConfigGlobs, selfConfigRootOnly) || matchesCodexSelfConfig(candidate) {
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
 				Reason: "write to the agent's own guardrail/shell config: " + candidate.path}
 		}
@@ -1127,6 +1126,14 @@ func matchesScoped(c pathCandidate, anywhere, rootOnly []string) bool {
 	}
 	if haveResolved {
 		if rel, ok := repoRelative(resolved, c.cwd, c.repoRoot); ok && matchesAnyGlob(rel, rootOnly) {
+			return true
+		}
+	}
+	// A verified managed worktree is also a policy root when a session
+	// writes through a sibling checkout. Removing its configuration ancestor
+	// match must not erase root-only CI or instruction-file protections.
+	if matchesAnyGlob(raw, codexSelfConfigGlobs) || haveResolved && matchesAnyGlob(resolved, codexSelfConfigGlobs) {
+		if rel, ok := managedCodexSourceRelative(c); ok && matchesAnyGlob(rel, rootOnly) {
 			return true
 		}
 	}

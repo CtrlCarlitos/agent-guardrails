@@ -6,6 +6,16 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Managed worktrees
+- **Fix (#564): ordinary source in Codex-managed linked worktrees is not
+  self-configuration.** The active Codex home's `worktrees/<slot>/<repo>/`
+  prefix no longer makes every source file match `P5.self-config`. The
+  exemption requires a real linked worktree of the current repository,
+  including Git's reverse pointer, and checks the resolved target. Real
+  global and repository `.codex` configuration, root instructions, Git
+  internals and the other path protections remain guarded. Fake layouts,
+  forged pointers, unrelated repositories and symlink escapes do not qualify.
+
 ### MCP contract
 - **Feature (#543): Codex apps-connector GitHub repository search is
   classified, not unsupported.** The connector surfaces repository discovery
