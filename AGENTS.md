@@ -30,3 +30,4 @@ release's tag so the dotfiles can pin it.
   carries root cause and verification per OS. No attribution trailers.
 - A Windows-only test must be named `TestWindows…` or CI never runs it.
 - Never stack a PR on another PR's branch.
+- Multiple agent sessions share this working tree. Before `git checkout -b`, run `git status` and `git log --oneline -1` and branch only off main; if another session's work is checked out, use `git worktree add .worktrees/<name> -b <branch>` instead. Never push a branch that carries commits you did not author.
