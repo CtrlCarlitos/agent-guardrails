@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,7 +23,7 @@ import (
 // is the proof: a PowerShell precondition is emitted only when it names
 // PowerShell, and everything else keeps the fail-closed refusal.
 
-const codexWindowsUnprovenShell = "guardrail: cannot prove the Windows command shell; refusing to emit a POSIX updatedInput rewrite and failing closed"
+const codexWindowsUnprovenShell = "guardrail: cannot prove the Windows command shell; refusing to emit a POSIX updatedInput rewrite and failing closed. Shell proof needs a readable transcript for this session under CODEX_HOME/sessions (default ~/.codex/sessions), recording powershell or pwsh. An explicit shell argument or a healthy doctor transport probe does not replace that evidence; report the missing session evidence to the operator and continue independent work."
 
 // codexTranscriptScanBytes bounds how much of a transcript is read: the
 // environment block comes at the start of a session.
@@ -108,14 +109,19 @@ func codexCommandShell(raw []byte) string {
 
 // codexProvenShell returns the shell recorded in the session transcript the
 // hook payload points at, lower-cased, or "" when it cannot be established:
-// no transcript_path, a path outside Codex's sessions directory, an
-// unreadable file, or no shell tag in its opening block.
+// an unusable reference with no uniquely session-bound replacement, a path
+// outside Codex's sessions directory, an unreadable file, or no shell tag
+// in its opening block.
 func codexProvenShell(raw []byte) string {
 	var p struct {
 		TranscriptPath *string `json:"transcript_path"`
+		SessionID      string  `json:"session_id"`
 	}
-	if json.Unmarshal(raw, &p) != nil || p.TranscriptPath == nil || *p.TranscriptPath == "" {
+	if json.Unmarshal(raw, &p) != nil {
 		return ""
+	}
+	if p.TranscriptPath == nil || *p.TranscriptPath == "" {
+		return codexSessionShell(p.SessionID)
 	}
 	path := filepath.Clean(*p.TranscriptPath)
 	if !filepath.IsAbs(path) || !strings.EqualFold(filepath.Ext(path), ".jsonl") || !withinCodexSessions(path) {
@@ -123,6 +129,9 @@ func codexProvenShell(raw []byte) string {
 	}
 	f, err := os.Open(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return codexSessionShell(p.SessionID)
+		}
 		return ""
 	}
 	defer f.Close()
@@ -137,19 +146,90 @@ func codexProvenShell(raw []byte) string {
 	return strings.ToLower(string(m[1]))
 }
 
-// withinCodexSessions reports whether path lies under the sessions
-// directory of Codex's home ($CODEX_HOME, else ~/.codex), compared the way
-// the platform compares paths.
-func withinCodexSessions(path string) bool {
+var codexSessionUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// codexSessionShell recovers a missing transcript reference, not missing proof.
+// Only one regular rollout file inside the protected sessions tree may match
+// the hook's UUID, and its first session_meta record must confirm that identity.
+// A foreign explicit path never reaches this fallback. WalkDir does not follow
+// symlinks; the entry and read bounds keep every hook invocation finite.
+func codexSessionShell(sessionID string) string {
+	if !codexSessionUUID.MatchString(sessionID) {
+		return ""
+	}
+	root := codexSessionsRoot()
+	if root == "" {
+		return ""
+	}
+	var match string
+	valid, entries := true, 0
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		entries++
+		if err != nil || entries > 10000 {
+			valid = false
+			return fs.SkipAll
+		}
+		if !entry.Type().IsRegular() || !strings.HasPrefix(entry.Name(), "rollout-") || !strings.HasSuffix(entry.Name(), "-"+sessionID+".jsonl") {
+			return nil
+		}
+		if match != "" {
+			valid = false
+			return fs.SkipAll
+		}
+		match = path
+		return nil
+	})
+	if err != nil || !valid || match == "" {
+		return ""
+	}
+	f, err := os.Open(match)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	head, err := io.ReadAll(io.LimitReader(f, codexTranscriptScanBytes))
+	if err != nil {
+		return ""
+	}
+	var meta struct {
+		Type    string `json:"type"`
+		Payload struct {
+			ID string `json:"id"`
+		} `json:"payload"`
+	}
+	first, _, _ := strings.Cut(string(head), "\n")
+	if json.Unmarshal([]byte(first), &meta) != nil || meta.Type != "session_meta" || meta.Payload.ID != sessionID {
+		return ""
+	}
+	m := codexShellTag.FindSubmatch(head)
+	if m == nil {
+		return ""
+	}
+	return strings.ToLower(string(m[1]))
+}
+
+// codexSessionsRoot is the absolute sessions directory of the active Codex home.
+func codexSessionsRoot() string {
 	home := os.Getenv("CODEX_HOME")
 	if home == "" {
 		userHome, err := os.UserHomeDir()
 		if err != nil {
-			return false
+			return ""
 		}
 		home = filepath.Join(userHome, ".codex")
 	}
-	root := filepath.Clean(filepath.Join(home, "sessions")) + string(filepath.Separator)
+	if !filepath.IsAbs(home) {
+		return ""
+	}
+	return filepath.Clean(filepath.Join(home, "sessions"))
+}
+
+func withinCodexSessions(path string) bool {
+	root := codexSessionsRoot()
+	if root == "" {
+		return false
+	}
+	root += string(filepath.Separator)
 	if filepath.Separator == '\\' {
 		return strings.HasPrefix(strings.ToLower(path), strings.ToLower(root))
 	}

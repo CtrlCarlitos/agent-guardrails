@@ -172,3 +172,35 @@ func jsonText(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b[1 : len(b)-1])
 }
+
+// A resumed/native tool path can omit its transcript reference. Recover only
+// the transcript belonging to this session, never a shell asserted by tool input.
+func TestWindowsCodexSessionShellWithoutTranscriptReference(t *testing.T) {
+	cwd := t.TempDir()
+	raw := codexPayload(t, cwd, "powershell", false)
+	var envelope map[string]any
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	transcript := envelope["transcript_path"].(string)
+	// Use the session id already carried by the captured hook fixture.
+	session := envelope["session_id"].(string)
+	canonical := filepath.Join(filepath.Dir(transcript), "rollout-2026-09-29T21-24-46-"+session+".jsonl")
+	body := `{"type":"session_meta","payload":{"id":"` + session + `"}}` + "\n" +
+		`{"type":"response_item","payload":{"type":"message","content":[{"type":"input_text","text":"<environment_context><shell>powershell</shell></environment_context>"}]}}` + "\n"
+	if err := os.Remove(transcript); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(canonical, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	delete(envelope, "transcript_path")
+	raw, _ = json.Marshal(envelope)
+	code, out, stderr := emitWindows(t, raw)
+	if code != 0 {
+		t.Fatalf("session-bound PowerShell proof: exit=%d stderr=%q", code, stderr)
+	}
+	if command := updatedCommand(t, out); !strings.Contains(command, "(Get-Location).ProviderPath") {
+		t.Fatalf("missing PowerShell cwd guard: %q", command)
+	}
+}

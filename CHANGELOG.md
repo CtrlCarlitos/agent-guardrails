@@ -6,6 +6,16 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Codex Windows shell proof
+- **Fix (#539): recover session-bound shell evidence when a hook omits
+  its transcript reference.** A missing or stale local `transcript_path`
+  no longer hides a readable PowerShell transcript for the current session:
+  a bounded lookup requires a unique rollout filename and matching
+  `session_meta.id`. Foreign references, ambiguous evidence and unproven
+  shells still fail closed. Commands retain the PowerShell cwd guard, and
+  refusal guidance explains why a healthy doctor transport probe is not
+  proof of the session shell.
+
 ### MCP contract
 - **Feature (#543): Codex apps-connector GitHub repository search is
   classified, not unsupported.** The connector surfaces repository discovery

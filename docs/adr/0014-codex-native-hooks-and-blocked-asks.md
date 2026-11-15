@@ -97,6 +97,19 @@ directory, and a `workdir` elsewhere exited 1 with the guidance. The model
 then used an explicit `Set-Location`, which guardrail evaluated. The Windows
 line therefore reports observed mediation instead of "unenforced".
 
+**Session-reference recovery (#539).** A missing or stale local transcript
+reference is distinct from a missing shell record. If `transcript_path`
+is absent, empty, or names a nonexistent JSONL file inside the sessions
+directory, the adapter may recover the current session's transcript. It
+requires a canonical session UUID, exactly one regular `rollout-*-UUID.jsonl`
+file beneath the active Codex home's sessions tree, and a first
+`session_meta` record whose `id` equals that UUID. Lookup examines at most
+10,000 entries without following symlink directories and reads at most
+1 MiB. Foreign explicit paths, duplicate matches and unsupported shells
+remain unproven. Command text and an explicit exec shell are not evidence.
+Doctor's `{}` direct-handler probe establishes runnability and failure
+closure only; it does not establish this session's shell proof.
+
 Hook diagnostics keep three failure classes distinct. A known Codex session
 with no selected-session hook records is a transport miss. A handler that
 starts but cannot parse or evaluate the payload, or exits abnormally, is a
