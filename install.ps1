@@ -87,7 +87,7 @@ Usage:
                      With -State disabled, install or update the binary but skip setup and exit 0
                      when stdin is not an interactive console. Prints the command needed to finish.
   -Uninstall         Disable every plane (`guardrail setup --state disabled`), then remove
-                     guardrail.exe, the plugin file guardrail.js, the user PATH entry and
+                     guardrail.exe, the opencode plugin directory, the user PATH entry and
                      the Defender exclusion.
   -Purge             With -Uninstall: also remove guardrail's state, config and data directories.
 '@
@@ -556,13 +556,17 @@ function Remove-GuardrailExe {
 }
 
 # Get-DestLeftovers: list what `guardrail update` and this script left beside
-# the binary (a superseded guardrail.exe.old, an update or install staging
-# file).
+# the binary (a superseded guardrail.exe.old, the #94 rollback keep
+# (guardrail.exe.previous), update and install staging files, and pre-#94
+# timestamped .old-* asides). Hand-made backups (.before-* and the like) are
+# the operator's and are never listed.
 function Get-DestLeftovers {
-	foreach ($name in @('guardrail.exe.old', '.guardrail-update', '.guardrail.install.exe')) {
+	foreach ($name in @('guardrail.exe.old', 'guardrail.exe.previous', '.guardrail-update', '.guardrail.install.exe')) {
 		$p = Join-Path $script:Dest $name
 		if (Test-Path -LiteralPath $p) { $p }
 	}
+	Get-ChildItem -LiteralPath $script:Dest -Filter 'guardrail.exe.old-*' -File -ErrorAction SilentlyContinue |
+		ForEach-Object { $_.FullName }
 }
 
 # Remove-DestLeftovers: sweep every owned leftover. A leftover still in use
@@ -595,11 +599,16 @@ function Uninstall-Guardrail {
 			if ($script:DisableCode -ne 0) { Die 1 'uninstall aborted: planes are still registered' }
 		}
 		Remove-GuardrailExe
-		$plugin = Join-Path (Get-PluginDir $env:USERPROFILE) 'guardrail.js'
+		# The opencode plugin: the whole guardrail-owned directory. V1 wrote
+		# guardrail.js directly in it; OpenCode 2 wiring (ADR-0034) adds the
+		# guardrail/ directory artifact. Nothing operator-owned lives under it.
+		$pluginDir = Get-PluginDir $env:USERPROFILE
 		try {
-			if (Test-Path -LiteralPath $plugin) { Remove-Item -LiteralPath $plugin -Force }
+			if ($pluginDir -and (Test-Path -LiteralPath $pluginDir)) {
+				Remove-Item -LiteralPath $pluginDir -Recurse -Force
+			}
 		} catch {
-			Die 1 "cannot remove $plugin"
+			Die 1 "cannot remove $pluginDir"
 		}
 		Remove-DestLeftovers
 		# The PATH entry goes only with the directory: anything still in <dest>

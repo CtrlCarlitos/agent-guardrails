@@ -147,6 +147,22 @@ func commitPrevious(staged, exe, release string) error {
 // fails, the binary is put back rather than leaving the install path empty.
 // The rename-aside can transiently fail while a scanner holds the file from a
 // prior cycle, hence the bounded retry (#205).
+// sweepLegacyAsides removes pre-#94 timestamped set-asides
+// (`guardrail(.exe).old-<timestamp>`) left beside the installed binary by
+// update schemes that no longer exist (#522). Only that exact prefix is
+// swept: a set-aside is never the running binary, so removal is safe, while
+// hand-made backups (`.before-*` and anything else) are the operator's
+// files. A locked file is skipped silently; the next update retries.
+func sweepLegacyAsides(exe string) {
+	matches, err := filepath.Glob(exe + ".old-*")
+	if err != nil {
+		return
+	}
+	for _, match := range matches {
+		_ = os.Remove(match)
+	}
+}
+
 func replaceInstalledBinary(exe, staged string) error {
 	superseded := exe + ".old"
 	if runtime.GOOS == "windows" {
