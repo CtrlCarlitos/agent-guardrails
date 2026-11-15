@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -17,7 +18,7 @@ import (
 // already removes the single `.old` slot; it now also sweeps legacy
 // `.old-*` siblings. Hand-made backups (`.before-*` and anything else) are
 // not guardrail's to delete and stay untouched.
-func TestUpdateSweepsLegacyTimestampedAsides(t *testing.T) {
+func TestWindowsUpdateSweepsLegacyTimestampedAsides(t *testing.T) {
 	target := filepath.Join(t.TempDir(), testenv.ExecutableName("guardrail"))
 	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
 		t.Fatal(err)
@@ -38,14 +39,37 @@ func TestUpdateSweepsLegacyTimestampedAsides(t *testing.T) {
 		}
 	}
 
+	// Observe stale-file removal before replacement: on Windows the swap
+	// deliberately creates a fresh .old slot holding the running image.
+	verify := verifyUpdatedBinary
+	checkedBeforeSwap := false
+	verifyUpdatedBinary = func(path, version string) error {
+		checkedBeforeSwap = true
+		for _, stale := range []string{legacy1, legacy2, plain} {
+			if _, err := os.Stat(stale); !os.IsNotExist(err) {
+				t.Errorf("%s survived pre-swap cleanup", filepath.Base(stale))
+			}
+		}
+		return verify(path, version)
+	}
 	var out, errb strings.Builder
 	if code := run([]string{"update", "v0.19.2-dev"}, strings.NewReader(""), &out, &errb); code != 0 {
 		t.Fatalf("exit = %d, stderr %q", code, errb.String())
 	}
-	for _, path := range []string{legacy1, legacy2, plain} {
+	if !checkedBeforeSwap {
+		t.Fatal("staged verification never observed pre-swap cleanup")
+	}
+	for _, path := range []string{legacy1, legacy2} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Errorf("%s survived the update; guardrail-produced asides must be swept", filepath.Base(path))
 		}
+	}
+	if runtime.GOOS == "windows" {
+		if data, err := os.ReadFile(plain); err != nil || string(data) != "old" {
+			t.Errorf("fresh Windows aside = %q, %v; want replaced binary, not seeded stale bytes", data, err)
+		}
+	} else if _, err := os.Stat(plain); !os.IsNotExist(err) {
+		t.Errorf("%s survived POSIX replacement: %v", filepath.Base(plain), err)
 	}
 	if _, err := os.Stat(handmade); err != nil {
 		t.Errorf("hand-made backup %s was deleted; only guardrail's own names are swept: %v", filepath.Base(handmade), err)
