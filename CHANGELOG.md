@@ -4,6 +4,17 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Codex plane
+- **Fix (#540): recognize flattened collaboration hook identities.**
+  `collaborationspawn_agent` and the explicit separator-free and
+  double-underscore aliases of the six contracted `collaboration.*` tools
+  now reach their existing Delegation or SafeControl policy instead of
+  `unknown-native-tool`. Delegation still denies with inline-work guidance:
+  Codex child mediation remains unverified (ADR-0013). Unknown namespace
+  extensions remain denied; this does not enable independent review.
+
 ## v0.23.39-dev (2026-11-14)
 
 ### Claude plane
