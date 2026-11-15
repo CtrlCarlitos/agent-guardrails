@@ -6,6 +6,20 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Diagnostics
+- **Feature (#530): explicit opt-in phase timing.** Set `GUARDRAIL_TIMING=1`
+  on hosts and the daemon to collect successful calls as well as failures.
+  Native and OpenCode plugin traces keep at most 200 records of 4 KiB each;
+  doctor separates host, engine version, transport, runtime and sample kind.
+  Session/call IDs correlate plugin samples with native audit and timing.
+  Adapter parse, policy setup, engine evaluation, daemon dial/roundtrip,
+  each plugin spawn attempt, audit write and response emission are measured
+  at their own boundaries. Unobservable host launch and missing host versions
+  remain explicitly unmeasured. **Timing is now opt-in throughout:** default
+  audit records omit legacy latency fields, and slow/failed plugin calls no
+  longer write timing traces unless opted in. Verdicts and transport selection
+  are unchanged; the spawn/server decision remains #460's.
+
 ### CLI
 - **Feature (#124): `guardrail report` prints a ready-to-paste GitHub
   issue.** From the newest ask/deny for the repository (`--last N` for the

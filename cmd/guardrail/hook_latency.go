@@ -20,6 +20,9 @@ var processStart = time.Now()
 // hook run as its own process, where startup time is meaningful; the engine
 // daemon serves many calls from one process and records only hook_ms.
 func stampHookLatency(rec *audit.Record, started time.Time, spawned bool) {
+	if !audit.TimingEnabled() {
+		return
+	}
 	rec.HookMS = millis(time.Since(started))
 	if spawned {
 		rec.StartupMS = millis(started.Sub(processStart))
@@ -101,6 +104,9 @@ func trimMS(v float64) string {
 // measured calls. Informational: it is data for the spawn-versus-server
 // question (#456), not a problem doctor counts.
 func printHookLatency(stdout io.Writer, path string) {
+	if !audit.TimingEnabled() {
+		return
+	}
 	segments, err := audit.Segments(path)
 	if err != nil {
 		return

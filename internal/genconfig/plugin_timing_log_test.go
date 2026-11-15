@@ -22,6 +22,7 @@ import (
 // failed call, each phase and attempt, so the next session shows whether only
 // these tools stall, whether the process started, and how long each step took.
 func TestOpencodePluginWritesTimingTraceForFailedCalls(t *testing.T) {
+	t.Setenv("GUARDRAIL_TIMING", "1")
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node is required to exercise the embedded OpenCode plugin")
@@ -97,9 +98,9 @@ try { await before({ tool: "bash", sessionID: "s", callID: "c2" }, { args: { com
 	}
 }
 
-// A fast answer writes nothing; a slow one writes one line even though it
-// succeeded, which is the case plugin-failures.log never shows.
-func TestOpencodePluginTimingTraceSkipsFastAndRecordsSlowCalls(t *testing.T) {
+// Opted-in fast and slow successes each write one bounded timing record.
+func TestOpencodePluginTimingTraceRecordsFastAndSlowWhenOptedIn(t *testing.T) {
+	t.Setenv("GUARDRAIL_TIMING", "1")
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node is required to exercise the embedded OpenCode plugin")
@@ -137,17 +138,10 @@ await plugin["tool.execute.before"]({ tool: "todowrite", sessionID: "s", callID:
 		}
 		return strings.Split(strings.TrimSpace(string(raw)), "\n")
 	}
-	// The rule is "nothing under a second is written", not "this call is
-	// fast": under the full suite a Windows spawn of the test binary took
-	// 2.6 s, and logging it was correct.
-	for _, line := range run("0") {
-		var entry map[string]any
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			t.Fatal(err)
-		}
-		if entry["total_ms"].(float64) < 1000 {
-			t.Errorf("a call under a second wrote a timing trace: %s", line)
-		}
+	// Opt-in now records fast successes too; default silence is covered by
+	// TestOpencodeTimingDefaultDoesNotTraceFailures and the bounded-call test.
+	if lines := run("0"); len(lines) != 1 {
+		t.Fatalf("fast opted-in allow wrote %d records, want 1", len(lines))
 	}
 	lines := run("1300")
 	if len(lines) != 1 {

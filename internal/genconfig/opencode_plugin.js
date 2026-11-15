@@ -5,7 +5,7 @@
 // to be hand-edited in place; edit this source and rebuild instead.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
+import { appendFileSync, mkdirSync, renameSync, statSync, readFileSync, writeFileSync, lstatSync } from "node:fs";
 import { connect } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -27,15 +27,18 @@ function getDaemonEndpoint() {
 
 const DAEMON_ENDPOINT = getDaemonEndpoint();
 
-function callDaemon(envelope) {
+function callDaemon(envelope, trace) {
+	const dialStarted = performance.now();
 	return new Promise((resolve, reject) => {
 		const socket = connect(DAEMON_ENDPOINT);
 		const timer = setTimeout(() => {
 			socket.destroy();
+			if (trace.phases.daemon_dial_ms === null) trace.phases.daemon_dial_ms = performance.now() - dialStarted;
 			reject(new Error("daemon timeout"));
 		}, 1000);
 		let buffer = "";
 		socket.on("connect", () => {
+			trace.phases.daemon_dial_ms = performance.now() - dialStarted;
 			socket.write(JSON.stringify({ action: "evaluate", tool_call: envelope }) + "\n");
 		});
 		socket.on("data", (chunk) => {
@@ -57,6 +60,7 @@ function callDaemon(envelope) {
 			}
 		});
 		socket.on("error", (err) => {
+			if (trace.phases.daemon_dial_ms === null) trace.phases.daemon_dial_ms = performance.now() - dialStarted;
 			clearTimeout(timer);
 			reject(err);
 		});
@@ -83,24 +87,29 @@ function logPluginFailure(kind, tool, detail) {
 	} catch {}
 }
 
-// Timing trace (#427): one JSON line per call that was slow or had a failed
-// attempt, next to the failure log. plugin-failures.log says only that a
-// spawn timed out; this says where the time went (daemon dial, each spawn
-// attempt, whether a process was created) and records retried calls that
-// stalled once and then succeeded, which otherwise leave no trace. Fast
-// calls write nothing. Like the failure log, it must never break mediation.
+// #530: explicit opt-in, including slow and failed calls. Keep only the last
+// 200 bounded records; diagnostics never change mediation. A plugin callback
+// cannot observe host launch or the engine's stdout write, so those stay null.
 const TIMING_LOG = join(dirname(FAILURE_LOG), "plugin-timing.jsonl");
-const SLOW_CALL_MS = 1000;
-
 function logPluginTiming(trace) {
+	if (process.env.GUARDRAIL_TIMING !== "1") return;
 	try {
+		const line = JSON.stringify(trace);
+		if (Buffer.byteLength(line, "utf8") > 4096) return;
 		mkdirSync(dirname(TIMING_LOG), { recursive: true });
+		let rows = [];
 		try {
-			if (statSync(TIMING_LOG).size > 1024 * 1024) {
-				renameSync(TIMING_LOG, TIMING_LOG + ".old");
+			const info = lstatSync(TIMING_LOG);
+			if (!info.isFile()) return;
+			if (info.size <= 200 * 4097) {
+				rows = readFileSync(TIMING_LOG, "utf8").trim().split("\n").filter((row) => {
+					if (Buffer.byteLength(row, "utf8") > 4096) return false;
+					try { JSON.parse(row); return true; } catch { return false; }
+				}).slice(-199);
 			}
-		} catch {}
-		appendFileSync(TIMING_LOG, JSON.stringify(trace) + "\n");
+		} catch (e) { if (e.code !== "ENOENT") return; }
+		rows.push(line);
+		writeFileSync(TIMING_LOG, rows.join("\n") + "\n", { mode: 0o600 });
 	} catch {}
 }
 
@@ -130,17 +139,17 @@ function spawnOnce(trace, serializedEnvelope, timeout) {
 }
 
 function timedSpawn(trace, serializedEnvelope, timeout) {
-	const started = Date.now();
+	const started = performance.now();
 	const res = spawnEngine(GUARDRAIL_BIN, ["hook", "opencode"], {
 		input: serializedEnvelope,
 		encoding: "utf8",
 		timeout,
 	});
 	trace.attempts.push({
-		ms: Date.now() - started,
+		ms: performance.now() - started,
 		timeout_ms: timeout,
 		pid: res.pid ?? null,
-		outcome: res.error ? (res.error.code || res.error.message) : res.signal ? `signal ${res.signal}` : `exit ${res.status}`,
+		outcome: res.error ? (res.error.code || "spawn-error") : res.signal ? `signal ${res.signal}` : `exit ${res.status}`,
 		stdout_bytes: (res.stdout || "").length,
 		stderr_bytes: (res.stderr || "").length,
 	});
@@ -186,9 +195,23 @@ const degradedAllowReports = [];
 // keep failing closed.
 const FLOOR_FALLBACK_TOOLS = new Set("__FLOOR_FALLBACK_TOOLS__");
 
-async function callGuardrail(envelope) {
+async function callGuardrail(envelope, dispatchStarted = null) {
 	const trace = {
 		ts: new Date().toISOString(),
+		kind: "plugin",
+		host: "opencode",
+		version: "",
+		host_version: null,
+		session_id: envelope.session_id || "",
+		transport: "unmeasured",
+		phases: {
+			host_dispatch_ms: null,
+			wrapper_dispatch_ms: dispatchStarted === null ? null : performance.now() - dispatchStarted,
+			daemon_dial_ms: null,
+			daemon_roundtrip_ms: null,
+			engine_handling_ms: null,
+			response_write_ms: null,
+		},
 		tool: envelope.tool,
 		call_id: envelope.call_id || "",
 		runtime: process.versions.bun ? `bun ${process.versions.bun}` : `node ${process.versions.node}`,
@@ -197,31 +220,33 @@ async function callGuardrail(envelope) {
 		attempts: [],
 		result: "pending",
 	};
-	const started = Date.now();
+	const started = performance.now();
 	try {
 		return await callGuardrailTraced(envelope, trace);
 	} catch (e) {
 		if (trace.result === "pending") trace.result = "fail-closed";
 		throw e;
 	} finally {
-		trace.total_ms = Date.now() - started;
-		if (trace.total_ms >= SLOW_CALL_MS || trace.attempts.some((a) => !a.outcome.startsWith("exit "))) {
-			logPluginTiming(trace);
-		}
+		trace.total_ms = performance.now() - started;
+		trace.transport = trace.result === "daemon" ? "daemon" : "spawn";
+		trace.phases.plugin_total_ms = trace.total_ms;
+		trace.phases.daemon_roundtrip_ms = trace.daemon?.ms ?? null;
+		trace.attempts.forEach((a, i) => { trace.phases[`spawn_attempt_${i + 1}_ms`] = a.ms; });
+		logPluginTiming(trace);
 	}
 }
 
 async function callGuardrailTraced(envelope, trace) {
-	const daemonStarted = Date.now();
+	const daemonStarted = performance.now();
 	try {
-		const verdict = await callDaemon(envelope);
-		trace.daemon = { ms: Date.now() - daemonStarted, outcome: verdict ? "verdict" : "empty" };
+		const verdict = await callDaemon(envelope, trace);
+		trace.daemon = { ms: performance.now() - daemonStarted, outcome: verdict ? "verdict" : "empty" };
 		if (verdict) {
 			trace.result = "daemon";
 			return verdict;
 		}
 	} catch (e) {
-		trace.daemon = { ms: Date.now() - daemonStarted, outcome: e?.code || e?.message || "error" };
+		trace.daemon = { ms: performance.now() - daemonStarted, outcome: e?.code || (e?.message === "daemon timeout" ? "timeout" : "error") };
 	}
 
 	const serializedEnvelope = JSON.stringify(envelope);
@@ -408,6 +433,7 @@ export const GuardrailPlugin = async ({ directory, client }) => {
 	const toast = client?.tui?.showToast ? (body) => client.tui.showToast({ body }) : null;
 	return {
 		"tool.execute.before": async (input, output) => {
+			const dispatchStarted = performance.now();
 			const envelope = buildEnvelope(
 				input.tool,
 				output.args ?? {},
@@ -415,7 +441,7 @@ export const GuardrailPlugin = async ({ directory, client }) => {
 				input.sessionID ?? input.session_id,
 				input.callID,
 			);
-			const decision = await callGuardrail(envelope);
+			const decision = await callGuardrail(envelope, dispatchStarted);
 			await deliverVerdict(decision, toast);
 		},
 	};
@@ -475,10 +501,11 @@ async function setup(ctx) {
 	const cwd = ctx.location.directory;
 	const stopTracking = ctx.event?.subscribe ? await Promise.resolve(trackHostApprovalsV2(ctx)) : null;
 	await ctx.tool.hook("execute.before", async (event) => {
+		const dispatchStarted = performance.now();
 		const nativeTool = event.tool;
 		const tool = V2_TOOL_NAMES[nativeTool] ?? nativeTool;
 		const envelope = buildEnvelope(tool, event.input, cwd, event.sessionID, event.id);
-		const decision = await callGuardrail(envelope);
+		const decision = await callGuardrail(envelope, dispatchStarted);
 		await deliverVerdict(decision, null);
 	});
 	return () => {

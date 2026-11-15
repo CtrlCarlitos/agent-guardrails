@@ -14,6 +14,7 @@ import (
 )
 
 type claudePayload struct {
+	ToolUseID     string `json:"tool_use_id"`
 	SessionID     string `json:"session_id"`
 	CWD           string `json:"cwd"`
 	HookEventName string `json:"hook_event_name"`
@@ -87,6 +88,7 @@ func ParseClaude(r io.Reader) (engine.ToolCall, error) {
 		Capability:       spec.Capability,
 		Command:          p.ToolInput.Command,
 		SessionID:        p.SessionID,
+		CallID:           p.ToolUseID,
 		CWD:              p.CWD,
 		Arguments:        native.ToolInput,
 		Raw:              raw,

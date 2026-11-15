@@ -46,6 +46,12 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 	}
 	plane := args[0]
 	var tc engine.ToolCall
+	timing := newHookTiming("hook", plane, "spawn", &tc, hookStarted)
+	stdout = timing.writer(stdout)
+	defer timing.finish()
+	if timing != nil {
+		timing.phase("process_startup_ms", hookStarted.Sub(processStart))
+	}
 	var codexMeta codexHookMetadata
 	if plane == "codex" {
 		originalStderr := stderr
@@ -105,6 +111,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 	}
 
 	var err error
+	parseStarted := timing.now()
 	switch plane {
 	case "codex":
 		tc, err = adapter.ParseCodex(stdin)
@@ -118,6 +125,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 		adapter.EmitModelWarnings([]string{fmt.Sprintf("guardrail: unsupported plane %q", plane)}, stderr)
 		return 2
 	}
+	timing.since("adapter_parse_ms", parseStarted)
 	if err != nil {
 		return failClosed(fmt.Sprintf("guardrail: unparseable hook payload (%v); failing closed", err))
 	}
@@ -137,13 +145,21 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 	// the daemon has no path that records them, and they are the only
 	// evidence of the outage window (#151).
 	if tc.Event != "session-start" && tc.Event != "session-completion" && !hasOperatorAction && len(tc.DegradedAllows) == 0 {
-		if client, dialErr := daemon.Dial(engineDaemonEndpoint); dialErr == nil {
+		dialStarted := timing.now()
+		client, dialErr := daemon.Dial(engineDaemonEndpoint)
+		timing.since("daemon_dial_ms", dialStarted)
+		if dialErr == nil {
 			defer client.Close()
-			if v, evalErr := client.Evaluate(tc); evalErr == nil {
-				return emitVerdict(plane, antigravityPhase, tc, v, stdout, stderr)
+			evalStarted := timing.now()
+			v, evalErr := client.Evaluate(tc)
+			timing.since("daemon_roundtrip_ms", evalStarted)
+			if evalErr == nil {
+				timing.transport("daemon")
+				return timing.emit(plane, antigravityPhase, tc, v, stdout, stderr)
 			}
 		}
 	}
+	policyStarted := timing.now()
 	nightState, nightErr := loadNightState(time.Now())
 	if nightErr != nil {
 		highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: night marker unreadable (%v); night mode remains inactive", nightErr))
@@ -175,6 +191,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 	if err != nil {
 		return failClosed(fmt.Sprintf("guardrail: invalid overlay (%v); failing closed", err))
 	}
+	timing.since("policy_setup_ms", policyStarted)
 	postureWarnings := mergeWarnings
 	if opErr != nil {
 		postureWarnings = append([]string{
@@ -265,7 +282,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 					st.NightModeAnnouncements[plane] = until
 				}
 			}
-			v = engine.Evaluate(tc, merged)
+			v = timing.evaluate(tc, merged)
 			if needsP7 {
 				if esc := engine.ApplyTrifecta(v, tc, st, merged); esc != nil {
 					v = *esc
@@ -292,7 +309,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 		}
 	}
 	if !stateApplied {
-		v = engine.Evaluate(tc, merged)
+		v = timing.evaluate(tc, merged)
 		if needsP7 {
 			if esc := engine.ApplyTrifecta(v, tc, nil, merged); esc != nil {
 				v = *esc
@@ -345,7 +362,10 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 
 	rec := auditRecord(tc, v, policy.SortedWaivers(merged))
 	stampHookLatency(&rec, hookStarted, true)
-	if err := audit.Write(rec, audit.DefaultPath(merged.Slots.AuditLog)); err != nil {
+	auditStarted := timing.now()
+	auditErr := audit.Write(rec, audit.DefaultPath(merged.Slots.AuditLog))
+	timing.since("audit_write_ms", auditStarted)
+	if err := auditErr; err != nil {
 		highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: audit write failed (%v)", err))
 		if nightAllowed {
 			v = normalVerdict
@@ -383,7 +403,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 	}
 	stderrWarnings := append(append([]string{}, highPriorityWarnings...), mergeWarnings...)
 	adapter.EmitModelWarnings(stderrWarnings, stderr)
-	return emitVerdict(plane, antigravityPhase, tc, v, stdout, stderr)
+	return timing.emit(plane, antigravityPhase, tc, v, stdout, stderr)
 }
 
 func emitVerdict(plane, antigravityPhase string, tc engine.ToolCall, v policy.Verdict, stdout, stderr io.Writer) int {
@@ -514,6 +534,10 @@ func auditRecord(tc engine.ToolCall, v policy.Verdict, waivers []string) audit.R
 		OperatorAction: v.OperatorAction,
 		RequestID:      v.RequestID,
 		RepoRoot:       tc.RepoRoot,
+	}
+	if audit.TimingEnabled() {
+		rec.CallID = tc.CallID
+		rec.GuardrailVersion = version
 	}
 	if tc.Capability != policy.CapabilityUnknown {
 		rec.Command = tc.Command
