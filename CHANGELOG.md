@@ -6,6 +6,18 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Tests
+- **Fix (#519): the WebAuthn browser e2e no longer leaves a "guardrail"
+  agent-browser daemon behind.** The `guardrail-<12 hex>` session that
+  `agent-browser doctor` flagged with a version-mismatch warning after
+  upgrades was not a guardrail runtime component: it was
+  `TestBrowserLoopbackFailurePath`'s, orphaned whenever a run died before
+  `t.Cleanup` (a `-timeout` panic, an interrupt). Every agent-browser command
+  the test runs now sets `AGENT_BROWSER_IDLE_TIMEOUT_MS=120000`, so an orphan
+  shuts itself down after two idle minutes, and the session is named
+  `guardrail-e2e-<12 hex>` so its owner is obvious. No runtime lifecycle
+  changed; `guardrail fetch` never used agent-browser.
+
 ### Installer / update
 - **Fix (#522): a documented retention policy for set-aside binaries, and a
   sweep for the legacy ones.** A `guardrail.old` dated the day before an

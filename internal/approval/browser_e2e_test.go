@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -191,6 +193,36 @@ func agentBrowserSink(t *testing.T, step string) *os.File {
 // enough that a stuck step is a test failure and not a stalled suite.
 const agentBrowserStepTimeout = 30 * time.Second
 
+// browserE2EIdleTimeout bounds how long this test's agent-browser daemon
+// lives without a command (#519). t.Cleanup closes the session, but a run
+// that dies first — a -timeout panic, an interrupt, a killed suite — never
+// gets there, and the orphan used to live until reboot, turning into a
+// "version mismatch" warning after the next agent-browser upgrade. Longer
+// than any one step, so a live run is never cut off; short enough that an
+// orphan is gone in minutes. Builds that predate the variable ignore it.
+const browserE2EIdleTimeout = 2 * time.Minute
+
+// browserE2ESession names the session for the test that owns it, so
+// `agent-browser doctor` does not present it as a guardrail runtime daemon.
+func browserE2ESession(requestID string) string {
+	return "guardrail-e2e-" + requestID[:12]
+}
+
+// agentBrowserCommand is the one way this test starts agent-browser: every
+// invocation carries the idle bound, because whichever command first starts
+// the daemon fixes its lifetime.
+func agentBrowserCommand(ctx context.Context, bin, session string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, bin, append([]string{"--session", session}, args...)...)
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "AGENT_BROWSER_IDLE_TIMEOUT_MS=") {
+			env = append(env, kv)
+		}
+	}
+	cmd.Env = append(env, fmt.Sprintf("AGENT_BROWSER_IDLE_TIMEOUT_MS=%d", browserE2EIdleTimeout.Milliseconds()))
+	return cmd
+}
+
 // runAgentBrowserStep runs one agent-browser subcommand under a deadline and
 // fails with a diagnostic naming the step that stuck.
 //
@@ -214,7 +246,7 @@ func runAgentBrowserStep(t *testing.T, bin, session, step string, args ...string
 	// when the process does.
 	sink := agentBrowserSink(t, step)
 
-	cmd := exec.CommandContext(ctx, bin, append([]string{"--session", session}, args...)...)
+	cmd := agentBrowserCommand(ctx, bin, session, args...)
 	cmd.Stdout, cmd.Stderr = sink, sink
 	cmd.WaitDelay = 5 * time.Second
 	runErr := cmd.Run()
@@ -248,7 +280,7 @@ func requireBrowserLaunch(t *testing.T, bin, session, pageURL string) {
 	defer cancel()
 	sink := agentBrowserSink(t, "open")
 
-	cmd := exec.CommandContext(ctx, bin, "--session", session, "open", pageURL)
+	cmd := agentBrowserCommand(ctx, bin, session, "open", pageURL)
 	cmd.Stdout, cmd.Stderr = sink, sink
 	cmd.WaitDelay = 5 * time.Second
 	runErr := cmd.Run()
@@ -288,9 +320,9 @@ func TestBrowserLoopbackFailurePath(t *testing.T) {
 	}
 	defer browser.Close()
 
-	session := "guardrail-" + request.ID[:12]
+	session := browserE2ESession(request.ID)
 	t.Cleanup(func() {
-		closeCmd := exec.Command(agentBrowser, "--session", session, "close")
+		closeCmd := agentBrowserCommand(context.Background(), agentBrowser, session, "close")
 		closeCmd.WaitDelay = 5 * time.Second
 		_ = closeCmd.Run()
 	})
