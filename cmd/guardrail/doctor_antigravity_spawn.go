@@ -76,10 +76,11 @@ func antigravityHookSpawnProblems(doc map[string]any, spawn func(exe string) err
 	return problems
 }
 
-// antigravitySpawnWarning is what `setup` says before arming Antigravity for a
-// binary path agy cannot spawn (#358), or "" when there is nothing to say. It
-// warns and does not refuse: the other planes are unaffected, and doctor keeps
-// reporting the plane until the binary is reinstalled somewhere spawnable.
+// antigravitySpawnWarning is what `setup` and `plane enable` say before arming
+// Antigravity for a binary path agy cannot spawn (#358), or "" when there is
+// nothing to say. It warns and does not refuse: the other planes are
+// unaffected, and doctor keeps reporting the plane until the binary is
+// reinstalled somewhere spawnable.
 func antigravitySpawnWarning(exe string, planes []string, state string) string {
 	if state != "enabled" || !slices.Contains(planes, "antigravity") || genconfig.AntigravityHookSpawnable(exe) {
 		return ""

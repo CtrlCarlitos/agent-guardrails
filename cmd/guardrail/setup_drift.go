@@ -23,12 +23,9 @@ import (
 // owns, so it reports no drift; a registration whose wrapper or plugin file
 // is missing is registered but stale, so it reports drift.
 func planeHandlerDrift(plane string) (drifted bool, err error) {
-	binary, err := installedExecutable()
+	binary, err := installedExecutablePath()
 	if err != nil {
 		return false, err
-	}
-	if abs, err := filepath.Abs(binary); err == nil {
-		binary = abs
 	}
 	path, err := planeConfigPath(plane)
 	if err != nil {
