@@ -54,6 +54,12 @@ usage: guardrail <command> [arguments]
       --last N             show the N newest matching records
       --all                search every repository, not only this one
       --path <file>        read this audit log instead of this repository's
+  report                             print a ready-to-paste GitHub issue for an ask/deny (prints only)
+      default: newest ask/deny for this repository; secrets redacted, home shown as ~
+      --id <ts|request-id|session-id>  report that record instead
+      --last N             report the Nth newest matching record
+      --all                search every repository, not only this one
+      --path <file>        read this audit log instead of this repository's
   allow-baseline [--json|--check]   list Claude Code allow rules safe to paste (writes nothing)
       --json               print them as a permissions.allow block
       --check              compare them with your Claude settings
@@ -140,6 +146,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "explain":
 		cwd, _ := os.Getwd()
 		return cmdExplain(args[1:], cwd, stdout, stderr)
+	case "report":
+		cwd, _ := os.Getwd()
+		return cmdReport(args[1:], cwd, stdout, stderr)
 	case "allow-baseline":
 		return cmdAllowBaseline(args[1:], stdout, stderr)
 	case "next":
