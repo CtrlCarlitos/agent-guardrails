@@ -15,9 +15,13 @@ func TestGenConfigOpencodeMajor2WritesDirectoryAndNativeConfig(t *testing.T) {
 	if err := os.WriteFile(settingsPath, []byte(`{"plugin":["superpowers@git+https://github.com/obra/superpowers.git"]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A real fixture path, not a POSIX literal: on Windows the resolver
+	// absolutizes and the plugin JS-escapes the binary path, so a raw
+	// "/opt/guardrail" assertion cannot match there (#554).
+	binary, wantDeclaration := opencodeBinaryFixture(t)
 
 	var out, errb bytes.Buffer
-	code := run([]string{"gen-config", "opencode", "--merge", settingsPath, "--binary", "/opt/guardrail", "--major", "2"}, strings.NewReader(""), &out, &errb)
+	code := run([]string{"gen-config", "opencode", "--merge", settingsPath, "--binary", binary, "--major", "2"}, strings.NewReader(""), &out, &errb)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errb.String())
 	}
@@ -27,7 +31,7 @@ func TestGenConfigOpencodeMajor2WritesDirectoryAndNativeConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("V2 directory artifact not written: %v", err)
 	}
-	if !strings.Contains(string(js), "execute.before") || !strings.Contains(string(js), "/opt/guardrail") {
+	if !strings.Contains(string(js), "execute.before") || !strings.Contains(string(js), wantDeclaration) {
 		t.Fatalf("deployed V2 plugin looks wrong:\n%s", js)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "guardrail.js")); !os.IsNotExist(err) {
@@ -179,4 +183,32 @@ func toStrings(v any) []string {
 		out = append(out, s)
 	}
 	return out
+}
+
+// The V2 emission must bake the exact binary path the way the V1 generator
+// does (#554): named to sit beside TestGenConfigOpencodeBakesAbsoluteBinary
+// so the Windows CI job's name filter runs it — the raw-literal assertion it
+// replaces failed only on Windows, invisibly to that filter.
+func TestGenConfigOpencodeMajor2BakesAbsoluteBinary(t *testing.T) {
+	dir := t.TempDir()
+	binary, wantDeclaration := opencodeBinaryFixture(t)
+	settings := filepath.Join(dir, "opencode.json")
+	if err := os.WriteFile(settings, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	code := run([]string{"gen-config", "opencode", "--merge", settings, "--binary", binary, "--major", "2"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errb.String())
+	}
+	js, err := os.ReadFile(filepath.Join(dir, "guardrail", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(js), wantDeclaration) {
+		t.Fatalf("deployed V2 plugin does not pin the exact binary path %q:\n%s", binary, js)
+	}
+	if strings.Contains(string(js), "process.env.GUARDRAIL_BIN") {
+		t.Error("plugin still resolves its enforcer from the environment")
+	}
 }
