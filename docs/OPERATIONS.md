@@ -298,8 +298,10 @@ session never needs to see (#277).
 
 ## Things that look like bugs and aren't
 
-- **Writing `.env` inside the repo is denied.** `.env` is a File secret (definitive tier). Use `.env.example`, or an operator-authorised `secret_allow`.
-- **`rm -rf /tmp/x` is allowed.** Strict descendants of a system temp root are an authorised write seam. `rm -rf /tmp` itself is not.
+For the full table of authorised write seams, self-config protections, the two-file Overlay $\leftrightarrow$ Operator config handshake, and the three secret tiers, see [ADR-0037](./adr/0037-write-seams.md).
+
+- **Writing `.env` inside the repo is denied.** `.env` is a File secret (definitive tier). Use `.env.example`, or an operator-authorised `secret_allow` ([ADR-0037](./adr/0037-write-seams.md)).
+- **`rm -rf /tmp/x` is allowed.** Strict descendants of a system temp root (along with linked git worktrees of the same repository, the active Antigravity session `brain/<conversationId>` directory, and Claude's `~/.claude/projects/<slug>/memory/**`) are authorised write seams ([ADR-0037](./adr/0037-write-seams.md)). `rm -rf /tmp` itself is not.
 - **Native `WebFetch` is denied while web-research enforcement is on** with "use guardrail fetch": the native tool can't verify redirect targets; `guardrail fetch` can.
 - **`curl` to a host you granted is still denied.** `guardrail egress grant` authorizes web hosts for `guardrail fetch`; shell network tools reach only the Overlay `egress_allowlist` the Operator config authorizes. The deny says so and names `guardrail fetch`.
 - **A `printf` or heredoc containing a secret path is denied** (`P4.secret-in-text`) even though nothing was accessed: interpreter input is opaque to the static boundary (ADR-0012). The guidance says to use the editor tool; that is the fix.
