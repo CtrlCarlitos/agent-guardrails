@@ -6,6 +6,19 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### CLI
+- **Feature (#410): `guardrail explain` prints each rule's home.** A new
+  `home` line under the verdict says where the deciding rule lives:
+  - a built-in base-policy rule, with the source file that mints it;
+  - an overlay rule, with the `guardrail.toml` path it comes from;
+  - an operator grant or approval path;
+  - the adapter tier (capability and host-posture rules no policy file owns).
+
+  An escalated verdict adds an `origin` line for the rule it escalated. The
+  rule-ID → file table is generated from the sources, and a test fails when
+  it goes stale or a minted rule has no home class. The output is additive:
+  selectors, flags and exit codes are unchanged.
+
 ### Engine
 - **Fix (#151): a hook answered by the engine daemon never gets a weaker
   verdict than in-process.** With `guardrail daemon start` running

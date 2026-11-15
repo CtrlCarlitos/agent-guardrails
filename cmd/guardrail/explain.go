@@ -199,6 +199,12 @@ func printExplanation(rec audit.Record, records []audit.Record, stdout io.Writer
 		rule = "(none)"
 	}
 	fmt.Fprintf(stdout, "verdict    %s  rule %s\n", safetext.SingleLine(rec.Decision), safetext.SingleLine(rule))
+	line("home", ruleHome(rec))
+	if rec.OriginRuleID != "" {
+		origin := rec
+		origin.RuleID = rec.OriginRuleID
+		line("origin", rec.OriginRuleID+": "+ruleHome(origin))
+	}
 	line("why", rec.Reason)
 
 	v := policy.Verdict{
