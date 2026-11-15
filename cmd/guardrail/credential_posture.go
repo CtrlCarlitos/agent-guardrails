@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -64,8 +65,109 @@ type credentialPostureInput struct {
 	ghAvailable bool
 	ghAccounts  int
 	ghScopes    []string
+	ghProbe     ghAuthProbe
 	envNames    []string
 	kubeContext string
+}
+
+// ghAuthState is the outcome taxonomy of the `gh auth status` probe (#544):
+// an absent signal, a clean signal, and each failure mode mean different
+// things to an operator debugging a stalled GitHub workflow, and an
+// inconclusive check must never read as "unauthenticated".
+type ghAuthState int
+
+const (
+	// ghAuthUnavailable is the zero value: gh is not installed or not on
+	// PATH. Informational, not a warning.
+	ghAuthUnavailable ghAuthState = iota
+	ghAuthHealthy
+	ghAuthNoAccount
+	ghAuthInvalid
+	ghAuthInconclusive
+)
+
+func (s ghAuthState) isFailure() bool {
+	return s == ghAuthNoAccount || s == ghAuthInvalid
+}
+
+// errGhAuthStatus marks gh's own non-zero exit from `gh auth status`, which
+// carries meaning (gh writes the failure shape to its output), as distinct
+// from transport failures — a timeout, a failure to start — which are
+// inconclusive.
+var errGhAuthStatus = errors.New("gh auth status exited non-zero")
+
+// ghAuthProbe is one bounded `gh auth status` run. Output is combined
+// stdout+stderr and is never echoed; only classifications and account
+// names derived from it are reported.
+type ghAuthProbe struct {
+	ran          bool
+	ok           bool
+	output       string
+	exitError    error
+	inconclusive bool // started but did not conclude (timeout, signal)
+}
+
+// state classifies the probe. It reads only failure-shape markers: gh's
+// "You are not logged into any GitHub hosts." sentence, and its per-account
+// "✗" / "Token for … is invalid." markers. Anything else that fails is
+// inconclusive, never unauthenticated.
+func (p ghAuthProbe) state() ghAuthState {
+	switch {
+	case p.inconclusive:
+		return ghAuthInconclusive
+	case !p.ran:
+		return ghAuthUnavailable
+	case p.ok:
+		return ghAuthHealthy
+	case p.exitError == nil:
+		return ghAuthInconclusive
+	case strings.Contains(p.output, "not logged into any"):
+		return ghAuthNoAccount
+	case strings.Contains(p.output, "is invalid"), strings.Contains(p.output, "✗"):
+		return ghAuthInvalid
+	}
+	return ghAuthInconclusive
+}
+
+// unusableActiveAccount names the account gh marked invalid, when the
+// output says which one. Account names only; token lines are never parsed.
+func (p ghAuthProbe) unusableActiveAccount() string {
+	for _, line := range strings.Split(p.output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if account, ok := strings.CutPrefix(trimmed, "- Token for "); ok {
+			if name, _, found := strings.Cut(account, " is invalid"); found {
+				return name
+			}
+		}
+	}
+	return ""
+}
+
+// ghAuthLine renders the probe's outcome. It is the one place the taxonomy
+// becomes operator text, shaped by #544: name the condition and the
+// recovery check, never a cause that was not established, and a healthy
+// CLI says nothing about connector or capability authorization.
+func ghAuthLine(p ghAuthProbe) string {
+	switch p.state() {
+	case ghAuthHealthy:
+		return "  gh authentication: healthy (CLI login only; this says nothing about MCP connectors or guardrail capabilities)"
+	case ghAuthNoAccount:
+		return "  WARNING: gh has no authenticated account. GitHub CLI workflows will fail before any guardrail policy is consulted; run `gh auth login`."
+	case ghAuthInvalid:
+		if account := p.unusableActiveAccount(); account != "" {
+			return "  WARNING: gh authentication is invalid or unverified for the active account " + safetext.SingleLine(account) + ". Check with `gh auth status` in your terminal before blaming a guardrail denial; the cause is not established here."
+		}
+		return "  WARNING: gh authentication is invalid or unverified. Check with `gh auth status` in your terminal before blaming a guardrail denial; the cause is not established here."
+	case ghAuthUnavailable:
+		// Deliberately silent, like every unavailable probe in this file:
+		// a machine without gh must not read as a finding ("an absent
+		// signal and a clean signal must not look the same"). The state
+		// exists in the taxonomy so callers can distinguish it.
+		return ""
+	case ghAuthInconclusive:
+		return "  gh authentication could not be verified from here (probe timed out or failed to run); this is not a finding of missing authentication. Verify with `gh auth status` in your terminal."
+	}
+	return ""
 }
 
 // credentialPostureLines renders the posture report. It is pure so the
@@ -74,6 +176,9 @@ type credentialPostureInput struct {
 func credentialPostureLines(in credentialPostureInput) []string {
 	var lines []string
 
+	if line := ghAuthLine(in.ghProbe); line != "" {
+		lines = append(lines, line)
+	}
 	if in.ghAvailable {
 		if wide := wideGitHubScopes(in.ghScopes); len(wide) > 0 {
 			lines = append(lines, fmt.Sprintf(
@@ -158,14 +263,42 @@ func gatherCredentialPosture() credentialPostureInput {
 			in.envNames = append(in.envNames, name)
 		}
 	}
-	if out, ok := runPostureProbe("gh", "auth", "status"); ok {
+	in.ghProbe = probeGhAuth()
+	if in.ghProbe.state() == ghAuthHealthy {
 		in.ghAvailable = true
-		in.ghScopes, in.ghAccounts = parseGhAuthStatus(out)
+		in.ghScopes, in.ghAccounts = parseGhAuthStatus(in.ghProbe.output)
 	}
 	if out, ok := runPostureProbe("kubectl", "config", "current-context"); ok {
 		in.kubeContext = plausibleKubeContext(out)
 	}
 	return in
+}
+
+// probeGhAuth runs the one bounded `gh auth status` probe and classifies
+// its outcome (#544). gh's own non-zero exit carries the failure shape in
+// its output; a timeout or a failure to start carries nothing and must stay
+// inconclusive rather than read as unauthenticated.
+func probeGhAuth() ghAuthProbe {
+	if _, err := exec.LookPath("gh"); err != nil {
+		return ghAuthProbe{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "gh", "auth", "status").CombinedOutput()
+	probe := ghAuthProbe{ran: true, ok: err == nil, output: string(out)}
+	switch {
+	case err == nil:
+	case ctx.Err() != nil:
+		probe.ran, probe.inconclusive = false, true
+	default:
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			probe.exitError = errGhAuthStatus
+		} else {
+			probe.ran, probe.inconclusive = false, true
+		}
+	}
+	return probe
 }
 
 // plausibleKubeContext accepts only output that is actually a context name.

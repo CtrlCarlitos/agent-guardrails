@@ -6,6 +6,19 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Doctor
+- **Feature (#544): the gh authentication probe reports outcomes instead of
+  silence.** Doctor already ran `gh auth status`, but every failure — no
+  account, invalid token, timeout — collapsed into "no signal", so an
+  operator could not tell an account problem from a policy denial. The
+  probe's outcome taxonomy is now reported separately: healthy (explicitly
+  CLI-only — it says nothing about MCP connectors or guardrail
+  capabilities), no authenticated account (warning with the login step),
+  invalid or unverified (warning naming the unusable active account when gh
+  says which, without claiming a cause), and inconclusive (timeout or
+  failure to run — never labeled unauthenticated). A machine without gh
+  stays silent, per the posture section's pinned contract.
+
 ### Codex plane
 - **Fix (#540): recognize flattened collaboration hook identities.**
   `collaborationspawn_agent` and the explicit separator-free and
