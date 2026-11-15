@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -42,12 +43,30 @@ func TestUpdateSweepsLegacyTimestampedAsides(t *testing.T) {
 	if code := run([]string{"update", "v0.19.2-dev"}, strings.NewReader(""), &out, &errb); code != 0 {
 		t.Fatalf("exit = %d, stderr %q", code, errb.String())
 	}
-	for _, path := range []string{legacy1, legacy2, plain} {
+	// Legacy timestamped asides are swept on every OS.
+	for _, path := range []string{legacy1, legacy2} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Errorf("%s survived the update; guardrail-produced asides must be swept", filepath.Base(path))
 		}
 	}
 	if _, err := os.Stat(handmade); err != nil {
 		t.Errorf("hand-made backup %s was deleted; only guardrail's own names are swept: %v", filepath.Base(handmade), err)
+	}
+	// The single .old slot after an update is OS-shaped (#565): POSIX has no
+	// rename-aside, so the planted one is simply gone. Windows always renames
+	// the target aside — a running image can be renamed but not overwritten —
+	// so exactly one .old exists afterwards, and it is THIS update's aside
+	// carrying the replaced binary's bytes, not the "aside" bytes the test
+	// planted (the retention policy's single-slot design, #522).
+	if runtime.GOOS == "windows" {
+		raw, err := os.ReadFile(plain)
+		if err != nil {
+			t.Fatalf("guardrail.exe.old missing after the update; Windows must leave this update's own aside: %v", err)
+		}
+		if string(raw) != "old" {
+			t.Fatalf("guardrail.exe.old = %q; want the replaced binary's bytes, proving it is this update's aside", raw)
+		}
+	} else if _, err := os.Stat(plain); !os.IsNotExist(err) {
+		t.Errorf("%s survived the update; POSIX creates no rename-aside", filepath.Base(plain))
 	}
 }
