@@ -185,7 +185,11 @@ func TestWindowsSelectedTestsLiveInPackagesTheWindowsJobRuns(t *testing.T) {
 	}
 }
 
-func TestWindowsFullSuiteObservabilityJobIsUnfilteredAndNonblocking(t *testing.T) {
+// The full Windows suite is BLOCKING (operator ruling, 2026-11-15): the
+// nonblocking warning is exactly how #554 and #565 hid — shipped tests that
+// failed only on Windows, caught by agents running the suite by hand. The
+// job runs the unfiltered suite and its failure fails the check.
+func TestWindowsFullSuiteObservabilityJobIsUnfilteredAndBlocking(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", ".github", "workflows", "ci.yml"))
 	if err != nil {
 		t.Fatal(err)
@@ -197,12 +201,13 @@ func TestWindowsFullSuiteObservabilityJobIsUnfilteredAndNonblocking(t *testing.T
 	for _, want := range []string{
 		"\n    runs-on: windows-latest\n",
 		"\n        run: go test ./...\n",
-		"\n        continue-on-error: true\n",
-		"steps.full-suite.outcome == 'failure'",
 	} {
 		if !strings.Contains(block, want) {
 			t.Errorf("windows-portability job does not contain %q:\n%s", want, block)
 		}
+	}
+	if strings.Contains(block, "continue-on-error: true") {
+		t.Errorf("windows-portability job is nonblocking; the ruling made the full suite required:\n%s", block)
 	}
 	if strings.Contains(block, "-run ") {
 		t.Errorf("windows-portability job filters test names instead of exposing the full suite:\n%s", block)

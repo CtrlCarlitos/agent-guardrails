@@ -173,9 +173,11 @@ jobs:
         run: powershell -NoProfile -ExecutionPolicy Bypass -File test/installer/install_ps1_test.ps1
 
   windows-portability:
-    # Full-suite Windows visibility while the portability sweep is still
-    # converging. The suite step retains its failure outcome for the warning
-    # below, while its continuation keeps this check green and nonblocking.
+    # The full Windows suite is blocking (operator ruling on #559/#554/#565:
+    # the nonblocking warning let Windows-only failures hide — two shipped
+    # tests were caught only by agents running the suite by hand). The
+    # name-filtered `test` job remains the fast signal; this job is the
+    # complete one.
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -184,14 +186,5 @@ jobs:
         with:
           go-version-file: go.mod
           check-latest: true
-      - name: full Windows suite (nonblocking)
-        id: full-suite
+      - name: full Windows suite
         run: go test ./...
-        continue-on-error: true
-      - name: report Windows portability failures
-        if: steps.full-suite.outcome == 'failure'
-        shell: pwsh
-        run: |
-          Write-Host "::warning title=Windows portability suite::The full Windows suite has failures. Inspect the preceding full-suite step."
-          "### Windows portability suite" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
-          "The unfiltered Windows suite has failures. Inspect the **full Windows suite (nonblocking)** step for the package and test inventory." | Add-Content -Path $env:GITHUB_STEP_SUMMARY
