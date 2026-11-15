@@ -18,6 +18,7 @@ var ruleSourceFiles = map[string][]string{
 	"P1.go-generate":                   {"internal/engine/rules_go.go"},
 	"P1.kill":                          {"internal/engine/rules_bash.go"},
 	"P1.mkfs":                          {"internal/engine/rules_bash.go", "internal/engine/rules_cmd.go"},
+	"P1.net-stack":                     {"internal/engine/rules_netstack.go"},
 	"P1.out-of-repo-write":             {"internal/engine/rules_bash.go", "internal/engine/rules_go.go"},
 	"P1.power":                         {"internal/engine/rules_power.go"},
 	"P1.privesc":                       {"internal/engine/rules_bash.go"},
