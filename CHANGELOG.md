@@ -30,6 +30,17 @@ explicitly in **Breaking** notes.
   escalated. opencode `--auto` and codex full-auto need payload evidence
   first (tracked on #559).
 
+### Managed worktrees
+- **Fix (#564): ordinary source in Codex-managed linked worktrees is not
+  self-configuration.** The active Codex home's `worktrees/<slot>/<repo>/`
+  prefix no longer makes every source file match `P5.self-config`. The
+  exemption requires a real linked worktree of the current repository,
+  including Git's reverse pointer, and checks the resolved target. Real
+  global and repository `.codex` configuration, root instructions, Git
+  internals and the other path protections remain guarded. Fake layouts,
+  forged pointers, unrelated repositories and symlink escapes do not qualify.
+
+
 ### Installer / update
 - **Fix (#522): a documented retention policy for set-aside binaries, and a
   sweep for the legacy ones.** A `guardrail.old` dated the day before an
