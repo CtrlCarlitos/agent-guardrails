@@ -17,6 +17,18 @@ explicitly in **Breaking** notes.
   shuts itself down after two idle minutes, and the session is named
   `guardrail-e2e-<12 hex>` so its owner is obvious. No runtime lifecycle
   changed; `guardrail fetch` never used agent-browser.
+||||||| parent of 3009f66 (feat(engine): on hosts that answer asks themselves, asks deny (#559))
+### Enforcement posture
+- **Feature (#559, ADR-0035): on hosts that answer asks themselves, asks
+  deny.** A session running in an auto/bypass permission mode (claude's
+  `bypassPermissions`) has its asks answered by the host, not the operator —
+  live evidence showed an External-tier ask blocking nothing. Such hosts now
+  get every Ask escalated to a deny naming the posture, with the operator's
+  terminal as the honest channel; operator actions take the same
+  terminal-guidance shape codex already uses. Allow/Deny verdicts, night
+  mode, and passkey mode are unchanged; `acceptEdits`/`plan` are not
+  escalated. opencode `--auto` and codex full-auto need payload evidence
+  first (tracked on #559).
 
 ### Installer / update
 - **Fix (#522): a documented retention policy for set-aside binaries, and a

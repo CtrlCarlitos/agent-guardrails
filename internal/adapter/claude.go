@@ -22,6 +22,11 @@ type claudePayload struct {
 		Command  string `json:"command"`
 		FilePath string `json:"file_path"`
 	} `json:"tool_input"`
+	// Claude Code reports the session's permission posture on every call.
+	// bypassPermissions means the host answers permission asks itself, so a
+	// guardrail Ask would be rubber-stamped (#559/ADR-0035); the engine
+	// denies those instead. Adapter-validated, never model-supplied.
+	PermissionMode string `json:"permission_mode"`
 }
 
 func ParseClaude(r io.Reader) (engine.ToolCall, error) {
@@ -66,16 +71,17 @@ func ParseClaude(r io.Reader) (engine.ToolCall, error) {
 		spec = planecontract.ToolSpec{NativeTool: p.ToolName, Tool: p.ToolName, Capability: policy.CapabilityUnknown}
 	}
 	tc := engine.ToolCall{
-		Plane:      "claude",
-		Event:      event,
-		Tool:       spec.Tool,
-		NativeTool: p.ToolName,
-		Capability: spec.Capability,
-		Command:    p.ToolInput.Command,
-		SessionID:  p.SessionID,
-		CWD:        p.CWD,
-		Arguments:  native.ToolInput,
-		Raw:        raw,
+		Plane:            "claude",
+		Event:            event,
+		HostAutoApproves: p.PermissionMode == "bypassPermissions",
+		Tool:             spec.Tool,
+		NativeTool:       p.ToolName,
+		Capability:       spec.Capability,
+		Command:          p.ToolInput.Command,
+		SessionID:        p.SessionID,
+		CWD:              p.CWD,
+		Arguments:        native.ToolInput,
+		Raw:              raw,
 	}
 	var input map[string]any
 	if len(native.ToolInput) != 0 {

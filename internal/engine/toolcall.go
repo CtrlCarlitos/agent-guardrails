@@ -23,16 +23,17 @@ type ToolCall struct {
 	// Shell is the shell that will run Command when the adapter can prove it
 	// (ShellPowerShell), and empty otherwise. Never set from model input:
 	// for Codex it comes from the session transcript (#454, #498).
-	Shell          string
-	Paths          []string
-	Arguments      json.RawMessage // complete native argument payload when the plane exposes it
-	SessionID      string
-	CallID         string // plane-native per-call identity when the plane exposes one
-	HostApproved   bool   // host-owned dialog approval evidence supplied by our adapter
-	CWD            string
-	RepoRoot       string // git top-level for CWD, or CWD if not a repo
-	Raw            json.RawMessage
-	PermittedRoots []string // plane-owned writable roots for this call (e.g. Antigravity session brain dir)
+	Shell            string
+	Paths            []string
+	Arguments        json.RawMessage // complete native argument payload when the plane exposes it
+	SessionID        string
+	CallID           string // plane-native per-call identity when the plane exposes one
+	HostApproved     bool   // host-owned dialog approval evidence supplied by our adapter
+	HostAutoApproves bool   // adapter-validated host posture: the host answers permission asks itself (auto/bypass mode, #559); never model-supplied
+	CWD              string
+	RepoRoot         string // git top-level for CWD, or CWD if not a repo
+	Raw              json.RawMessage
+	PermittedRoots   []string // plane-owned writable roots for this call (e.g. Antigravity session brain dir)
 
 	// DegradedAllows carries adapter-reported records of calls that were
 	// allowed locally while the engine was unreachable (the B+ communication
