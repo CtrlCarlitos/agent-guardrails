@@ -29,6 +29,11 @@ import (
 
 var sessionTransaction = session.Transaction
 
+// engineDaemonEndpoint is where the hook looks for a resident engine daemon
+// (ADR-0025); empty means the per-user default. A variable so tests can run
+// a daemon of their own without touching the machine's.
+var engineDaemonEndpoint = ""
+
 func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int) {
 	hookStarted := time.Now()
 	// A copy of what the parser reads, so a fail-closed record can name the
@@ -128,8 +133,11 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 			highPriorityWarnings = append(highPriorityWarnings, fmt.Sprintf("guardrail: could not void this session's approval tickets (%v)", err))
 		}
 	}
-	if tc.Event != "session-start" && tc.Event != "session-completion" && !hasOperatorAction {
-		if client, dialErr := daemon.Dial(""); dialErr == nil {
+	// A call carrying the adapter's degraded-allow reports stays in-process:
+	// the daemon has no path that records them, and they are the only
+	// evidence of the outage window (#151).
+	if tc.Event != "session-start" && tc.Event != "session-completion" && !hasOperatorAction && len(tc.DegradedAllows) == 0 {
+		if client, dialErr := daemon.Dial(engineDaemonEndpoint); dialErr == nil {
 			defer client.Close()
 			if v, evalErr := client.Evaluate(tc); evalErr == nil {
 				return emitVerdict(plane, antigravityPhase, tc, v, stdout, stderr)
