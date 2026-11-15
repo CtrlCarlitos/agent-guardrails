@@ -100,6 +100,7 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	// can be removed now — before this cycle's rename-aside recreates it.
 	superseded := exe + ".old"
 	_ = os.Remove(superseded)
+	sweepLegacyAsides(exe)
 	if err := os.WriteFile(staged, data, 0o755); err != nil {
 		fmt.Fprintf(stderr, "guardrail: cannot stage update: %v\n", err)
 		return 1

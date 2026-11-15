@@ -6,6 +6,20 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Installer / update
+- **Fix (#522): a documented retention policy for set-aside binaries, and a
+  sweep for the legacy ones.** A `guardrail.old` dated the day before an
+  update is that update's own rename-aside (the mtime travels with the
+  replaced file; it is unremovable while the updating process runs and the
+  next update removes it) — one slot, by design, now documented in
+  docs/OPERATIONS.md with the full name table. Pre-#94 timestamped
+  `guardrail.old-*` set-asides are no longer produced and are swept by the
+  first update at or past this release; `--uninstall` additionally removes
+  the rollback keep (`guardrail.previous`) and — a V2-port leftover — the
+  whole opencode plugin directory, whose OpenCode 2 `guardrail/index.js`
+  `guardrail.js`-only removal used to miss. Hand-made backups
+  (`.before-*` and friends) are never touched.
+
 ### MCP contract
 - **Feature (#543): Codex apps-connector GitHub repository search is
   classified, not unsupported.** The connector surfaces repository discovery

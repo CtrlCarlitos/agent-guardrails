@@ -598,6 +598,24 @@ the updater only shows on the update *after* the release that contains it
 handlers differ from what the new binary generates and prints `already
 enabled` for the rest.
 
+**What an update leaves beside the binary, and for how long (#522).**
+Guardrail-owned names next to `guardrail`(`.exe`) and their retention:
+
+| Name | What it is | Lifetime |
+|---|---|---|
+| `guardrail.old` | The update's rename-aside on Windows (the running image cannot be overwritten, only renamed); also the installer's locked-file aside. Its date is the **replaced** binary's, not the update's. | One slot. Unremovable while the updating process runs, so it outlives exactly one update; the next `guardrail update` removes it before making its own. |
+| `guardrail.previous` | The #94 rollback keep: the binary the last update replaced, with a record under the state root. | One slot, replaced each update; consumed by `guardrail rollback`; removed by `--uninstall`. |
+| `.guardrail-update` / `.guardrail.install.exe` | Update / install staging. | Removed on completion or by the next cycle. |
+| `guardrail.old-<timestamp>` | Pre-#94 set-aside scheme, no longer produced. | Swept by the first `guardrail update` at or past this release, and by `--uninstall`. |
+| `guardrail.before-*` and friends | Hand-made backups. Not guardrail's. | Never touched by guardrail or the installers. |
+
+So a `guardrail.old` dated the day *before* yesterday's update is that update's
+own aside (the mtime travels with the replaced file), and it disappears on the
+next update — nothing is accumulating. `--uninstall` now removes every
+guardrail-owned row above plus the opencode plugin directory under the data
+root (`~/.local/share/guardrail`, whole tree: the V1 `guardrail.js` and the
+OpenCode 2 `guardrail/index.js` artifact both live there).
+
 ## Where things live
 
 | What | Path |
