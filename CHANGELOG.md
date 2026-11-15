@@ -4,6 +4,22 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Adapters
+- **Fix (#151): Claude Code's auto mode counts as a host that answers asks
+  itself.** ADR-0035 rules that asks deny on auto/bypass hosts, but the
+  Claude adapter only read `permission_mode: "bypassPermissions"`. Claude
+  Code 2.1.325 reports auto mode as `"auto"`, and auto mode is where the
+  #555 evidence came from. Measured on `main`: `chmod -R 777` in auto mode
+  stayed an ask, which the host answered with no operator dialog. That same
+  path covered unknown tools, MCP tools outside the registry, protected
+  pushes and package installs. It now denies `host-auto-ask-escalated` like
+  bypass mode. **Breaking (auto mode):** every guardrail ask in a Claude
+  auto-mode session is now a deny that tells the agent to have the operator
+  run the action in their terminal. `default`, `acceptEdits`, `plan` and
+  `dontAsk` are unchanged.
+
 ## v0.23.40-dev (2026-11-15)
 
 ### Audit
