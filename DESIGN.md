@@ -168,8 +168,26 @@ research, see the dotfiles repo's research notes):
    P11 pattern, P12 generator.
 7. Codex adapter when adopted.
 
-## Open follow-ups (outside this design)
+## Resolved follow-ups (outside this design)
 
-- Skills-path confusion for Antigravity: `skills` CLI writes `~/.agents/skills/`, but
-  Antigravity docs say it reads `~/.gemini/config/skills/`; superpowers / mp ship
-  skills inside their plugin trees. Separate investigation.
+- Antigravity skills paths (#591): verified via `agy 1.5.9` binary disassembly and live
+  `agy -p "/skills"` marker probes.
+  - **Global (user-level)**: Antigravity reads `~/.gemini/antigravity-cli/skills/`,
+    `~/.gemini/skills/`, and `~/.gemini/config/skills/` (plus `~/.gemini/config/skills.txt`,
+    `~/.gemini/config/skills.json`, enabled plugins under
+    `~/.gemini/config/plugins/<plugin>/skills/`, and built-in skills under
+    `~/.gemini/antigravity-cli/builtin/skills/`). On first run without
+    `~/.gemini/config/.migrated`, `MigrateConfigDir` moves `<AppDataDir>/skills` to
+    `~/.gemini/config/skills` and symlinks `~/.gemini/antigravity-cli/skills ->
+    ~/.gemini/config/skills` (on Windows where `.migrated` was created earlier or symlinks
+    require elevation, both directories are scanned independently). Antigravity never reads
+    `~/.agents/skills/` as a global path.
+  - **Workspace (project-level)**: Antigravity walks from `cwd` up to the enclosing git/VCS
+    root and scans `.agents/skills/`, `.agent/skills/`, `_agents/skills/`, and
+    `_agent/skills/` (stopping at the workspace/git boundary, so `$HOME/.agents/skills/` is
+    not reached from inside a project).
+  - **`skills` CLI discrepancy**: `skills <= 1.7.6` treated any agent with project
+    `skillsDir: ".agents/skills"` as a universal agent even on `-g` (`--global`), returning
+    `~/.agents/skills/` and skipping `globalSkillsDir`. Fixed upstream in `skills 1.8.1`
+    (`globalReadsCanonical: false`, `globalSkillsDir: ~/.gemini/config/skills`), which now
+    symlinks `~/.gemini/config/skills/<name> -> ../../../.agents/skills/<name>`.
