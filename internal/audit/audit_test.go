@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestWriteAppendsJSONL(t *testing.T) {
@@ -264,5 +265,41 @@ func TestWriteRotatesWhenOverLimit(t *testing.T) {
 	}
 	if total != 5 {
 		t.Fatalf("records across segments = %d, want 5", total)
+	}
+}
+
+// #575: segment names come from the wall clock, and Windows ticks are
+// coarse — consecutive rotations within one tick mint the same name and
+// os.Rename silently replaces the earlier segment, losing its records.
+// Rotations must never overwrite: a collision disambiguates.
+func TestRotationNameCollisionNeverOverwrites(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+	auditRotateBytes = 200
+	t.Cleanup(func() { auditRotateBytes = 20 << 20 })
+	restore := auditNow
+	frozen := time.Date(2026, 11, 15, 8, 0, 0, 0, time.UTC)
+	auditNow = func() time.Time { return frozen }
+	t.Cleanup(func() { auditNow = restore })
+
+	for i := 0; i < 5; i++ {
+		if err := Write(Record{Plane: "opencode", Tool: "Bash", Event: "pre", Decision: "allow", Command: strings.Repeat("x", 60)}, path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	segments, err := filepath.Glob(filepath.Join(dir, "audit-*.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := 0
+	for _, segment := range append(segments, path) {
+		raw, err := os.ReadFile(segment)
+		if err != nil {
+			t.Fatal(err)
+		}
+		total += strings.Count(string(raw), "\n")
+	}
+	if total != 5 {
+		t.Fatalf("records across segments = %d, want 5: a frozen clock must not lose records to name collisions (segments: %v)", total, segments)
 	}
 }

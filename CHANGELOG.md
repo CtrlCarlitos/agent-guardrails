@@ -6,6 +6,15 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Audit
+- **Fix (#575): audit rotation never overwrites a segment.** Segment names
+  come from the wall clock and Windows ticks are coarse, so consecutive
+  rotations within one tick minted the same name and `os.Rename` silently
+  replaced the earlier segment — its records were lost. A name collision now
+  disambiguates with a counter kept inside the `.jsonl` suffix, so the
+  segment family glob and retention still cover every spelling. Caught by
+  the newly blocking full-Windows suite.
+
 ### Tests
 - **Fix (#519): the WebAuthn browser e2e no longer leaves a "guardrail"
   agent-browser daemon behind.** The `guardrail-<12 hex>` session that
