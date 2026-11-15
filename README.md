@@ -249,7 +249,7 @@ The engine intercepts that and the agent's host asks you (in passkey mode, a pas
 
 ## Reporting issues
 
-Found a missing check, or a denial with no useful next step? [Open an issue](https://github.com/CtrlCarlitos/agent-guardrails/issues). Include your `guardrail version` output and the relevant diagnostic (`selftest` or `doctor`); remove secrets before posting.
+Found a missing check, or a denial with no useful next step? [Open an issue](https://github.com/CtrlCarlitos/agent-guardrails/issues). For a verdict, `guardrail report` prints a ready-to-paste title and body from the audit record: version, plane, tool, verdict, rule and reason, with secrets redacted and your home directory shown as `~`. `--last 2` picks an earlier record, and `--id <timestamp>` picks a specific one. It only prints, so review it before posting. Otherwise include your `guardrail version` output and the relevant diagnostic (`selftest` or `doctor`), and remove secrets before posting.
 
 ## Working on it
 

@@ -133,6 +133,12 @@ func isHighEntropy(s string) bool {
 	return (entropy >= 3.0 && hasDigit && hasLetter) || entropy >= 3.8
 }
 
+// Redact applies the audit log's secret redaction to s: the same patterns
+// Write applies to a record's command. `guardrail report` re-applies it to
+// every field it prints, since a log may predate a pattern or quote a
+// command in another field (#124).
+func Redact(s string) string { return redact(s) }
+
 func redact(s string) string {
 	for _, re := range redactors {
 		s = re.ReplaceAllString(s, "«redacted»")
