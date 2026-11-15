@@ -4,6 +4,20 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Claude plane
+- **Fix (#541): `SendMessage` to a spawned subagent is delegation, not a
+  capability deny.** The tool was denied outright as "moves data or control
+  to another principal", which broke resuming a subagent the session had
+  spawned with `Agent`. The adapter now classifies it by `to`: an Agent id
+  (`a[<label>-]<16 hex>`) or `main` allows as `delegation-inherited`, like
+  `Agent`; any other target — a session name, a name with a ListAgents ref,
+  a `bridge:`/`uds:`/`did:` address — may reach another local, Remote
+  Control or cloud session and asks (`capability-external`); a call with no
+  string target still denies. The harness's own `recipient_kind` can only
+  narrow the result.
+
 ## v0.23.38-dev (2026-11-14)
 
 ### Setup
