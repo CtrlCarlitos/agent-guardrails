@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.41-dev (2026-11-15)
 
 ### Diagnostics
 - **Feature (#530): explicit opt-in phase timing.** Set `GUARDRAIL_TIMING=1`
