@@ -35,6 +35,9 @@
   "delegation.json": {
     "exit": 2
   },
+  "collaboration-review.json": {
+    "exit": 2
+  },
   "mcp.json": {
     "exit": 2
   },

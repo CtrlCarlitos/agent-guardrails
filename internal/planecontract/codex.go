@@ -65,6 +65,21 @@ func CodexTool(name string) (ToolSpec, bool) {
 		name = "functions.wait"
 	case "exec", "functions__exec":
 		name = "functions.exec"
+	// Codex also flattens namespace separators in native hook identities
+	// (#540). Enumerate aliases for the contracted fleet tools only; do not
+	// strip arbitrary prefixes or admit future collaboration tools implicitly.
+	case "collaborationspawn_agent", "collaboration__spawn_agent":
+		name = "collaboration.spawn_agent"
+	case "collaborationsend_message", "collaboration__send_message":
+		name = "collaboration.send_message"
+	case "collaborationfollowup_task", "collaboration__followup_task":
+		name = "collaboration.followup_task"
+	case "collaborationinterrupt_agent", "collaboration__interrupt_agent":
+		name = "collaboration.interrupt_agent"
+	case "collaborationlist_agents", "collaboration__list_agents":
+		name = "collaboration.list_agents"
+	case "collaborationwait_agent", "collaboration__wait_agent":
+		name = "collaboration.wait_agent"
 	}
 	for _, spec := range codexTools {
 		if spec.NativeTool == name {
