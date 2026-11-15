@@ -42,7 +42,7 @@
     "decision": "deny"
   },
   "future-tool.json": {
-    "decision": "allow"
+    "decision": "force_ask"
   },
   "list-decoy-secret.json": {
     "decision": "deny"

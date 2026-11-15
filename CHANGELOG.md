@@ -18,6 +18,28 @@ explicitly in **Breaking** notes.
   the daemon applies P7 with the session's state (or
   `P7.tracking-unavailable`), and calls carrying degraded-allow reports stay
   in-process. ADR-0025 gains a parity section.
+- **Fix (#151): an unknown Antigravity tool asks instead of allowing.** The
+  base `unknown_tool_posture = "audit"` still applied to Antigravity, so a
+  tool the contract did not know (`future_tool`) was allowed and only
+  tagged `audit_kind: unknown-native-tool` in the audit log. Antigravity
+  renders asks as `force_ask`, so it now asks like claude and opencode. The
+  audit posture no longer allows an unclassified tool on any plane, and
+  Codex still denies (ADR-0018 amended). One recorded fixture flipped with
+  it (`antigravity/future-tool.json`, formerly allow).
+
+### Adapters
+- **Fix (#151): Claude Code's auto mode counts as a host that answers asks
+  itself.** ADR-0035 rules that asks deny on auto/bypass hosts, but the
+  Claude adapter only read `permission_mode: "bypassPermissions"`. Claude
+  Code 2.1.325 reports auto mode as `"auto"`, and auto mode is where the
+  #555 evidence came from. Measured on `main`: `chmod -R 777` in auto mode
+  stayed an ask, which the host answered with no operator dialog. That same
+  path covered unknown tools, MCP tools outside the registry, protected
+  pushes and package installs. It now denies `host-auto-ask-escalated` like
+  bypass mode. **Breaking (auto mode):** every guardrail ask in a Claude
+  auto-mode session is now a deny that tells the agent to have the operator
+  run the action in their terminal. `default`, `acceptEdits`, `plan` and
+  `dontAsk` are unchanged.
 
 ## v0.23.40-dev (2026-11-15)
 

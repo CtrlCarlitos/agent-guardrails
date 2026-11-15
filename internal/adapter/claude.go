@@ -23,10 +23,18 @@ type claudePayload struct {
 		FilePath string `json:"file_path"`
 	} `json:"tool_input"`
 	// Claude Code reports the session's permission posture on every call.
-	// bypassPermissions means the host answers permission asks itself, so a
-	// guardrail Ask would be rubber-stamped (#559/ADR-0035); the engine
-	// denies those instead. Adapter-validated, never model-supplied.
+	// bypassPermissions and auto mean the host answers permission asks
+	// itself, so a guardrail Ask would be rubber-stamped (#559/ADR-0035); the
+	// engine denies those instead. Adapter-validated, never model-supplied.
 	PermissionMode string `json:"permission_mode"`
+}
+
+// claudeHostAutoApproves reports the permission modes in which Claude Code
+// answers a permission ask without the operator. Claude Code 2.1.325 reports
+// auto mode as "auto" (#151); acceptEdits and plan still ask for tool
+// permissions, and dontAsk denies them itself.
+func claudeHostAutoApproves(mode string) bool {
+	return mode == "bypassPermissions" || mode == "auto"
 }
 
 func ParseClaude(r io.Reader) (engine.ToolCall, error) {
@@ -73,7 +81,7 @@ func ParseClaude(r io.Reader) (engine.ToolCall, error) {
 	tc := engine.ToolCall{
 		Plane:            "claude",
 		Event:            event,
-		HostAutoApproves: p.PermissionMode == "bypassPermissions",
+		HostAutoApproves: claudeHostAutoApproves(p.PermissionMode),
 		Tool:             spec.Tool,
 		NativeTool:       p.ToolName,
 		Capability:       spec.Capability,

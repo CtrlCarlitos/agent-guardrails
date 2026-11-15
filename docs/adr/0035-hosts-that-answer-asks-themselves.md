@@ -18,7 +18,8 @@ operator will never see is an allow in disguise.
 
 When the adapter-validated host posture says the host answers permission
 asks itself (`ToolCall.HostAutoApproves`; claude wires it from
-`permission_mode == "bypassPermissions"`), **every Ask verdict denies**
+`permission_mode` `"bypassPermissions"` or `"auto"`, the value Claude Code
+2.1.325 reports for auto mode; #151), **every Ask verdict denies**
 with guidance naming the posture and the operator's terminal as the honest
 channel (`host-auto-ask-escalated`; the originating ask rule is preserved
 in `OriginRuleID`). Operator actions in prompt mode take the same shape as
@@ -29,7 +30,8 @@ unchanged — a passkey ceremony never depended on the host dialog.
 ## Boundaries and open work
 
 - `acceptEdits` and `plan` are deliberately not escalated: they do not
-  auto-approve tool permission asks.
+  auto-approve tool permission asks. Neither is `dontAsk`, which denies
+  permission asks itself.
 - opencode `--auto` and codex full-auto are the same hazard but their hook
   payloads do not expose the posture yet; wiring them needs payload
   evidence (#519-style capture), tracked on #559.
