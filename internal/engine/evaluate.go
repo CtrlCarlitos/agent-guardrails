@@ -8,7 +8,27 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-func Evaluate(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
+// Evaluate is the engine entrypoint. On a host whose permission posture
+// answers asks itself (auto/bypass mode, #559 / ADR-0035), every Ask
+// verdict denies instead: the host would rubber-stamp the question the
+// operator never sees, so the operator's terminal is the only honest
+// channel and the guidance says so. Allow and Deny verdicts are unchanged.
+func Evaluate(tc ToolCall, pol *policy.Policy) policy.Verdict {
+	out := evaluateVerdict(tc, pol)
+	if tc.HostAutoApproves && out.Decision == policy.Ask {
+		return policy.Verdict{
+			Decision:     policy.Deny,
+			RuleID:       "host-auto-ask-escalated",
+			OriginRuleID: out.RuleID,
+			AuditKind:    out.AuditKind,
+			Reason: "the host is running in an auto/bypass permission mode and would answer this ask itself (" +
+				out.RuleID + "); denied instead. Ask the operator to run this exact action in their terminal, then continue other work",
+		}
+	}
+	return out
+}
+
+func evaluateVerdict(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 	defer func() {
 		if r := recover(); r != nil {
 			out = policy.Verdict{Decision: policy.Ask, RuleID: "panic-recovered",

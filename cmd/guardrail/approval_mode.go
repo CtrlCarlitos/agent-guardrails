@@ -219,6 +219,15 @@ func promptOperatorVerdict(plane string, tc engine.ToolCall, a engine.Action, no
 		Reason: "the approval could not be recorded, so the operator action was not asked for; failing closed. The operator can run `" + a.Command + "` in their terminal"}
 	ask := policy.Verdict{Decision: policy.Ask, RuleID: "operator-action-ask", OperatorAction: a.Name,
 		Reason: "guardrail operator action: " + summary + " — `" + a.Command + "`"}
+	// A host in auto/bypass mode answers the ask itself (#559/ADR-0035):
+	// the operator never sees the dialog, so this is the same shape as the
+	// codex limitation below — the terminal is the only honest channel. On
+	// opencode, HostApproved dialog evidence cannot exist in this mode
+	// either: an auto-approved dialog is not an operator decision.
+	if tc.HostAutoApproves {
+		return policy.Verdict{Decision: policy.Deny, RuleID: "operator-action-terminal", OperatorAction: a.Name,
+			Reason: "guardrail operator action (" + summary + ") needs the operator's approval, but this session's host is in an auto/bypass permission mode and would answer the ask itself; ask the operator to run `" + a.Command + "` in their terminal"}
+	}
 	switch plane {
 	case "codex":
 		return policy.Verdict{Decision: policy.Deny, RuleID: "operator-action-terminal", OperatorAction: a.Name,
