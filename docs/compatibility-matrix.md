@@ -39,27 +39,69 @@ Notes on the Codex row:
 - Hosted tools and `write_stdin` do not pass through pre-hooks on any OS
   ([ADR-0014](adr/0014-codex-native-hooks-and-blocked-asks.md),
   [2026-09-17 mediation probes](research/2026-09-17-codex-mediation-probes.md)).
-- The hook payload does not say which shell runs the command or in which
-  directory, on Windows or Linux
+- The hook payload does not directly identify the effective interpreter or
+  per-call execution directory
   ([2026-09-25 execution contract](research/2026-09-25-codex-execution-contract.md)).
-  No enforcement claim is made for Codex until that is resolved.
+  On Windows, the adapter uses the selected session's transcript to prove
+  PowerShell and checks the execution directory as described in the row above
+  and [ADR-0014](adr/0014-codex-native-hooks-and-blocked-asks.md). An absent or
+  unproven shell keeps the refusal; a healthy transport probe is not shell proof.
 
 ## Shell
 
-The engine judges the command text a host hands to the hook. It parses every
-command with one POSIX (bash) parser (`mvdan.cc/sh`, `internal/engine/tokenize.go`),
-then maps PowerShell cmdlets (`internal/engine/rules_powershell.go`, #111) and
-cmd builtins (`internal/engine/rules_cmd.go`, #139) onto the same rules. No
-host tells the hook which shell will run the command, so the shell is never
-an input to the verdict.
+The engine judges the command text a host hands to the hook. Its shared
+normalizer uses the POSIX parser (`mvdan.cc/sh`, `internal/engine/tokenize.go`)
+with a PowerShell reading when the adapter can prove that dialect. Claude's
+native `PowerShell` tool supplies that identity; on Windows, Codex's adapter
+sets `ToolCall.Shell` from its session-bound transcript. The PowerShell reading
+recognizes `$true`, `$false` and `$null` as constants, including inline switch
+values such as `-Confirm:$false` (#495/#498).
+
+PowerShell cmdlet checks (`internal/engine/rules_powershell.go`, #111) and cmd
+builtin checks (`internal/engine/rules_cmd.go`, #139) also map recognized command
+families onto the shared policy. Observing those checks does not prove the
+outer interpreter or full dialect attribution. OpenCode and Antigravity leave
+`ToolCall.Shell` unset; PowerShell-looking text can therefore still require
+operator review as `P3.unresolved`. The existing unknown-cmdlet denial remains
+in force.
 
 | OS | Shell | State | Evidence |
 |---|---|---|---|
 | Windows | Git Bash (MSYS) | **Enforced, observed** for Claude Code's `Bash` tool | [E1] [E2]; MSYS `/c/...` paths: [ADR-0024](adr/0024-windows-agent-experience-mounts-and-wrappers.md) |
-| Windows | PowerShell | **Enforced, observed** for PowerShell command text sent by opencode and Antigravity | [E3] [E4]; Claude Code's separate `PowerShell` tool is mapped to the same analyser (`internal/planecontract/claude.go`) but has no real-session record: Unknown |
-| Windows | cmd.exe | **Enforced, observed** for `cmd.exe /c ...` text sent by Antigravity | [E4]; Codex's Windows launcher runs under PowerShell or cmd ([ADR-0031](adr/0031-codex-windows-launcher-returns-structured-blocks.md)) but Codex is Unenforced [E5] |
+| Windows | PowerShell | **Cmdlet checks observed**, dialect attribution depends on the plane | [E3] [E4] for OpenCode/Antigravity command text; their outer shell is unproven (#501). Claude's native `PowerShell` tool and transcript-proven Windows Codex calls select the PowerShell reading; live-session claims remain as recorded above. |
+| Windows | cmd.exe | **Enforced, observed** for `cmd.exe /c ...` text sent by Antigravity | [E4]; a Codex launcher's interpreter does not prove its command interpreter. Windows Codex command rewrites require transcript-proven PowerShell; other shells fail closed ([ADR-0014](adr/0014-codex-native-hooks-and-blocked-asks.md)). |
 | Linux, WSL | bash, sh | CI-tested only | [E7]; the engine's own dialect |
 | macOS | zsh | Unknown | The parser is bash, not zsh. `zsh -c` options are recognised (`internal/engine/tokenize.go`), but zsh-only syntax has no tests and no session record. |
+
+### OpenCode and Antigravity shell attribution (#501)
+
+The [OpenCode V1/V2 event evidence](https://github.com/CtrlCarlitos/agent-guardrails/issues/501#issuecomment-6898777037)
+and [Antigravity CLI/desktop schema evidence](https://github.com/CtrlCarlitos/agent-guardrails/issues/501#issuecomment-6897197733)
+show no resolved-shell field at the command guard's existing boundary.
+Antigravity's internal `shell_name` does not appear in its PreToolUse envelope
+or model arguments. OpenCode's tool execution events expose tool arguments,
+not the final interpreter selected by the host.
+
+Reading OpenCode's preferred `shell` config does not establish that final
+interpreter. In [V2 2.3.0, commit a6b15d3](https://github.com/anomalyco/opencode/blob/a6b15d33daf6ab7d35569f6d711fdb630b9f04e7/packages/core/src/shell.ts#L880),
+shell creation accepts a per-call shell, otherwise resolves a default, then
+runs mutable shell lifecycle callbacks before spawning. The
+[selector can fall back](https://github.com/anomalyco/opencode/blob/a6b15d33daf6ab7d35569f6d711fdb630b9f04e7/packages/core/src/shell/select.ts#L120)
+when a configured executable is unavailable; config also supports reload.
+The later [`shell.create.before` event](https://github.com/anomalyco/opencode/blob/a6b15d33daf6ab7d35569f6d711fdb630b9f04e7/packages/plugin/src/effect/shell.ts)
+does expose a mutable `shell`, but it lacks the documented failure contract of
+the veto-capable [`tool.execute.before` hook](https://github.com/anomalyco/opencode/blob/a6b15d33daf6ab7d35569f6d711fdb630b9f04e7/packages/core/src/plugin/hooks.ts#L23).
+It also lacks a typed session/call identity to bind that later event to the
+earlier verdict. No absence of overrides is established by the tool-event
+types alone.
+
+Guardrail therefore does not infer PowerShell from config, command syntax,
+`$SHELL`, installed executables, or the name of a nested `powershell -Command`
+invocation. The needed upstream contract is the **resolved outer interpreter
+for this command**, bound to a synchronous, veto-capable event and the actual
+spawn. Any later interpreter change must invalidate that verdict or repeat
+evaluation. Until that exists, both adapters retain the conservative reading;
+no permissive fallback is added.
 
 ## Install and operator approvals per OS
 
