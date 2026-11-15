@@ -28,6 +28,12 @@ explicitly in **Breaking** notes.
   it (`antigravity/future-tool.json`, formerly allow).
 
 ### Adapters
+- **Fix (#151): doctor identifies Codex native-floor drift separately from
+  hook registration.** Deleted, unreadable or modified `rules/guardrail.rules`
+  now produce a native-floor warning and a specific setup repair reason.
+  Setup already repaired these files through its combined registration check;
+  the diagnostic now names the actual damaged artifact, including under
+  `CODEX_HOME`. The existing strict generated-file comparison is preserved.
 - **Fix (#151): Claude Code's auto mode counts as a host that answers asks
   itself.** ADR-0035 rules that asks deny on auto/bypass hosts, but the
   Claude adapter only read `permission_mode: "bypassPermissions"`. Claude

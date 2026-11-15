@@ -431,6 +431,16 @@ func printDoctor(stdout, stderr io.Writer) (int, int) {
 			problems++
 		}
 	}
+	if path, err := planeConfigPath("codex"); err == nil {
+		if doc, err := genconfig.ReadJSONObject(path); err == nil && genconfig.CodexHooksRegistered(doc) {
+			if planeFloorDrift("codex") > 0 {
+				problems++
+				fmt.Fprintln(stdout, "codex native floor: WARNING rules/guardrail.rules missing, unreadable or changed; run `guardrail plane enable codex`.")
+			} else {
+				fmt.Fprintln(stdout, "codex native floor: matches generated rules")
+			}
+		}
+	}
 	if home, err := os.UserHomeDir(); err == nil {
 		if doc, err := genconfig.ReadJSONObject(filepath.Join(home, ".claude", "settings.json")); err == nil {
 			{
