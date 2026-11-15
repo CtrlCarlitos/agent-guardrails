@@ -46,15 +46,13 @@ func evaluateVerdict(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 			v.Reason = "unclassified native tool; failing closed"
 			return v
 		}
-		if tc.Plane == "opencode" || tc.Plane == "claude" {
-			// Bare-name MCP and future tools must not allow silently; host
-			// dialogs and native asks (ADR-0015, ADR-0018) keep this cheap.
-			v.Decision = policy.Ask
-			v.RuleID = "unknown-native-tool"
-			v.Reason = "unclassified native tool requires operator approval"
-			return v
-		}
-		v.Decision = policy.Allow
+		// Bare-name MCP and future tools must not allow silently; host
+		// dialogs and native asks (ADR-0015, ADR-0018) keep this cheap. The
+		// audit posture used to allow here on any other plane, which left
+		// Antigravity's unknown tools with nothing but an audit line (#151).
+		v.Decision = policy.Ask
+		v.RuleID = "unknown-native-tool"
+		v.Reason = "unclassified native tool requires operator approval"
 		return v
 	}
 	if (tc.Capability == policy.CapabilityReadDiscovery || tc.Capability == policy.CapabilityMutation) && len(tc.Paths) == 0 {

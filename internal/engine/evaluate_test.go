@@ -43,12 +43,16 @@ func TestEvaluate(t *testing.T) {
 	}
 }
 
-func TestUnknownToolAuditsButAllowsInAuditPosture(t *testing.T) {
+// #151: the audit posture never allows an unclassified tool silently, on any
+// plane — including Antigravity and a plane the engine does not name.
+func TestUnknownToolAsksInAuditPostureOnEveryNonCodexPlane(t *testing.T) {
 	p := fullPol()
 	p.UnknownToolPosture = policy.UnknownAudit
-	v := Evaluate(ToolCall{NativeTool: "new_tool", Capability: policy.CapabilityUnknown}, p)
-	if v.Decision != policy.Allow || v.AuditKind != "unknown-native-tool" {
-		t.Fatalf("unknown tool audit posture = %+v, want allow/unknown-native-tool", v)
+	for _, plane := range []string{"claude", "opencode", "antigravity", ""} {
+		v := Evaluate(ToolCall{Plane: plane, NativeTool: "new_tool", Capability: policy.CapabilityUnknown}, p)
+		if v.Decision != policy.Ask || v.RuleID != "unknown-native-tool" || v.AuditKind != "unknown-native-tool" {
+			t.Fatalf("plane %q: unknown tool audit posture = %+v, want ask/unknown-native-tool", plane, v)
+		}
 	}
 }
 

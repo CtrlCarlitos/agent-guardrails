@@ -4,6 +4,18 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Engine
+- **Fix (#151): an unknown Antigravity tool asks instead of allowing.** The
+  base `unknown_tool_posture = "audit"` still applied to Antigravity, so a
+  tool the contract did not know (`future_tool`) was allowed and only
+  tagged `audit_kind: unknown-native-tool` in the audit log. Antigravity
+  renders asks as `force_ask`, so it now asks like claude and opencode. The
+  audit posture no longer allows an unclassified tool on any plane, and
+  Codex still denies (ADR-0018 amended). One recorded fixture flipped with
+  it (`antigravity/future-tool.json`, formerly allow).
+
 ## v0.23.40-dev (2026-11-15)
 
 ### Audit

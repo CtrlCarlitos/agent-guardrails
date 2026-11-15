@@ -26,6 +26,10 @@ coverage-cycle review flagged this as the highest-risk remaining gap.
 2. Claude's unknown-tool posture joins opencode's: unclassified tools Ask
    rather than allow (audit posture remains only for unattributed calls).
    ADR-0017's registry and ADR-0015's host dialogs make asking cheap.
+   **Amended (#151):** Antigravity renders asks as `force_ask`, so it joins
+   them, and the "unattributed calls" remainder is gone too. The audit
+   posture no longer allows an unclassified tool on any plane. It differs
+   from `deny` only in asking, and Codex still always denies (ADR-0014).
 3. Glossary (CONTEXT.md): the External tier — tools whose effect leaves the
    session (publication, scheduling, MCP servers, external services) — are
    per-call operator decisions, never blanket-denied, never night-relaxed.
@@ -37,7 +41,7 @@ coverage-cycle review flagged this as the highest-risk remaining gap.
 ## Consequences
 
 - Overnight autonomy no longer implies overnight egress or publication.
-- New unclassified tools surface as asks on both dialog-capable planes.
+- New unclassified tools surface as asks on every plane but Codex, which denies them.
 - Preserved-ask set is explicit in the Engine and test-pinned; adding an
   outward-reach rule — or, since #140, a machine-level-effect rule — means
   adding it there.
