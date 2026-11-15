@@ -164,7 +164,9 @@ fails (exit 1) when enforcement drifted; it should end with
 One line is not a fault on a fresh install:
 `guardrail hook registered but NEVER OBSERVED FIRING`. It means no real
 session has used the hook yet. It clears after your first agent session.
-`guardrail selftest --evidence claude` confirms it.
+`guardrail selftest --evidence claude` confirms it. After an update the line
+reads `evidence window reset by the recent update` instead: earlier sessions
+were recorded, just not by this binary yet.
 
 ```sh
 guardrail next

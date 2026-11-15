@@ -662,22 +662,34 @@ func guardrailHookSpawnHazard(doc map[string]any) string {
 // not broken. So this is an operator-facing caveat only, and it disappears on
 // its own the first time a real session is mediated.
 func claudeMediationCaveat() string {
-	segments, err := audit.Segments(audit.DefaultPath(""))
-	if err != nil {
-		return " (mediation unverified: audit log unreadable)"
-	}
 	cutoff := time.Time{}
 	if binary, err := os.Executable(); err == nil {
 		if info, err := os.Stat(binary); err == nil {
 			cutoff = info.ModTime()
 		}
 	}
-	evidence, err := audit.ReadClaudeEvidence(segments, cutoff, time.Now())
+	return claudeMediationCaveatFor(audit.DefaultPath(""), cutoff, time.Now())
+}
+
+// claudeMediationCaveatFor is claudeMediationCaveat over an explicit audit
+// path and binary-mtime cutoff, so the window can be pinned in tests.
+func claudeMediationCaveatFor(path string, cutoff, now time.Time) string {
+	segments, err := audit.Segments(path)
+	if err != nil {
+		return " (mediation unverified: audit log unreadable)"
+	}
+	evidence, err := audit.ReadClaudeEvidence(segments, cutoff, now)
 	if err != nil {
 		return " (mediation unverified: audit scan incomplete)"
 	}
 	if evidence.Observed() {
 		return ""
+	}
+	if evidence.WindowReset() {
+		// Not a warning (#520). Joined with " — " rather than ";" so the
+		// dotfiles console filter, which hides `registered($|;)`, still shows it.
+		return fmt.Sprintf(" — evidence window reset by the recent update (%d earlier real-session records predate this binary):"+
+			" start a Claude session, then re-run `guardrail selftest --evidence claude`", evidence.Stale)
 	}
 	return " but NEVER OBSERVED FIRING — no audit record from a real session since this binary was built." +
 		" Registration is not enforcement; confirm with `guardrail selftest --evidence claude`"

@@ -24,6 +24,15 @@ func (e CodexEvidence) Observed() bool {
 	return e.QualifiedSessions > 0 && e.Malformed == 0 && len(e.MissingExpectedTools) == 0
 }
 
+// WindowReset reports the expected state right after an update or rebuild:
+// real-session records exist, but every one predates the running binary's
+// mtime cutoff, so none is eligible yet (#520). It is not evidence that the
+// hook fails to run, and it is not evidence that it runs either: the window
+// is not carried across binaries, because a new binary is a new handler.
+func (e CodexEvidence) WindowReset() bool {
+	return !e.Observed() && e.Malformed == 0 && e.Eligible == 0 && e.Stale > 0
+}
+
 // syntheticCodexSession is deliberately an explicit prefix list (ADR-0020).
 // A prefix matches only the whole ID or a hyphen-delimited suffix.
 func syntheticCodexSession(id string) bool {
