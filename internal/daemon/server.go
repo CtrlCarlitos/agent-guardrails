@@ -20,6 +20,9 @@ import (
 type EvaluatorFunc func(engine.ToolCall) (policy.Verdict, error)
 
 type ServerConfig struct {
+	// OnResponse observes only actual socket Write time after an evaluate response.
+	// Nil in the default path; observational failures cannot change a verdict.
+	OnResponse  func(engine.ToolCall, time.Duration)
 	Endpoint    string
 	Evaluator   EvaluatorFunc
 	IdleTimeout time.Duration
@@ -172,7 +175,12 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 
 	reader := bufio.NewReader(conn)
-	writer := json.NewEncoder(conn)
+	var writeElapsed time.Duration
+	var destination io.Writer = conn
+	if s.cfg.OnResponse != nil {
+		destination = responseTimingWriter{Writer: conn, elapsed: &writeElapsed}
+	}
+	writer := json.NewEncoder(destination)
 
 	for {
 		line, err := reader.ReadBytes('\n')
@@ -209,10 +217,26 @@ func (s *Server) handleConnection(conn net.Conn) {
 				_ = writer.Encode(Response{Status: "error", Error: err.Error()})
 				return
 			}
+			writeElapsed = 0
 			_ = writer.Encode(Response{Status: "ok", Verdict: &verdict})
+			if s.cfg.OnResponse != nil {
+				s.cfg.OnResponse(*req.ToolCall, writeElapsed)
+			}
 		default:
 			_ = writer.Encode(Response{Status: "error", Error: "unknown action"})
 			return
 		}
 	}
+}
+
+type responseTimingWriter struct {
+	io.Writer
+	elapsed *time.Duration
+}
+
+func (w responseTimingWriter) Write(p []byte) (int, error) {
+	started := time.Now()
+	n, err := w.Writer.Write(p)
+	*w.elapsed += time.Since(started)
+	return n, err
 }

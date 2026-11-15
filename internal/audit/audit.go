@@ -18,6 +18,8 @@ import (
 
 type Record struct {
 	TS                    string   `json:"ts"`
+	CallID                string   `json:"call_id,omitempty"`
+	GuardrailVersion      string   `json:"guardrail_version,omitempty"`
 	SessionID             string   `json:"session_id,omitempty"`
 	Plane                 string   `json:"plane"`
 	Tool                  string   `json:"tool"`

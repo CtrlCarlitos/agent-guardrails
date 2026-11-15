@@ -36,6 +36,8 @@ func cmdDaemon(args []string, stdout, stderr io.Writer) int {
 		binPath, _ := os.Executable()
 		evaluator := func(tc engine.ToolCall) (policy.Verdict, error) {
 			started := time.Now()
+			timing := newHookTiming("daemon-engine", tc.Plane, "daemon", &tc, started)
+			defer timing.finish()
 			base, err := policy.LoadBase()
 			if err != nil {
 				return policy.Verdict{}, fmt.Errorf("load base policy: %w", err)
@@ -67,7 +69,7 @@ func cmdDaemon(args []string, stdout, stderr io.Writer) int {
 				return policy.Verdict{}, fmt.Errorf("merge policy: %w", err)
 			}
 
-			v := engine.Evaluate(tc, merged)
+			v := timing.evaluate(tc, merged)
 			// P7 needs the session's state exactly as the in-process hook
 			// keeps it: a transaction when the session is known, the
 			// tracking-unavailable reading when it is not or the state
@@ -106,7 +108,16 @@ func cmdDaemon(args []string, stdout, stderr io.Writer) int {
 			return v, nil
 		}
 
+		var onResponse func(engine.ToolCall, time.Duration)
+		if audit.TimingEnabled() {
+			onResponse = func(tc engine.ToolCall, d time.Duration) {
+				timing := newHookTiming("daemon-response", tc.Plane, "daemon", &tc, time.Now())
+				timing.phase("response_write_ms", d)
+				timing.finish()
+			}
+		}
 		server, err := daemon.NewServer(daemon.ServerConfig{
+			OnResponse:  onResponse,
 			Endpoint:    *endpoint,
 			Evaluator:   evaluator,
 			IdleTimeout: *idle,

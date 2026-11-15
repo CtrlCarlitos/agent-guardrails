@@ -12,6 +12,7 @@ import (
 // Every hook record now carries hook_ms (in-process handling) and, for a
 // spawned hook, startup_ms (process start to handling).
 func TestHookAuditRecordsCarryLatency(t *testing.T) {
+	t.Setenv("GUARDRAIL_TIMING", "1")
 	testenv.SetState(t, t.TempDir())
 	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")

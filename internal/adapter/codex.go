@@ -24,6 +24,7 @@ func ParseCodex(r io.Reader) (engine.ToolCall, error) {
 	}
 	var p struct {
 		SessionID string          `json:"session_id"`
+		ToolUseID string          `json:"tool_use_id"`
 		CWD       string          `json:"cwd"`
 		Event     string          `json:"hook_event_name"`
 		Tool      string          `json:"tool_name"`
@@ -36,7 +37,7 @@ func ParseCodex(r io.Reader) (engine.ToolCall, error) {
 	if event == "" || !filepath.IsAbs(p.CWD) || p.SessionID == "" {
 		return engine.ToolCall{}, fmt.Errorf("Codex hook requires a supported event, absolute cwd and session_id")
 	}
-	tc := engine.ToolCall{Plane: "codex", Event: event, CWD: p.CWD, RepoRoot: repoRoot(p.CWD), SessionID: p.SessionID, NativeTool: p.Tool, Arguments: p.Input, Raw: raw, InputShape: "opaque-object"}
+	tc := engine.ToolCall{Plane: "codex", Event: event, CWD: p.CWD, RepoRoot: repoRoot(p.CWD), SessionID: p.SessionID, CallID: p.ToolUseID, NativeTool: p.Tool, Arguments: p.Input, Raw: raw, InputShape: "opaque-object"}
 	if event == "session-start" {
 		return tc, nil
 	}

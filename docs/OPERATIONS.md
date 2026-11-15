@@ -661,3 +661,67 @@ uninstall](#install-update-disable-uninstall)).
 - `doctor --coverage claude` lists a tool → open an issue with the output; until it is contracted that tool runs unguarded.
 - `audit` shows `unclassified tools observed` you don't recognise → same.
 - A deny has no usable next step in its guidance → that is a bug by definition (every deny must redirect, not stop); file it with the exact text.
+
+
+## Opt-in hook phase timing (#530)
+
+Timing is off by default. Set `GUARDRAIL_TIMING=1` **before starting the host**;
+an existing OpenCode process or engine daemon does not inherit a later shell
+environment change. Start any daemon used by the experiment with the same
+opt-in. To opt out, unset the variable and restart those processes. No tracing
+flag enables a host, changes a verdict or chooses the spawn/server architecture.
+
+On Linux/WSL, for example, start a host with `GUARDRAIL_TIMING=1 opencode`, then
+read results with `GUARDRAIL_TIMING=1 guardrail doctor`. In PowerShell set
+`$env:GUARDRAIL_TIMING='1'` before launching the host and running doctor; remove
+it afterwards with `Remove-Item Env:GUARDRAIL_TIMING`. Values other than the exact
+string `1` leave timing disabled.
+
+`hook-timing.jsonl` and `plugin-timing.jsonl` live beside the default audit log:
+`$XDG_STATE_HOME/guardrail` (normally `~/.local/state/guardrail`) on Linux, and
+`%LOCALAPPDATA%/guardrail` on Windows. Each retains only its latest 200 records,
+each at most 4 KiB. Native writers drop a sample on lock contention; telemetry
+failures never affect policy. Plugin writes are best-effort snapshots; concurrent
+plugin processes can lose samples. These are bounded diagnostic windows, not
+an exhaustive performance audit. Timing persistence itself is not timed and its
+cost is included in an external process/wrapper measurement.
+
+Records contain identities, versions, runtimes, transport and durations, never
+command text, arguments or environment contents. The opted-in audit record's
+`call_id` and `guardrail_version` correlate native records. Doctor joins a plugin
+record only with an exact, unambiguous session/call match in retained native
+samples; an absent or ambiguous match leaves engine version unmeasured. Native
+tool IDs are preserved for Claude and Codex; OpenCode already supplies call IDs.
+Host versions are unmeasured when the plugin/hook provides no trustworthy field.
+
+Doctor keeps host/version/transport/runtime/sample-kind groups separate. Zero is
+a measured zero; JSON null and `unmeasured` mean no measurement. Spans overlap:
+do not add them. In particular:
+
+| Phase | Observed boundary |
+|---|---|
+| `host_dispatch_ms` | Unmeasured: a child/plugin cannot observe the host's preceding dispatch or OS process creation. |
+| `wrapper_dispatch_ms` | OpenCode callback entry through envelope construction, before invoking Guardrail. Unmeasured for external shell wrappers. |
+| `adapter_parse_ms` | Native adapter parse, including any shell-proof transcript work. |
+| `process_startup_ms` | Go package initialisation to hook entry; excludes OS process launch and earlier runtime startup. |
+| `daemon_dial_ms` | Connect attempt to connection or failure; separate from evaluate roundtrip. |
+| `daemon_roundtrip_ms` | Native client evaluate/write/read; plugin's existing daemon span includes its dial. Sample kind distinguishes these spans. |
+| `spawn_attempt_N_ms` | Plugin spawnSync call through return, separately for every attempt, including immediate retries. It includes child startup/handling/persistence. |
+| `policy_setup_ms` | Native night-state/base/overlay/operator-policy loading and merge; incomplete error paths remain unmeasured. |
+| `engine_handling_ms` | Actual Engine.Evaluate calls only, summed if repeated; excludes adapter, policy loading, session/recipe/broker handling and audit I/O. |
+| `audit_write_ms` | Native decision audit write. |
+| `response_encode_write_ms` | Native verdict adapter emission, including response construction and stdout writes. |
+| `response_write_ms` | Actual stdout/socket Write calls; excludes JSON construction. Daemon response samples are separate from its engine samples. |
+| `hook_total_ms`, `plugin_total_ms`, `sample_total_ms` | Respective observed span; excludes persisting that sample. Not full host-to-tool latency. |
+| `timing_persist_ms` | Unmeasured; instrumenting its own persistence would require another write. |
+
+The former doctor summary pooled historical audit times and could mix binaries;
+the phase report replaces that pooled display. Legacy `hook_ms`/`startup_ms`
+remain available on opted-in audit records, with their original boundaries.
+Default calls neither emit timing traces nor those audit latency fields.
+
+For comparisons, record the engine build version, host version if measured,
+runtime, tool/envelope shape, transport, sample count and external wall clock.
+Use matched benign calls on an idle machine, reject invalid tool envelopes, and
+report which phases remain unmeasured. Opt-in trace writes add overhead; measure
+their control cost instead of assigning an unexplained residual to policy.
