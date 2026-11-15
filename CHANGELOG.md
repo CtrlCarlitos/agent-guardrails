@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.42-dev (2026-11-15)
 
 ### CLI
 - **Removal (#531): the allow-baseline is retired.** This is an operator
