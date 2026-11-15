@@ -141,8 +141,8 @@ The rules are grouped by what they defend:
 
 - **Destructive commands** — recursive/forced `rm` outside the repo, `dd`, `mkfs`, `git push --force`, `git clean -f`, `docker … prune`, privilege escalation.
 - **Git safety** — protected-branch pushes and history rewrites ask; `git config` that can run code later is denied.
-- **Secrets, in three tiers** — directories like `~/.ssh` and `~/.aws` always deny; files like `.env` and `id_rsa` deny unless you authorize a waiver; ambiguous files like `*.pem` ask inside the repo and deny outside it. A path mentioned inside a JSON literal or a heredoc is caught too, and the guidance says to use the editor tool instead.
-- **The agent's own machinery** — it can't edit its hook config, the guardrail binary, or the operator config. Repairs are yours: `guardrail recover`.
+- **Secrets, in three tiers** — directories like `~/.ssh` and `~/.aws` always deny; files like `.env` and `id_rsa` deny unless you authorize a waiver; ambiguous files like `*.pem` ask inside the repo and deny outside it. A path mentioned inside a JSON literal or a heredoc is caught too, and the guidance says to use the editor tool instead ([ADR-0037](./docs/adr/0037-write-seams.md)).
+- **The agent's own machinery and write seams** — it can write inside the repository, linked git worktrees, strict descendants of system temp roots, and plane-owned session directories (like Antigravity's `brain/<conversationId>` and Claude's project memory), but it can't edit its hook config, `.git/hooks` (or `core.hooksPath`), the guardrail binary, or the operator config ([ADR-0037](./docs/adr/0037-write-seams.md)). Repairs are yours: `guardrail recover`.
 - **Egress** — no web host is authorized until you grant it. Native fetch tools are blocked (their redirects can't be verified); the agent is told to use `guardrail fetch <url>`, which checks every redirect against the authorized-host list. Downloads never flow into an interpreter.
 - **Meta-dispatch** — tools that run *other* tools from code (a JS REPL, a generic MCP invoker, stdin injection into a running shell) are denied until their inner calls are proven to reach the hook ([ADR-0019](./docs/adr/0019-static-boundary-verification-vs-dynamic-meta-dispatch.md)).
 - **After edits** — Go, Python, JS/TS and Rust files are formatted and linted per edit; a real lint failure is a deny with the tool's output.
@@ -239,7 +239,7 @@ The engine intercepts that and the agent's host asks you (in passkey mode, a pas
 - [CONTEXT.md](./CONTEXT.md) — the vocabulary (plane, verdict, overlay, floor…). Two minutes, well spent.
 - [docs/OPERATIONS.md](./docs/OPERATIONS.md) — the runbook for when it's weird.
 - [docs/compatibility-matrix.md](./docs/compatibility-matrix.md) — which plane, OS and shell combinations are verified, and the evidence for each.
-- [docs/adr/](./docs/adr/) — every non-obvious decision, with the reasoning. Start with [0001](./docs/adr/0001-hybrid-enforcement-model.md), [0012](./docs/adr/0012-static-analysis-boundary-and-shape-threshold.md), [0013](./docs/adr/0013-delegation-inherits-enforcement-in-process.md).
+- [docs/adr/](./docs/adr/) — every non-obvious decision, with the reasoning. Start with [0001](./docs/adr/0001-hybrid-enforcement-model.md), [0012](./docs/adr/0012-static-analysis-boundary-and-shape-threshold.md), [0013](./docs/adr/0013-delegation-inherits-enforcement-in-process.md), [0037](./docs/adr/0037-write-seams.md).
 - [DESIGN.md](./DESIGN.md) — the full design.
 - [CHANGELOG.md](./CHANGELOG.md).
 
