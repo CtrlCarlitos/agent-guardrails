@@ -227,8 +227,8 @@ authorization for this exact action: Bash {"command":"git push origin main"}.
 guardrail explain
 ```
 
-It shows the newest ask or deny there: the command, the verdict, the rule ID,
-the reason and the next step the agent was given. `guardrail explain --last 5`
+It shows the newest ask or deny there: the command, the verdict, the rule ID
+and where that rule lives, the reason and the next step the agent was given. `guardrail explain --last 5`
 shows more. `guardrail audit` summarises everything decided lately.
 
 ## 7. Where to go next

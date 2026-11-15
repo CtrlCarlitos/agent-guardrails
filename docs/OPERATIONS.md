@@ -124,6 +124,14 @@ guardrail explain --path <file>       # read another audit log
 For each record it prints what was evaluated (plane, session, repository, tool,
 command, paths), the verdict and `rule_id`, the reason, and:
 
+- **home**: where the deciding rule lives (#410). A built-in base-policy rule
+  names the source file that mints it. An overlay rule names the
+  `guardrail.toml` it comes from, read as the file is now. An operator rule
+  (grant, night mode, operator action) and an adapter-tier rule (decided from
+  the tool's contract capability or the host's posture, with no policy file
+  behind it) say so. A rule this binary does not know says that too. An
+  escalated verdict adds an **origin** line with the home of the rule it
+  escalated;
 - **next step**: the continuation the agent was given for that verdict, taken
   from the same code that wrote the guidance, so it cannot drift from it;
 - **operator**: what only you can do. For a grantable ask, the exact
