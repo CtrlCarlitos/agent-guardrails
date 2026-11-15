@@ -61,6 +61,9 @@ var claudeTools = []ToolSpec{
 	{"ReportFindings", "ReportFindings", policy.CapabilitySafeControl},
 	{"ScheduleWakeup", "ScheduleWakeup", policy.CapabilitySafeControl},
 	{"SendFeedback", "SendFeedback", policy.CapabilityDeny},
+	// Argument-dependent: the adapter refines by `to` — a spawned subagent
+	// or "main" is Delegation, any other target External (#541). Deny is
+	// the fail-closed floor for a call with no string target.
 	{"SendMessage", "SendMessage", policy.CapabilityDeny},
 	{"SendUserFile", "SendUserFile", policy.CapabilityDeny},
 	{"ShareOnboardingGuide", "ShareOnboardingGuide", policy.CapabilityDeny},

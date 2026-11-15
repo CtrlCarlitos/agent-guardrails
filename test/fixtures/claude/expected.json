@@ -193,10 +193,20 @@
     "exit": 2,
     "rule": "P4.secret-path"
   },
-  "send-message.json": {
+  "send-message-no-target.json": {
     "decision": "deny",
     "exit": 2,
     "rule": "capability-deny"
+  },
+  "send-message-subagent.json": {
+    "decision": "allow",
+    "exit": 0,
+    "rule": "delegation-inherited"
+  },
+  "send-message.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "capability-external"
   },
   "serena-mcp-memory.json": {
     "decision": "allow",

@@ -33,6 +33,10 @@ established.
 - `task` on OpenCode, subagents on Claude, and `invoke_subagent` on Antigravity
   allow (RuleID `delegation-inherited`); per-call verdicts inside the child
   are unchanged.
+- Claude's `SendMessage` to a subagent this session spawned (`to` is an
+  Agent id, `a[<label>-]<16 hex>`) or to `main` resumes in-process
+  delegation and allows the same way; any other target may be another
+  local, Remote Control or cloud session and asks as External (#541).
 - Adding a plane requires an explicit inheritance determination before its
   delegation capability can allow.
 - The determination is architectural, not evidence-carried: a future

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
@@ -82,6 +83,9 @@ func ParseClaude(r io.Reader) (engine.ToolCall, error) {
 			return engine.ToolCall{}, err
 		}
 	}
+	if p.ToolName == "SendMessage" {
+		tc.Capability = claudeSendMessageCapability(input)
+	}
 	if tc.Capability == policy.CapabilityCommand {
 		tc.InputShape = "command"
 	}
@@ -105,6 +109,37 @@ func ParseClaude(r io.Reader) (engine.ToolCall, error) {
 	tc.RepoRoot = repoRoot(p.CWD)
 	tc.NativeWebResearch = nativeResearchCall(tc)
 	return tc, nil
+}
+
+// claudeSubagentID is the shape of an id the Agent tool returns for a
+// subagent of this session: "a", an optional "<label>-", 16 lowercase hex.
+// It is a strict ASCII subset of the harness's own rule (which NFKC-folds
+// and lowercases first), so every `to` matched here is one Claude Code
+// itself tags recipient_kind "agent" (#541).
+var claudeSubagentID = regexp.MustCompile(`^a(?:[A-Za-z0-9_-]{1,63}-)?[0-9a-f]{16}$`)
+
+// claudeSendMessageCapability refines SendMessage by its target. A spawned
+// subagent's id, or "main" (a subagent answering its parent), stays inside
+// this session: delegation, like Agent. Any other target — a session name,
+// a name with a ListAgents ref, a bridge:/uds:/did: address — may reach
+// another local, Remote Control or cloud session: External, so the
+// operator decides. A call with no string target fails closed. The target
+// is recomputed from `to`; the harness's recipient_kind, when present, can
+// only narrow the result, never widen it.
+func claudeSendMessageCapability(input map[string]any) policy.Capability {
+	to, ok := input["to"].(string)
+	if !ok || to == "" {
+		return policy.CapabilityDeny
+	}
+	kind, hasKind := input["recipient_kind"].(string)
+	switch {
+	case to == "main" && (!hasKind || kind == "main"):
+		return policy.CapabilityDelegation
+	case claudeSubagentID.MatchString(to) && (!hasKind || kind == "agent"):
+		return policy.CapabilityDelegation
+	default:
+		return policy.CapabilityExternal
+	}
 }
 
 var claudePathKeys = []string{"file_path", "path", "notebook_path"}

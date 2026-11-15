@@ -46,6 +46,7 @@ func TestClaudeInventoryClassifiesCapabilityBoundary(t *testing.T) {
 		// Legacy notebook read: a path read, projected like Read.
 		"NotebookRead": policy.CapabilityReadDiscovery,
 		// Moves data or control to another principal; stays denied.
+		// SendMessage's static floor; the adapter refines it by target (#541).
 		"SendMessage":          policy.CapabilityDeny,
 		"SendUserFile":         policy.CapabilityDeny,
 		"RemoteTrigger":        policy.CapabilityDeny,
