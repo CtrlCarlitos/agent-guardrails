@@ -6,16 +6,6 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
-### Managed worktrees
-- **Fix (#564): ordinary source in Codex-managed linked worktrees is not
-  self-configuration.** The active Codex home's `worktrees/<slot>/<repo>/`
-  prefix no longer makes every source file match `P5.self-config`. The
-  exemption requires a real linked worktree of the current repository,
-  including Git's reverse pointer, and checks the resolved target. Real
-  global and repository `.codex` configuration, root instructions, Git
-  internals and the other path protections remain guarded. Fake layouts,
-  forged pointers, unrelated repositories and symlink escapes do not qualify.
-
 ### Tests
 - **Fix (#519): the WebAuthn browser e2e no longer leaves a "guardrail"
   agent-browser daemon behind.** The `guardrail-<12 hex>` session that
@@ -27,6 +17,17 @@ explicitly in **Breaking** notes.
   shuts itself down after two idle minutes, and the session is named
   `guardrail-e2e-<12 hex>` so its owner is obvious. No runtime lifecycle
   changed; `guardrail fetch` never used agent-browser.
+
+### Managed worktrees
+- **Fix (#564): ordinary source in Codex-managed linked worktrees is not
+  self-configuration.** The active Codex home's `worktrees/<slot>/<repo>/`
+  prefix no longer makes every source file match `P5.self-config`. The
+  exemption requires a real linked worktree of the current repository,
+  including Git's reverse pointer, and checks the resolved target. Real
+  global and repository `.codex` configuration, root instructions, Git
+  internals and the other path protections remain guarded. Fake layouts,
+  forged pointers, unrelated repositories and symlink escapes do not qualify.
+
 
 ### Installer / update
 - **Fix (#522): a documented retention policy for set-aside binaries, and a
