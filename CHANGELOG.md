@@ -51,7 +51,7 @@ explicitly in **Breaking** notes.
   disambiguates with a counter kept inside the `.jsonl` suffix, so the
   segment family glob and retention still cover every spelling. Caught by
   the newly blocking full-Windows suite.
-||||||| parent of c0525a8 (fix(engine): an inert redirect body is data, not a mention (#112))
+
 ### Engine
 - **Fix (#112): an inert redirect body is data, not a mention.** A pure
   data copier (`cat`, `tee`, `printf`, `echo`) whose only effect is a
@@ -77,7 +77,7 @@ explicitly in **Breaking** notes.
   shuts itself down after two idle minutes, and the session is named
   `guardrail-e2e-<12 hex>` so its owner is obvious. No runtime lifecycle
   changed; `guardrail fetch` never used agent-browser.
-||||||| parent of 3009f66 (feat(engine): on hosts that answer asks themselves, asks deny (#559))
+
 ### Enforcement posture
 - **Feature (#559, ADR-0035): on hosts that answer asks themselves, asks
   deny.** A session running in an auto/bypass permission mode (claude's
