@@ -2590,32 +2590,38 @@ func TestHookSessionStartTreatsIdStrippedHooksAsOwned(t *testing.T) {
 // #559, operator ruling: a host in auto/bypass permission mode answers
 // guardrail's asks itself, so asks deny with the operator's terminal as the
 // honest channel — both for ordinary policy asks and operator actions.
+// Claude Code reports auto mode as "auto" (#151), and auto mode is where the
+// #555 evidence came from, so it is covered alongside bypassPermissions.
 func TestHookBypassPermissionsAsksDenyOnClaude(t *testing.T) {
-	stateHome := t.TempDir()
-	testenv.SetState(t, stateHome)
-	testenv.SetConfig(t, t.TempDir())
-	t.Setenv("GUARDRAIL_CONFIG", "")
-	// Passkey mode's ceremony is independent of the host dialog; the
-	// rubber-stamp hazard is the prompt-mode ask, so that is the mode under
-	// test.
-	useApprovalMode(t, policy.ApprovalPrompt)
-	repo := webHostProbeRepo(t)
+	for _, mode := range []string{"bypassPermissions", "auto"} {
+		t.Run(mode, func(t *testing.T) {
+			stateHome := t.TempDir()
+			testenv.SetState(t, stateHome)
+			testenv.SetConfig(t, t.TempDir())
+			t.Setenv("GUARDRAIL_CONFIG", "")
+			// Passkey mode's ceremony is independent of the host dialog; the
+			// rubber-stamp hazard is the prompt-mode ask, so that is the mode
+			// under test.
+			useApprovalMode(t, policy.ApprovalPrompt)
+			repo := webHostProbeRepo(t)
 
-	push := `{"session_id":"s1","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push origin main"},"permission_mode":"bypassPermissions"}`
-	var stdout, stderr bytes.Buffer
-	code := run([]string{"hook", "claude"}, strings.NewReader(fmt.Sprintf(push, repo)), &stdout, &stderr)
-	if code != 2 || !strings.Contains(stderr.String(), "auto/bypass permission mode") {
-		t.Fatalf("push: exit=%d stderr=%q; want the escalated deny", code, stderr.String())
-	}
+			push := `{"session_id":"s1","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push origin main"},"permission_mode":%q}`
+			var stdout, stderr bytes.Buffer
+			code := run([]string{"hook", "claude"}, strings.NewReader(fmt.Sprintf(push, repo, mode)), &stdout, &stderr)
+			if code != 2 || !strings.Contains(stderr.String(), "auto/bypass permission mode") {
+				t.Fatalf("push: exit=%d stderr=%q; want the escalated deny", code, stderr.String())
+			}
 
-	grant := `{"session_id":"s1","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"guardrail egress grant --scope repo --host a.example.test"},"permission_mode":"bypassPermissions"}`
-	stdout.Reset()
-	stderr.Reset()
-	code = run([]string{"hook", "claude"}, strings.NewReader(fmt.Sprintf(grant, repo)), &stdout, &stderr)
-	if code != 2 || !strings.Contains(stderr.String(), "operator to run") || !strings.Contains(stderr.String(), "terminal") {
-		t.Fatalf("operator action: exit=%d stderr=%q; want the terminal-guidance deny", code, stderr.String())
-	}
-	if strings.Contains(stdout.String()+stderr.String(), "operator-action-ask") {
-		t.Fatal("an ask was surfaced to a host that would answer it itself")
+			grant := `{"session_id":"s1","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"guardrail egress grant --scope repo --host a.example.test"},"permission_mode":%q}`
+			stdout.Reset()
+			stderr.Reset()
+			code = run([]string{"hook", "claude"}, strings.NewReader(fmt.Sprintf(grant, repo, mode)), &stdout, &stderr)
+			if code != 2 || !strings.Contains(stderr.String(), "operator to run") || !strings.Contains(stderr.String(), "terminal") {
+				t.Fatalf("operator action: exit=%d stderr=%q; want the terminal-guidance deny", code, stderr.String())
+			}
+			if strings.Contains(stdout.String()+stderr.String(), "operator-action-ask") {
+				t.Fatal("an ask was surfaced to a host that would answer it itself")
+			}
+		})
 	}
 }

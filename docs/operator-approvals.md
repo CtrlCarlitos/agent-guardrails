@@ -55,9 +55,11 @@ The audit log records how each action was approved: `transport: host-ask`,
 `terminal-prompt`, `bootstrap` or, in passkey mode, the WebAuthn transport.
 
 **Accepted trade-off.** A host that approves everything by itself answers the
-ask for you: Claude Code's `bypassPermissions` mode or an allow rule matching
-these commands, Codex full-auto. An agent in such a session can change
-guardrail's own settings unseen. Agents cannot switch their host into that mode
+ask for you: an allow rule matching these commands, or Codex full-auto. An
+agent in such a session can change guardrail's own settings unseen. (Claude
+Code's `bypassPermissions` and `auto` modes are detected from the hook payload,
+and there every ask becomes a deny that sends the action to your terminal:
+ADR-0035.) Agents cannot switch their host into that mode
 (host settings are P5), but prompt mode trusts the host's prompt. Prompt mode
 also stops at the engine's static boundary: a script file or a background job
 the engine cannot see into can run the CLI, and only a passkey's user
