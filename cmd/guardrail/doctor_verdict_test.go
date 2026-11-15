@@ -20,6 +20,9 @@ func useNoCredentialPosture(t *testing.T) {
 func verdictSandbox(t *testing.T) string {
 	t.Helper()
 	driftSandbox(t)
+	// Outside any repository: doctor finds a repo-root guardrail.toml from
+	// cwd, and the developer's checkout may hold one.
+	t.Chdir(t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	t.Setenv(updateRunEnv, "")
 	stubOperatorEnrolled(t, true)
