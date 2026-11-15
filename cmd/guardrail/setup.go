@@ -233,6 +233,17 @@ func setupWantsDisable(args []string) bool {
 // planeHandlerDrift is only meaningful once the integration is registered.
 func setupEnableReason(plane string) (string, error) {
 	if !planeIntegrationRegistered(plane) {
+		// Codex registration includes its native floor. Distinguish intact
+		// hooks with a damaged floor from missing hook registration (#151).
+		if plane == "codex" {
+			path, err := planeConfigPath(plane)
+			if err == nil {
+				doc, err := genconfig.ReadJSONObject(path)
+				if err == nil && genconfig.CodexHooksRegistered(doc) && planeFloorDrift(plane) > 0 {
+					return "native floor drifted (rules/guardrail.rules missing, unreadable or changed); re-enabling", nil
+				}
+			}
+		}
 		return "not registered; enabling", nil
 	}
 	if missing := planeFloorDrift(plane); missing > 0 {

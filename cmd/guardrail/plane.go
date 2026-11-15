@@ -688,9 +688,16 @@ func antigravityHooksHaveOwnedGroup(guardrail map[string]any) bool {
 }
 
 // planeFloorDrift counts generated declarative-floor permission entries that
-// the plane's global config lacks. Only Claude's floor is compared today;
-// other planes report no drift and keep their registration-only skip.
+// the plane's global config lacks. Codex owns a separate rules file: a
+// missing, unreadable or changed file counts as one drifted floor artifact.
 func planeFloorDrift(plane string) int {
+	if plane == "codex" {
+		path, err := planeConfigPath(plane)
+		if err != nil || !genconfig.CodexRulesRegistered(path) {
+			return 1
+		}
+		return 0
+	}
 	if plane != "claude" {
 		return 0
 	}
