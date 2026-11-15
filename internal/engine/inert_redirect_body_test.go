@@ -17,7 +17,7 @@ func TestInertRedirectBodyIsNotScannedForMentions(t *testing.T) {
 		"echo 'guardrail setup --state disabled appears in this fixture' > /repo/tests/case.txt",
 		"tee /repo/out.txt <<'EOF'\n.env.example is documentation, not a secret\nEOF",
 	} {
-		if v := checkPaths(ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, pathPol()); v != nil {
+		if v := checkPathsHostFrameFixture(ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, pathPol()); v != nil {
 			t.Errorf("%q -> %+v, want allow (inert redirect body)", firstLine(command), v)
 		}
 	}

@@ -24,7 +24,9 @@ func TestSecretPathInsideCommandTextIsATextMention(t *testing.T) {
 		`printf '%s' '["/home/u/.aws/credentials","/home/u/.other"]' > fixture.json`,
 		"printf '%s' 'line one\nkey: /home/u/.aws/credentials' > note.txt",
 	} {
-		if v := Evaluate(ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, pathPol()); v.Decision != policy.Allow {
+		// Host-frame fixture: the relative redirect target must resolve
+		// inside the repo on every OS before its allow can mean anything.
+		if v := evaluateHostFrameFixture(ToolCall{Tool: "Bash", Command: command, CWD: "/repo", RepoRoot: "/repo"}, pathPol()); v.Decision != policy.Allow {
 			t.Errorf("%q -> %+v, want allow (inert redirect body, #112)", command, v)
 		}
 	}
