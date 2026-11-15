@@ -60,9 +60,6 @@ usage: guardrail <command> [arguments]
       --last N             report the Nth newest matching record
       --all                search every repository, not only this one
       --path <file>        read this audit log instead of this repository's
-  allow-baseline [--json|--check]   list Claude Code allow rules safe to paste (writes nothing)
-      --json               print them as a permissions.allow block
-      --check              compare them with your Claude settings
   next                              print the next steps for this machine's state
   doctor [flags]                    print resolved policy/overlay/audit/hook state
       --codex-hooks         inspect Codex registration, trust, direct runnability, and evidence
@@ -149,8 +146,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "report":
 		cwd, _ := os.Getwd()
 		return cmdReport(args[1:], cwd, stdout, stderr)
-	case "allow-baseline":
-		return cmdAllowBaseline(args[1:], stdout, stderr)
 	case "next":
 		return cmdNext(args[1:], stdout, stderr)
 	case "selftest":

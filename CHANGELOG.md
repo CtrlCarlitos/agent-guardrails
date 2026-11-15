@@ -4,6 +4,24 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### CLI
+- **Removal (#531): the allow-baseline is retired.** This is an operator
+  ruling. `guardrail allow-baseline` (and its `--json` and `--check` forms)
+  is gone, along with `docs/allow-baseline.md` and doctor's
+  `claude allow list: N of 43 baseline rules present` line. The hook already
+  enforces everything the list could mirror (ADR-0028, 2026-11-15 update). An
+  operator who never merged the list no longer sees a line that read like a
+  security gap. Guardrail no longer reads `permissions.allow`, and
+  `permissions.deny`/`ask` handling is unchanged. **Breaking:**
+  `allow-baseline` was a stable operator command, and it is removed without a
+  deprecation release (recorded in `docs/stability-policy.md`). It now exits 2
+  as an unknown subcommand. **Migration:** nothing to do. Rules already merged
+  into your `~/.claude/settings.json` are yours: keep them or remove them.
+  Scripts or console filters that match the doctor line or call the command
+  should drop it.
+
 ## v0.23.41-dev (2026-11-15)
 
 ### Diagnostics
