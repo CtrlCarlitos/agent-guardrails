@@ -143,6 +143,7 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 		}
 		takeSimple(checkRmRf(s, tc, pol))
 		takeSimple(checkPowerControl(s))
+		takeSimple(checkNetStackControl(s))
 		takeSimple(checkPowerShell(s, tc, pol))
 		takeSimple(checkCmdDelete(s, tc, pol))
 		takeSimple(checkCmdDiskDestroyer(s))
