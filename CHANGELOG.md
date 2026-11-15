@@ -6,16 +6,6 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
-### Codex Windows shell proof
-- **Fix (#539): recover session-bound shell evidence when a hook omits
-  its transcript reference.** A missing or stale local `transcript_path`
-  no longer hides a readable PowerShell transcript for the current session:
-  a bounded lookup requires a unique rollout filename and matching
-  `session_meta.id`. Foreign references, ambiguous evidence and unproven
-  shells still fail closed. Commands retain the PowerShell cwd guard, and
-  refusal guidance explains why a healthy doctor transport probe is not
-  proof of the session shell.
-
 ### Tests
 - **Fix (#519): the WebAuthn browser e2e no longer leaves a "guardrail"
   agent-browser daemon behind.** The `guardrail-<12 hex>` session that
@@ -78,6 +68,15 @@ explicitly in **Breaking** notes.
   carried across binaries, since a new binary is a new handler.
 
 ### Codex plane
+- **Fix (#539): recover session-bound shell evidence when a hook omits
+  its transcript reference.** A missing or stale local `transcript_path`
+  no longer hides a readable PowerShell transcript for the current session:
+  a bounded lookup requires a unique rollout filename and matching
+  `session_meta.id`. Foreign references, ambiguous evidence and unproven
+  shells still fail closed. Commands retain the PowerShell cwd guard, and
+  refusal guidance explains why a healthy doctor transport probe is not
+  proof of the session shell.
+
 - **Fix (#540): recognize flattened collaboration hook identities.**
   `collaborationspawn_agent` and the explicit separator-free and
   double-underscore aliases of the six contracted `collaboration.*` tools
