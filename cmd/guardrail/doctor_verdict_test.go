@@ -65,7 +65,9 @@ func TestPlaneStateIsProblem(t *testing.T) {
 		"no settings.json":          false,
 		"no hooks.json":             false,
 		"guardrail hook registered": false,
-		"guardrail hook registered but NEVER OBSERVED FIRING — x":                                            false,
+		"guardrail hook registered but NEVER OBSERVED FIRING — x":                                                                        false,
+		"guardrail hook registered — evidence window reset by the recent update (3 earlier real-session records predate this binary): x": false, // #520
+
 		"guardrail hooks registered, unenforced: Windows command_execution PreToolUse dispatch not observed": false,
 		codexWindowsPlaneState:                              false, // #454: known, tracked; not counted
 		"present, hook NOT registered":                      true,

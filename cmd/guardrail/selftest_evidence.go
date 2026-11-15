@@ -233,6 +233,11 @@ func printClaudeEvidence(path string, cutoff, now time.Time, stdout, stderr io.W
 		fmt.Fprintln(stdout, "claude: live mediation observed (heuristic); the registered hook is running")
 		return 0
 	}
+	if scanErr == nil && evidence.WindowReset() {
+		fmt.Fprintf(stdout, "claude: evidence window reset by the recent update (%d earlier real-session records predate this binary);"+
+			" start a Claude session, then re-run `guardrail selftest --evidence claude`\n", evidence.Stale)
+		return 1
+	}
 	fmt.Fprintln(stdout, "claude: live mediation not yet observed; the registered hook has produced no record from a real session")
 	return 1
 }

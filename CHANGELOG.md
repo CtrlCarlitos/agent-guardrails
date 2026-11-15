@@ -29,6 +29,17 @@ explicitly in **Breaking** notes.
   says which, without claiming a cause), and inconclusive (timeout or
   failure to run — never labeled unauthenticated). A machine without gh
   stays silent, per the posture section's pinned contract.
+- **Fix (#520): an update no longer reads as "NEVER OBSERVED FIRING".** The
+  claude evidence scan starts at the running binary's mtime, so right after
+  every update all real Claude records counted as `stale` and doctor printed
+  the same warning it prints for a hook that never ran. Doctor and
+  `selftest --evidence claude` now split on the scan: when real-session
+  records exist but every one predates this binary, they say `evidence window
+  reset by the recent update (N earlier real-session records predate this
+  binary): start a Claude session, then re-run …`; with no qualifying records
+  at all, today's warning stays verbatim. The selftest still exits 1 in both
+  until this binary is seen mediating a session: evidence is deliberately not
+  carried across binaries, since a new binary is a new handler.
 
 ### Codex plane
 - **Fix (#540): recognize flattened collaboration hook identities.**

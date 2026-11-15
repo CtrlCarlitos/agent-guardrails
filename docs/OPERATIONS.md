@@ -44,7 +44,18 @@ That is not a fault. It clears itself the first time a real session is
 mediated, and `guardrail selftest --evidence claude` is the direct check —
 exit 0 once two pre-hook records from one real session exist, exit 1 until
 then. A freshly built or freshly installed binary resets the window, because
-the scan starts at the binary's mtime.
+the scan starts at the binary's mtime. When real-session records exist but all
+predate the binary — the state right after every update — doctor says so
+instead of warning (#520):
+
+```
+claude settings: guardrail hook registered — evidence window reset by the recent
+update (N earlier real-session records predate this binary): start a Claude
+session, then re-run `guardrail selftest --evidence claude`
+```
+
+The window is not carried across binaries on purpose: a new binary is a new
+handler, and only its own records show that it runs.
 
 The line that *is* a fault names its own cause instead:
 
@@ -75,7 +86,8 @@ checks above is how a cell there moves up.
 | doctor: `operator approvals: disabled (no authenticator enrolled; planes armed by bootstrap; …)` (passkey mode) | `guardrail operator enroll` | The first install armed the planes without an approval (ADR-0030). They are guarding; nothing can loosen them until a passkey exists. Enrolling puts every later change behind it. |
 | doctor: `N unmarked guardrail-like hook entries in settings.json` | `guardrail plane enable claude` | Legacy pre-marker hook groups; enable absorbs them (ADR-0004). Passkey. |
 | doctor: `guardrail hook registered but CANNOT SPAWN` | `guardrail plane enable claude`, or `guardrail gen-config claude --merge <settings.json> --binary <path>` where plane commands are gated | The registered command cannot be spawned by a shell — an unquoted path with a backslash or a space. Nothing is being enforced while it reads this. Re-merging rewrites it (#149). |
-| doctor: `guardrail hook registered but NEVER OBSERVED FIRING` | `guardrail selftest --evidence claude` | Registered, spawnable, not yet exercised. Expected on a fresh enrolment or a freshly built binary; clears itself once a real session is mediated. Exit 1 until two pre-hook records from one real session exist. If it persists across real sessions, the hook is not being invoked — treat as #149's shape. |
+| doctor: `guardrail hook registered — evidence window reset by the recent update …` | `guardrail selftest --evidence claude` after a Claude session | Not a fault: real records exist, all older than this binary (#520). Clears itself once a real session is mediated by the new binary. |
+| doctor: `guardrail hook registered but NEVER OBSERVED FIRING` | `guardrail selftest --evidence claude` | Registered, spawnable, no real-session record at all. Expected on a fresh enrolment; clears itself once a real session is mediated. Exit 1 until two pre-hook records from one real session exist. If it persists across real sessions, the hook is not being invoked — treat as #149's shape. |
 | doctor: `claude allow list: … N broader than the baseline` | `guardrail allow-baseline --check`, then edit `permissions.allow` in your own settings | A rule of yours such as `Bash(graft:*)` also matches commands the baseline leaves out (`graft init`, `graft upgrade`; an `npx` or `node` blanket runs remote or arbitrary code). Advice only: the list is yours, guardrail writes nothing (#363, `docs/allow-baseline.md`). |
 | doctor: `present, hook NOT registered` / `no settings.json` | `guardrail plane enable <plane>` (or `--all`) | Re-registers the integration (hooks, and for opencode the plugin). Passkey. |
 | Claude session posture: `Claude plane lifecycle: … drift` or `permissions floor drifted` | `guardrail plane enable claude` | A release changed what guardrail writes; enable re-merges idempotently. It also removes the retired permissions floor an earlier release wrote (ADR-0028, #357), keeping your own entries |
