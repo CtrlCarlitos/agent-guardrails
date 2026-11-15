@@ -62,3 +62,28 @@ func TestMatchMCPToolMemoryToolsCarryMemoryPrefix(t *testing.T) {
 		t.Fatalf("write_memory spec = %+v ok=%v", spec, ok)
 	}
 }
+
+// #543: the codex apps GitHub connector's repository search resolves under
+// both connector spellings; the bare tool name stays deliberately unkeyed —
+// too generic to claim across planes — and unevidenced siblings do not
+// resolve at all.
+func TestMatchMCPToolCodexAppsGitHubDiscovery(t *testing.T) {
+	for _, name := range []string{
+		"mcp__codex_apps__github__search_repositories",
+		"mcp__codex_apps__github_search_repositories",
+	} {
+		spec, ok := MatchMCPTool(name)
+		if !ok || spec.Family != "codex_apps" || spec.Tool != "github__search_repositories" {
+			t.Errorf("%s = %+v,%v", name, spec, ok)
+		}
+	}
+	for _, name := range []string{
+		"search_repositories",
+		"github__create_issue",
+		"mcp__codex_apps__github__create_issue",
+	} {
+		if _, ok := MatchMCPTool(name); ok {
+			t.Errorf("%s must not resolve; discovery is keyed, mutations are not", name)
+		}
+	}
+}
