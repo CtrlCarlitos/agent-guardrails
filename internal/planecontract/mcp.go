@@ -70,6 +70,17 @@ var mcpRegistry = map[string]MCPToolSpec{
 	// graft 0.20: "Report whether the committed graph is in sync with the
 	// code (drift check)". Read-only and argument-less; scoped to the repo.
 	"graft_check_freshness": {Family: "graft", Tool: "graft_check_freshness", Capability: policy.CapabilityReadDiscovery, PathArgs: []string{"relative_path", "path", "file_path"}, DefaultPath: "."},
+	// Codex's apps connector surfaces GitHub tools with MCP-shaped
+	// identities (#543). Repository search is read-only but sends query and
+	// account context to GitHub, so it is External — a per-call operator
+	// ask (on Codex, the exact-action grant path), never a blanket allow.
+	// Keyed under both connector spellings (flattened and double-underscore);
+	// a bare `search_repositories` is deliberately not keyed — too generic to
+	// claim across planes. Creation and other GitHub mutations stay
+	// unclassified and fail closed until separately evidenced: discovery
+	// permission never implies mutation permission.
+	"github__search_repositories": {Family: "codex_apps", Tool: "github__search_repositories", Capability: policy.CapabilityExternal},
+	"github_search_repositories":  {Family: "codex_apps", Tool: "github__search_repositories", Capability: policy.CapabilityExternal},
 }
 
 // MatchMCPTool resolves a native MCP tool name in any plane's naming —

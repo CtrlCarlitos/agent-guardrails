@@ -6,6 +6,17 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### MCP contract
+- **Feature (#543): Codex apps-connector GitHub repository search is
+  classified, not unsupported.** The connector surfaces repository discovery
+  as an MCP-shaped identity the registry did not know, so an explicitly
+  requested search fell to the ungrantable capability-deny. It is now typed
+  External — repository search sends query and account context to GitHub, so
+  it stays a per-call operator ask (on Codex: blocked with the exact-action
+  grant path, never a blanket allow) — under both connector spellings.
+  Creation and other GitHub mutations are deliberately unclassified and fail
+  closed: discovery permission never implies mutation permission.
+
 ### Doctor
 - **Feature (#544): the gh authentication probe reports outcomes instead of
   silence.** Doctor already ran `gh auth status`, but every failure — no
