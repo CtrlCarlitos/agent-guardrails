@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/adapter"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/daemon"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
@@ -83,33 +86,49 @@ func TestHookTimingDaemonPhases(t *testing.T) {
 	useEngineDaemon(t)
 	repo := hostTestRepo(t)
 	payload := mustJSON(t, map[string]any{"session_id": "daemon-timing", "call_id": "daemon-call", "event": "pre", "cwd": repo, "tool": "read", "paths": []string{filepath.Join(repo, "README.md")}})
-	var out, stderr bytes.Buffer
-	if code := run([]string{"hook", "opencode"}, bytes.NewReader(payload), &out, &stderr); code != 0 {
-		t.Fatalf("exit %d: %s", code, &stderr)
-	}
-	raw, err := os.ReadFile(audit.TimingPath())
+	tc, err := adapter.ParseOpencode(bytes.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
 	}
+	client, err := daemon.Dial(engineDaemonEndpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	// A direct client avoids competing native-hook samples: sampling deliberately
+	// drops on lock contention. The response observer runs after the client has
+	// received the response, so wait for its log write rather than racing it.
+	v, err := client.Evaluate(tc)
+	if err != nil || string(v.Decision) != "allow" {
+		t.Fatalf("evaluate: %+v %v", v, err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	var raw []byte
 	var engineSeen, responseSeen bool
-	for _, line := range bytes.Split(bytes.TrimSpace(raw), []byte("\n")) {
-		var sample audit.TimingSample
-		if err := json.Unmarshal(line, &sample); err != nil {
-			t.Fatal(err)
+	for time.Now().Before(deadline) {
+		raw, _ = os.ReadFile(audit.TimingPath())
+		engineSeen, responseSeen = false, false
+		for _, line := range bytes.Split(bytes.TrimSpace(raw), []byte("\n")) {
+			var sample audit.TimingSample
+			if json.Unmarshal(line, &sample) != nil {
+				continue
+			}
+			if sample.Transport != "daemon" || sample.CallID != "daemon-call" {
+				continue
+			}
+			if sample.Kind == "daemon-engine" && sample.Phases["engine_handling_ms"] != nil {
+				engineSeen = true
+			}
+			if sample.Kind == "daemon-response" && sample.Phases["response_write_ms"] != nil {
+				responseSeen = true
+			}
 		}
-		if sample.Transport != "daemon" || sample.CallID != "daemon-call" {
-			continue
+		if engineSeen && responseSeen {
+			return
 		}
-		if sample.Kind == "daemon-engine" && sample.Phases["engine_handling_ms"] != nil {
-			engineSeen = true
-		}
-		if sample.Kind == "daemon-response" && sample.Phases["response_write_ms"] != nil {
-			responseSeen = true
-		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	if !engineSeen || !responseSeen {
-		t.Fatalf("missing daemon engine=%v response=%v:\n%s", engineSeen, responseSeen, raw)
-	}
+	t.Fatalf("missing daemon engine=%v response=%v:\n%s", engineSeen, responseSeen, raw)
 }
 
 func TestTimingDoctorSeparatesVersionsAndUnmeasuredPhases(t *testing.T) {

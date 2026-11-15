@@ -18,3 +18,13 @@
 Review focus: contention drops samples rather than delaying policy; diagnostic write failures leave verdicts unchanged; reused call IDs require session+call correlation; missing host versions stay unmeasured; disk growth is bounded even for long identities. No independent host-start timer is available inside a child process.
 
 Inline review: oversized/malformed retained rows fixed after RED tests in both writers; timing destination failure preserves allow/deny output. Daemon observation fixture passed 30 repetitions. Independent reviewer blocked by Guardrail; tracked in #587.
+
+First full Windows run found the real append-only-handle truncation failure:
+fixed the snapshot writer to use O_RDWR with the same regular-file/identity
+checks. Native Windows storage fixtures then passed. The daemon fixture raced
+the post-response observer and contended with optional client sampling; use a
+direct client and wait for both strict phase observations. Three native Windows
+timing repetitions passed after these fixes. Linux timing/source-table fixtures
+passed too. Main's concurrent #584/#586 integration left P1.net-stack absent
+from the generated rule-source index; regenerate that one derived entry, without
+changing the test or the rule. Full suites must run again on this final tree.

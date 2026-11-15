@@ -63,11 +63,24 @@ func WriteTiming(rec TimingSample) error {
 		return err
 	}
 	defer lock.Unlock()
-	f, err := openRegularAppend(path)
+	// Windows O_APPEND grants append-only access and cannot truncate. This
+	// bounded snapshot needs a read/write handle; retain audit's identity and
+	// regular-file validation before and after opening it.
+	before, err := os.Lstat(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err == nil && !before.Mode().IsRegular() {
+		return errors.New("timing destination is not a regular file")
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
+	if err := validateRegularDestination(path, f, before); err != nil {
+		return err
+	}
 	info, err := f.Stat()
 	if err != nil {
 		return err
