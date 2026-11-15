@@ -65,6 +65,9 @@ func TestDoctorBasics(t *testing.T) {
 	testenv.SetHome(t, home)
 	testenv.SetState(t, filepath.Join(home, "state"))
 	t.Setenv("GUARDRAIL_CONFIG", "")
+	// Outside any repository, so a guardrail.toml in the developer's checkout
+	// cannot add policy warnings.
+	t.Chdir(t.TempDir())
 
 	var out, errb bytes.Buffer
 	code := run([]string{"doctor"}, strings.NewReader(""), &out, &errb)
