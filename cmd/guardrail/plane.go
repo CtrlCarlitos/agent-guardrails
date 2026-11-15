@@ -241,13 +241,24 @@ func enablePlaneIntegration(plane string) error {
 	return enablePlaneIntegrationMode(plane, false, false)
 }
 
+func installedExecutablePath() (string, error) {
+	exe, err := installedExecutable()
+	if err != nil {
+		return "", err
+	}
+	if (len(exe) >= 3 && exe[1] == ':' && (exe[2] == '\\' || exe[2] == '/')) || strings.HasPrefix(exe, `\\`) {
+		return exe, nil
+	}
+	if abs, err := filepath.Abs(exe); err == nil {
+		return abs, nil
+	}
+	return exe, nil
+}
+
 func enablePlaneIntegrationMode(plane string, reconcileOwnership, pruneFloor bool) error {
-	binary, err := installedExecutable()
+	binary, err := installedExecutablePath()
 	if err != nil {
 		return err
-	}
-	if abs, err := filepath.Abs(binary); err == nil {
-		binary = abs
 	}
 	path, err := planeConfigPath(plane)
 	if err != nil {
@@ -369,6 +380,11 @@ func cmdPlaneLifecycle(args []string, action, outcome string, terminal bool, std
 	if !reachable && !bootstrap {
 		fmt.Fprintf(stderr, "guardrail: plane %s requires an interactive local terminal\n", verb)
 		return pendingApproval(action, "no interactive terminal is attached", stderr)
+	}
+	if exe, err := installedExecutablePath(); err == nil {
+		if warning := antigravitySpawnWarning(exe, targets, outcome); warning != "" {
+			fmt.Fprintln(stderr, warning)
+		}
 	}
 
 	// Reconciliation: a plane already in the desired state never prompts.

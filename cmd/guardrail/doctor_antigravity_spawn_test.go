@@ -102,3 +102,35 @@ func TestAntigravitySpawnWarningNamesAnUnspawnableBinaryPath(t *testing.T) {
 		}
 	}
 }
+
+// #358: `guardrail plane enable antigravity` must surface the same warning
+// `setup` prints when the running binary path contains a space and has no 8.3
+// short name on the volume.
+func TestWindowsPlaneEnableAntigravityWarnsOnUnspawnableBinaryPath(t *testing.T) {
+	driftSandbox(t)
+	const spaced = `C:\Program Files\guardrail-358-absent\guardrail.exe`
+	useInstalledExecutable(t, spaced)
+	useInstalledPlanes(t, "antigravity", "claude")
+	useTransport(t, []string{"approved"})
+
+	var out, errb strings.Builder
+	if code := runPlaneTerminal(t, []string{"plane", "enable", "antigravity"}, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%q stderr=%q", code, out.String(), errb.String())
+	}
+	for _, want := range []string{"Antigravity cannot spawn", "path without a space", spaced} {
+		if !strings.Contains(errb.String(), want) {
+			t.Errorf("stderr %q does not mention %q", errb.String(), want)
+		}
+	}
+
+	// Enabling another plane must not emit the Antigravity warning.
+	out.Reset()
+	errb.Reset()
+	useTransport(t, []string{"approved"})
+	if code := runPlaneTerminal(t, []string{"plane", "enable", "claude"}, &out, &errb); code != 0 {
+		t.Fatalf("claude enable exit = %d; stderr=%q", code, errb.String())
+	}
+	if strings.Contains(errb.String(), "Antigravity cannot spawn") {
+		t.Errorf("claude enable emitted Antigravity warning: %q", errb.String())
+	}
+}

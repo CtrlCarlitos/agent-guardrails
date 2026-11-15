@@ -105,13 +105,10 @@ func cmdSetup(args []string, terminal bool, stdout, stderr io.Writer) int {
 		return pendingApproval(action, "no interactive terminal is attached", stderr)
 	}
 
-	exe, err := installedExecutable()
+	exe, err := installedExecutablePath()
 	if err != nil {
 		fmt.Fprintf(stderr, "guardrail: setup: cannot locate running binary: %v\n", err)
 		return 1
-	}
-	if abs, err := filepath.Abs(exe); err == nil {
-		exe = abs
 	}
 	base := filepath.Base(exe)
 	if base == ".guardrail-update" || strings.HasSuffix(base, ".old") {
