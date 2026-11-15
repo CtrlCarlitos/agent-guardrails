@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (2026-11-15). This records behavior that has shipped since ADR-0001
+Accepted (operator ruling, 2026-11-15). This records behavior that has shipped since ADR-0001
 and ADR-0012 but was never written down as a decision. It was found by the
 #151 fail-open sweep and changes nothing.
 
