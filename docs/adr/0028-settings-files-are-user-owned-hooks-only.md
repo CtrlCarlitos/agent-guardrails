@@ -17,6 +17,19 @@ first-install bootstrap path, which can only tighten (ADR-0030). The generator
 lists survive as frozen data in `internal/genconfig/legacy_floor.go`, used to
 recognise old output and for ownership-drift detection, not to generate.
 
+**Update, 2026-11-15 (#531, operator ruling: retire): the allow-baseline is
+gone.** `guardrail allow-baseline` (#363) printed Claude Code `permissions.allow`
+rules for the operator to paste, `--check` compared them with the operator's
+list, and `doctor` printed a `claude allow list:` summary. That was the last
+place guardrail read or advised on the operator's allow list, and so the last
+seam of the floor this ADR retired. The hook enforces every call those rules
+could have mirrored. A missing rule only meant one more Claude Code prompt.
+An operator's own allow rule never turns a guardrail deny into an allow. So
+the command, its `internal/allowbaseline` package, its page and the doctor line
+are removed. Guardrail no longer reads `permissions.allow` at all.
+`permissions.deny`/`ask` handling and the rest of the settings parsing are
+unchanged.
+
 Implementation is phased and the phases retire independently; the plan and its
 preconditions are recorded below rather than in a tracking issue, because the
 order is the decision.

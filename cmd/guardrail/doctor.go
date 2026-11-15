@@ -419,11 +419,6 @@ func printDoctor(stdout, stderr io.Writer) (int, int) {
 	if planeStateIsProblem(claudeState) {
 		problems++
 	}
-	// Advice about a list the operator owns: which rules are broader than the
-	// baseline, notably a blanket `Bash(graft:*)` (#363). Never a warning.
-	if line := allowListLine(); line != "" {
-		fmt.Fprintln(stdout, safetext.SingleLine(line))
-	}
 	for _, plane := range []string{"opencode", "codex", "antigravity"} {
 		state := planeStatusState(plane)
 		fmt.Fprintf(stdout, "%s settings: %s\n", plane, safetext.SingleLine(state))

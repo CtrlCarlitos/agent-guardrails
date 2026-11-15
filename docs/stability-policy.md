@@ -60,8 +60,8 @@ this one.
 ### CLI surface
 
 The subcommands and flags printed by `guardrail help` are stable, along with the
-operator commands documented in [OPERATIONS.md](OPERATIONS.md) (`allow-baseline`,
-`next`, `approvals ...`), except what `help` itself marks internal:
+operator commands documented in [OPERATIONS.md](OPERATIONS.md) (`next`,
+`approvals ...`), except what `help` itself marks internal:
 `guardrail daemon` (the ADR-0025 resident engine daemon) is listed there as
 "internal: not a stable surface". Every subcommand the dispatcher accepts is in
 `help` or in the test's hidden list with a reason
@@ -216,3 +216,11 @@ candidates for follow-up issues.
   the hook passes it on), not a failure (#397).
 - **The Overlay has no schema version.** `engine_min_version` is the only
   compatibility gate.
+- **`allow-baseline` was removed without a deprecation release** (#531,
+  operator ruling, 2026-11-15). It was a stable operator command (#363). The
+  hook enforces everything the list could mirror, so the operator retired it
+  outright rather than deprecating it for a minor version. The 0.x clause
+  above covers removals that close a hole, and this one does not. The removal
+  is announced on #531 and carries a CHANGELOG **Breaking** note.
+  `guardrail allow-baseline` is now an unknown subcommand (exit 2). The
+  operator's own `permissions.allow` list is untouched.
