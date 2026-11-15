@@ -48,6 +48,11 @@ var outwardReachAsks = map[string]bool{
 	"capability-web-search": true,
 	"unknown-native-tool":   true,
 	"P1.power":              true,
+	// Network-stack control (#286) joins on the same property: machine-level
+	// state — adapters, radios, the resolver — that an overnight window must
+	// not answer for, with the DNS class the sharpest edge (a poisoned
+	// resolver launders blocked hosts through the egress allowlist).
+	"P1.net-stack": true,
 }
 
 // NeverRelaxable reports whether an Ask stays an Ask no matter which

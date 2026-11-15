@@ -7,6 +7,21 @@ explicitly in **Breaking** notes.
 ## Unreleased
 
 ### Engine
+- **Feature (#286): network-stack control asks in every shell.** No rule
+  touched adapter, Wi-Fi or resolver configuration: `netsh interface ip set
+  dns`, `Set-DnsClientServerAddress`, `ipconfig /release`, `nmcli radio
+  wifi off`, `rfkill block wifi`, `ip link set … down`,
+  `networksetup -setairportpower` and their corpus kin all ran. The DNS
+  class is the sharpest edge — a poisoned resolver launders blocked hosts
+  through the egress allowlist while everything appears to work. New
+  `P1.net-stack` ask covers adapter up/down, Wi-Fi control and
+  address/DNS/DHCP mutation across POSIX and PowerShell text through the
+  same simple chain; read twins (`show`/`Get-` verbs, `ipconfig /all` and
+  `/flushdns`) and `-WhatIf` dry runs stay allowed. Never night-relaxed
+  (the `P1.power` ruling property) and never grantable, waivable per
+  ADR-0003 like every ordinary ask.
+
+### Engine
 - **Fix (#151): a hook answered by the engine daemon never gets a weaker
   verdict than in-process.** With `guardrail daemon start` running
   (ADR-0025, and a session can start it), the hook took the daemon's verdict
