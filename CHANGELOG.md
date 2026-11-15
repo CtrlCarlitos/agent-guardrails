@@ -14,6 +14,20 @@ explicitly in **Breaking** notes.
   disambiguates with a counter kept inside the `.jsonl` suffix, so the
   segment family glob and retention still cover every spelling. Caught by
   the newly blocking full-Windows suite.
+||||||| parent of c0525a8 (fix(engine): an inert redirect body is data, not a mention (#112))
+### Engine
+- **Fix (#112): an inert redirect body is data, not a mention.** A pure
+  data copier (`cat`, `tee`, `printf`, `echo`) whose only effect is a
+  redirect into a path the write rules allow no longer has its literal
+  operands scanned for secret-path mentions — the exact false positive that
+  hit sessions writing fixtures, commit messages and docs five times in one
+  cycle (`printf '%s' 'see ~/.aws/credentials …' > note.txt` denied as
+  P4). The exemption is narrow: a bare path operand is a real read and
+  keeps its classification, a copier writing into a secret or protected
+  target still denies on the target, interpreter heads and any pipeline
+  stage keep today's behavior, and the opaque-interpreter mention rules are
+  untouched. One recorded fixture flipped with it
+  (bash-printf-inert-redirect.json, formerly the secret-in-text deny).
 
 ### Tests
 - **Fix (#519): the WebAuthn browser e2e no longer leaves a "guardrail"
