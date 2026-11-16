@@ -322,3 +322,19 @@ func TestWindowsSelftestMatrixPasses(t *testing.T) {
 		t.Fatalf("windows selftest did not report a clean pass:\n%s", out.String())
 	}
 }
+
+// #600: selftest marks its audit records by rewriting the literal "selftest"
+// into a unique session suffix. A probe payload that does not contain the
+// literal writes UNMARKED records, which then surface in `guardrail explain`
+// as if they were user traffic (observed: antigravity probes with no
+// conversationId). Every probe payload must carry the literal — this pins
+// the marking mechanism itself, so no future probe can silently land
+// unmarked.
+func TestEverySelftestProbeCarriesTheMarkingLiteral(t *testing.T) {
+	for _, probe := range selftestProbes {
+		if !strings.Contains(probe.Payload, "selftest") {
+			t.Errorf("%s/%s: payload lacks the \"selftest\" marking literal; its audit records would be invisible to the explain filter:\n%s",
+				probe.Plane, probe.Name, probe.Payload)
+		}
+	}
+}
