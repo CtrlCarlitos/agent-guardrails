@@ -1,0 +1,2 @@
+[slots]
+  web_hosts = ["raw.githubusercontent.com", "docs.github.com"]
