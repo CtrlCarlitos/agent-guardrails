@@ -66,7 +66,8 @@ $labels = @(
 	'handoff-propagates-setup-exit-code',
 	'noninteractive-disable-can-skip-setup',
 	'update-verification-failure-exits-1-and-names-rollback',
-	'update-refused-before-replacement-says-left-as-it-was'
+	'update-refused-before-replacement-says-left-as-it-was',
+	'self-update-defers-next-steps-to-the-installer'
 )
 
 if (-not $onWindows) {
@@ -511,6 +512,34 @@ exit 0
 		return (Has err 'guardrail.cmd update v0.19.2-dev')
 	}
 
+	# #605: the update's own `next` ran before setup re-enabled the plane and
+	# told the operator to enable it. Update-Installed runs the update with
+	# GUARDRAIL_NEXT_DEFERRED=1 (the handoff prints the steps afterwards) and
+	# leaves the caller's environment as it was.
+	function Case-SelfUpdateDefersNextStepsToTheInstaller {
+		$dest = Fresh
+		$seen = Join-Path $dest 'next-deferred.txt'
+		[System.IO.File]::WriteAllText((Join-Path $dest 'guardrail.cmd'), "@echo off`r`nif ""%~1""==""version"" echo guardrail $Version& exit /b 0`r`nif ""%~1""==""update"" (echo [%GUARDRAIL_NEXT_DEFERRED%]> ""$seen""& exit /b 0)`r`nexit /b 1`r`n")
+		$child = Join-Path $dest 'child.ps1'
+		Set-Content -LiteralPath $child -Encoding UTF8 -Value @"
+. '$InstallPs1'
+`$Version = '$Version'
+`$script:Exe = '$(Join-Path $dest 'guardrail.cmd')'
+`$script:Installed = 'v0.19.2-dev'
+Update-Installed
+if (`$env:GUARDRAIL_NEXT_DEFERRED) { exit 7 }
+exit 0
+"@
+		$ErrorActionPreference = 'Continue'
+		& $pwshExe -NoProfile -ExecutionPolicy Bypass -File $child 1> (Join-Path $tmp 'nd-out') 2> (Join-Path $tmp 'nd-err')
+		$script:rc = $LASTEXITCODE
+		if (-not (WantRc 0)) { return $false }
+		if (-not (Test-Path -LiteralPath $seen)) { Write-Host '  the fake update never ran'; return $false }
+		$got = ([System.IO.File]::ReadAllText($seen)).Trim()
+		if ($got -ne '[1]') { Write-Host "  update saw GUARDRAIL_NEXT_DEFERRED=$got, want [1]"; return $false }
+		return $true
+	}
+
 	function Case-UpdateRefusedBeforeReplacementSaysLeftAsItWas {
 		UpdateFailure $false
 		if (-not (WantRc 1)) { return $false }
@@ -576,6 +605,7 @@ exit 0
 	Check 'noninteractive-disable-can-skip-setup' { Case-NoninteractiveDisableCanSkipSetup }
 	Check 'update-verification-failure-exits-1-and-names-rollback' { Case-UpdateVerificationFailureExits1AndNamesRollback }
 	Check 'update-refused-before-replacement-says-left-as-it-was' { Case-UpdateRefusedBeforeReplacementSaysLeftAsItWas }
+	Check 'self-update-defers-next-steps-to-the-installer' { Case-SelfUpdateDefersNextStepsToTheInstaller }
 	Check 'parses-under-windows-powershell-syntax' { Case-ParsesUnderWindowsPowerShellSyntax }
 } finally {
 	Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue

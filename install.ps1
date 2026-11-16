@@ -391,13 +391,19 @@ function Install-Bootstrap {
 function Update-Installed {
 	Say "updating $($script:Exe) from $($script:Installed) to $Version via guardrail update"
 	$code = 1
+	# The handoff prints the steps still owed, after setup ran; the update's
+	# own `next` would name work setup is about to do (#605).
+	$priorDeferred = $env:GUARDRAIL_NEXT_DEFERRED
 	try {
+		$env:GUARDRAIL_NEXT_DEFERRED = '1'
 		$ErrorActionPreference = 'Continue'
 		$PSNativeCommandUseErrorActionPreference = $false
 		& $script:Exe update $Version
 		$code = $LASTEXITCODE
 	} catch {
 		$code = 1
+	} finally {
+		$env:GUARDRAIL_NEXT_DEFERRED = $priorDeferred
 	}
 	if ($code -ne 0) {
 		# Before the swap the binary is untouched; after it, the update's own
