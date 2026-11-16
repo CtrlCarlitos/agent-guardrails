@@ -1078,7 +1078,7 @@ explicitly in **Breaking** notes.
   and a feature. `config.yml` keeps blank issues and sends bypass reports to
   the private security advisory form.
 - **Docs (#108): `docs/release-checklist.md`.** The release flow as the
-  `chore(release)` commits run it: `## Unreleased` becomes a dated section,
+  `chore(release)` commits run it: `## v0.23.43-dev (2026-11-16)` becomes a dated section,
   the README install pin moves in its three places, one release PR squashed,
   an annotated tag on the squash commit, `release.yml` publishes nine assets,
   and the tag is reported for the dotfiles pin. Updater changes verify on N+2,
