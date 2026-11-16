@@ -31,13 +31,13 @@ var selftestProbes = []selftestProbe{
 		Payload:      `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"/tmp/selftest/a.go","new_string":"x"}}`,
 		WantDecision: "allow"},
 	{Plane: "claude", Name: "rm -rf denies", Args: []string{"claude"},
-		Payload:      `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}`,
+		Payload:      `{"session_id":"selftest","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}`,
 		WantDecision: "deny"},
 	{Plane: "claude", Name: "secret read denies", Args: []string{"claude"},
 		Payload:      `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/home/selftest/.ssh/id_ed25519"}}`,
 		WantDecision: "deny"},
 	{Plane: "claude", Name: "unknown MCP asks (night-preserved)", Args: []string{"claude"},
-		Payload:      `{"cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"mcp__weather__forecast","tool_input":{"city":"denver"}}`,
+		Payload:      `{"session_id":"selftest","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"mcp__weather__forecast","tool_input":{"city":"denver"}}`,
 		WantDecision: "ask"},
 	// Registry projection (#37): a serena mutator's relative_path reaches the
 	// Engine's path policy, so a secret-tier target denies by rule, not by
@@ -68,10 +68,10 @@ var selftestProbes = []selftestProbe{
 
 	// antigravity — run_command parity through the pre phase.
 	{Plane: "antigravity", Name: "destructive run_command denies", Args: []string{"antigravity", "pre"},
-		Payload:      `{"toolCall":{"name":"run_command","args":{"CommandLine":"rm -rf /","Cwd":"/tmp"}}}`,
+		Payload:      `{"conversationId":"selftest","toolCall":{"name":"run_command","args":{"CommandLine":"rm -rf /","Cwd":"/tmp"}}}`,
 		WantDecision: "deny"},
 	{Plane: "antigravity", Name: "secret view denies", Args: []string{"antigravity", "pre"},
-		Payload:      `{"toolCall":{"name":"view_file","args":{"TargetFile":"/home/selftest/.ssh/id_ed25519"}}}`,
+		Payload:      `{"conversationId":"selftest","toolCall":{"name":"view_file","args":{"TargetFile":"/home/selftest/.ssh/id_ed25519"}}}`,
 		WantDecision: "deny"},
 	{Plane: "antigravity", Name: "delegation allows", Args: []string{"antigravity", "pre"},
 		Payload:      `{"conversationId":"selftest","toolCall":{"name":"invoke_subagent","args":{"TypeName":"research","Role":"Researcher","Prompt":"analyze"}}}`,
