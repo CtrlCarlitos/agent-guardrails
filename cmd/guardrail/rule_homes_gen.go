@@ -102,6 +102,7 @@ var ruleSourceFiles = map[string][]string{
 	"operator-action-terminal":         {"cmd/guardrail/approval_mode.go"},
 	"operator-action-ticket":           {"cmd/guardrail/approval_mode.go"},
 	"panic-recovered":                  {"internal/engine/evaluate.go"},
+	"repository-delivery-authorized":   {"cmd/guardrail/delivery.go"},
 	"tokenize-failed":                  {"internal/engine/rules_bash.go"},
 	"unknown-native-tool":              {"internal/engine/evaluate.go"},
 	"web-fetch-native-deny":            {"internal/engine/rules_net.go"},

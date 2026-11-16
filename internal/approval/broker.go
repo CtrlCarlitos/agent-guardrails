@@ -76,6 +76,9 @@ type Request struct {
 // the exact plane batch for lifecycle actions and the exact host batch for
 // egress actions, empty otherwise.
 func (r Request) Summary() string {
+	if r.Action == "delivery-set" {
+		return "standing repository delivery authorization (until revoked): " + r.Parameters["policy"] + "; existing account trust; eligible merges and task cleanup only"
+	}
 	if r.Action == "exact-action-grant" {
 		summary, err := r.ReviewSummary()
 		if err != nil {
@@ -347,13 +350,22 @@ func pending(st *session.State, id string, scope Scope, now time.Time) (session.
 }
 
 func validateRequest(r Request) error {
+	if r.Action == "delivery-set" {
+		if r.Plane != "operator" || r.Scope != RepoScope || r.Host != "" || len(r.Parameters) != 1 {
+			return ErrMalformed
+		}
+		if _, err := policy.DecodeDeliveryPolicy(r.Parameters["policy"]); err != nil {
+			return ErrMalformed
+		}
+	}
+
 	if r.Plane == "" || r.SessionID == "" || !filepath.IsAbs(r.RepoRoot) || r.Scope == "" || r.Reason == "" {
 		return ErrMalformed
 	}
 	if r.Host != "" && policy.ValidateWebHost(r.Host) != nil {
 		return ErrMalformed
 	}
-	if r.Action != "" && r.Action != "night-on" && r.Action != "night-off" && r.Action != "web-host-grant" && r.Action != "web-host-revoke" && r.Action != "plane-enable" && r.Action != "plane-disable" && r.Action != "recover" && r.Action != "web-research-set" && r.Action != "exact-action-grant" {
+	if r.Action != "" && r.Action != "night-on" && r.Action != "night-off" && r.Action != "web-host-grant" && r.Action != "web-host-revoke" && r.Action != "plane-enable" && r.Action != "plane-disable" && r.Action != "recover" && r.Action != "web-research-set" && r.Action != "exact-action-grant" && r.Action != "delivery-set" {
 		return ErrMalformed
 	}
 	if r.Action == "exact-action-grant" {
@@ -504,6 +516,9 @@ func canonicalNightExpiry(until string, now time.Time) (string, error) {
 
 func durable(r Request) session.ApprovalRequest {
 	params := make(map[string]string)
+	if r.Action == "delivery-set" {
+		params["policy"] = r.Parameters["policy"]
+	}
 	if r.Action == "exact-action-grant" {
 		params["record"] = r.Parameters["record"]
 		params["digest"] = r.Parameters["digest"]

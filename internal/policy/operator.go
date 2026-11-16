@@ -19,11 +19,12 @@ var neverWaivable = map[string]bool{
 }
 
 type RepoGrant struct {
-	Waive           []string `toml:"waive"`
-	SecretAllow     bool     `toml:"secret_allow"`
-	AuditLog        bool     `toml:"audit_log"`
-	EgressAllowlist []string `toml:"egress_allowlist"`
-	WebHosts        []string `toml:"web_hosts"`
+	Delivery        *DeliveryPolicy `toml:"delivery,omitempty"`
+	Waive           []string        `toml:"waive"`
+	SecretAllow     bool            `toml:"secret_allow"`
+	AuditLog        bool            `toml:"audit_log"`
+	EgressAllowlist []string        `toml:"egress_allowlist"`
+	WebHosts        []string        `toml:"web_hosts"`
 	// Commands are operator-issued grants for one exact command each. A grant
 	// is a third kind of entry in a structure that already has the right
 	// ownership and the right scoping rule: this file is owner-only, and
@@ -162,6 +163,11 @@ func LoadOperatorConfig() (*OperatorConfig, error) {
 		var grant RepoGrant
 		if err := metadata.PrimitiveDecode(primitive, &grant); err != nil {
 			return emptyOperatorConfig(), fmt.Errorf("parsing operator config %s: %w", path, err)
+		}
+		if grant.Delivery != nil {
+			if err := grant.Delivery.Validate(); err != nil {
+				return emptyOperatorConfig(), err
+			}
 		}
 		repos[key] = grant
 	}

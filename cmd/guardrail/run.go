@@ -20,6 +20,8 @@ const usage = `guardrail — one guardrail policy across AI coding-agent planes
 usage: guardrail <command> [arguments]
 
   help                              print this text (also -h, --help)
+  delivery status|enable|revoke|finish
+                                    bounded repository-authorized merge and cleanup
   version                           print the release version
   hook <plane> [phase]              evaluate a hook payload on stdin
       plane: claude | opencode | antigravity | codex (antigravity also needs a phase: pre | post)
@@ -131,6 +133,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		file, terminal := stdin.(*os.File)
 		cwd, _ := os.Getwd()
 		return cmdEgress(args[1:], terminal && term.IsTerminal(int(file.Fd())), cwd, stdout, stderr)
+	case "delivery":
+		return cmdDelivery(args[1:], operatorTerminal(stdin), stdin, stdout, stderr)
 	case "approvals":
 		// The Engine denies a session's `approvals grant|approve` (#416), so
 		// the terminal gate here is the operator's, not the only barrier.
