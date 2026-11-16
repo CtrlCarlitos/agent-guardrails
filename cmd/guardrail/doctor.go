@@ -402,10 +402,19 @@ func printDoctor(stdout, stderr io.Writer) (int, int) {
 	fmt.Fprintf(stdout, "audit log: %s\n", safetext.SingleLine(audit.DefaultPath(merged.Slots.AuditLog)))
 	opForMode, opModeErr := policy.LoadOperatorConfig()
 	fmt.Fprintln(stdout, approvalModeLine(opForMode, opModeErr))
-	if approvalModeOf(opForMode, opModeErr) == policy.ApprovalPasskey {
+	// The enrollment state in every mode (#593), so an operator can check it
+	// without trial and error; UNKNOWN when the store cannot be read.
+	authStore := defaultOperatorAuthStore()
+	line, unreadable := enrollmentLine(authStore)
+	fmt.Fprintln(stdout, safetext.SingleLine(line))
+	if unreadable {
+		problems++
+	}
+	if approvalModeOf(opForMode, opModeErr) == policy.ApprovalPasskey && !unreadable {
 		// Enrollment is what passkey approvals hang on; in prompt mode it is
-		// optional, and "approvals: disabled" would be untrue.
-		enrolled, _ := defaultOperatorAuthStore().Enrolled()
+		// optional, and "approvals: disabled" would be untrue. An unreadable
+		// store is reported above, never as "no authenticator enrolled".
+		enrolled, _ := authStore.Enrolled()
 		fmt.Fprintln(stdout, operatorApprovalStatus(enrolled, anyPlaneRegistered()))
 	}
 	// Which authenticators back those approvals, so "which device can approve"

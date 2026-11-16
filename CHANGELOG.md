@@ -4,6 +4,25 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Operator
+- **Fix (#593): enrollment state is no longer contradictory.** After a fresh
+  install, the bootstrap said `no operator enrolled`, and then
+  `guardrail operator enroll` refused with `initial enrollment requires no
+  enrolled credentials`. Guardrail had enrolled nobody: only a completed
+  ceremony writes credentials, which a clean-slate sandbox test confirms.
+  `enroll`, though, printed that refusal both when credentials existed and
+  when the store could not be read. It now names the state:
+  - an enrolled store gives `already enrolled (N authenticators in <path>)`
+    with `add-authenticator` / `recover-reset` (exit 2);
+  - an unreadable store gives `cannot read the operator credential store …
+    enrollment state is unknown` (exit 1).
+  `guardrail doctor` prints `operator enrollment: none | N authenticators |
+  UNKNOWN (…)` in every approval mode, not only passkey mode. UNKNOWN counts
+  as a problem, and an unreadable store is never reported as `no
+  authenticator enrolled`.
+
 ## v0.23.42-dev (2026-11-15)
 
 ### CLI
