@@ -38,11 +38,19 @@ func cmdOperatorInput(args []string, terminal bool, stdin io.Reader, stdout, std
 		if len(args) != 1 {
 			return operatorUsage(stderr)
 		}
-		if enrolled, err := store.Enrolled(); err != nil || enrolled {
-			fmt.Fprintln(stderr, "guardrail: initial enrollment requires no enrolled credentials")
+		// #593: an unreadable store is not an enrolled one. Saying "requires
+		// no enrolled credentials" for both told an operator whom the
+		// bootstrap had just called unenrolled that someone was enrolled.
+		enrolled, err := store.Enrolled()
+		if err != nil {
+			fmt.Fprintf(stderr, "guardrail: cannot read the operator credential store at %s (%v); enrollment state is unknown, so enrollment was not started. `guardrail doctor` shows the store's state\n", store.Path(), err)
+			return 1
+		}
+		if enrolled {
+			fmt.Fprintf(stderr, "guardrail: an operator is already enrolled (%s in %s); add another with `guardrail operator add-authenticator`, or start over with `guardrail operator recover-reset`\n", authenticatorCount(store), store.Path())
 			return 2
 		}
-		if err := runOperatorCeremony(store, "enroll", ""); err != nil {
+		if err := runOperatorCeremonyFunc(store, "enroll", ""); err != nil {
 			fmt.Fprintln(stderr, "guardrail: enrollment did not complete")
 			return 1
 		}
@@ -248,5 +256,34 @@ func (p *operatorPage) finish(response []byte) error {
 		return p.store.RemoveCredentialFingerprint(p.fingerprint)
 	default:
 		return errors.New("unknown operator management operation")
+	}
+}
+
+// authenticatorCount names how many credentials the store holds, for the
+// enrollment messages (#593). Called only after Enrolled reported true.
+func authenticatorCount(store *operatorauth.Store) string {
+	credentials, err := store.Credentials()
+	if err != nil {
+		return "authenticators"
+	}
+	if len(credentials) == 1 {
+		return "1 authenticator"
+	}
+	return fmt.Sprintf("%d authenticators", len(credentials))
+}
+
+// enrollmentLine is doctor's reading of the credential store, printed in every
+// approval mode (#593). An unreadable store is UNKNOWN: reporting it as "none"
+// would contradict `operator enroll`, which cannot start over it, and
+// reporting it as enrolled would hide that passkey approvals cannot begin.
+func enrollmentLine(store *operatorauth.Store) (line string, problem bool) {
+	enrolled, err := store.Enrolled()
+	switch {
+	case err != nil:
+		return fmt.Sprintf("operator enrollment: UNKNOWN (cannot read the credential store at %s: %v; `guardrail operator enroll` will not start over it)", store.Path(), err), true
+	case enrolled:
+		return "operator enrollment: " + authenticatorCount(store), false
+	default:
+		return "operator enrollment: none", false
 	}
 }

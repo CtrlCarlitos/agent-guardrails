@@ -116,6 +116,15 @@ path can only tighten: `setup --state disabled`, `plane disable` and
 bootstrap; run guardrail operator enroll)` until then. A mediated session
 cannot run any of these lifecycle commands itself (`P5.self-config`).
 
+`setup` never enrolls anyone: `guardrail operator enroll` is the only way in.
+`guardrail doctor` prints `operator enrollment: none`, `N authenticators` or
+`UNKNOWN (…)` in every approval mode (#593). UNKNOWN means the credential
+store exists but cannot be read, for example because it fails the
+owner-only check. It was restored or copied by something other than
+guardrail, or it doesn't decode. `operator enroll` refuses over UNKNOWN and
+names the store, and it refuses over an enrolled store, naming
+`add-authenticator` and `recover-reset`.
+
 If every authenticator is lost, run `guardrail operator recover-reset` from a
 trusted local terminal and type `RESET`. It removes only public credential
 records, writes a recovery audit record, and disables approvals until a new
