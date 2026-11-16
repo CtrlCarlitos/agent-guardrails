@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.44-dev (2026-11-16)
 
 ### CLI
 - **Feature (#606): repository-authorized delivery.** The operator enables
@@ -14,7 +14,6 @@ explicitly in **Breaking** notes.
   bound and shared by linked worktrees. CI-control changes, failed proofs and
   valuable work remain blocked; arbitrary merge/delete commands and host-auto
   Ask escalation are unchanged.
-
 
 ### Operator
 - **Fix (#593): enrollment state is no longer contradictory.** After a fresh
