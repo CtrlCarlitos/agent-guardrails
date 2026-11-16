@@ -60,6 +60,31 @@ func TestNextStepsNameAPlaneWhoseHandlersDrifted(t *testing.T) {
 	}
 }
 
+// #605: the installer runs `guardrail update`, whose last step is the new
+// binary's `next`, and then runs `setup` (or, with --no-setup, `next`
+// itself). The update's block was computed before setup re-enabled the
+// plane, so it told the operator to enable a plane the same run then
+// enabled. When the caller says it prints the steps itself, `next` is silent.
+func TestNextIsSilentWhenTheCallerPrintsTheStepsAfterwards(t *testing.T) {
+	_, b := driftSandbox(t)
+	enableForDrift(t, "claude")
+	useInstalledExecutable(t, b)
+	useInstalledPlanes(t, "claude")
+	stubOperatorEnrolled(t, true)
+
+	t.Setenv(nextDeferredEnv, "")
+	var owed, errb strings.Builder
+	if code := cmdNext(nil, &owed, &errb); code != 0 || !strings.Contains(owed.String(), "guardrail plane enable claude") {
+		t.Fatalf("baseline: exit=%d out=%q; want the owed enable step", code, owed.String())
+	}
+
+	t.Setenv(nextDeferredEnv, "1")
+	var deferred strings.Builder
+	if code := cmdNext(nil, &deferred, &errb); code != 0 || deferred.Len() != 0 {
+		t.Fatalf("deferred: exit=%d out=%q; want no block", code, deferred.String())
+	}
+}
+
 func TestNextStepsMentionTheRetiredFloorAnEnrolledOperatorWillLose(t *testing.T) {
 	seedFlooredClaude(t)
 	useInstalledPlanes(t, "claude")
