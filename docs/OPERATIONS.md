@@ -6,6 +6,14 @@ run at any hour; the ones that change anything ask for your approval first: a
 `approval = "passkey"` ([operator-approvals.md](operator-approvals.md),
 ADR-0033). Where a row below says "Passkey", read "approval".
 
+## Autonomous delivery
+
+For the standing "fix on red, merge on green, clean up on merged" workflow,
+enable [repository-authorized delivery](delivery.md) once from your terminal.
+Agents then use a bounded exact-head merge/cleanup operation; ordinary command
+grants and all other protections stay in force. A narrower task endpoint still
+wins, and CI-control changes or valuable uncommitted work remain exceptions.
+
 ## First 60 seconds
 
 ```

@@ -6,6 +6,16 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### CLI
+- **Feature (#606): repository-authorized delivery.** The operator enables
+  bounded delivery once with `guardrail delivery enable`; agents then merge an
+  exact green PR head and clean proven redundant task resources without three
+  separate action grants. Authorization is machine-owned, revocable, identity-
+  bound and shared by linked worktrees. CI-control changes, failed proofs and
+  valuable work remain blocked; arbitrary merge/delete commands and host-auto
+  Ask escalation are unchanged.
+
+
 ### Operator
 - **Fix (#593): enrollment state is no longer contradictory.** After a fresh
   install, the bootstrap said `no operator enrolled`, and then

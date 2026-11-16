@@ -40,16 +40,17 @@ var ruleHomeClasses = map[string]string{
 
 	// Decided by something the operator issued or set: a grant, night mode,
 	// the web-research posture, or the operator-action approval path.
-	"ask-allowed-by-night-mode":     homeOperator,
-	"ask-allowed-by-operator-grant": homeOperator,
-	"web-research-enforcement-off":  homeOperator,
-	"operator-action":               homeOperator,
-	"operator-action-ask":           homeOperator,
-	"operator-action-broker":        homeOperator,
-	"operator-action-host-approved": homeOperator,
-	"operator-action-satisfied":     homeOperator,
-	"operator-action-terminal":      homeOperator,
-	"operator-action-ticket":        homeOperator,
+	"repository-delivery-authorized": homeOperator,
+	"ask-allowed-by-night-mode":      homeOperator,
+	"ask-allowed-by-operator-grant":  homeOperator,
+	"web-research-enforcement-off":   homeOperator,
+	"operator-action":                homeOperator,
+	"operator-action-ask":            homeOperator,
+	"operator-action-broker":         homeOperator,
+	"operator-action-host-approved":  homeOperator,
+	"operator-action-satisfied":      homeOperator,
+	"operator-action-terminal":       homeOperator,
+	"operator-action-ticket":         homeOperator,
 
 	// Built in, but not numbered: the engine's own fail-closed readings and
 	// `guardrail fetch`'s checks.

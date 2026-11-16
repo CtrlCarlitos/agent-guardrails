@@ -223,7 +223,7 @@ const (
 // that asked, and until #416 only the CLI's missing terminal check stopped a
 // session running them. `list` and `revoke` stay allowed; see
 // harmlessApprovalsQuery.
-var selfControlSubcommands = []string{"night", "setup", "plane", "operator", "recover", "web-research", "egress", "hook", "approvals"}
+var selfControlSubcommands = []string{"night", "setup", "plane", "operator", "recover", "web-research", "egress", "hook", "approvals", "delivery"}
 
 // harmlessApprovalsQuery reports the `approvals` forms a session may run:
 // reading the grant list, and revoking a grant, which only removes authority.
@@ -253,7 +253,7 @@ func checkSelfControlInvocation(s Simple, command string) *policy.Verdict {
 			}
 		}
 	}
-	if subcommand != "" && (readOnlyStatusQuery(s.Argv) || harmlessApprovalsQuery(s.Argv)) {
+	if subcommand != "" && (readOnlyStatusQuery(s.Argv) || harmlessApprovalsQuery(s.Argv) || harmlessDeliveryInvocation(s.Argv)) {
 		// The exact status query changes nothing; only the mutating forms
 		// are operator actions. Any extra word keeps the deny — status is
 		// not a prefix.
@@ -1994,4 +1994,11 @@ func withinSafe(target, repoRoot string, safeRoots []string) bool {
 		}
 	}
 	return false
+}
+
+// The executor independently checks standing operator authorization. Enabling
+// or changing it is always an operator action; status has no trailing argv.
+func harmlessDeliveryInvocation(argv []string) bool {
+	return len(argv) >= 3 && strings.EqualFold(argv[1], "delivery") &&
+		((len(argv) == 3 && strings.EqualFold(argv[2], "status")) || argv[2] == "finish")
 }
