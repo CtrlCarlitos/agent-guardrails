@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
 	"slices"
 )
 
@@ -80,6 +81,9 @@ func cmdNext(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "guardrail: next takes no arguments")
 		return 2
 	}
+	if os.Getenv(nextDeferredEnv) == "1" {
+		return 0
+	}
 	steps, err := nextSteps()
 	if err != nil {
 		// Advice must not fail the caller: an installer or an update ends with
@@ -97,3 +101,12 @@ func cmdNext(args []string, stdout, stderr io.Writer) int {
 // An updater older than `next` never sets it, which is the point: its `doctor`
 // is the only place the block can appear (#374).
 const updateRunEnv = "GUARDRAIL_UPDATE_RUN"
+
+// nextDeferredEnv is set to "1" by the installers around `guardrail update`
+// (#605): they print the steps themselves afterwards, through `setup` or a
+// final `next`, from the state after setup ran. The update's own `next` (and
+// the doctor block an older updater shows) would be computed before that and
+// name work the same run is about to do, so both stay silent. An env var,
+// not a flag: the updater that passes it on is the already-installed binary,
+// which may predate any new flag.
+const nextDeferredEnv = "GUARDRAIL_NEXT_DEFERRED"

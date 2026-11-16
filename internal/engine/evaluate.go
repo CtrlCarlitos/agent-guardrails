@@ -21,12 +21,45 @@ func Evaluate(tc ToolCall, pol *policy.Policy) policy.Verdict {
 			RuleID:       "host-auto-ask-escalated",
 			OriginRuleID: out.RuleID,
 			AuditKind:    out.AuditKind,
-			Reason: "the host is running in an auto/bypass permission mode and would answer this ask itself (" +
-				out.RuleID + "); denied instead. Ask the operator to run this exact action in their terminal, then continue other work",
+			Reason:       escalatedReason(tc, out.RuleID),
 		}
 	}
 	return out
 }
+
+// escalatedReason is the escalated deny's whole continuation (#605), kept in
+// the reason because only the engine knows the plane and the reason is what
+// the audit log keeps for `guardrail explain`. It must fit, with the deny
+// boilerplate, inside the 512-rune model-facing bound with the rule ID intact.
+//
+// An unresolvable command is usually read-only: the cheap fix is to make it
+// resolvable, so that comes first. Otherwise the handoff is plane-specific:
+// Claude Code runs `! <command>` as the operator inside the session, and its
+// default permission mode turns the same call back into an ask. Other planes
+// have no known in-session escape and keep the terminal sentence.
+func escalatedReason(tc ToolCall, origin string) string {
+	posture := "the host's auto/bypass permission mode would answer this ask (" + origin + ") itself; denied. "
+	claude := tc.Plane == "claude"
+	if origin == "P3.unresolved" || origin == "tokenize-failed" {
+		fix := "Unresolvable: split it into separate, literal commands (loops in a script file; no $(...) or $LASTEXITCODE). "
+		if claude {
+			return posture + fix + "If it must run as is, the operator runs it with `!` at the prompt"
+		}
+		return posture + fix + "If it must run as is, ask the operator to run it in their terminal"
+	}
+	if !claude {
+		return posture + "Ask the operator to run this exact action in their terminal"
+	}
+	line := "`! <the exact command>`"
+	if c := strings.TrimSpace(tc.Command); c != "" && len([]rune(c)) <= maxInlineHandoffRunes && !strings.ContainsAny(c, "\n\r`") {
+		line = "`! " + c + "`"
+	}
+	return posture + "Give the operator one line for the prompt, " + line + " (runs as them, in-session), or use default permission mode for this step, where it asks"
+}
+
+// maxInlineHandoffRunes bounds the command quoted into the `!` handoff, so a
+// long command cannot push the rule ID past the model-facing bound.
+const maxInlineHandoffRunes = 48
 
 func evaluateVerdict(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 	defer func() {

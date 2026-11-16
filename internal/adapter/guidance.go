@@ -124,6 +124,10 @@ func denyNextStep(v policy.Verdict) string {
 		return "This is Guardrail-protected machinery: never edit it from a session. If it genuinely needs repair, tell the operator; `guardrail doctor` prints the exact repair command. Continue other work."
 	case "operator-action-terminal", "operator-action-ticket":
 		return "This is an operator action this plane cannot ask for here. Tell the operator the exact command from this message; they run it in their own terminal and answer its prompt. Do not retry it or run it another way. Continue other work."
+	case "host-auto-ask-escalated":
+		// #605: the reason carries the plane's handoff; the generic default
+		// ("involve the operator only if required") contradicted it.
+		return "Don't retry it as is; continue other work."
 	case "operator-action-satisfied":
 		return "The grant already holds: do not request it again. Use it now (guardrail fetch <url>) and continue."
 	// The two egress continuations are what #125 measured agents giving up on:

@@ -84,6 +84,7 @@ case "$1" in
   version) echo "guardrail $(cat "$d/.fake-version")" ;;
   update)
     echo "$*" >>"$d/update.log"
+    echo "${GUARDRAIL_NEXT_DEFERRED:-}" >"$d/update.next-deferred"
     # .fake-update: "refused" fails before replacing; "verify-fails" replaces, then fails.
     mode="$(cat "$d/.fake-update" 2>/dev/null || true)"
     [ "$mode" = refused ] && exit 1
@@ -164,6 +165,23 @@ case_existing_at_or_above_floor_uses_self_update() {
   grep -qx "update $VERSION" "$dest/update.log" 2>/dev/null || { echo "  update.log lacks 'update $VERSION'"; dump; return 1; }
   # still the fake: no asset was fetched or installed over it
   grep -q '\.fake-version' "$dest/guardrail" || { echo "  $dest/guardrail was replaced"; return 1; }
+}
+
+# #605: the update's own `next` ran before setup re-enabled the plane and told
+# the operator to enable it. The installer prints the steps itself afterwards
+# (setup, or `next` with --no-setup), so it tells the update's `next` to stay
+# quiet, on both paths.
+case_self_update_defers_next_steps_to_the_installer() {
+  local dest
+  for flags in "" "--no-setup"; do
+    dest="$(fresh)"
+    fake_guardrail "$dest" v0.19.2-dev
+    # shellcheck disable=SC2086
+    run --version "$VERSION" --dest "$dest" --base-url "$tmp/empty" $flags
+    want_rc 0 || return 1
+    [ "$(cat "$dest/update.next-deferred" 2>/dev/null)" = 1 ] ||
+      { echo "  update ran without GUARDRAIL_NEXT_DEFERRED=1 (flags: '$flags')"; dump; return 1; }
+  done
 }
 
 case_update_verification_failure_exits_1_and_names_rollback() {
@@ -406,6 +424,7 @@ check tampered-checksum-refuses                  case_tampered_checksum_refuses
 check missing-sums-refuses                       case_missing_sums_refuses
 check disabled-with-no-binary-is-noop            case_disabled_with_no_binary_is_noop
 check existing-at-or-above-floor-uses-self-update case_existing_at_or_above_floor_uses_self_update
+check self-update-defers-next-steps-to-the-installer case_self_update_defers_next_steps_to_the_installer
 check update-verification-failure-exits-1-and-names-rollback case_update_verification_failure_exits_1_and_names_rollback
 check update-refused-before-replacement-says-left-as-it-was case_update_refused_before_replacement_says_left_as_it_was
 check existing-below-floor-bootstraps            case_existing_below_floor_bootstraps

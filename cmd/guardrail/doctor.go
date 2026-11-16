@@ -503,7 +503,7 @@ func printDoctor(stdout, stderr io.Writer) (int, int) {
 	// so this is the one place the first update onto a release with `next` can
 	// show it. A current updater marks the doctor it runs and prints the block
 	// itself, after selftest, so it is not shown twice (#374).
-	if os.Getenv(updateRunEnv) == "" {
+	if os.Getenv(updateRunEnv) == "" && os.Getenv(nextDeferredEnv) != "1" {
 		if steps, err := nextSteps(); err == nil {
 			printNextSteps(stdout, steps)
 		}

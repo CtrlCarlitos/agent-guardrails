@@ -23,6 +23,32 @@ explicitly in **Breaking** notes.
   as a problem, and an unreadable store is never reported as `no
   authenticator enrolled`.
 
+### Guidance
+- **Fix (#605): the escalated deny names the cheapest handoff.** On an
+  auto/bypass host, an ask becomes `host-auto-ask-escalated` (ADR-0035). Its
+  guidance said only "ask the operator to run this exact action in their
+  terminal". On Claude Code it now gives the operator one line,
+  `! <command>`, which runs the command as them inside the session. The
+  command is quoted when it is 48 characters or fewer. The guidance also says
+  that the same call is an ask in default permission mode. opencode,
+  Antigravity and Codex keep the terminal sentence. An unresolvable command
+  (`P3.unresolved`, `tokenize-failed`) is usually read-only, so its escalated
+  deny now leads with making it resolvable: separate literal commands, a loop
+  in a script file, no `$(...)` or `$LASTEXITCODE` interpolation. Handing it
+  to the operator comes second. The deny's next step no longer contradicts the
+  handoff with "involve the operator only if this exact step is required", and
+  the rule ID now stays within the 512-character model-facing limit.
+
+### Installer
+- **Fix (#605): no stale `plane enable` step during an installer update.**
+  The installers run `guardrail update`, whose last step is the new binary's
+  `next`, and then `setup`. The update's block was computed before `setup`
+  re-enabled the plane, so it told the operator to enable a plane the same
+  run then enabled. `install.sh` and `install.ps1` now run the update with
+  `GUARDRAIL_NEXT_DEFERRED=1`. With that set, `next` and the doctor fallback
+  print nothing, and the steps still owed come from `setup` (or the final
+  `next` with `--no-setup`) after the state has changed.
+
 ## v0.23.42-dev (2026-11-15)
 
 ### CLI

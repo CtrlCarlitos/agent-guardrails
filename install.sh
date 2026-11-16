@@ -407,7 +407,9 @@ main() {
 		say "guardrail $version already installed at $dest/guardrail"
 	elif [ -n "$installed" ] && version_at_least "$installed" "$SELF_UPDATE_FLOOR"; then
 		say "updating $dest/guardrail from $installed to $version via guardrail update"
-		if ! "$dest/guardrail" update "$version"; then
+		# The handoff below prints the steps still owed, after setup ran; the
+		# update's own `next` would name work setup is about to do (#605).
+		if ! GUARDRAIL_NEXT_DEFERRED=1 "$dest/guardrail" update "$version"; then
 			# Before the swap the binary is untouched; after it, the update's own
 			# post-install verification failed (#94) and the previous release is the
 			# rollback target.
