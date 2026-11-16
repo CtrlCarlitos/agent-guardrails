@@ -235,6 +235,7 @@ The engine intercepts that and the agent's host asks you (in passkey mode, a pas
 
 ## Read more
 
+- [docs/command-access.md](./docs/command-access.md) — what an agent session may run, per plane, and how each plane asks you.
 - [docs/getting-started.md](./docs/getting-started.md) — your first fifteen minutes: install, passkey, first approval, reading `doctor`.
 - [CONTEXT.md](./CONTEXT.md) — the vocabulary (plane, verdict, overlay, floor…). Two minutes, well spent.
 - [docs/OPERATIONS.md](./docs/OPERATIONS.md) — the runbook for when it's weird.

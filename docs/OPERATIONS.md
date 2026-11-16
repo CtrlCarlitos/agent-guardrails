@@ -106,6 +106,12 @@ checks above is how a cell there moves up.
 | Too many asks tonight | `guardrail night on --for 8h` (terminal only) | Relaxes routine asks to allow until then. External-tier asks (publishing, schedulers, unknown MCP) are never relaxed (ADR-0018). `guardrail night off` restores. `guardrail night status` works from anywhere and exits 1 when inactive — a state, not a failure. |
 | Windows: an opencode agent reports *every* tool call failing `guardrail: could not run (spawnSync … ETIMEDOUT); failing closed` | see **Windows: engine unreachable** below | Per-spawn latency (Defender scan + NTFS `CreateProcess`, #132) exceeded the opencode plugin's budget; the plugin denies everything when the engine cannot run — fail-closed by design. Other planes have larger hook budgets and keep working; opencode failing alone is expected, not evidence of a binary bug. |
 
+## Agent access to guardrail commands
+
+Which guardrail commands a mediated
+session may run, per plane, and how each plane renders an operator ask:
+[command-access.md](command-access.md).
+
 ## Why was this blocked: `guardrail explain`
 
 One command from an audit record to the fix (#106). Agents can run it too; it
