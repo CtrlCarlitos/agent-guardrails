@@ -19,10 +19,18 @@ func TestWindowsDeliveryConsentPersistsAndRevokes(t *testing.T) {
 	savedAPI := deliveryAPI
 	t.Cleanup(func() { deliveryAPI = savedAPI })
 	deliveryAPI = func(ctx context.Context, path string, body any, out any) error {
-		if path != "repos/owner/repo" || body != nil {
-			return fmt.Errorf("unexpected API")
+		switch path {
+		case "repos/owner/repo":
+			if body != nil {
+				return fmt.Errorf("unexpected API")
+			}
+			return json.Unmarshal([]byte(`{"id":1,"full_name":"owner/repo","default_branch":"main","allow_squash_merge":true}`), out)
+		case "repos/owner/repo/rules/branches/main":
+			return json.Unmarshal([]byte(`[{"type":"required_status_checks","ruleset_id":9,"parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[{"context":"tests","integration_id":15368}]}}]`), out)
+		case "repos/owner/repo/rulesets/9?includes_parents=true":
+			return json.Unmarshal([]byte(`{"id":9,"enforcement":"active","target":"branch","bypass_actors":[],"current_user_can_bypass":"never"}`), out)
 		}
-		return json.Unmarshal([]byte(`{"id":1,"full_name":"owner/repo","default_branch":"main"}`), out)
+		return fmt.Errorf("unexpected API path %s", path)
 	}
 
 	testenv.SetConfig(t, t.TempDir())

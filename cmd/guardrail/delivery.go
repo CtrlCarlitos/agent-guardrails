@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
@@ -180,6 +181,22 @@ func cmdDeliveryAuthorize(args []string, root string, input io.Reader, stdout, s
 		if err := chosen.Validate(); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
+		}
+		// #616: enable must not accept a policy the repository makes
+		// unfishable, and must fail closed where the branch rulesets that
+		// prove required checks cannot be read at all.
+		methods := delivery.EnabledMethods(identity)
+		if len(methods) != 1 || methods[0] != chosen.Method {
+			remedy := fmt.Sprintf("restrict the repository to %q only, then re-run enable", chosen.Method)
+			if len(methods) == 1 {
+				remedy = fmt.Sprintf("re-run enable with --method %s", methods[0])
+			}
+			fmt.Fprintf(stderr, "guardrail: repository %s allows merge methods [%s]; delivery authorizes exactly one (%q): %s\n", chosen.GitHub, strings.Join(methods, ", "), chosen.Method, remedy)
+			return 1
+		}
+		if err := delivery.RulesAvailable(context.Background(), deliveryAPI, *chosen); err != nil {
+			fmt.Fprintf(stderr, "guardrail: cannot read branch rulesets for %s: %v\ndelivery proves required checks through branch rulesets; make the repository public, upgrade the plan, or add branch rulesets, then re-run enable\n", chosen.Base, err)
+			return 1
 		}
 	} else if len(args) != 1 {
 		return 2
