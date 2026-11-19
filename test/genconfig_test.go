@@ -66,6 +66,16 @@ func TestGenConfigOpencodeGolden(t *testing.T) {
 	binary := filepath.Join(hostRoot, "usr", "local", "bin", "guardrail")
 	pluginDir := filepath.Join(hostRoot, "usr", "local", "lib", "guardrail")
 	cmd := exec.Command(bin, "gen-config", "opencode", "--print", "--binary", binary, "--plugin-dir", pluginDir)
+	// The subprocess probes the real `opencode` on its PATH (#617); a host
+	// already running OpenCode 2 would emit the V2 shape against this V1
+	// golden. Point the subprocess at a shim: on Unix it answers 1.19.5, on
+	// Windows the extensionless file is not found and the probe falls back
+	// to the loud assume-V1 path — both deterministic, both V1.
+	shim := t.TempDir()
+	if err := os.WriteFile(filepath.Join(shim, "opencode"), []byte("#!/bin/sh\necho 1.19.5\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd.Env = append(os.Environ(), "PATH="+shim)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
