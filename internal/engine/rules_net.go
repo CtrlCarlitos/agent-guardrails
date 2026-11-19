@@ -29,6 +29,57 @@ var interpreters = map[string]bool{
 	"invoke-expression": true, "iex": true, "powershell": true, "pwsh": true,
 }
 
+// inlineProgramFlags names, per interpreter, the flag whose argument is the
+// interpreter's program: python's -c/-m, perl/ruby/node's -e, the shell
+// family's -c. PowerShell is deliberately absent — its -Command shapes
+// (abbreviations, multi-argument programs) get no carve-out yet (#629).
+var inlineProgramFlags = map[string]map[string]bool{
+	"python":  {"-c": true, "-m": true},
+	"python3": {"-c": true, "-m": true},
+	"perl":    {"-e": true},
+	"ruby":    {"-e": true},
+	"node":    {"-e": true},
+	"sh":      {"-c": true},
+	"bash":    {"-c": true},
+	"zsh":     {"-c": true},
+	"dash":    {"-c": true},
+}
+
+// literalInlineProgram reports whether an interpreter stage runs a program
+// that is a local literal argument (#629). Then the downloaded bytes can
+// only reach it as stdin data — the code/data distinction the
+// P6.download-pipe-shell rule exists to police stays intact, exactly like
+// `curl | cut`. The program must be a literal: a substituted -c value
+// ("$(…)", "$PROG") can itself be downloaded content and never carves.
+// What the literal program then does with its stdin (eval inside a local
+// program, say) is outside this rule's static boundary, as with any other
+// locally authored command.
+func literalInlineProgram(s Simple) bool {
+	flags := inlineProgramFlags[head(s.Argv)]
+	if flags == nil {
+		return false
+	}
+	for i := 1; i+1 < len(s.Argv); i++ {
+		if !flags[s.Argv[i]] {
+			continue
+		}
+		// The program is local-authored code only when the word was a pure
+		// literal: the tokenizer records quoted program text (which re-parses
+		// unstably as a shell word) in literalArgs, and a bare stable literal
+		// (a module name) still satisfies literalText. A substituted program
+		// ("$(cat …)", "$PROG") is not carved — its text can come from
+		// anywhere, including the download itself — and neither is a
+		// tracked-variable program: fail closed there.
+		if s.literalArgs[i+1] {
+			return true
+		}
+		if _, ok := literalText(s.Argv[i+1]); ok {
+			return true
+		}
+	}
+	return false
+}
+
 func checkDownloadPipeShell(simples []Simple) *policy.Verdict {
 	for i, fetch := range simples {
 		if !fetchTools[head(fetch.Argv)] {
@@ -36,6 +87,9 @@ func checkDownloadPipeShell(simples []Simple) *policy.Verdict {
 		}
 		for _, interpreter := range simples[i+1:] {
 			if !interpreters[head(interpreter.Argv)] || !laterPipelineStage(fetch, interpreter) {
+				continue
+			}
+			if literalInlineProgram(interpreter) {
 				continue
 			}
 			return &policy.Verdict{Decision: policy.Deny, RuleID: "P6.download-pipe-shell",
