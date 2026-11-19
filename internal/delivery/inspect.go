@@ -91,6 +91,30 @@ func ReadPR(ctx context.Context, api API, p policy.DeliveryPolicy, n int) (Repos
 	return repo, pr, nil
 }
 
+// EnabledMethods lists the repository's enabled merge methods, in a stable
+// order, for messages that must name both sides of a mismatch (#616).
+func EnabledMethods(repo Repository) []string {
+	var methods []string
+	for _, m := range []struct {
+		name string
+		on   bool
+	}{{"merge", repo.Merge}, {"rebase", repo.Rebase}, {"squash", repo.Squash}} {
+		if m.on {
+			methods = append(methods, m.name)
+		}
+	}
+	return methods
+}
+
+// RulesAvailable reports whether the base branch's rulesets can be read.
+// Delivery proves required checks through them; when the endpoint is
+// plan-gated (#616) enable must refuse with the surfaced reason instead of
+// accepting a policy whose `mergeable_state=clean` would prove nothing.
+func RulesAvailable(ctx context.Context, api API, p policy.DeliveryPolicy) error {
+	_, err := requiredChecks(ctx, api, p)
+	return err
+}
+
 func Inspect(ctx context.Context, api API, p policy.DeliveryPolicy, n int, expected string) (Proof, error) {
 	var proof Proof
 	repo, pr, err := ReadPR(ctx, api, p, n)
@@ -103,15 +127,13 @@ func Inspect(ctx context.Context, api API, p policy.DeliveryPolicy, n int, expec
 	if pr.Merged || pr.State != "open" || pr.Draft || pr.Mergeable == nil || !*pr.Mergeable || pr.MergeableState != "clean" {
 		return proof, fmt.Errorf("PR is not green and mergeable")
 	}
-	methods := map[string]bool{"squash": repo.Squash, "merge": repo.Merge, "rebase": repo.Rebase}
-	count := 0
-	for _, enabled := range methods {
-		if enabled {
-			count++
+	methods := EnabledMethods(repo)
+	if len(methods) != 1 || methods[0] != p.Method {
+		remedy := fmt.Sprintf("restrict the repository to %q only", p.Method)
+		if len(methods) == 1 {
+			remedy = fmt.Sprintf("re-authorize delivery with --method %s", methods[0])
 		}
-	}
-	if count != 1 || !methods[p.Method] {
-		return proof, fmt.Errorf("repository merge method does not match single authorized method")
+		return proof, fmt.Errorf("repository merge method mismatch: the repository allows [%s]; delivery authorizes exactly %q; %s; nothing was changed, the PR is untouched", strings.Join(methods, ", "), p.Method, remedy)
 	}
 	checks, err := requiredChecks(ctx, api, p)
 	if err != nil {
@@ -167,7 +189,7 @@ func requiredChecks(ctx context.Context, api API, p policy.DeliveryPolicy) ([]re
 				allowed = allowed || m == p.Method
 			}
 			if !allowed {
-				return nil, fmt.Errorf("branch merge method mismatch")
+				return nil, fmt.Errorf("branch merge method mismatch: the branch's ruleset allows %s; delivery authorizes %q; nothing was changed", strings.Join(r.Parameters.Methods, ", "), p.Method)
 			}
 		}
 		if r.Type != "required_status_checks" {
