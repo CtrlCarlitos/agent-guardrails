@@ -6,6 +6,19 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Engine
+- **Fix (#629): a literal inline interpreter program is not downloaded code.**
+  `curl … | python3 -c 'import sys,json; …'` — the ordinary way to pick fields
+  out of a downloaded JSON body — was denied as `P6.download-pipe-shell`.
+  The rule now carves out an interpreter whose program is a **local literal
+  argument** (`python -c`/`-m`, `perl`/`ruby`/`node -e`, the shell family's
+  `-c`): the downloaded bytes reach it only as stdin data, the same data seat
+  as `curl | cut`. Substituted programs (`-c "$(cat …)"`, `-c "$PROG"`),
+  bare interpreters reading their program from the pipe (`curl | python3`,
+  `python3 -`), heredoc-fed programs, and every PowerShell shape
+  (`-Command`, `iex`) still deny — the carve-out is fail-closed outside the
+  literal forms, inside ADR-0012's static boundary.
+
 ### Guidance
 - **Fix (#616): the egress grant names its addressee.** The P6 egress deny
   told the agent to run `guardrail egress grant` "yourself"; on a host whose
