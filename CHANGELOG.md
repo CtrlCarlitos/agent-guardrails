@@ -6,6 +6,17 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Delivery
+- **Fix (#616): delivery is discoverable.** `guardrail delivery --help`
+  prints the operations and `enable`'s flags (it answered `unknown delivery
+  operation`); a bare `guardrail delivery` and an unknown operation print
+  the same usage; a disabled `status` names the exact enable command; and
+  the no-terminal refusal for `enable`/`revoke` says to run the named
+  command in a separate terminal. The engine no longer treats the help
+  spellings (or a bare `guardrail delivery`, which only prints usage) as
+  `P5.self-config`: help is read-only, only `enable`/`revoke` change
+  posture, and any trailing word after help still denies.
+
 ### Approvals
 - **Fix (#538): the `[y/N]` question also reaches a piped stdout.** A wrapper
   that gives the child its own hidden console (`CreateNoWindow`, the Windows
