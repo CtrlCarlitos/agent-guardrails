@@ -4,6 +4,15 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Diagnostics
+- **Chore (#529): removed the unwired hook-latency summarizer.** #589 replaced
+  doctor's pooled `hook latency` line with the version-grouped opt-in timing
+  report but left the old summarizer behind with zero callers. Removed the
+  dead `hookLatencyLine`/`printHookLatency` and their test; `percentile` and
+  the audit stamping (#456) are unchanged and still serve the new report.
+
 ## v0.23.44-dev (2026-11-16)
 
 ### CLI
