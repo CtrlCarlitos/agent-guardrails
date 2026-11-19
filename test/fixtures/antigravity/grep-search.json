@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"grep_search","args":{"SearchPath":"/tmp","Query":"TODO"}}}

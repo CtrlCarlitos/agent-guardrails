@@ -60,5 +60,35 @@
  },
  "websearch.json": {
   "exit": 0
+ },
+ "edit.json": {
+  "decision": "ask",
+  "exit": 0,
+  "rule": "P5.out-of-repo"
+ },
+ "glob.json": {
+  "decision": "allow",
+  "exit": 0
+ },
+ "lsp.json": {
+  "decision": "allow",
+  "exit": 0
+ },
+ "question.json": {
+  "decision": "allow",
+  "exit": 0
+ },
+ "skill.json": {
+  "decision": "allow",
+  "exit": 0
+ },
+ "todowrite.json": {
+  "decision": "allow",
+  "exit": 0
+ },
+ "write.json": {
+  "decision": "ask",
+  "exit": 0,
+  "rule": "P5.out-of-repo"
  }
 }

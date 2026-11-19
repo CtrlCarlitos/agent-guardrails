@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"define_subagent","args":{"name":"helper"}}}
