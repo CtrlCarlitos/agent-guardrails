@@ -6,6 +6,16 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Guidance
+- **Fix (#616): the egress grant names its addressee.** The P6 egress deny
+  told the agent to run `guardrail egress grant` "yourself"; on a host whose
+  permission mode auto-approves asks, running it denies (ADR-0035), so the
+  recommendation looped. On those hosts the deny now hands the grant to the
+  operator directly (`! <grant>` on Claude, their terminal elsewhere), and
+  the fetch/egress continuations and the session-start posture say who acts
+  on each host kind. Default-posture denials keep #125's run-it grant
+  unchanged.
+
 ### Approvals
 - **Fix (#538): the `[y/N]` question also reaches a piped stdout.** A wrapper
   that gives the child its own hidden console (`CreateNoWindow`, the Windows

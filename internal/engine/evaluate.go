@@ -24,7 +24,27 @@ func Evaluate(tc ToolCall, pol *policy.Policy) policy.Verdict {
 			Reason:       escalatedReason(tc, out.RuleID),
 		}
 	}
+	if tc.HostAutoApproves && out.Decision == policy.Deny && out.RuleID == "P6.egress" {
+		out.Reason = autoEgressGrantHandoff(tc, out.Reason)
+	}
 	return out
+}
+
+// autoEgressGrantHandoff re-aims #125's grant suffix at the operator on a
+// host that answers asks itself: there, the agent running the grant denies
+// (ADR-0035), so the deny would otherwise recommend a path the same system
+// rejects two steps later (#616). Default-posture denials are unchanged.
+func autoEgressGrantHandoff(tc ToolCall, reason string) string {
+	const suffix = "; grant: "
+	i := strings.Index(reason, suffix)
+	if i < 0 {
+		return reason
+	}
+	cmd := reason[i+len(suffix):]
+	if tc.Plane == "claude" && len([]rune(cmd)) <= maxInlineHandoffRunes && !strings.ContainsAny(cmd, "\n\r`") {
+		return reason[:i] + "; this host auto-approves asks, so the operator approves it: give them `! " + cmd + "` for the prompt"
+	}
+	return reason[:i] + "; this host auto-approves asks, so ask the operator to run it in their terminal: " + cmd
 }
 
 // escalatedReason is the escalated deny's whole continuation (#605), kept in
