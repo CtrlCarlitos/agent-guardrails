@@ -6,6 +6,16 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Guidance
+- **Fix (#616): the egress grant names its addressee.** The P6 egress deny
+  told the agent to run `guardrail egress grant` "yourself"; on a host whose
+  permission mode auto-approves asks, running it denies (ADR-0035), so the
+  recommendation looped. On those hosts the deny now hands the grant to the
+  operator directly (`! <grant>` on Claude, their terminal elsewhere), and
+  the fetch/egress continuations and the session-start posture say who acts
+  on each host kind. Default-posture denials keep #125's run-it grant
+  unchanged.
+
 ### Delivery
 - **Fix (#616): delivery is discoverable.** `guardrail delivery --help`
   prints the operations and `enable`'s flags (it answered `unknown delivery

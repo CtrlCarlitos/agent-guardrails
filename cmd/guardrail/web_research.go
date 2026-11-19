@@ -31,7 +31,7 @@ func init() { approval.RegisterAction("web-research-set", executeWebResearchAppr
 // path has to be known before the first deny, not only in it.
 func webAccessPosture() string {
 	return "Web pages: read them with `guardrail fetch <url>` (curl and wget reach only the egress allowlist). A host that is not approved yet takes one `" +
-		policy.WebHostGrantCommand("<host>") + "`, which you run yourself and the operator approves (their host prompt, or a passkey). " +
+		policy.WebHostGrantCommand("<host>") + "`, which the operator approves (the host's ask or a passkey when you run it; where the host auto-approves, hand the operator the line instead). " +
 		"Attempt the fetch instead of assuming it will be denied. After any deny or ask, `guardrail explain` shows the record and the next step."
 }
 

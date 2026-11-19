@@ -136,11 +136,14 @@ func denyNextStep(v policy.Verdict) string {
 	// `guardrail fetch`, not curl), and a native fetch fell through to "complete
 	// the work by other means". Keep them inside the 512-rune model bound.
 	case "P6.egress":
-		// The exact grant for a web host is in the reason (engine checkEgress),
-		// which is why this text can stay short enough to keep the rule ID.
-		return "Web pages go through `guardrail fetch <url>`, not curl or wget; for an unapproved host run `guardrail egress grant` yourself (host prompt or passkey) and continue offline work. Do not skip a fetch because an earlier one was denied."
+		// The exact grant for a web host is in the reason (engine
+		// checkEgress), which is why this text can stay short enough to
+		// keep the rule ID. #616: the grant's addressee depends on the
+		// host's permission mode — running it asks on a default host and
+		// denies on an auto-approving one, so both paths are named.
+		return "Web pages: `guardrail fetch <url>`, not curl or wget; an unapproved host takes `guardrail egress grant` (passkey; auto host: the operator runs it); continue offline work. Do not skip a fetch because an earlier one was denied."
 	case "web-fetch-native-deny":
-		return "Run `guardrail fetch <the same URL>` as a shell command instead; if it names an unapproved host, run the `guardrail egress grant` it prints yourself (operator approves: host prompt or passkey), then retry. Do not skip a fetch because an earlier one was denied."
+		return "Run `guardrail fetch <the same URL>` instead; if it names an unapproved host, run the `guardrail egress grant` it prints (passkey; auto host: the operator runs it), then retry. Do not skip a fetch because an earlier one was denied."
 	case "P1.rm-rf", "P1.dd", "P1.mkfs", "P1.shred", "P1.privesc", "P1.docker-down", "P1.docker-prune", "P1.docker-substituted", "P1.git-push-force", "P1.git-clean":
 		return "Destructive operation: do not retry it. Use a scoped, reversible alternative, or ask the operator to run it manually; then continue the task."
 	case "P2.git-reset-hard", "P2.git-config-write", "P2.git-protected-path":
