@@ -100,8 +100,11 @@ var ghPorcelainRules = map[string]ghPorcelainVerdict{
 	"release edit":   {ruleID: "P6.publish", reason: "rewrites a published release under the operator's token"},
 	"release upload": {ruleID: "P6.publish", reason: "adds assets to a published release under the operator's token"},
 
-	// Merging writes to the branch the ruleset exists to protect.
-	"pr merge": {ruleID: "P2.gh-pr-merge", reason: "merges into the target branch under the operator's token"},
+	// Merging writes to the branch the ruleset exists to protect. #631: the
+	// ask also names repository delivery as the sanctioned agent route, so
+	// an agent with a green mergeable PR does not hand the whole merge to
+	// the operator for lack of a pointer (#606, measured again on #616).
+	"pr merge": {ruleID: "P2.gh-pr-merge", reason: "merges into the target branch under the operator's token; when the operator has enabled repository delivery, `guardrail delivery finish --pr <N> --head <sha>` is the sanctioned agent route"},
 
 	// Dispatching a workflow runs repository code with the repository's
 	// secrets; enabling or disabling one changes whether CI runs at all.
