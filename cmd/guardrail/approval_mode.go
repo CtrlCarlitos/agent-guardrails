@@ -12,6 +12,7 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
+	"golang.org/x/term"
 )
 
 // Prompt-mode operator approvals (ADR-0033, #413).
@@ -168,6 +169,14 @@ func promptApproval(summary string, terminal bool, stdout io.Writer) (string, ap
 		question = console
 	}
 	fmt.Fprintf(question, "Approve %s? [y/N] ", summary)
+	// A wrapper can give the child its own hidden console (CreateNoWindow,
+	// #538): the console copy above is then invisible while the piped stdout
+	// is the one channel the operator watches, so the question also lands
+	// there — as a complete line, which every line-buffered forwarder emits,
+	// and before the run waits on the answer.
+	if console != nil && !writerIsTerminal(stdout) {
+		fmt.Fprintf(stdout, "Approve %s? [y/N] (answer in the terminal running this command)\n", summary)
+	}
 	line, _ := bufio.NewReader(operatorInput).ReadString('\n')
 	if !strings.HasSuffix(line, "\n") {
 		fmt.Fprintln(question)
@@ -185,6 +194,14 @@ func promptApproval(summary string, terminal bool, stdout io.Writer) (string, ap
 		fmt.Fprintf(stdout, "asked at the terminal: %s: %s\n", summary, answer)
 	}
 	return transport, outcome
+}
+
+// writerIsTerminal reports whether w is the terminal itself. The question is
+// duplicated onto stdout only when stdout is a pipe a wrapper may forward; a
+// terminal stdout already shows the console copy. A variable so tests pin it.
+var writerIsTerminal = func(w io.Writer) bool {
+	f, ok := w.(interface{ Fd() uintptr })
+	return ok && term.IsTerminal(int(f.Fd()))
 }
 
 // consoleDevice is the console a terminal prompt writes its question to.
