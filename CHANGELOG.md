@@ -7,6 +7,15 @@ explicitly in **Breaking** notes.
 ## Unreleased
 
 ### Guidance
+- **Fix (#616): deny texts keep their essentials inside the model bound.** A
+  long reason used to push everything after it past the 512-rune cut, so the
+  agent lost exactly the rule ID and the what-to-report/next-step tail. The
+  model-facing deny now steps the report boilerplate down (full → short →
+  minimal) so the rule ID and the rule's own next step always survive, and
+  only then trims the reason. `tokenize-failed` asks name the parser's
+  finding (for example `1:6: reached EOF without closing quote`) instead of
+  a bare "could not parse shell command" — the missing half of #491, which
+  already names unresolved words on the P3 path.
 - **Fix (#616): the egress grant names its addressee.** The P6 egress deny
   told the agent to run `guardrail egress grant` "yourself"; on a host whose
   permission mode auto-approves asks, running it denies (ADR-0035), so the

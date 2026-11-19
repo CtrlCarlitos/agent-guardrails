@@ -2145,8 +2145,18 @@ func TestHookAntigravityFailureReasonIsSanitized(t *testing.T) {
 	if strings.ContainsAny(reason, "\n\r\t\x00\x7f") {
 		t.Fatalf("parse error reason retained controls: %q", reason)
 	}
-	if len([]rune(reason)) != 513 || !strings.HasSuffix(reason, "…") {
-		t.Fatalf("parse error reason was not truncated at 512 runes plus ellipsis: %q", reason)
+	// #616: an oversized reason is trimmed mid-text with an ellipsis and the
+	// rule ID plus the close ("do not work around it silently") still end the
+	// message, instead of the old positional cut that dropped everything
+	// past 512 runes.
+	if n := len([]rune(reason)); n > 513 {
+		t.Fatalf("parse error reason is %d runes, over the model budget: %q", n, reason)
+	}
+	if !strings.Contains(reason, "…") {
+		t.Fatalf("parse error reason was trimmed without an ellipsis: %q", reason)
+	}
+	if !strings.HasSuffix(reason, "Do not work around it silently.") {
+		t.Fatalf("parse error reason lost the closing guidance: %q", reason)
 	}
 }
 
