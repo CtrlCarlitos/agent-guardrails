@@ -7,6 +7,14 @@ explicitly in **Breaking** notes.
 ## Unreleased
 
 ### Guidance
+- **Fix (#631): the `gh pr merge` ask names the sanctioned route.** The ask
+  said only "merges into the target branch under the operator's token"; it
+  now also says that `guardrail delivery finish --pr <N> --head <sha>` is
+  the sanctioned agent route once the operator has enabled repository
+  delivery, so a green mergeable PR stops becoming a manual merge for lack
+  of a pointer (#616 §7). The runbook gains an "Approvals from a phone or
+  remote session" section: the `!` hand-off line does not execute from a
+  mobile session, and what works instead (#616 §6).
 - **Fix (#616): deny texts keep their essentials inside the model bound.** A
   long reason used to push everything after it past the 512-rune cut, so the
   agent lost exactly the rule ID and the what-to-report/next-step tail. The

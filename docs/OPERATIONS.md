@@ -264,6 +264,26 @@ directory; full bodies are absent from audit and broker state. Denies and
 fail-closed backstops such as `tokenize-failed` cannot be granted. A post-tool
 finding reports an action that already ran; it is not a pending approval.
 
+## Approvals from a phone or remote session
+
+The desktop hand-off line (`! <command>`) does not execute from a mobile or
+remote-control session: the line arrives as chat and nothing runs (#616). What
+works from the phone:
+
+- **Host permission prompts** appear in the mobile app and can be answered
+  there, like any other permission.
+- **Engine-gated asks** can be approved conversationally in chat: say what
+  you approve and the agent retries the exact call.
+- **Passkey approvals**: when an approval URL is printed, open it on the
+  phone; the ceremony needs the operator passkey on that device.
+- **Merges**: the GitHub mobile UI, or let the agent run
+  `guardrail delivery finish --pr <N> --head <sha>` once repository delivery
+  is enabled.
+
+Typing a command into chat yourself never runs it. ADR-0035 keeps the
+operator's own terminal as the honest channel for terminal-only ceremonies;
+if none of the paths above applies, wait for a desktop session.
+
 ## Passing credentials to commands
 
 Everything a command prints enters the session and is sent to the model
