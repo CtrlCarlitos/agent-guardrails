@@ -26,6 +26,14 @@ func TestMain(m *testing.M) {
 	// host. The console path has its own test (#419).
 	openPromptConsole = func() io.WriteCloser { return nil }
 
+	// The opencode major must never depend on the host's real opencode
+	// install (#617): a machine that already runs OpenCode 2 would flip
+	// every V1-era emission assertion to the V2 shape. Pin the probe to a
+	// V1 binary for the whole package; tests that mean OpenCode 2 override
+	// it with useOpencodeMajor, and opencode_major_test.go pins its own
+	// probe shapes explicitly.
+	opencodeMajorProbe = func() (string, error) { return "1.19.5\n", nil }
+
 	// Approval helpers intentionally share the parent's test-owned state root so
 	// separate processes can exercise one-shot approval consumption and locking.
 	if os.Getenv("GUARDRAIL_TEST_OPENCODE_APPROVAL_HELPER") == "1" {
