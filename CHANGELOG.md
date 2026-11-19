@@ -26,6 +26,17 @@ explicitly in **Breaking** notes.
   spellings (or a bare `guardrail delivery`, which only prints usage) as
   `P5.self-config`: help is read-only, only `enable`/`revoke` change
   posture, and any trailing word after help still denies.
+- **Fix (#616): `delivery enable` validates the repository contract before
+  authorizing.** Enable now refuses a repository whose merge settings
+  contradict the single authorized method — naming the repository's enabled
+  methods and the remedy (restrict it to the authorized method, or authorize
+  the one it allows) — and fails closed where the base branch's rulesets
+  cannot be read, surfacing the real status and message (the free plan's
+  `HTTP 403 Upgrade to GitHub Pro …` used to reach `finish` as a misleading
+  "check authentication" wrap): delivery proves required checks through
+  branch rulesets, and there `mergeable_state=clean` proves nothing.
+  `finish`'s method-mismatch rejections name both sides and say nothing was
+  changed, and API errors now carry gh's own message.
 
 ### Approvals
 - **Fix (#538): the `[y/N]` question also reaches a piped stdout.** A wrapper

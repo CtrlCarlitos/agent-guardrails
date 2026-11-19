@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -38,7 +39,17 @@ func CLIAPI(ctx context.Context, path string, body any, out any) error {
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("GitHub API %s failed (check authentication, connectivity and server requirements): %w", method, err)
+		detail := strings.TrimSpace(stderr.String())
+		if i := strings.IndexByte(detail, '\n'); i >= 0 {
+			detail = detail[:i]
+		}
+		if r := []rune(detail); len(r) > 200 {
+			detail = string(r[:200]) + "…"
+		}
+		if detail == "" {
+			return fmt.Errorf("GitHub API %s %s failed: %w", method, path, err)
+		}
+		return fmt.Errorf("GitHub API %s %s failed: %w: %s", method, path, err, detail)
 	}
 	if stdout.failed || stderr.failed {
 		return fmt.Errorf("GitHub API response exceeded verification budget")
