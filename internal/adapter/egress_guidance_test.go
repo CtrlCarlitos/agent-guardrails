@@ -55,7 +55,7 @@ func TestEgressGuidanceNamesTheOperatorOnAutoHosts(t *testing.T) {
 		if strings.Contains(got, "yourself") {
 			t.Errorf("%s guidance still addresses the agent as the grant's runner on every host:\n%s", v.RuleID, got)
 		}
-		if !strings.Contains(got, "hand the operator the line") {
+		if !strings.Contains(got, "the operator runs it") {
 			t.Errorf("%s guidance lacks the auto-host addressee:\n%s", v.RuleID, got)
 		}
 	}
