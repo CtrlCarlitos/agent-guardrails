@@ -4,6 +4,22 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Approvals
+- **Fix (#538): the `[y/N]` question also reaches a piped stdout.** A wrapper
+  that gives the child its own hidden console (`CreateNoWindow`, the Windows
+  dotfiles' installer launcher) leaves #419's console copy invisible while
+  stdout is the one channel the operator watches: `install.ps1` hung at
+  `Approve register guardrail on planes …` with the prompt on a console
+  nobody could see and the process waiting on an answer forever (reproduced
+  against main in that exact topology). When stdout is not the terminal,
+  the question is now also written there as a complete line — `Approve …?
+  [y/N] (answer in the terminal running this command)` — before the run
+  waits for the answer, so every line-buffered forwarder (Tee-Object,
+  chezmoi) carries it. A bare run in a console still prints the prompt
+  once.
+
 ## v0.23.44-dev (2026-11-16)
 
 ### CLI
