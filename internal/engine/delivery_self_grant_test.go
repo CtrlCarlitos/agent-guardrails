@@ -17,7 +17,16 @@ func TestDeliveryCannotAuthorizeItself(t *testing.T) {
 			t.Errorf("self-authorization %q: %+v", command, v)
 		}
 	}
-	for _, command := range []string{"guardrail delivery status", "guardrail delivery finish --pr 123 --head 1111111111111111111111111111111111111111"} {
+	for _, command := range []string{
+		"guardrail delivery status",
+		"guardrail delivery finish --pr 123 --head 1111111111111111111111111111111111111111",
+		// #616: help is read-only; only enable/revoke change posture. A
+		// session must be able to discover the operations and flags.
+		"guardrail delivery --help",
+		"guardrail delivery -h",
+		"guardrail delivery help",
+		"guardrail delivery",
+	} {
 		if v := evalBash(t, command); v != nil && v.RuleID == "P5.self-config" {
 			t.Errorf("executor/status blocked: %s %+v", command, v)
 		}
