@@ -134,3 +134,19 @@ func TestGuidanceDenyFallbackStillDirectsWork(t *testing.T) {
 		}
 	}
 }
+
+// #616: a long reason used to push everything after it past the 512-rune
+// model cut, so the agent lost exactly the parts that say what to report
+// (the rule ID) and what to do next. The reason is bounded, never the tail.
+func TestDenyTailSurvivesLongReasons(t *testing.T) {
+	v := policy.Verdict{Decision: policy.Deny, RuleID: "P1.rm-rf", Reason: strings.Repeat("r", 400)}
+	got := guidanceForModel(v, `bash {"command":"x"}`)
+	for _, want := range []string{"rule ID (P1.rm-rf)", "Do not work around it silently.", "…"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("long reason pushed %q past the bound:\n%s", want, got)
+		}
+	}
+	if n := len([]rune(got)); n > 512 {
+		t.Errorf("composed deny is %d runes, over the model budget", n)
+	}
+}

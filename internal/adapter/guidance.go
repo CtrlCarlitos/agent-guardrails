@@ -5,6 +5,7 @@ import (
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 )
 
 func Guidance(v policy.Verdict, action string) string {
@@ -163,5 +164,53 @@ func guidanceForModel(v policy.Verdict, action string) string {
 		v.Reason = sanitizeForModel(v.Reason)
 		return Guidance(v, action)
 	}
+	if v.Decision == policy.Deny {
+		return sanitizeForModel(modelDeny(v))
+	}
 	return sanitizeForModel(Guidance(v, action))
+}
+
+// modelDeny composes the deny for the model-facing budget with priority
+// truncation instead of a positional cut (#616, preserving #605): the rule
+// ID and the rule's own next step survive whole, the report boilerplate
+// steps down (full → short → minimal → rule-ID-in-head), and only a
+// genuinely oversized reason is trimmed. The old cut ate exactly the tail
+// that told the agent what to report and what to do next — and reasons that
+// carry a command (operator actions) put that command last, so any reason
+// cut could silently drop it.
+func modelDeny(v policy.Verdict) string {
+	const head = "Guardrail denied this action: "
+	idHead := "Guardrail denied this action [" + v.RuleID + "]: "
+	longTail := fmt.Sprintf(" If this verdict seems wrong or blocks legitimate work, report it to the operator with: the exact tool call, the rule ID (%s), your guardrail version, what you were trying to do, and what you did instead. Do not work around it silently.", v.RuleID)
+	shortTail := fmt.Sprintf(" If this verdict seems wrong or blocks legitimate work, report it to the operator with the rule ID (%s). Do not work around it silently.", v.RuleID)
+	minimalTail := fmt.Sprintf(" Report it with the rule ID (%s). Do not work around it silently.", v.RuleID)
+	reason := safetext.SingleLine(v.Reason)
+	next := safetext.SingleLine(denyNextStep(v))
+	runes := func(s string) int { return len([]rune(s)) }
+
+	for _, tail := range []string{longTail, shortTail, minimalTail} {
+		// Compose with the raw reason, then single-line, so the output is
+		// byte-identical to sanitizing the composed text (controls become
+		// spaces exactly where the old path put them).
+		if s := safetext.SingleLine(head + v.Reason + ". " + next + tail); runes(s) <= maxModelFacingRunes {
+			return s
+		}
+	}
+	// No tail fits: keep the whole reason and next step and carry the rule
+	// ID in the head instead of the tail.
+	if s := safetext.SingleLine(idHead + v.Reason + ". " + next); runes(s) <= maxModelFacingRunes {
+		return s
+	}
+	// An oversized reason keeps its head and its tail with the middle
+	// elided: operator-action reasons put the exact command at the end, so
+	// an end-cut would silently drop it. The rule ID and the next step
+	// still close the message.
+	budget := maxModelFacingRunes - runes(head) - 2 - runes(next) - runes(minimalTail) - 5
+	if budget >= 48 {
+		r := []rune(reason)
+		first := budget * 2 / 5
+		last := budget - first
+		return head + string(r[:first]) + " […] " + string(r[len(r)-last:]) + ". " + next + minimalTail
+	}
+	return sanitizeForModel(head + reason + ". " + next + minimalTail)
 }
