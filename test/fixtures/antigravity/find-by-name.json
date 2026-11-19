@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"find_by_name","args":{"query":"config","search_directories":["/tmp"]}}}
