@@ -94,5 +94,71 @@
   },
   "mcp-graft-read.json": {
     "exit": 0
+  },
+  "close-agent.json": {
+    "exit": 0
+  },
+  "collab-followup-task.json": {
+    "exit": 2
+  },
+  "collab-interrupt-agent.json": {
+    "exit": 0
+  },
+  "collab-list-agents.json": {
+    "exit": 0
+  },
+  "collab-send-message.json": {
+    "exit": 2
+  },
+  "collab-spawn-agent.json": {
+    "exit": 2
+  },
+  "collab-wait-agent.json": {
+    "exit": 0
+  },
+  "create-goal.json": {
+    "exit": 0
+  },
+  "followup-task.json": {
+    "exit": 2
+  },
+  "get-goal.json": {
+    "exit": 0
+  },
+  "interrupt-agent.json": {
+    "exit": 0
+  },
+  "list-agents.json": {
+    "exit": 0
+  },
+  "list-mcp-resource-templates.json": {
+    "exit": 2
+  },
+  "list-mcp-resources.json": {
+    "exit": 2
+  },
+  "read-mcp-resource.json": {
+    "exit": 2
+  },
+  "request-user-input-async.json": {
+    "exit": 0
+  },
+  "request-user-input.json": {
+    "exit": 0
+  },
+  "resume-agent.json": {
+    "exit": 2
+  },
+  "send-input.json": {
+    "exit": 2
+  },
+  "send-message.json": {
+    "exit": 2
+  },
+  "update-goal.json": {
+    "exit": 0
+  },
+  "wait-agent.json": {
+    "exit": 0
   }
 }

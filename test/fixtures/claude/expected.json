@@ -248,5 +248,155 @@
     "exit": 0,
     "verdict": "allow",
     "reason": "inert redirect body (#112): data copier into an allowed path; the body is not scanned"
+  },
+  "askuserquestion.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "cron-delete.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "cron-list.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "end-conversation.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "enter-plan-mode.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "exit-plan-mode.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "exit-worktree.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "glob.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "grep.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "javascript.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "capability-deny"
+  },
+  "list-agents.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "list-mcp-resources.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "capability-external"
+  },
+  "lsp.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "read-mcp-resource.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "capability-external"
+  },
+  "remote-trigger.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "capability-deny"
+  },
+  "repl.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "capability-deny"
+  },
+  "report-findings.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "schedule-wakeup.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "send-feedback.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "capability-deny"
+  },
+  "send-user-file.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "capability-deny"
+  },
+  "send-user-message.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "share-onboarding-guide.json": {
+    "decision": "deny",
+    "exit": 2,
+    "rule": "capability-deny"
+  },
+  "skill.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "subagent-handback.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "task-create.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "task-get.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "task-list.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "task-output.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "task-stop.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "task-update.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "todowrite.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "toolsearch.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "wait-for-mcp-servers.json": {
+    "decision": "allow",
+    "exit": 0
+  },
+  "websearch.json": {
+    "decision": "ask",
+    "exit": 0,
+    "rule": "capability-web-search"
+  },
+  "workflow.json": {
+    "decision": "allow",
+    "exit": 0,
+    "rule": "delegation-inherited"
   }
 }

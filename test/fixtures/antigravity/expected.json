@@ -130,6 +130,27 @@
   },
   "serena-mcp-secret.json": {
     "decision": "deny"
+  },
+  "ask-permission.json": {
+    "decision": "allow"
+  },
+  "ask-question.json": {
+    "decision": "allow"
+  },
+  "define-subagent.json": {
+    "decision": "deny"
+  },
+  "find-by-name.json": {
+    "decision": "allow"
+  },
+  "generate-image.json": {
+    "decision": "deny"
+  },
+  "grep-search.json": {
+    "decision": "allow"
+  },
+  "list-permissions.json": {
+    "decision": "allow"
   }
 }
 
