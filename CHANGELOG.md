@@ -7,6 +7,17 @@ explicitly in **Breaking** notes.
 ## Unreleased
 
 ### Engine
+- **Feature (#630, ADR-0039): a session may remove the worktree it
+  created.** `git worktree remove [--force] <path>` stops asking when the
+  audit log holds a same-session, allowed-or-asked `git worktree add` for
+  the exact same path (canonicalized; case-insensitive on Windows), within
+  24 hours. The allow's reason names the creating command and timestamp, so
+  `guardrail explain` shows the evidence. Everything else keeps today's
+  ask: another session's worktree, a different path, a denied creation,
+  expired evidence, unreadable audit — and the allowance is
+  location-agnostic, applying identically to worktrees inside the repo and
+  outside the root. v1 is worktrees only; compose projects, branches,
+  `rmdir` and force-push stay gated pending trustworthy creation records.
 - **Fix (#629): a literal inline interpreter program is not downloaded code.**
   `curl … | python3 -c 'import sys,json; …'` — the ordinary way to pick fields
   out of a downloaded JSON body — was denied as `P6.download-pipe-shell`.

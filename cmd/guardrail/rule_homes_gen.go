@@ -52,7 +52,7 @@ var ruleSourceFiles = map[string][]string{
 	"P2.git-rm":                        {"internal/engine/rules_git.go"},
 	"P2.git-stash-clear":               {"internal/engine/rules_git.go"},
 	"P2.git-unknown-global":            {"internal/engine/rules_git.go"},
-	"P2.git-worktree-remove":           {"internal/engine/rules_git.go"},
+	"P2.git-worktree-remove":           {"cmd/guardrail/provenance.go", "internal/engine/rules_git.go"},
 	"P3.unresolved":                    {"internal/engine/rules_bash.go"},
 	"P4.credential-print":              {"internal/engine/rules_credential_print.go"},
 	"P4.path-parse-uncertain":          {"internal/engine/rules_path.go"},
