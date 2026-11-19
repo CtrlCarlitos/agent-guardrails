@@ -95,6 +95,21 @@ func analyzeBash(tc ToolCall) *bashAnalysis {
 	return analysis
 }
 
+// parseErrorDetail names the parser's finding (#616): an agent told only
+// "could not parse" cannot tell what to change. The parser's message carries
+// the position and the offending construct; keep it to one line inside the
+// model-facing budget.
+func parseErrorDetail(err error) string {
+	detail := strings.TrimSpace(err.Error())
+	if i := strings.IndexByte(detail, '\n'); i >= 0 {
+		detail = detail[:i]
+	}
+	if r := []rune(detail); len(r) > 120 {
+		detail = string(r[:120]) + "…"
+	}
+	return detail
+}
+
 func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 	if !tc.IsBash() {
 		return nil
@@ -105,7 +120,7 @@ func checkBash(tc ToolCall, pol *policy.Policy) *policy.Verdict {
 func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) *policy.Verdict {
 	if analysis.err != nil {
 		return &policy.Verdict{Decision: policy.Ask, RuleID: "tokenize-failed",
-			Reason: "could not parse shell command; failing closed to ask"}
+			Reason: "could not parse shell command (" + parseErrorDetail(analysis.err) + "); failing closed to ask"}
 	}
 	var worst *policy.Verdict
 	initializedGitDir := ""
