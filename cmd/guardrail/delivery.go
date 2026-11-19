@@ -20,13 +20,37 @@ import (
 
 var deliveryAPI delivery.API = delivery.CLIAPI
 
+// deliveryEnableShape is the exact command an operator runs once per
+// repository; every discovery surface (#616) names it verbatim.
+const deliveryEnableShape = "guardrail delivery enable --github OWNER/REPO --base <branch> --method <squash|merge|rebase>"
+
+func deliveryUsage(w io.Writer) {
+	fmt.Fprint(w, "usage: guardrail delivery <operation>\n"+
+		"\n"+
+		"  status    print whether delivery is enabled for this repository\n"+
+		"  enable    authorize bounded delivery once (the operator's terminal only):\n"+
+		"            "+deliveryEnableShape+" [--protect <glob> ...]\n"+
+		"  revoke    remove the standing delivery authorization (the operator's terminal only):\n"+
+		"            guardrail delivery revoke\n"+
+		"  finish    merge an exact green PR head and clean proven task resources:\n"+
+		"            guardrail delivery finish --pr N --head SHA [--worktree ABSOLUTE_PATH]\n")
+}
+
 func cmdDelivery(args []string, terminal bool, input io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "guardrail: delivery status|enable|revoke|finish")
+		deliveryUsage(stderr)
 		return 2
 	}
+	if args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
+		deliveryUsage(stdout)
+		return 0
+	}
 	if (args[0] == "enable" || args[0] == "revoke") && !terminal {
-		fmt.Fprintln(stderr, "guardrail: delivery authorization requires the operator's interactive terminal")
+		shape := "guardrail delivery revoke"
+		if args[0] == "enable" {
+			shape = deliveryEnableShape
+		}
+		fmt.Fprintf(stderr, "guardrail: delivery authorization requires the operator's interactive terminal\nrun this in a separate terminal: %s\n", shape)
 		return 2
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -53,7 +77,7 @@ func cmdDelivery(args []string, terminal bool, input io.Reader, stdout, stderr i
 			return 2
 		}
 		if !enabled {
-			fmt.Fprintf(stdout, "delivery disabled for %s\n", root)
+			fmt.Fprintf(stdout, "delivery disabled for %s\nenable once from the operator's terminal: %s\n", root, deliveryEnableShape)
 			return 0
 		}
 		fmt.Fprintf(stdout, "delivery enabled for %s: %s base=%s method=%s; until revoked\n", root, p.GitHub, p.Base, p.Method)
@@ -103,7 +127,8 @@ func cmdDelivery(args []string, terminal bool, input io.Reader, stdout, stderr i
 		fmt.Fprintln(stdout, "delivery complete: confirmed merge and task cleanup")
 		return 0
 	default:
-		fmt.Fprintln(stderr, "guardrail: unknown delivery operation")
+		fmt.Fprintf(stderr, "guardrail: unknown delivery operation %q\n", args[0])
+		deliveryUsage(stderr)
 		return 2
 	}
 }

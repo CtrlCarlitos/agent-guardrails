@@ -40,3 +40,23 @@ func TestEgressDenyGuidanceLeadsToGuardrailFetchAndTheGrant(t *testing.T) {
 		t.Errorf("P6.egress guidance must say a grant does not unblock curl:\n%s", egress)
 	}
 }
+
+// #616 §2: "run the grant yourself" is wrong on a host that auto-approves
+// asks — running it denies there. The continuation names the operator as the
+// addressee on those hosts and keeps the run-it path for the rest.
+func TestEgressGuidanceNamesTheOperatorOnAutoHosts(t *testing.T) {
+	for _, v := range []policy.Verdict{
+		{Decision: policy.Deny, RuleID: "P6.egress",
+			Reason: "network access to a non-allowlisted host: a.rs; this host auto-approves asks, so hand the operator the line: `" + policy.WebHostGrantCommand("a.rs") + "`"},
+		{Decision: policy.Deny, RuleID: "web-fetch-native-deny",
+			Reason: "native web fetch cannot verify redirect destinations; use guardrail fetch"},
+	} {
+		got := guidanceForModel(v, `WebFetch {"url":"https://a.rs/presets/"}`)
+		if strings.Contains(got, "yourself") {
+			t.Errorf("%s guidance still addresses the agent as the grant's runner on every host:\n%s", v.RuleID, got)
+		}
+		if !strings.Contains(got, "the operator runs it") {
+			t.Errorf("%s guidance lacks the auto-host addressee:\n%s", v.RuleID, got)
+		}
+	}
+}

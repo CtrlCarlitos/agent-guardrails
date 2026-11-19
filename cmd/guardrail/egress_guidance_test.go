@@ -30,7 +30,7 @@ func TestSessionStartPostureNamesTheWebAccessPath(t *testing.T) {
 		t.Fatalf("decode %q: %v", out.String(), err)
 	}
 	posture := got.HookSpecificOutput.AdditionalContext
-	for _, want := range []string{"guardrail fetch <url>", "guardrail egress grant --scope repo --host", "passkey", "instead of assuming it will be denied", "guardrail explain"} {
+	for _, want := range []string{"guardrail fetch <url>", "guardrail egress grant --scope repo --host", "passkey", "hand the operator the line", "instead of assuming it will be denied", "guardrail explain"} {
 		if !strings.Contains(posture, want) {
 			t.Errorf("SessionStart posture missing %q:\n%s", want, posture)
 		}

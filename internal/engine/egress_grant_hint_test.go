@@ -21,6 +21,50 @@ func TestWebHostGrantCommandIsCanonical(t *testing.T) {
 	}
 }
 
+// #616 §2: on a host whose permission mode answers asks itself, running the
+// recommended grant denies (#559/ADR-0035), so the P6 deny must not point the
+// agent at running it — the operator is the addressee there. The default
+// posture keeps #125's run-it grant unchanged.
+func TestHostAutoEgressDenyHandsTheGrantToTheOperator(t *testing.T) {
+	pol := netPol("api.github.com")
+	base := ToolCall{Tool: "Bash", Command: "curl https://a.rs/presets/", CWD: "/repo", RepoRoot: "/repo"}
+	grant := policy.WebHostGrantCommand("a.rs")
+
+	claude := base
+	claude.Plane, claude.HostAutoApproves = "claude", true
+	v := Evaluate(claude, pol)
+	if v.RuleID != "P6.egress" || v.Decision != policy.Deny {
+		t.Fatalf("auto claude: %+v", v)
+	}
+	if strings.Contains(v.Reason, "; grant: ") {
+		t.Errorf("auto reason still tells the agent to run the grant: %q", v.Reason)
+	}
+	for _, want := range []string{"operator", "`! " + grant + "`"} {
+		if !strings.Contains(v.Reason, want) {
+			t.Errorf("auto claude reason lacks %q: %q", want, v.Reason)
+		}
+	}
+
+	opencode := base
+	opencode.Plane, opencode.HostAutoApproves = "opencode", true
+	v = Evaluate(opencode, pol)
+	if strings.Contains(v.Reason, "; grant: ") || strings.Contains(v.Reason, "`! ") {
+		t.Errorf("auto opencode reason must not offer the `!` form or the run-it grant: %q", v.Reason)
+	}
+	for _, want := range []string{"operator", "terminal", grant} {
+		if !strings.Contains(v.Reason, want) {
+			t.Errorf("auto opencode reason lacks %q: %q", want, v.Reason)
+		}
+	}
+
+	plain := base
+	plain.Plane = "claude"
+	v = Evaluate(plain, pol)
+	if !strings.Contains(v.Reason, "; grant: "+grant) {
+		t.Errorf("default posture must keep #125's run-it grant: %q", v.Reason)
+	}
+}
+
 func TestWebEgressDenyReasonNamesTheExactGrant(t *testing.T) {
 	pol := netPol("api.github.com")
 	for _, command := range []string{

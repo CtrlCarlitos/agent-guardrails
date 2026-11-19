@@ -24,6 +24,52 @@ func TestDeliveryStatusUnconfiguredDoesNotAuthorize(t *testing.T) {
 	}
 }
 
+// #616: delivery was undiscoverable. `--help` printed nothing useful (and was
+// P5-denied for agents), a disabled `status` did not say how to enable, and the
+// no-terminal refusal did not name the command to run.
+func TestDeliveryHelpAndDisabledStatusNameTheEnableCommand(t *testing.T) {
+	testenv.SetConfig(t, t.TempDir())
+
+	var out, stderr bytes.Buffer
+	code := run([]string{"delivery", "--help"}, strings.NewReader(""), &out, &stderr)
+	if code != 0 {
+		t.Fatalf("help: exit=%d out=%q err=%q", code, out.String(), stderr.String())
+	}
+	for _, want := range []string{"status", "enable", "revoke", "finish", "--github", "--base", "--method"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("help output lacks %q:\n%s", want, out.String())
+		}
+	}
+
+	out.Reset()
+	stderr.Reset()
+	code = run([]string{"delivery"}, strings.NewReader(""), &out, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "--github") {
+		t.Fatalf("no args: exit=%d err=%q; want usage with the enable flags", code, stderr.String())
+	}
+
+	out.Reset()
+	stderr.Reset()
+	code = run([]string{"delivery", "frobnicate"}, strings.NewReader(""), &out, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "unknown delivery operation") || !strings.Contains(stderr.String(), "--github") {
+		t.Fatalf("unknown op: exit=%d err=%q; want the unknown op named plus usage", code, stderr.String())
+	}
+
+	out.Reset()
+	stderr.Reset()
+	code = run([]string{"delivery", "status"}, strings.NewReader(""), &out, &stderr)
+	if code != 0 || !strings.Contains(out.String(), "delivery disabled") || !strings.Contains(out.String(), "guardrail delivery enable --github") {
+		t.Fatalf("disabled status: exit=%d out=%q; want the exact enable command", code, out.String())
+	}
+
+	out.Reset()
+	stderr.Reset()
+	code = run([]string{"delivery", "enable", "--github", "owner/repo"}, strings.NewReader(""), &out, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "separate terminal") || !strings.Contains(stderr.String(), "guardrail delivery enable --github") {
+		t.Fatalf("enable without terminal: exit=%d err=%q; want the command to run named", code, stderr.String())
+	}
+}
+
 func TestDeliveryFinishWithoutAuthorizationFailsClosed(t *testing.T) {
 	testenv.SetConfig(t, t.TempDir())
 	var out, stderr bytes.Buffer
