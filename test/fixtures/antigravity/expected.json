@@ -141,13 +141,13 @@
     "decision": "deny"
   },
   "find-by-name.json": {
-    "decision": "deny"
+    "decision": "allow"
   },
   "generate-image.json": {
     "decision": "deny"
   },
   "grep-search.json": {
-    "decision": "deny"
+    "decision": "allow"
   },
   "list-permissions.json": {
     "decision": "allow"

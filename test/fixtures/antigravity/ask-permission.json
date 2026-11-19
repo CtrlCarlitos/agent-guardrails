@@ -1,1 +1,1 @@
-{"conversationId":"c1","toolCall":{"name":"ask_permission","args":{"permission":"read /tmp"}}}
+{"conversationId":"c1","toolCall":{"name":"ask_permission","args":{"Permission":"read /tmp/report.txt"}}}
