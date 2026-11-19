@@ -1998,7 +1998,18 @@ func withinSafe(target, repoRoot string, safeRoots []string) bool {
 
 // The executor independently checks standing operator authorization. Enabling
 // or changing it is always an operator action; status has no trailing argv.
+// Help spellings — and a bare `guardrail delivery`, which only prints usage —
+// are read-only discovery (#616); any trailing word after them still denies.
 func harmlessDeliveryInvocation(argv []string) bool {
-	return len(argv) >= 3 && strings.EqualFold(argv[1], "delivery") &&
-		((len(argv) == 3 && strings.EqualFold(argv[2], "status")) || argv[2] == "finish")
+	if len(argv) < 2 || !strings.EqualFold(argv[1], "delivery") {
+		return false
+	}
+	if len(argv) == 2 {
+		return true
+	}
+	if len(argv) == 3 && (strings.EqualFold(argv[2], "status") ||
+		strings.EqualFold(argv[2], "--help") || strings.EqualFold(argv[2], "-h") || strings.EqualFold(argv[2], "help")) {
+		return true
+	}
+	return argv[2] == "finish"
 }
