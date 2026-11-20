@@ -33,6 +33,9 @@ jobs:
       - name: Codex probe unit tests
         timeout-minutes: 14
         run: python -B -m unittest discover -s test/smoke -p 'test_codex_*.py'
+      - name: Platform acceptance harness unit tests
+        timeout-minutes: 14
+        run: python -B -m unittest discover -s test/acceptance -p 'test_*.py'
       # The unfiltered Windows suite remains visible in windows-portability.
       # Packages whose host coordinates and platform-only semantics have been
       # bounded are promoted to mandatory steps below.
