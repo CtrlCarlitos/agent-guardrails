@@ -17,6 +17,20 @@ explicitly in **Breaking** notes.
   opaque Python meta-dispatch) and `swarm` (ADR-0013 unproven child mediation
   and workspace deletion) as fail-closed `CapabilityDeny`.
 
+### Tooling & Docs
+- **Feature (#84): multi-agent worktree cleanup tooling, partial-removal guard,
+  and teardown protocol.** Adds `scripts/worktree-clean.sh` (wired to
+  `make worktree-clean`) and `scripts/worktree-clean.ps1` to prune merged or
+  detached linked worktrees (preserving unmerged branches), retry once on
+  transient removal failures, detect `.git`-less partial-removal remnants under
+  `.worktrees/` and `.claude/worktrees/` with exact operator cleanup commands,
+  and remove orphans on explicit `--prune-orphans`/`-PruneOrphans`. Updates
+  `testenv.IsNestedCheckout` to skip directories under `.worktrees/` and
+  `.claude/worktrees/` even after a partial Windows removal deletes `.git`,
+  adds `/.claude/worktrees/` beside `/.worktrees/` in `.gitignore`, and
+  documents the multi-agent worktree lifecycle and Windows recovery protocol in
+  `docs/OPERATIONS.md`.
+
 ### Engine
 - **Refactor (#109): centralize path identity in `pathutil.Canonical`.**
   Introduces `pathutil.Canonical` (absolute path preserving `symlink/..`

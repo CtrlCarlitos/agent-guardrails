@@ -762,3 +762,49 @@ runtime, tool/envelope shape, transport, sample count and external wall clock.
 Use matched benign calls on an idle machine, reject invalid tool envelopes, and
 report which phases remain unmeasured. Opt-in trace writes add overhead; measure
 their control cost instead of assigning an unexplained residual to policy.
+
+## Multi-agent worktree lifecycle and teardown
+
+Concurrent agent sessions share one clone through linked git worktrees under
+`.worktrees/<name>` (both `/.worktrees/` and `/.claude/worktrees/` are ignored
+in `.gitignore`). Follow this lifecycle so stale checkouts do not accumulate or
+corrupt repo-walking checks (#84):
+
+1. **Create off `origin/main` only.** Check `git status` and
+   `git log --oneline -1` first; never stack a new worktree on another PR's
+   branch:
+   ```
+   git fetch origin
+   git worktree add .worktrees/<name> -b <branch> origin/main
+   ```
+2. **Synchronize without force-pushing.** When `main` moves ahead of an active
+   worktree branch, merge `origin/main` into the worktree branch (`git merge
+   origin/main`) and push normally. `git push --force` is P1-denied.
+3. **Retire on merge.**
+   - **Same session (ADR-0039):** a session may run
+     `git worktree remove [--force] <path>` on the exact worktree it created
+     within 24 hours without an operator ask.
+   - **Operator bulk cleanup:** run `make worktree-clean` (POSIX,
+     `scripts/worktree-clean.sh`) or
+     `pwsh -NoProfile -File scripts/worktree-clean.ps1` (Windows). Use
+     `--dry-run` / `-DryRun` to preview, `--force` / `-Force` for dirty
+     merged/detached worktrees, and `--base <ref>` / `-Base <ref>` to override
+     the default `origin/main` (or `main`) merge check. Unmerged branches are
+     always kept.
+   - **Squash-merged branches:** `git branch -D` stays gated for agents; batch
+     merged branch deletions for the operator terminal.
+4. **Windows partial-removal recovery.** On Windows, a file handle briefly held
+   by an exiting process can cause `git worktree remove` to unregister the
+   worktree and delete its `.git` file while leaving tracked/untracked files
+   behind (`Permission denied`). When that happens:
+   - Both `scripts/worktree-clean.ps1` and `scripts/worktree-clean.sh` wait
+     briefly and **retry removal once**, then detect any remaining directory
+     and print the exact operator command (`Remove-Item -Recurse -Force '<path>'`
+     on Windows, `rm -rf '<path>'` on POSIX) while exiting 1.
+   - Re-running the cleanup script with `-PruneOrphans` / `--prune-orphans` from
+     an operator terminal deletes `.git`-less remnants under `.worktrees/` and
+     `.claude/worktrees/`.
+   - While a partial remnant sits on disk awaiting operator cleanup,
+     `testenv.IsNestedCheckout` treats every directory under `.worktrees/` and
+     `.claude/worktrees/` as a nested checkout even without `.git`, so
+     repo-walking guards stay green.

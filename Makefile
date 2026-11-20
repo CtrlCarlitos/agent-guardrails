@@ -2,7 +2,7 @@ GO ?= /usr/local/go/bin/go
 VERSION ?= dev
 CGO_ENABLED ?= 0
 
-.PHONY: build test fmt contract golden vet adversarial check dist smoke installer-test installer-test-windows acceptance-test acceptance-linux-antigravity
+.PHONY: build test fmt contract golden vet adversarial check dist smoke installer-test installer-test-windows acceptance-test acceptance-linux-antigravity worktree-clean
 
 build:
 	$(GO) build -ldflags "-X main.version=$(VERSION)" -o guardrail ./cmd/guardrail
@@ -51,6 +51,9 @@ installer-test-windows:
 
 smoke:
 	./test/smoke/claude_smoke.sh
+
+worktree-clean:
+	./scripts/worktree-clean.sh
 
 acceptance-test:
 	python3 -B -m unittest discover -s test/acceptance -p 'test_*.py' -v
