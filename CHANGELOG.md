@@ -6,6 +6,17 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### CI
+- **Hardening (#621): every test step carries a 14-minute timeout.** The
+  macOS `test` job has twice hung to an external cancellation at exactly
+  15m01s with logs unretrievable (#621's two sightings). A step-level
+  timeout fires first: the step *fails* with an annotation and its logs
+  survive, turning the next sighting into a diagnosable failure instead of
+  a silent cancel. The `test` job also gains a 20-minute job-level net, and
+  `windows-portability`'s full-suite step the same 14-minute bound. No
+  step names, packages, or filters changed (the visibility contract tests
+  stay green).
+
 ### Engine
 - **Feature (#630, ADR-0039): a session may remove the worktree it
   created.** `git worktree remove [--force] <path>` stops asking when the
