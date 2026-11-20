@@ -1,6 +1,6 @@
 # Agent instructions — agent-guardrails
 
-Read first, in order: `docs/HANDOFF-2026-09-24.md` (current state, the
+Read first, in order: `docs/HANDOFF-2026-11-19.md` (current state, the
 issue plan, and every mechanic that cost a previous session time),
 `CONTEXT.md` (vocabulary), the top of `CHANGELOG.md`. Runbook:
 `docs/OPERATIONS.md`. Decisions: `docs/adr/`.
@@ -24,8 +24,7 @@ release's tag so the dotfiles can pin it.
 
 ## Working here
 
-- Go `1.26`; `gofmt` clean, `go vet ./...` clean, `go test ./...` green on
-  Windows **and** on Linux (WSL recipe in the handoff) before every push.
+- Go `1.26`; `gofmt` clean, `go vet ./...` clean, `go test ./...` green on Windows before every push; the Linux gate is CI or the handoff's machine recipe, whichever that host documents.
 - Conventional commits, one PR per issue, TDD (failing test first), PR body
   carries root cause and verification per OS. No attribution trailers.
 - A Windows-only test must be named `TestWindows…` or CI never runs it.
