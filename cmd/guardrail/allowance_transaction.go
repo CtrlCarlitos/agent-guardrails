@@ -88,9 +88,10 @@ func applyRepoWebHost(repo, host string, grant bool) error {
 	if op.Repos == nil {
 		op.Repos = map[string]policy.RepoGrant{}
 	}
-	repoGrant := op.Repos[repo]
+	key := op.GrantKey(repo)
+	repoGrant := op.Repos[key]
 	repoGrant.WebHosts = updateHost(repoGrant.WebHosts, host, grant)
-	op.Repos[repo] = repoGrant
+	op.Repos[key] = repoGrant
 	operator, err := operatorConfigContent(op)
 	if err != nil {
 		return err

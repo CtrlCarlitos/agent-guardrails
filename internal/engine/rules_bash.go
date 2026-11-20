@@ -11,6 +11,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/pathutil"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"mvdan.cc/sh/v3/syntax"
 )
@@ -627,19 +628,11 @@ func literalPathConfinedTo(target, root, cwd string) bool {
 }
 
 func pathWithinOrEqual(target, root string) bool {
-	target, root = filepath.Clean(target), filepath.Clean(root)
-	if runtime.GOOS == "windows" {
-		target, root = strings.ToLower(target), strings.ToLower(root)
-	}
-	return target == root || withinSafe(target, root, nil)
+	return pathutil.CanonicalWithin(pathutil.NormalizeLexical(target), pathutil.NormalizeLexical(root))
 }
 
 func samePlatformPath(left, right string) bool {
-	left, right = filepath.Clean(left), filepath.Clean(right)
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(left, right)
-	}
-	return left == right
+	return pathutil.NormalizeLexical(left) == pathutil.NormalizeLexical(right)
 }
 
 type pathRelation struct {
@@ -725,24 +718,32 @@ func pathHasSymlinkBelowTempRoot(candidate, cwd string) bool {
 		return true
 	}
 	cleaned := filepath.Clean(absolute)
+	normCleaned := pathutil.NormalizeLexical(cleaned)
 	volume := filepath.VolumeName(cleaned)
-	remaining := cleaned
 	start := volume + string(filepath.Separator)
+	normStart := pathutil.NormalizeLexical(start)
 	for _, root := range systemTempRoots() {
 		for _, spelling := range []string{root, canonicalExistingPath(root)} {
 			spelling = filepath.Clean(spelling)
-			if spelling != volume+string(filepath.Separator) && (strings.HasPrefix(cleaned, spelling+string(filepath.Separator))) && len(spelling) > len(start) {
+			normSpelling := pathutil.NormalizeLexical(spelling)
+			if spelling != volume+string(filepath.Separator) &&
+				normCleaned != normSpelling &&
+				pathutil.CanonicalWithin(normCleaned, normSpelling) &&
+				len(normSpelling) > len(normStart) {
 				start = spelling
+				normStart = normSpelling
 			}
 		}
 	}
-	if remaining == start {
+	if normCleaned == normStart {
 		return false
 	}
-	if strings.HasPrefix(remaining, start) {
-		remaining = remaining[len(start):]
+	startParts := strings.FieldsFunc(start[len(filepath.VolumeName(start)):], pathSeparator)
+	cleanedParts := strings.FieldsFunc(cleaned[len(volume):], pathSeparator)
+	if len(cleanedParts) < len(startParts) {
+		return false
 	}
-	for _, component := range strings.FieldsFunc(remaining, pathSeparator) {
+	for _, component := range cleanedParts[len(startParts):] {
 		current := filepath.Join(start, component)
 		if info, err := os.Lstat(current); err == nil && info.Mode()&fs.ModeSymlink != 0 {
 			return true
@@ -1994,8 +1995,8 @@ func withinSafe(target, repoRoot string, safeRoots []string) bool {
 	if target == "~" || strings.HasPrefix(target, "~/") {
 		return false
 	}
-	target = filepath.Clean(target)
-	if target == "/" {
+	normTarget := pathutil.NormalizeLexical(target)
+	if normTarget == "/" {
 		return false
 	}
 	roots := append([]string{repoRoot}, safeRoots...)
@@ -2003,8 +2004,7 @@ func withinSafe(target, repoRoot string, safeRoots []string) bool {
 		if r == "" {
 			continue
 		}
-		rr := filepath.Clean(r)
-		if target == rr || strings.HasPrefix(target, rr+string(filepath.Separator)) {
+		if pathutil.CanonicalWithin(normTarget, pathutil.NormalizeLexical(r)) {
 			return true
 		}
 	}

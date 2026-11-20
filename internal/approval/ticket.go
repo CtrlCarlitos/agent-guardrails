@@ -9,9 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/pathutil"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/privatefs"
 	"github.com/gofrs/flock"
 )
@@ -71,21 +71,18 @@ func TicketDir() (string, error) {
 	return filepath.Join(base, "guardrail", "approval-tickets"), nil
 }
 
-// CanonicalTicketDir is the spelling a ticket binds: absolute, cleaned,
-// symlinks resolved when possible, and case-folded on Windows where the
-// filesystem is case-insensitive and hosts disagree on drive-letter case.
+// CanonicalTicketDir is the spelling a ticket binds: canonical path identity
+// via pathutil.Canonical (absolute, symlinks and Windows 8.3 names resolved
+// through existing ancestors, cleaned, slash-normalized, and case-folded on
+// Windows/macOS).
 func CanonicalTicketDir(dir string) string {
+	if canonical, err := pathutil.Canonical(dir); err == nil {
+		return canonical
+	}
 	if abs, err := filepath.Abs(dir); err == nil {
 		dir = abs
 	}
-	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
-		dir = resolved
-	}
-	dir = filepath.Clean(dir)
-	if runtime.GOOS == "windows" {
-		dir = strings.ToLower(dir)
-	}
-	return dir
+	return pathutil.NormalizeLexical(dir)
 }
 
 func sessionDigest(sessionID string) string {

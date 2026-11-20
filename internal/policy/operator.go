@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/BurntSushi/toml"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/pathutil"
 )
 
 // neverWaivable are the fail-closed backstops. Waiving one converts the
@@ -183,10 +184,11 @@ func LoadOperatorConfig() (*OperatorConfig, error) {
 			}
 		}
 		cleaned := filepath.Clean(repo)
-		if previous, ok := rawPaths[cleaned]; ok {
+		key := canonicalOperatorKey(cleaned)
+		if previous, ok := rawPaths[key]; ok {
 			return emptyOperatorConfig(), fmt.Errorf("operator config repository paths %q and %q have the same cleaned path", previous, repo)
 		}
-		rawPaths[cleaned] = repo
+		rawPaths[key] = repo
 		normalized[cleaned] = grant
 	}
 	return &OperatorConfig{GlobalWebHosts: global.WebHosts.Global, WebResearchEnforcement: global.WebResearch.Enforcement, Approval: approval, Repos: normalized}, nil
@@ -200,24 +202,20 @@ func (o *OperatorConfig) grant(repoRoot string) (RepoGrant, bool) {
 	if grant, ok := o.Repos[cleaned]; ok {
 		return grant, true
 	}
-	// Darwin temp-symlink divergence: git reports the physical repo root
-	// (/private/var/...) while grants may be keyed — or queried — by the
-	// symlinked spelling (/var/folders/...). Resolve both sides before
-	// declaring no grant.
-	want := resolvePathForCompare(cleaned)
+	want := canonicalOperatorKey(cleaned)
 	for root, grant := range o.Repos {
-		if resolvePathForCompare(filepath.Clean(root)) == want {
+		if canonicalOperatorKey(root) == want {
 			return grant, true
 		}
 	}
 	return RepoGrant{}, false
 }
 
-func resolvePathForCompare(path string) string {
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		return resolved
+func canonicalOperatorKey(path string) string {
+	if canonical, err := pathutil.Canonical(path); err == nil {
+		return canonical
 	}
-	return path
+	return pathutil.NormalizeLexical(path)
 }
 
 func (o *OperatorConfig) AllowsWaiver(repoRoot, ruleID string) bool {
