@@ -1,6 +1,6 @@
 # Agent instructions — agent-guardrails
 
-Read first, in order: `docs/HANDOFF-2026-09-24.md` (current state, the
+Read first, in order: `docs/HANDOFF-2026-11-19.md` (current state, the
 issue plan, and every mechanic that cost a previous session time),
 `CONTEXT.md` (vocabulary), the top of `CHANGELOG.md`. Runbook:
 `docs/OPERATIONS.md`. Decisions: `docs/adr/`.
