@@ -16,6 +16,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -30,6 +31,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Codex probe unit tests
+        timeout-minutes: 14
         run: python -B -m unittest discover -s test/smoke -p 'test_codex_*.py'
       # The unfiltered Windows suite remains visible in windows-portability.
       # Packages whose host coordinates and platform-only semantics have been
@@ -43,6 +45,7 @@ jobs:
         run: mkdir /tmp/.git
       - name: test
         if: matrix.os != 'windows-latest'
+        timeout-minutes: 14
         run: go test ./...
       - name: windows-shaped tests
         # The Claude plane's Windows validation sheet: backslash payloads
@@ -59,59 +62,71 @@ jobs:
         # and both halves have been missed before. Add the package when you add
         # the test.
         if: matrix.os == 'windows-latest'
+        timeout-minutes: 14
         run: go test ./internal/delivery/ ./internal/adapter/ ./internal/engine/ ./internal/genconfig/ ./internal/coverage/ ./internal/policy/ ./internal/approval/ ./internal/actiongrant/ ./internal/operatorauth/ ./internal/privatefs/ ./internal/testenv/ ./cmd/guardrail/ ./test/ -run 'Windows|BOM|ReadJSONObject|TestDefaultDaemon|Egress|Allowance'
       - name: windows portable delivery suite
         # Run every delivery proof, executor, and real Git cleanup assertion.
         if: matrix.os == 'windows-latest'
+        timeout-minutes: 14
         run: go test ./internal/delivery/
       - name: windows portable approval and policy suites
         # These packages use host-native repository paths, named pipes, ACLs,
         # and connection errors. Run every assertion rather than relying on
         # the selected-test name filter above.
         if: matrix.os == 'windows-latest'
+        timeout-minutes: 14
         run: go test ./internal/approval/ ./internal/policy/
       - name: windows portable session suite
         # Session transactions combine a process-local contention queue with
         # the store-wide OS lock; run the complete package on Windows so both
         # monotonic state and cross-process serialization remain mandatory.
         if: matrix.os == 'windows-latest'
+        timeout-minutes: 14
         run: go test ./internal/session/
       - name: windows portable engine suite
         # Host-frame fixtures preserve policy intent on Win32. Exact POSIX
         # filesystem semantics stay as documented conditional subtest skips;
         # every portable Engine assertion is mandatory here.
         if: matrix.os == 'windows-latest'
+        timeout-minutes: 14
         run: go test ./internal/engine/
       - name: windows portable hook tracking fixtures
         # These assertions use host-native repository coordinates and must run
         # on Windows as well as the POSIX hosts.
         if: matrix.os == 'windows-latest'
+        timeout-minutes: 14
         run: go test ./cmd/guardrail/ -run 'Test(Trifecta|TrackingUnavailable|HookHashesNativeSessionID)'
       - name: windows portable hook night fixtures
         # Exercise the complete night-mode hook and broker assertion family
         # with host-native repository coordinates.
         if: matrix.os == 'windows-latest'
+        timeout-minutes: 14
         run: go test ./cmd/guardrail/ -run 'Test(Hook.*Night|Night)'
       - name: windows portable OpenCode binary path fixtures
         if: matrix.os == 'windows-latest'
+        timeout-minutes: 14
         run: go test ./cmd/guardrail/ -run 'Test(GenConfig|Sync)OpencodeBakesAbsoluteBinary'
       - name: windows portable executable path fixtures
         if: matrix.os == 'windows-latest'
+        timeout-minutes: 14
         run: go test ./internal/testenv/ ./internal/coverage/ ./cmd/guardrail/ -run 'Test(PathListRoundTripsHostileExecutableDirectory|ClaudeBundlePathResolvesSymlinkOnPATH|ClaudeDriftScansOnceThenAnswersFromCache|GenConfigOpencodeResolvesBareBinaryFromPATH|SyncOpencodeResolvesBareBinaryFromPATH|SyncMixedPlanesResolveBinaryOnlyForOpencode|HookSessionStartReportsCoverageDriftOnce)'
       - name: windows portable sanitized path fixtures
         # Expected diagnostics follow the host-native rendering of the real
         # hostile-path fixtures while preserving the full sanitization checks.
         if: matrix.os == 'windows-latest'
+        timeout-minutes: 14
         run: go test ./cmd/guardrail/ -run 'Test(DoctorDoesNotTruncatePolicyWarningDispositions|DoctorSanitizesOperatorConfigError|DoctorShowsEveryPolicyWarningOnceInMergeOrder|HookSessionStartSanitizesOperatorConfigLoadError)'
       - name: windows portable adapter suite
         # Codex envelopes use host-absolute working directories, so every
         # capability and fail-closed assertion can run on Windows.
         if: matrix.os == 'windows-latest'
+        timeout-minutes: 14
         run: go test ./internal/adapter/
       - name: windows portable update fixture
         # Windows uses executable suffixes and ACLs instead of POSIX mode bits;
         # the shared fixture still verifies the exact replacement bytes.
         if: matrix.os == 'windows-latest'
+        timeout-minutes: 14
         run: go test ./cmd/guardrail/ -run '^TestUpdateHappyPathReplacesBinary$'
       - name: windows portable adversarial fixtures
         # The filesystem-root helper preserves exact host root semantics. The
@@ -119,6 +134,7 @@ jobs:
         # Windows approval gates are lifted. Native outside-repository paths
         # keep path-policy verdicts mandatory without borrowing POSIX roots.
         if: matrix.os == 'windows-latest'
+        timeout-minutes: 14
         run: go test ./test/adversarial/ -run '^(TestMaterializeRepoSupportsFilesystemRoot|TestAdversarialCorpus)$/^(canonical_night_change_requires_broker_approval|outside_repository_(claude_instructions_write|certificate_read_remains_denied|service_account_read_remains_denied))$'
       - name: gofmt
         if: matrix.os != 'windows-latest'
@@ -191,4 +207,5 @@ jobs:
           go-version-file: go.mod
           check-latest: true
       - name: full Windows suite
+        timeout-minutes: 14
         run: go test ./...
