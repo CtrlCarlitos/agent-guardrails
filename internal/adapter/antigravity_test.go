@@ -693,3 +693,83 @@ func TestParseAntigravityMemoryMCPToolsProjectUnderMemoryStore(t *testing.T) {
 		t.Fatalf("paths = %v, want memory-store projection", tc.Paths)
 	}
 }
+
+func TestParseAntigravityV15Tools(t *testing.T) {
+	t.Run("read_file projects Path and allows documented args", func(t *testing.T) {
+		raw := `{"conversationId":"c1","toolCall":{"name":"read_file","args":{"Path":"/repo/main.go","StartLine":1,"EndLine":50,"ByteOffset":0,"toolAction":"Reading","toolSummary":"Read main.go"}}}`
+		tc, err := ParseAntigravity("pre", strings.NewReader(raw))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if tc.Tool != "Read" || tc.Capability != policy.CapabilityReadDiscovery || tc.InputShape != "path" {
+			t.Fatalf("tool=%q cap=%q shape=%q, want Read/read_discovery/path", tc.Tool, tc.Capability, tc.InputShape)
+		}
+		if len(tc.Paths) != 1 || tc.Paths[0] != "/repo/main.go" {
+			t.Fatalf("paths = %v, want [/repo/main.go]", tc.Paths)
+		}
+	})
+
+	t.Run("write_file projects Path and allows documented args", func(t *testing.T) {
+		raw := `{"conversationId":"c1","toolCall":{"name":"write_file","args":{"Path":"/repo/out.go","Content":"package main\n","Overwrite":true,"Append":false,"ArtifactMetadata":{"Summary":"s","UserFacing":false,"RequestFeedback":false},"toolSummary":"Write out.go"}}}`
+		tc, err := ParseAntigravity("pre", strings.NewReader(raw))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if tc.Tool != "Write" || tc.Capability != policy.CapabilityMutation || tc.InputShape != "path" {
+			t.Fatalf("tool=%q cap=%q shape=%q, want Write/mutation/path", tc.Tool, tc.Capability, tc.InputShape)
+		}
+		if len(tc.Paths) != 1 || tc.Paths[0] != "/repo/out.go" {
+			t.Fatalf("paths = %v, want [/repo/out.go]", tc.Paths)
+		}
+	})
+
+	t.Run("edit_file projects Path and allows documented args", func(t *testing.T) {
+		raw := `{"conversationId":"c1","toolCall":{"name":"edit_file","args":{"Path":"/repo/main.go","Target":"old","Replacement":"new","ArtifactMetadata":{"Summary":"s","UserFacing":false,"RequestFeedback":false},"toolSummary":"Edit main.go"}}}`
+		tc, err := ParseAntigravity("pre", strings.NewReader(raw))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if tc.Tool != "Edit" || tc.Capability != policy.CapabilityMutation || tc.InputShape != "path" {
+			t.Fatalf("tool=%q cap=%q shape=%q, want Edit/mutation/path", tc.Tool, tc.Capability, tc.InputShape)
+		}
+		if len(tc.Paths) != 1 || tc.Paths[0] != "/repo/main.go" {
+			t.Fatalf("paths = %v, want [/repo/main.go]", tc.Paths)
+		}
+	})
+
+	for _, bad := range []struct {
+		name string
+		raw  string
+	}{
+		{"read_file missing Path", `{"conversationId":"c1","toolCall":{"name":"read_file","args":{"StartLine":1}}}`},
+		{"read_file undocumented arg", `{"conversationId":"c1","toolCall":{"name":"read_file","args":{"Path":"/repo/a.go","Extra":"boom"}}}`},
+		{"write_file missing Path", `{"conversationId":"c1","toolCall":{"name":"write_file","args":{"Content":"x"}}}`},
+		{"write_file undocumented arg", `{"conversationId":"c1","toolCall":{"name":"write_file","args":{"Path":"/repo/a.go","Content":"x","Unknown":1}}}`},
+		{"edit_file missing Path", `{"conversationId":"c1","toolCall":{"name":"edit_file","args":{"Target":"a","Replacement":"b"}}}`},
+		{"edit_file undocumented arg", `{"conversationId":"c1","toolCall":{"name":"edit_file","args":{"Path":"/repo/a.go","Target":"a","Replacement":"b","Sneaky":"/etc/passwd"}}}`},
+	} {
+		t.Run(bad.name, func(t *testing.T) {
+			if _, err := ParseAntigravity("pre", strings.NewReader(bad.raw)); err == nil {
+				t.Fatalf("expected fail-closed error for %s", bad.name)
+			}
+		})
+	}
+
+	for _, denied := range []struct {
+		name string
+		raw  string
+	}{
+		{"run_workflow", `{"conversationId":"c1","toolCall":{"name":"run_workflow","args":{"Description":"fan out","Script":"print(1)"}}}`},
+		{"swarm", `{"conversationId":"c1","toolCall":{"name":"swarm","args":{"action":"add","name":"worker","brief":"do work","workspace":"share"}}}`},
+	} {
+		t.Run(denied.name+" denies", func(t *testing.T) {
+			tc, err := ParseAntigravity("pre", strings.NewReader(denied.raw))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.Capability != policy.CapabilityDeny {
+				t.Fatalf("%s capability = %q, want deny", denied.name, tc.Capability)
+			}
+		})
+	}
+}

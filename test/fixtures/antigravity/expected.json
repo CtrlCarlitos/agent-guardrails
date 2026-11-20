@@ -151,6 +151,30 @@
   },
   "list-permissions.json": {
     "decision": "allow"
+  },
+  "read-file.json": {
+    "decision": "allow"
+  },
+  "read-file-secret.json": {
+    "decision": "deny"
+  },
+  "write-file.json": {
+    "decision": "allow"
+  },
+  "write-file-secret.json": {
+    "decision": "deny"
+  },
+  "edit-file.json": {
+    "decision": "allow"
+  },
+  "edit-file-secret.json": {
+    "decision": "deny"
+  },
+  "run-workflow.json": {
+    "decision": "deny"
+  },
+  "swarm.json": {
+    "decision": "deny"
   }
 }
 

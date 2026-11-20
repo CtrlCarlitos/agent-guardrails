@@ -1,6 +1,7 @@
 package planecontract
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -93,8 +94,10 @@ func TestOpenCodeAndAntigravityInventoriesClassifyCapabilityBoundary(t *testing.
 		}},
 		{"antigravity", map[string]policy.Capability{
 			"run_command": policy.CapabilityCommand, "view_file": policy.CapabilityReadDiscovery,
-			"list_dir": policy.CapabilityReadDiscovery, "find_by_name": policy.CapabilityReadDiscovery,
+			"read_file": policy.CapabilityReadDiscovery,
+			"list_dir":  policy.CapabilityReadDiscovery, "find_by_name": policy.CapabilityReadDiscovery,
 			"grep_search": policy.CapabilityReadDiscovery, "write_to_file": policy.CapabilityMutation,
+			"write_file": policy.CapabilityMutation, "edit_file": policy.CapabilityMutation,
 			"replace_file_content": policy.CapabilityMutation, "multi_replace_file_content": policy.CapabilityMutation,
 			"read_url_content": policy.CapabilityWebFetch, "search_web": policy.CapabilityWebSearch,
 			"manage_task": policy.CapabilitySafeControl, "schedule": policy.CapabilityExternal,
@@ -103,7 +106,8 @@ func TestOpenCodeAndAntigravityInventoriesClassifyCapabilityBoundary(t *testing.
 			"send_message": policy.CapabilityDelegation, "manage_subagents": policy.CapabilityDelegation,
 			"ask_question": policy.CapabilitySafeControl, "generate_image": policy.CapabilityDeny,
 			"call_mcp_tool": policy.CapabilityDeny, "send_command_input": policy.CapabilityDeny,
-			"tool_caller": policy.CapabilityDeny, "notebook_edit": policy.CapabilityMutation,
+			"tool_caller": policy.CapabilityDeny, "run_workflow": policy.CapabilityDeny,
+			"swarm": policy.CapabilityDeny, "notebook_edit": policy.CapabilityMutation,
 			"sed_file": policy.CapabilityMutation, "delete_knowledge": policy.CapabilityMutation,
 			"notebook_execution": policy.CapabilityCommand, "list_resources": policy.CapabilityExternal,
 			"read_resource": policy.CapabilityExternal, "command_status": policy.CapabilitySafeControl,
@@ -137,6 +141,29 @@ func TestAntigravityPreHookMatcherCoversEveryInventoryTool(t *testing.T) {
 	for _, spec := range RegisteredTools("antigravity") {
 		if !AntigravityPreMatcherMatches(spec.NativeTool) {
 			t.Fatal(spec.NativeTool)
+		}
+	}
+}
+
+func TestAntigravityPostHookMatcherCoversV15MutationTools(t *testing.T) {
+	matcher := AntigravityPostHookMatcher()
+	for _, tool := range []string{
+		"write_to_file", "write_file",
+		"replace_file_content", "multi_replace_file_content", "edit_file",
+		"notebook_edit", "sed_file", "delete_knowledge",
+	} {
+		if !AntigravityPostMatcherMatches(tool) {
+			t.Errorf("AntigravityPostMatcherMatches(%q) = false, want true", tool)
+		}
+		matched := false
+		for _, part := range strings.Split(matcher, "|") {
+			if part == tool {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			t.Errorf("AntigravityPostHookMatcher() = %q does not include %q", matcher, tool)
 		}
 	}
 }

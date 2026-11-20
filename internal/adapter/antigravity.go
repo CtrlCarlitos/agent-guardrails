@@ -43,9 +43,12 @@ type antigravityPathSchema struct {
 var antigravityPathSchemas = map[string]antigravityPathSchema{
 	// #469: Antigravity sometimes sends view_file with TargetFile.
 	"view_file":                  {"AbsolutePath", allowedFields("AbsolutePath", "TargetFile", "StartLine", "EndLine", "ContentOffset", "IsSkillFile"), []string{"TargetFile"}},
+	"read_file":                  {"Path", allowedFields("Path", "StartLine", "EndLine", "ByteOffset"), nil},
 	"write_to_file":              {"TargetFile", allowedFields("TargetFile", "Overwrite", "CodeContent", "Description", "IsArtifact", "ArtifactMetadata"), nil},
+	"write_file":                 {"Path", allowedFields("Path", "Content", "Overwrite", "Append", "ArtifactMetadata"), nil},
 	"replace_file_content":       {"TargetFile", allowedFields("TargetFile", "Instruction", "Description", "AllowMultiple", "TargetContent", "ReplacementContent", "StartLine", "EndLine", "TargetLintErrorIds"), nil},
 	"multi_replace_file_content": {"TargetFile", allowedFields("TargetFile", "Instruction", "Description", "ReplacementChunks", "TargetLintErrorIds", "ArtifactMetadata"), nil},
+	"edit_file":                  {"Path", allowedFields("Path", "Target", "Replacement", "ArtifactMetadata"), nil},
 	"list_dir":                   {"DirectoryPath", allowedFields("DirectoryPath"), nil},
 	"find_by_name":               {"SearchDirectory", allowedFields("SearchDirectory", "Pattern", "Type", "Excludes", "Extensions", "FullPath", "MaxDepth"), nil},
 	"grep_search":                {"SearchPath", allowedFields("SearchPath", "Query", "IsRegex", "CaseInsensitive", "Includes", "MatchPerLine"), nil},

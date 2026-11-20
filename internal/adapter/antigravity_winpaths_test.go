@@ -23,8 +23,11 @@ func TestParseAntigravityKeepsWindowsPathsVerbatim(t *testing.T) {
 		paths []string
 	}{
 		{"view_file", "view_file", `{"AbsolutePath":"C:\\Users\\u\\.ssh\\id_ed25519"}`, []string{`C:\Users\u\.ssh\id_ed25519`}},
+		{"read_file", "read_file", `{"Path":"C:\\Users\\u\\.ssh\\id_ed25519"}`, []string{`C:\Users\u\.ssh\id_ed25519`}},
 		{"write_to_file", "write_to_file", `{"TargetFile":"C:\\repo\\.env"}`, []string{`C:\repo\.env`}},
+		{"write_file", "write_file", `{"Path":"C:\\repo\\.env","Content":"x"}`, []string{`C:\repo\.env`}},
 		{"replace_file_content", "replace_file_content", `{"TargetFile":"C:\\repo\\internal\\a.go"}`, []string{`C:\repo\internal\a.go`}},
+		{"edit_file", "edit_file", `{"Path":"C:\\repo\\internal\\a.go","Target":"a","Replacement":"b"}`, []string{`C:\repo\internal\a.go`}},
 		{"notebook_edit", "notebook_edit", `{"NotebookPath":"C:\\repo\\n.ipynb"}`, []string{`C:\repo\n.ipynb`}},
 		{"sed_file", "sed_file", `{"TargetFile":"C:\\repo\\file.txt"}`, []string{`C:\repo\file.txt`}},
 		{"delete_knowledge", "delete_knowledge", `{"PathToDelete":"C:\\repo\\knowledge.txt"}`, []string{`C:\repo\knowledge.txt`}},

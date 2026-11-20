@@ -6,6 +6,17 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Adapters
+- **Fix (#649): contract Antigravity `agy 1.5.x` native tools (`read_file`,
+  `write_file`, `edit_file`, `run_workflow`, `swarm`).** Live Linux acceptance
+  testing against `agy 1.5.13` surfaced five native tools absent from
+  `internal/planecontract/antigravity.go`: `read_file` (`CapabilityReadDiscovery`),
+  `write_file` and `edit_file` (`CapabilityMutation`, added to
+  `AntigravityPostHookMatcher` alongside legacy IDE/CLI tools so secret-path
+  hard-denies and `PostToolUse` recipes apply), plus `run_workflow` (ADR-0019
+  opaque Python meta-dispatch) and `swarm` (ADR-0013 unproven child mediation
+  and workspace deletion) as fail-closed `CapabilityDeny`.
+
 ### Tooling & Docs
 - **Feature (#84): multi-agent worktree cleanup tooling, partial-removal guard,
   and teardown protocol.** Adds `scripts/worktree-clean.sh` (wired to

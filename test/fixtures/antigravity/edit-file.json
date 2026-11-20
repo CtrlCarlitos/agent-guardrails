@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"edit_file","args":{"Path":"/repo/main.go","Target":"old","Replacement":"new"}}}
