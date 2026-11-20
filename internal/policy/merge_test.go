@@ -598,3 +598,27 @@ func TestVersionOlder(t *testing.T) {
 		t.Error("non-numeric never warns")
 	}
 }
+
+func TestWindowsMergeSafeRootsAcceptsCaseVariantInsideRepo(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows case-variant safe_roots containment")
+	}
+	repo := filepath.Join(t.TempDir(), "MixedCaseRepo")
+	sub := filepath.Join(repo, "build")
+	if err := os.MkdirAll(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	caseVariantSub := strings.ToLower(filepath.ToSlash(sub))
+	base := &Policy{Waived: map[string]bool{}}
+	ov := &Overlay{SafeRoots: []string{caseVariantSub}}
+	merged, warns, err := Merge(base, ov, "1.0.0", nil, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warns) != 0 {
+		t.Fatalf("safe_root %q inside repo %q was dropped: %v", caseVariantSub, repo, warns)
+	}
+	if len(merged.Slots.SafeRoots) != 1 {
+		t.Fatalf("SafeRoots = %v, want 1 entry", merged.Slots.SafeRoots)
+	}
+}

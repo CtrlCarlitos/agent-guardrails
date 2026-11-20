@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/pathutil"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/gofrs/flock"
 )
@@ -165,7 +166,7 @@ func Cleanup(ctx context.Context, api API, p policy.DeliveryPolicy, pr PullReque
 		if err != nil {
 			return err
 		}
-		if strings.EqualFold(chosen, root) {
+		if pathutil.Same(chosen, root) {
 			return fmt.Errorf("primary worktree cannot be cleaned")
 		}
 	}
@@ -183,7 +184,7 @@ func Cleanup(ctx context.Context, api API, p policy.DeliveryPolicy, pr PullReque
 			if err != nil {
 				return err
 			}
-			if chosen == "" || actual != chosen || w.head != tip || w.locked {
+			if chosen == "" || !pathutil.Same(actual, chosen) || w.head != tip || w.locked {
 				return fmt.Errorf("task branch is attached elsewhere, moved or locked")
 			}
 			if err := pristine(ctx, chosen); err != nil {

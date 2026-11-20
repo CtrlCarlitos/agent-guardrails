@@ -6,6 +6,21 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Engine
+- **Refactor (#109): centralize path identity in `pathutil.Canonical`.**
+  Introduces `pathutil.Canonical` (absolute path preserving `symlink/..`
+  order, symlink and Windows 8.3 short-path expansion through the deepest
+  existing ancestor, cleaned, slash-normalized, and case-folded on Windows
+  and macOS) alongside `Same`, `Within`, `WithinStrict`, `CanonicalWithin`,
+  and `NormalizeLexical`. Wires operator-grant repo matching and key
+  resolution (`waivers.toml`, web-host allowance transactions), approval
+  ticket directories, Windows daemon image identity, worktree provenance
+  (ADR-0039), `explain` repo matching, delivery worktree validation, MCP
+  directory matching, repo-root discovery ceilings, overlay `safe_roots`
+  containment, and engine temp-root/containment helpers through one
+  implementation, backed by cross-OS table tests and Windows 8.3 short/long
+  path tests (`internal/pathutil` added to CI's `windows-shaped tests`).
+
 ### Testing
 - **Feature (#92): reusable platform acceptance harness, starting with
   Antigravity (`agy`) on Linux.** `test/acceptance/` runs the Guardrail

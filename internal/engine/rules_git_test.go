@@ -1160,3 +1160,20 @@ func TestDiscoverGitDirectoryUnaffectedOutsideTempRoots(t *testing.T) {
 		t.Fatalf("enclosing repository not discovered: %q ok=%v", gitDir, ok)
 	}
 }
+
+func TestWindowsGitConfigTempRootMatchesCaseVariant(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows case-variant system temp root containment")
+	}
+	tmp := t.TempDir()
+	// Verify a case-variant missing descendant under the system temp root is
+	// recognized as a strict descendant, while the temp root itself (in any case) is rejected.
+	descendant := strings.ToUpper(filepath.Join(tmp, "future-repo", ".git", "config"))
+	if !gitConfigPathUnderSystemTempRoot(descendant) {
+		t.Fatalf("gitConfigPathUnderSystemTempRoot(%q) = false, want true", descendant)
+	}
+	tempRoot := strings.ToUpper(os.TempDir())
+	if gitConfigPathUnderSystemTempRoot(tempRoot) {
+		t.Fatalf("gitConfigPathUnderSystemTempRoot(%q) = true, want false for root itself", tempRoot)
+	}
+}
