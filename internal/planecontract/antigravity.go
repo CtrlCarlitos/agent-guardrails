@@ -9,12 +9,15 @@ import (
 var antigravityTools = []ToolSpec{
 	{"run_command", "Bash", policy.CapabilityCommand},
 	{"view_file", "Read", policy.CapabilityReadDiscovery},
+	{"read_file", "Read", policy.CapabilityReadDiscovery},
 	{"list_dir", "List", policy.CapabilityReadDiscovery},
 	{"find_by_name", "Glob", policy.CapabilityReadDiscovery},
 	{"grep_search", "Grep", policy.CapabilityReadDiscovery},
 	{"write_to_file", "Write", policy.CapabilityMutation},
+	{"write_file", "Write", policy.CapabilityMutation},
 	{"replace_file_content", "Edit", policy.CapabilityMutation},
 	{"multi_replace_file_content", "Edit", policy.CapabilityMutation},
+	{"edit_file", "Edit", policy.CapabilityMutation},
 	{"read_url_content", "read_url_content", policy.CapabilityWebFetch},
 	{"search_web", "search_web", policy.CapabilityWebSearch},
 	{"manage_task", "manage_task", policy.CapabilitySafeControl},
@@ -30,6 +33,8 @@ var antigravityTools = []ToolSpec{
 	{"call_mcp_tool", "call_mcp_tool", policy.CapabilityDeny},
 	{"send_command_input", "send_command_input", policy.CapabilityDeny},
 	{"tool_caller", "tool_caller", policy.CapabilityDeny},
+	{"run_workflow", "run_workflow", policy.CapabilityDeny},
+	{"swarm", "swarm", policy.CapabilityDeny},
 	{"notebook_edit", "Edit", policy.CapabilityMutation},
 	{"sed_file", "Edit", policy.CapabilityMutation},
 	{"delete_knowledge", "Write", policy.CapabilityMutation},
@@ -61,12 +66,12 @@ func AntigravityPreHookMatcher() string { return "*" }
 func AntigravityPreMatcherMatches(string) bool { return true }
 
 func AntigravityPostHookMatcher() string {
-	return "write_to_file|replace_file_content|multi_replace_file_content|notebook_edit|sed_file|delete_knowledge"
+	return "write_to_file|write_file|replace_file_content|multi_replace_file_content|edit_file|notebook_edit|sed_file|delete_knowledge"
 }
 
 func AntigravityPostMatcherMatches(nativeTool string) bool {
 	switch nativeTool {
-	case "write_to_file", "replace_file_content", "multi_replace_file_content", "notebook_edit", "sed_file", "delete_knowledge":
+	case "write_to_file", "write_file", "replace_file_content", "multi_replace_file_content", "edit_file", "notebook_edit", "sed_file", "delete_knowledge":
 		return true
 	default:
 		return false

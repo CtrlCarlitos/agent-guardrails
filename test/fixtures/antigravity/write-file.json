@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"write_file","args":{"Path":"/repo/out.txt","Content":"hello\n","Overwrite":true}}}

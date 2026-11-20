@@ -1,0 +1,1 @@
+{"conversationId":"c1","toolCall":{"name":"read_file","args":{"Path":"/tmp/safe.go","StartLine":1,"EndLine":20,"ByteOffset":0}}}
