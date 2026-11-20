@@ -4,6 +4,24 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Testing
+- **Feature (#92): reusable platform acceptance harness, starting with
+  Antigravity (`agy`) on Linux.** `test/acceptance/` runs the Guardrail
+  lifecycle in a disposable isolated `HOME`/`XDG_*`/`ANTIGRAVITY_APP_DATA_DIR`
+  root — install (`install.sh` checksum-verified local release), enrollment
+  posture, enablement, hook trust/`doctor`/`selftest`, harmless secret deny
+  (`P4.secret-path`), ADR-0033 prompt-mode approval/retry (`host-ask` ticket
+  consumption + replay refusal), local release update, real-PTY disablement
+  with user-config preservation, real-PTY `recover antigravity-hooks` with
+  corrupt-file backup, and real-home isolation/cleanup verification — plus an
+  opt-in `--live` stage that invokes real `agy -p` inside the isolated home.
+  Per-stage statuses cleanly distinguish `pass`, `fail`, `unsupported`
+  (ADR-0008 declarative floor), `operator_assisted` (WebAuthn passkey ceremony
+  and unauthenticated `--live`, never simulated), and `skipped`, and `report.json`
+  sanitizes paths/secrets and never claims universal mediation.
+
 ## v0.23.46-dev (2026-11-19)
 
 ### CI
