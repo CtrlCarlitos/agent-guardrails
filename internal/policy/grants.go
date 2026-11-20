@@ -150,10 +150,10 @@ func (o *OperatorConfig) GrantKey(repoRoot string) string {
 	if _, ok := o.Repos[cleaned]; ok {
 		return cleaned
 	}
-	want := resolvePathForCompare(cleaned)
+	want := canonicalOperatorKey(cleaned)
 	for root := range o.Repos {
-		if resolved := filepath.Clean(root); resolvePathForCompare(resolved) == want {
-			return resolved
+		if canonicalOperatorKey(root) == want {
+			return filepath.Clean(root)
 		}
 	}
 	return cleaned

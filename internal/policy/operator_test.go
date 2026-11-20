@@ -246,12 +246,17 @@ egress_allowlist = ["api.example.com", "*.trusted.example"]
 	for _, repo := range []string{
 		operatorRepo("trusted", "subrepo"),
 		operatorRepo("trusted-other"),
-		operatorRepo("Trusted"),
 		filepath.Join("home", "u", "trusted"), // relative: never absolute, never granted
 	} {
 		if o.AllowsEgress(repo, "api.example.com") {
 			t.Errorf("egress grant crossed exact repository boundary to %q", repo)
 		}
+	}
+	// Case-variant repo spelling matches on case-insensitive hosts (Windows, macOS)
+	// via pathutil.Canonical (#109) and stays distinct on case-sensitive hosts (Linux).
+	wantCaseVariant := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+	if got := o.AllowsEgress(operatorRepo("Trusted"), "api.example.com"); got != wantCaseVariant {
+		t.Errorf("AllowsEgress(%q) = %v, want %v on %s", operatorRepo("Trusted"), got, wantCaseVariant, runtime.GOOS)
 	}
 }
 
@@ -381,5 +386,30 @@ func TestOperatorConfigNilSafe(t *testing.T) {
 	var o *OperatorConfig
 	if o.AllowsWaiver("/x", "P6.egress") || o.AllowsSecretAllow("/x") || o.AllowsAuditLog("/x") || o.AllowsEgress("/x", "api.example.com") {
 		t.Error("a nil OperatorConfig must authorize nothing")
+	}
+}
+
+func TestWindowsOperatorConfigMatchesCanonicalCaseAndSlashVariants(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows drive/case/slash canonical matching")
+	}
+	repo := filepath.Join(t.TempDir(), "MixedCaseRepo")
+	writeOperatorConfig(t, "\n"+tomlRepoKey(repo)+`
+waive = ["P6.egress"]
+web_hosts = ["api.example.com"]
+`)
+	o, err := LoadOperatorConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	variant := strings.ToLower(filepath.ToSlash(repo))
+	if !o.AllowsWaiver(variant, "P6.egress") {
+		t.Fatalf("AllowsWaiver(%q) = false, want true (canonical match for %q)", variant, repo)
+	}
+	if !o.AllowsWebHost(variant, "api.example.com") {
+		t.Fatalf("AllowsWebHost(%q) = false, want true (canonical match for %q)", variant, repo)
+	}
+	if got, want := o.GrantKey(variant), filepath.Clean(repo); got != want {
+		t.Fatalf("GrantKey(%q) = %q, want existing key %q", variant, got, want)
 	}
 }

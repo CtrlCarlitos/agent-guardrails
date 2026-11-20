@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/pathutil"
 )
 
 // Test seams. Production code never reassigns them.
@@ -85,7 +87,7 @@ func walkRepoRoot(cwd string, ceilings []string) (root string, found, decided bo
 		if parent == dir {
 			return "", false, true
 		}
-		if stops[foldCase(parent)] {
+		if stops[pathutil.NormalizeLexical(parent)] {
 			return "", false, true
 		}
 		if devOK {
@@ -119,22 +121,22 @@ func hasGitComponent(path string) bool {
 	return false
 }
 
-// ceilingStops returns the resolved ceiling directories that are proper ancestors of
-// real. git does not chdir up into a ceiling directory while looking for a repository,
-// and it never excludes the working directory itself.
+// ceilingStops returns the canonicalized ceiling directories that are proper
+// ancestors of real. git does not chdir up into a ceiling directory while
+// looking for a repository, and it never excludes the working directory itself.
 func ceilingStops(real string, ceilings []string) map[string]bool {
 	stops := map[string]bool{}
+	canonReal := pathutil.NormalizeLexical(real)
 	for _, c := range ceilings {
 		if c == "" {
 			continue
 		}
-		resolved := filepath.Clean(c)
-		if r, err := filepath.EvalSymlinks(resolved); err == nil {
-			resolved = r
+		canonCeiling, err := pathutil.Canonical(c)
+		if err != nil {
+			canonCeiling = pathutil.NormalizeLexical(c)
 		}
-		key := foldCase(resolved)
-		if strings.HasPrefix(foldCase(real), key+string(filepath.Separator)) {
-			stops[key] = true
+		if canonReal != canonCeiling && pathutil.CanonicalWithin(canonReal, canonCeiling) {
+			stops[canonCeiling] = true
 		}
 	}
 	return stops

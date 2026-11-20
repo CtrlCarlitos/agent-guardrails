@@ -2658,3 +2658,15 @@ func TestUnresolvedDoesNotMaskADeny(t *testing.T) {
 		t.Fatalf("-> %+v, want the concrete deny to still win", v)
 	}
 }
+
+func TestWindowsWithinSafeMatchesCaseVariant(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows case-insensitive containment")
+	}
+	if !withinSafe(`c:\Repo\sub\file.go`, `C:\repo`, nil) {
+		t.Fatal("withinSafe rejected a Windows case-variant path inside repo")
+	}
+	if withinSafe(`c:\Repo-Other\file.go`, `C:\repo`, nil) {
+		t.Fatal("withinSafe accepted a sibling prefix collision")
+	}
+}

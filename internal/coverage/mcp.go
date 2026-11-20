@@ -16,6 +16,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/pathutil"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/planecontract"
 )
 
@@ -251,8 +252,10 @@ func sortedServers(servers []MCPServerConfig) []MCPServerConfig {
 }
 
 func sameDirectory(a, b string) bool {
-	clean := func(p string) string { return strings.ToLower(filepath.Clean(filepath.FromSlash(p))) }
-	return clean(a) == clean(b)
+	if pathutil.Same(a, b) {
+		return true
+	}
+	return pathutil.NormalizeLexical(filepath.FromSlash(a)) == pathutil.NormalizeLexical(filepath.FromSlash(b))
 }
 
 // MCPToolLister lists one server's tool names.
