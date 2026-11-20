@@ -154,6 +154,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 			v, evalErr := client.Evaluate(tc)
 			timing.since("daemon_roundtrip_ms", evalStarted)
 			if evalErr == nil {
+				v = applyWorktreeProvenance(tc, v, time.Now())
 				timing.transport("daemon")
 				return timing.emit(plane, antigravityPhase, tc, v, stdout, stderr)
 			}
@@ -315,6 +316,9 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 				v = *esc
 			}
 		}
+	}
+	if tc.Event == "pre" {
+		v = applyWorktreeProvenance(tc, v, time.Now())
 	}
 
 	if v.Decision == policy.Allow {
