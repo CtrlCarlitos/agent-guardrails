@@ -1,5 +1,6 @@
 /guardrail
 /.worktrees/
+/.claude/worktrees/
 /dist/
 *.test
 *.out
