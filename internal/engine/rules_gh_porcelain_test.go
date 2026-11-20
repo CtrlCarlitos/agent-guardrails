@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -126,6 +127,20 @@ func TestGhMergeAndWorkflowDispatchAsk(t *testing.T) {
 		"gh workflow disable deploy.yml",
 	} {
 		assertGh(t, command, policy.Ask, "P2.gh-workflow-dispatch")
+	}
+}
+
+// #631: the ask names the sanctioned route, not only the gate — an agent told
+// only "the operator's token" merges by hand or hands the whole merge over.
+func TestGhMergeAskNamesDeliveryAsTheSanctionedRoute(t *testing.T) {
+	v := evalBash(t, "gh pr merge 12 --squash --delete-branch")
+	if v == nil || v.Decision != policy.Ask || v.RuleID != "P2.gh-pr-merge" {
+		t.Fatalf("%+v", v)
+	}
+	for _, want := range []string{"guardrail delivery finish", "--pr", "--head"} {
+		if !strings.Contains(v.Reason, want) {
+			t.Errorf("reason %q lacks %q", v.Reason, want)
+		}
 	}
 }
 
