@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/adapter"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/pathutil"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 )
@@ -336,11 +336,8 @@ func explainAuditPath(cwd, repo string) string {
 // Windows may spell a root with forward slashes and any letter case, and on
 // macOS a temp root is reachable through the /var -> /private/var symlink.
 func sameRepoRoot(a, b string) bool {
-	a, b = filepath.Clean(a), filepath.Clean(b)
-	if a == b || runtime.GOOS == "windows" && strings.EqualFold(a, b) {
+	if pathutil.Same(a, b) {
 		return true
 	}
-	ra, errA := filepath.EvalSymlinks(a)
-	rb, errB := filepath.EvalSymlinks(b)
-	return errA == nil && errB == nil && ra == rb
+	return a != "" && b != "" && pathutil.NormalizeLexical(a) == pathutil.NormalizeLexical(b)
 }

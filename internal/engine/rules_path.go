@@ -1093,11 +1093,20 @@ func repoRelative(p, cwd, repoRoot string) (string, bool) {
 	}
 	rel, ok := relWithin(repoRoot)
 	if !ok {
-		// Darwin temp-symlink divergence: the path may arrive resolved
-		// (/private/var/...) while the root is raw (/var/folders/...) or the
-		// reverse; accept either root spelling.
-		if relation := pathRelationBetween(absPath, repoRoot); relation.within {
-			rel, ok = strings.ToLower(relation.relative), true
+		// Darwin temp-symlink divergence and Windows 8.3/case divergence:
+		// try canonical identity first, then file-identity walk.
+		if canonTarget, errT := pathutil.Canonical(absPath); errT == nil {
+			if canonRoot, errR := pathutil.Canonical(repoRoot); errR == nil && canonTarget != canonRoot && pathutil.CanonicalWithin(canonTarget, canonRoot) {
+				trimmed := strings.TrimPrefix(strings.TrimPrefix(canonTarget, canonRoot), "/")
+				if trimmed != "" {
+					rel, ok = strings.ToLower(trimmed), true
+				}
+			}
+		}
+		if !ok {
+			if relation := pathRelationBetween(absPath, repoRoot); relation.within {
+				rel, ok = strings.ToLower(relation.relative), true
+			}
 		}
 		if !ok {
 			return "", false

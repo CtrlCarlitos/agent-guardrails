@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/pathutil"
 	"github.com/Microsoft/go-winio"
 	"golang.org/x/sys/windows"
 )
@@ -198,13 +199,5 @@ func verifyServerIsOurBinary(conn net.Conn) error {
 // — the comparison has to be wrong in the safe direction, and a false
 // mismatch would refuse our own daemon.
 func sameExecutableImage(a, b string) bool {
-	if strings.EqualFold(filepath.Clean(a), filepath.Clean(b)) {
-		return true
-	}
-	resolvedA, errA := filepath.EvalSymlinks(a)
-	resolvedB, errB := filepath.EvalSymlinks(b)
-	if errA != nil || errB != nil {
-		return false
-	}
-	return strings.EqualFold(filepath.Clean(resolvedA), filepath.Clean(resolvedB))
+	return pathutil.Same(a, b)
 }

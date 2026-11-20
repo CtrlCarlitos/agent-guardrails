@@ -3,12 +3,12 @@ package main
 import (
 	"fmt"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/pathutil"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"mvdan.cc/sh/v3/syntax"
 )
@@ -101,18 +101,21 @@ func commandArgv(command string) []string {
 }
 
 // sameWorktreePath compares two worktree paths after resolving relatives
-// against cwd. On Windows the comparison is case-insensitive, matching the
-// filesystem.
+// against cwd using canonical path identity (symlinks, Windows 8.3 short
+// names, separators, and case folding on Windows/macOS).
 func sameWorktreePath(a, b, cwd string) bool {
+	if a == "" || b == "" {
+		return false
+	}
 	resolve := func(p string) string {
 		if !filepath.IsAbs(p) {
 			p = filepath.Join(cwd, p)
 		}
-		return filepath.Clean(p)
+		return p
 	}
 	ra, rb := resolve(a), resolve(b)
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(ra, rb)
+	if pathutil.Same(ra, rb) {
+		return true
 	}
-	return ra == rb
+	return pathutil.NormalizeLexical(ra) == pathutil.NormalizeLexical(rb)
 }

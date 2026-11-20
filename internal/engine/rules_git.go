@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/pathutil"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
 
@@ -457,23 +458,23 @@ func gitInitCurrentDirectory(s Simple) (string, bool) {
 }
 
 func gitConfigPathUnderSystemTempRoot(path string) bool {
-	target, ok := resolveExistingPath(path, "")
-	if !ok {
+	canonTarget, err := pathutil.Canonical(path)
+	if err != nil {
 		return false
 	}
 	var roots []string
 	for _, root := range systemTempRoots() {
-		physicalRoot, ok := resolveExistingPath(root, "")
-		if !ok {
+		canonRoot, err := pathutil.Canonical(root)
+		if err != nil {
 			continue
 		}
-		if filepath.Clean(target) == filepath.Clean(physicalRoot) {
+		if canonTarget == canonRoot {
 			return false
 		}
-		roots = append(roots, physicalRoot)
+		roots = append(roots, canonRoot)
 	}
 	for _, root := range roots {
-		if withinSafe(target, root, nil) {
+		if pathutil.CanonicalWithin(canonTarget, root) {
 			return true
 		}
 	}

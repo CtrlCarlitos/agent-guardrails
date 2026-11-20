@@ -71,23 +71,23 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 	}
 
 	cleanRoot := filepath.Clean(repoRoot)
-	resolvedRoot, rootErr := pathutil.ResolveThroughExistingAncestor(cleanRoot)
+	canonRoot, rootErr := pathutil.Canonical(cleanRoot)
+	lexicalRoot := pathutil.NormalizeLexical(cleanRoot)
 	for _, sr := range ov.SafeRoots {
 		rawCandidate := sr
 		if !filepath.IsAbs(rawCandidate) {
 			rawCandidate = cleanRoot + string(filepath.Separator) + rawCandidate
 		}
-		resolved, resolveErr := pathutil.ResolveThroughExistingAncestor(rawCandidate)
+		canonCandidate, resolveErr := pathutil.Canonical(rawCandidate)
 
 		candidate := sr
 		if !filepath.IsAbs(candidate) {
 			candidate = filepath.Join(cleanRoot, candidate)
 		}
 		candidate = filepath.Clean(candidate)
-		lexicalRel, lexicalErr := filepath.Rel(cleanRoot, candidate)
-		resolvedRel, resolvedRelErr := filepath.Rel(resolvedRoot, resolved)
-		if !filepath.IsAbs(repoRoot) || rootErr != nil || lexicalErr != nil || pathEscapesRoot(lexicalRel) ||
-			resolveErr != nil || resolvedRelErr != nil || pathEscapesRoot(resolvedRel) {
+		lexicalOK := pathutil.CanonicalWithin(pathutil.NormalizeLexical(candidate), lexicalRoot)
+		if !filepath.IsAbs(repoRoot) || rootErr != nil || !lexicalOK ||
+			resolveErr != nil || !pathutil.CanonicalWithin(canonCandidate, canonRoot) {
 			warns = append(warns, "guardrail: repo requested safe_root "+sr+" outside the repository — DROPPED")
 			continue
 		}
@@ -154,10 +154,6 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 	// out of the bounded model-facing warning list.
 	warns = append(warns, ov.Warnings...)
 	return m, warns, nil
-}
-
-func pathEscapesRoot(rel string) bool {
-	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func versionOlder(bin, min string) bool {
