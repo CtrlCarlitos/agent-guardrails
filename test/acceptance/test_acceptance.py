@@ -21,6 +21,26 @@ import linux_antigravity  # noqa: E402
 import windows_antigravity  # noqa: E402
 
 
+class LinuxCodexTests(unittest.TestCase):
+    def test_cli_accepts_codex_host(self):
+        self.assertEqual(harness.build_arg_parser().parse_args(["--host", "codex"]).host, "codex")
+
+    def test_live_requires_both_native_verdicts_in_the_reported_thread(self):
+        import linux_codex
+
+        records = [
+            {"plane": "codex", "event": "pre", "session_id": "thread", "tool": "exec_command",
+             "decision": "allow", "command": "cat allowed.txt"},
+            {"plane": "codex", "event": "pre", "session_id": "other", "tool": "exec_command",
+             "decision": "deny", "rule_id": "P4.secret-path", "command": "cat .env"},
+        ]
+        self.assertFalse(linux_codex.has_live_verdicts(records, "thread"))
+        records[1]["session_id"] = "thread"
+        self.assertTrue(linux_codex.has_live_verdicts(records, "thread"))
+        records[1]["command"] = "cat .env.other"
+        self.assertFalse(linux_codex.has_live_verdicts(records, "thread"))
+
+
 class StageSummaryAndExitCodeTests(unittest.TestCase):
     def test_distinguishes_statuses_and_computes_exit_zero_without_failures(self):
         stages = [
