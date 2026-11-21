@@ -24,6 +24,15 @@ explicitly in **Breaking** notes.
   `proof.json` alongside the legacy marker, and aligns `selftestMarkerPath`
   with Windows `LOCALAPPDATA`.
 
+### Diagnostics
+- **Feature (#82): `guardrail tail` (and `guardrail audit --follow`) live
+  decision stream.** Streams new records from `audit.jsonl` in real time across
+  20 MB segment rotations without holding an open handle between polls (so
+  rotation renames stay safe on Windows and POSIX). Supports `--format
+  compact|json`, `--plane <name>`, `--verdict allow|ask|deny|complete`,
+  `--lines N` (`-n N`) to replay recent matching records across segments, and
+  `--path <file>`.
+
 ### Engine
 - **Feature (#83): scoped night mode (`--scope global|repo|session`).**
   `guardrail night on` now supports `--scope repo` (targeting the current git
