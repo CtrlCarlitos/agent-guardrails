@@ -779,8 +779,10 @@ their control cost instead of assigning an unexplained residual to policy.
 
 Concurrent agent sessions share one clone through linked git worktrees under
 `.worktrees/<name>` (both `/.worktrees/` and `/.claude/worktrees/` are ignored
-in `.gitignore`). Follow this lifecycle so stale checkouts do not accumulate or
-corrupt repo-walking checks (#84):
+in `.gitignore`). For handoff fields, conflict ownership, explicit-file staging,
+and review-closure verification across concurrent sessions, see
+[`multi-agent-handoff.md`](multi-agent-handoff.md). Follow this lifecycle so
+stale checkouts do not accumulate or corrupt repo-walking checks (#84):
 
 1. **Create off `origin/main` only.** Check `git status` and
    `git log --oneline -1` first; never stack a new worktree on another PR's

@@ -78,8 +78,17 @@ explicitly in **Breaking** notes.
   PowerShell cmdlet & host shell-reporting boundary `#66`/`#501`, macOS `/tmp`
   symlink and path aliases `#68`, and Windows 11 `agy 1.5.11` live acceptance
   proof `#652`), links ADR-0019 to the extracted REPL evidence file, points
-  `CONTRIBUTING.md` at `docs/evidence/`, and enforces file naming, heading
-  order, and index completeness in CI via `test/docs_evidence_test.go`.
+  `CONTRIBUTING.md` and `.github/pull_request_template.md` at `docs/evidence/`,
+  and enforces file naming, heading order, and index completeness in CI via
+  `test/docs_evidence_test.go`.
+- **Docs (#96): multi-agent handoff and review-closure protocol.** Adds
+  `docs/multi-agent-handoff.md` (required vs optional handoff fields, branch
+  owner conflict-resolution rule, explicit-file staging reminder,
+  originating-reviewer closure mapping, copyable handoff template,
+  finding-to-resolution example, PR checklist, and concurrent-cycle trial
+  notes), adds `.github/pull_request_template.md`, cross-links the protocol
+  from `CONTRIBUTING.md` and `docs/OPERATIONS.md`, and verifies structure and
+  links in CI via `test/docs_handoff_test.go`.
 - **Feature (#102): pre-push branch-trap check (`scripts/check-branch.sh` and
   `scripts/check-branch.ps1`, wired to `make check-branch`).** Detects branches
   that are already merged or squash-merged into the base ref (direct ancestor,
@@ -117,6 +126,14 @@ explicitly in **Breaking** notes.
   path tests (`internal/pathutil` added to CI's `windows-shaped tests`).
 
 ### Testing
+- **Refactor (#107): shared embedded selftest fixture directory (`internal/selftestfixtures`).**
+  Migrates all selftest probes (including Windows drive-lettered Claude variants
+  and host-shaped Codex probes) out of Go literals in `cmd/guardrail/` into
+  `internal/selftestfixtures/fixtures/<plane>/` (`expected.json` + compact JSON
+  payloads, with `windows/` platform override/extension directories selected at
+  load time by `runtime.GOOS`), consumed by both `guardrail selftest` (which now
+  reports `selftest: all probes passed — runs every recorded fixture (N)` with
+  `N` counted from the embedded directory) and `test/selftestfixtures_contract_test.go`.
 - **Feature (#95): documentation example and relative-link verification in CI.**
   Adds `test/docs_examples_test.go` (wired to `make docs-test` and run on Linux,
   macOS, and Windows CI): parses `guardrail.toml.example` and Markdown Overlay /

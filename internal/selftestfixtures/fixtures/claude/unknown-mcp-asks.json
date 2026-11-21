@@ -1,0 +1,1 @@
+{"session_id":"selftest","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"mcp__weather__forecast","tool_input":{"city":"denver"}}

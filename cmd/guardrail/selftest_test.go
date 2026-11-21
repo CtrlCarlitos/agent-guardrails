@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CtrlCarlitos/agent-guardrails/internal/selftestfixtures"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
@@ -17,10 +18,20 @@ func runSelftest(t *testing.T, stdout, stderr *strings.Builder) int {
 	return cmdSelftest([]string{}, stdout, stderr)
 }
 
+func mustLoadSelftestProbes(t *testing.T, goos string) []selftestfixtures.Probe {
+	t.Helper()
+	probes, err := selftestfixtures.Load(goos)
+	if err != nil {
+		t.Fatalf("selftestfixtures.Load(%q): %v", goos, err)
+	}
+	return probes
+}
+
 func TestSelftestPassesOnHealthyEnvironment(t *testing.T) {
 	testenv.SetHome(t, t.TempDir())
 	testenv.SetConfig(t, t.TempDir())
 	testenv.SetState(t, t.TempDir())
+	probes := mustLoadSelftestProbes(t, runtime.GOOS)
 	var out, errb strings.Builder
 	if code := runSelftest(t, &out, &errb); code != 0 {
 		t.Fatalf("exit = %d stderr %q stdout %q", code, errb.String(), out.String())
@@ -32,6 +43,7 @@ func TestSelftestPassesOnHealthyEnvironment(t *testing.T) {
 		"antigravity: probes pass",
 		"codex: probes pass",
 		"selftest: all probes passed",
+		fmt.Sprintf("runs every recorded fixture (%d)", len(probes)),
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output missing %q:\n%s", want, got)
@@ -43,11 +55,10 @@ func TestSelftestFailsWhenAProbeVerdictDrifts(t *testing.T) {
 	testenv.SetHome(t, t.TempDir())
 	testenv.SetConfig(t, t.TempDir())
 	testenv.SetState(t, t.TempDir())
-	orig := selftestProbes
-	tampered := append([]selftestProbe(nil), orig...)
+	tampered := mustLoadSelftestProbes(t, runtime.GOOS)
 	tampered[0].WantDecision = "never"
-	selftestProbes = tampered
-	t.Cleanup(func() { selftestProbes = orig })
+	selftestProbesOverride = tampered
+	t.Cleanup(func() { selftestProbesOverride = nil })
 
 	var out, errb strings.Builder
 	if code := runSelftest(t, &out, &errb); code != 1 {
@@ -69,16 +80,24 @@ func TestSelftestIsIdempotentAcrossRuns(t *testing.T) {
 		}
 	}
 }
+
 func TestSelftestAntigravityProbesPass(t *testing.T) {
 	testenv.SetHome(t, t.TempDir())
 	testenv.SetConfig(t, t.TempDir())
 	testenv.SetState(t, t.TempDir())
+	agyCount := 0
+	for _, p := range mustLoadSelftestProbes(t, runtime.GOOS) {
+		if p.Plane == "antigravity" {
+			agyCount++
+		}
+	}
+	want := fmt.Sprintf("antigravity: probes pass (%d)", agyCount)
 	var out, errb strings.Builder
 	if code := runSelftest(t, &out, &errb); code != 0 {
 		t.Fatalf("exit = %d stderr %q stdout %q", code, errb.String(), out.String())
 	}
-	if !strings.Contains(out.String(), "antigravity: probes pass (7)") {
-		t.Fatalf("expected antigravity: probes pass (7), got:\n%s", out.String())
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("expected %q, got:\n%s", want, out.String())
 	}
 }
 
@@ -108,11 +127,10 @@ func TestSelftestDoesNotRecordAFailedRun(t *testing.T) {
 	testenv.SetConfig(t, t.TempDir())
 	state := t.TempDir()
 	testenv.SetState(t, state)
-	orig := selftestProbes
-	tampered := append([]selftestProbe(nil), orig...)
+	tampered := mustLoadSelftestProbes(t, runtime.GOOS)
 	tampered[0].WantDecision = "never"
-	selftestProbes = tampered
-	t.Cleanup(func() { selftestProbes = orig })
+	selftestProbesOverride = tampered
+	t.Cleanup(func() { selftestProbesOverride = nil })
 	var out, errb strings.Builder
 	runSelftest(t, &out, &errb)
 	if _, err := os.Stat(filepath.Join(state, "guardrail", "selftest-passed")); err == nil {
@@ -123,15 +141,18 @@ func TestSelftestDoesNotRecordAFailedRun(t *testing.T) {
 // The three Claude probes added for #37 / ADR-0013 / ADR-0018 pin verdicts
 // by rule, which the Claude hook only exposes through its audit record.
 func TestSelftestClaudeProbesPinRuleIDs(t *testing.T) {
+	probes := mustLoadSelftestProbes(t, runtime.GOOS)
 	want := map[string][2]string{
 		"serena secret mutation denies (registry projection)": {"deny", "P4.secret-path"},
 		"subagent delegation allows (inherited)":              {"allow", "delegation-inherited"},
 		"CronCreate asks (external, night-preserved)":         {"ask", "capability-external"},
 	}
-	for _, probe := range selftestProbes {
+	claudeProbes := 0
+	for _, probe := range probes {
 		if probe.Plane != "claude" {
 			continue
 		}
+		claudeProbes++
 		if w, ok := want[probe.Name]; ok {
 			if probe.WantDecision != w[0] || probe.WantRuleID != w[1] {
 				t.Fatalf("%s pins %s/%s, want %s/%s", probe.Name, probe.WantDecision, probe.WantRuleID, w[0], w[1])
@@ -145,15 +166,8 @@ func TestSelftestClaudeProbesPinRuleIDs(t *testing.T) {
 	testenv.SetHome(t, t.TempDir())
 	testenv.SetConfig(t, t.TempDir())
 	testenv.SetState(t, t.TempDir())
-	// Counted from the matrix, not hardcoded: a Windows host adds the
-	// drive-lettered probes to the same plane, and the count is evidence that
-	// every claude probe passed rather than a number to keep in step by hand.
-	claudeProbes := 0
-	for _, probe := range selftestProbes {
-		if probe.Plane == "claude" {
-			claudeProbes++
-		}
-	}
+	// Counted from the loaded fixture matrix, not hardcoded: a Windows host
+	// adds the drive-lettered probes from claude/windows/.
 	pass := fmt.Sprintf("claude: probes pass (%d)", claudeProbes)
 	var out, errb strings.Builder
 	if code := runSelftest(t, &out, &errb); code != 0 || !strings.Contains(out.String(), pass) {
@@ -179,11 +193,26 @@ func TestSelftestIsDeterministicUnderActiveNightMarker(t *testing.T) {
 	}
 }
 
+func windowsClaudeProbes(t *testing.T) []selftestfixtures.Probe {
+	t.Helper()
+	variants, err := selftestfixtures.LoadPlatformVariants("windows")
+	if err != nil {
+		t.Fatalf("LoadPlatformVariants(windows): %v", err)
+	}
+	var out []selftestfixtures.Probe
+	for _, p := range variants {
+		if p.Plane == "claude" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // Windows hosts send drive-lettered, backslash paths; the Engine normalises
-// them only there. The Windows probes are appended on Windows and stay out
-// of the POSIX matrix, but their shape is checked everywhere.
+// them only there. The Windows probes live in fixtures/claude/windows/ and
+// load only on Windows, while their shape is checked on every host.
 func TestWindowsSelftestProbesAreWellFormed(t *testing.T) {
-	probes := windowsSelftestProbes()
+	probes := windowsClaudeProbes(t)
 	if len(probes) < 3 {
 		t.Fatalf("windows probes = %d, want at least secret read, benign edit, destructive rm", len(probes))
 	}
@@ -212,7 +241,7 @@ func TestWindowsSelftestProbesAreWellFormed(t *testing.T) {
 		t.Fatalf("missing windows probes: %v", want)
 	}
 	onMatrix := 0
-	for _, p := range selftestProbes {
+	for _, p := range mustLoadSelftestProbes(t, runtime.GOOS) {
 		if strings.HasPrefix(p.Name, "windows ") {
 			onMatrix++
 		}
@@ -237,7 +266,7 @@ func TestWindowsSelftestProbesPassOnWindowsHost(t *testing.T) {
 	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	suffix := "selftest-windows-" + t.Name()
-	for _, probe := range windowsSelftestProbes() {
+	for _, probe := range windowsClaudeProbes(t) {
 		payload := strings.ReplaceAll(probe.Payload, "selftest", suffix)
 		var out, errb strings.Builder
 		code := run(append([]string{"hook"}, probe.Args...), strings.NewReader(payload), &out, &errb)
@@ -252,20 +281,21 @@ func TestWindowsSelftestProbesPassOnWindowsHost(t *testing.T) {
 }
 
 // Codex's adapter demands a cwd that is absolute and real, and containment is
-// host-owned, so its two probes are the only ones whose payload has to be
-// spelled per host. Both spellings are checked on every host; a regression
-// that reintroduces a POSIX-only cwd fails here rather than silently turning
-// the codex plane's selftest into two unparseable payloads on Windows.
+// host-owned, so its two probes use fixtures/codex/windows/ on Windows and
+// resolve __TEMPDIR__ to os.TempDir() at load time. Both spellings are checked
+// on every host.
 func TestWindowsCodexSelftestProbesAreHostShaped(t *testing.T) {
 	for _, goos := range []string{"windows", "linux", "darwin"} {
-		probes := codexSelftestProbes(goos)
+		var probes []selftestfixtures.Probe
+		for _, p := range mustLoadSelftestProbes(t, goos) {
+			if p.Plane == "codex" {
+				probes = append(probes, p)
+			}
+		}
 		if len(probes) != 2 {
 			t.Fatalf("%s: %d codex probes, want 2", goos, len(probes))
 		}
 		for _, probe := range probes {
-			if probe.Plane != "codex" {
-				t.Fatalf("%s: %s has plane %q", goos, probe.Name, probe.Plane)
-			}
 			var payload struct {
 				CWD   string `json:"cwd"`
 				Input struct {
@@ -291,9 +321,8 @@ func TestWindowsCodexSelftestProbesAreHostShaped(t *testing.T) {
 			}
 		}
 	}
-	// The running host's pair, and only that pair, is on the matrix.
 	onMatrix := 0
-	for _, probe := range selftestProbes {
+	for _, probe := range mustLoadSelftestProbes(t, runtime.GOOS) {
 		if probe.Plane == "codex" {
 			onMatrix++
 		}
@@ -331,10 +360,12 @@ func TestWindowsSelftestMatrixPasses(t *testing.T) {
 // the marking mechanism itself, so no future probe can silently land
 // unmarked.
 func TestEverySelftestProbeCarriesTheMarkingLiteral(t *testing.T) {
-	for _, probe := range selftestProbes {
-		if !strings.Contains(probe.Payload, "selftest") {
-			t.Errorf("%s/%s: payload lacks the \"selftest\" marking literal; its audit records would be invisible to the explain filter:\n%s",
-				probe.Plane, probe.Name, probe.Payload)
+	for _, goos := range []string{"linux", "darwin", "windows"} {
+		for _, probe := range mustLoadSelftestProbes(t, goos) {
+			if !strings.Contains(probe.Payload, "selftest") {
+				t.Errorf("%s/%s/%s: payload lacks the \"selftest\" marking literal; its audit records would be invisible to the explain filter:\n%s",
+					goos, probe.Plane, probe.Name, probe.Payload)
+			}
 		}
 	}
 }
