@@ -29,7 +29,7 @@ that every tool call reached it (see `Live-mediation evidence` in
 |---|---|---|---|---|
 | Claude Code | **Enforced, observed** [E1] [E2] | CI-tested only [E7] | Registered only [E9] [E11]; enforcement operator-reported, not recorded [E10] | CI-tested only [E7] |
 | opencode | **Enforced, observed** [E2] [E3] | CI-tested only [E7] | Registered only [E11]; enforcement operator-reported, not recorded [E10] | CI-tested only [E7] |
-| Antigravity | **Enforced, observed** [E2] [E4] | CI-tested only [E7] | Unknown; operator-reported, not recorded [E10] | CI-tested only [E7] |
+| Antigravity | **Enforced, observed** [E2] [E4] | **Enforced, observed** [E13] | Unknown; operator-reported, not recorded [E10] | CI-tested only [E7] |
 | Codex | **Enforced, observed** [E5] on Codex 0.159+ with PowerShell: allowed commands run behind a PowerShell working-directory check proven by the session transcript; other shells fail closed; known bypasses [E6] ([#454](https://github.com/CtrlCarlitos/agent-guardrails/issues/454)). Before 0.159 no dispatch ([openai/codex#24453](https://github.com/openai/codex/issues/24453)) | Registered only; pre-hooks observed in a fixture harness, known bypasses [E6] | Registered only [E11]; enforcement unknown [E12] | CI-tested only [E7] |
 
 Notes on the Codex row:
@@ -198,6 +198,16 @@ run.
   shipped; a completed WSL approval after it has not been recorded.
 - **[E12]** The 2026-09-25 execution-contract probe ran Codex 0.154.0 inside
   WSL, but its hooks only observe and never call guardrail.
+- **[E13]** [Linux Antigravity (`agy 1.5.13`) live acceptance proof](evidence/2026-11-21-linux-antigravity-live-acceptance.md)
+  (2026-11-21, `main` at `347c00b`, `linux/amd64`): `test/acceptance/harness.py
+  --host antigravity --live` exited 0 (`pass: 11, fail: 0`,
+  `live_runtime_session_observed: true`), recording real session
+  `16ad5b1e-5d1b-4a3e-9ed9-afebf225658b` denying `read_file` on `.env` as
+  `P4.secret-path` and allowing `read_file` on `hello.txt` with zero secret
+  sentinel leakage and real home untouched. Hermetic lifecycle stages also
+  passed install/update via `install.sh`, `doctor`, `selftest`, prompt-mode
+  `host-ask` approval/retry + replay refusal, PTY `[y/N]` disablement, and
+  corrupt `hooks.json` recovery.
 
 ## Keeping it true
 
