@@ -24,6 +24,8 @@ release's tag so the dotfiles can pin it.
 
 ## Working here
 
+Before dispatching a reviewer, follow the [review preflight](docs/multi-agent-handoff.md#review-preflight). In Codex, review inline and record that independent review was unavailable.
+
 - Go `1.26`; `gofmt` clean, `go vet ./...` clean, `go test ./...` green on Windows before every push; the Linux gate is CI or the handoff's machine recipe, whichever that host documents.
 - Conventional commits, one PR per issue, TDD (failing test first), PR body
   carries root cause and verification per OS. No attribution trailers.
