@@ -55,6 +55,14 @@ explicitly in **Breaking** notes.
   and workspace deletion) as fail-closed `CapabilityDeny`.
 
 ### Tooling & Docs
+- **Feature (#102): pre-push branch-trap check (`scripts/check-branch.sh` and
+  `scripts/check-branch.ps1`, wired to `make check-branch`).** Detects branches
+  that are already merged or squash-merged into the base ref (direct ancestor,
+  deleted `[gone]` upstream tracking branch, single-commit patch-ID matches via
+  `git cherry`, and multi-commit squash-merge commits via synthetic squashed
+  trees) — including new commits accidentally added on top of a squash-merged
+  branch — and prints exact `git checkout -b` and `git cherry-pick` recovery
+  commands. Safe to install directly as `.git/hooks/pre-push`.
 - **Feature (#84): multi-agent worktree cleanup tooling, partial-removal guard,
   and teardown protocol.** Adds `scripts/worktree-clean.sh` (wired to
   `make worktree-clean`) and `scripts/worktree-clean.ps1` to prune merged or
