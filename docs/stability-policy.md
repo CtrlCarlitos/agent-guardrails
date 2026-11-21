@@ -5,10 +5,10 @@ a stable thing is allowed to change. Written for #103.
 
 **Status of this document.** Every release so far carries a `-dev` suffix and no
 `v1.0.0` exists. Until one is tagged, this page is the contract the project
-holds itself to, not a promise with a version number behind it. The stable list
-below was re-verified against `main` (`347c00b`) on 2026-11-21; each claim names
-where it lives so it can be checked again, and `test/docs_stability_test.go`
-pins schema keys and documented surfaces in CI. Where the code and an earlier
+holds itself to, not a promise with a version number behind it. The stable list below was re-verified against `main` (`86b62c9`) on both Windows
+and Linux on 2026-11-21; each claim names where it lives so it can be checked
+again, and `test/docs_stability_test.go` pins schema keys, documented surfaces,
+and the compiled binary's exit-code contract in CI. Where the code and an earlier
 draft of this policy disagreed, the policy was corrected to match the code, never
 the reverse (see [Known deviations](#known-deviations-from-the-tidy-story)).
 
@@ -99,9 +99,9 @@ Additive stable CLI surfaces verified on `main`:
 | Code | Meaning |
 |---|---|
 | 0 | The command did what was asked, or there was nothing to do. For `hook`: the call is allowed or asked (an ask is an answer, not a failure). |
-| 1 | The command ran and reports a state or check that is not "fine": `night status` while night mode is inactive, `status` when unproven or unhealthy, `explain`/`report` when nothing matched, `doctor --coverage` with uncontracted tools, `selftest --evidence` without enough evidence, `update` whose post-install `doctor` or `selftest` failed. A state, not a crash. |
+| 1 | The command ran and reports a state or check that is not "fine": `night status` while night mode is inactive, `status` when unproven or unhealthy, `explain`/`report` when nothing matched, `doctor --coverage` with uncontracted tools, `selftest` when any probe fails, `selftest --evidence` without enough evidence, `update` whose post-install `doctor` or `selftest` failed. A state, not a crash. |
 | 2 | Usage error or the command could not run: unknown subcommand, missing or bad arguments, unreadable input, no terminal where one is required. For `hook`: deny, or fail-closed. |
-| 3 | Operator action pending (`exitOperatorActionPending`, `cmd/guardrail/plane.go`): the change is waiting on the operator's approval (a terminal `[y/N]` or host ask in prompt mode, a passkey in passkey mode) or, in passkey mode, enrollment; nothing was loosened. A declined `[y/N]` for `setup` or `plane` is also 3. Not a failure. Returned by `setup`, `plane enable|disable` and `recover`. |
+| 3 | Operator action pending (`exitOperatorActionPending`, `cmd/guardrail/plane.go`): the change is waiting on the operator's approval (a terminal `[y/N]` or host ask in prompt mode, a passkey in passkey mode) or, in passkey mode, enrollment; nothing was loosened. A declined `[y/N]` for `setup` or `plane` is also 3. Not a failure. Returned by `setup`, `plane enable|disable`, `recover`, `delivery enable`, `approvals grant`, and `operator trust|untrust` (in passkey mode when not enrolled). |
 
 The code is per command family, so read it with the command: `1` means a check
 said no, `2` means the command did not run. A script may rely on `0` meaning
