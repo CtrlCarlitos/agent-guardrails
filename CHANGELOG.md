@@ -6,6 +6,13 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Policy
+- **Fresh approval for consequential shell actions (#234).** Publication,
+  deployment, remote cluster mutation, and cloud mutation asks keep their
+  rule IDs and require fresh operator approval. Night mode, command grants,
+  Overlay waivers, and inferred OpenCode retry approvals no longer satisfy
+  these asks. A host-confirmed OpenCode approval still applies to its call.
+
 ### CLI
 - **Feature (#131): `guardrail operator trust` / `untrust` repository Overlay
   snapshots.** Adds interactive-terminal-only `guardrail operator trust

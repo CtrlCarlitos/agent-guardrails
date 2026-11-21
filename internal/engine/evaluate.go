@@ -170,7 +170,7 @@ func evaluateVerdict(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 		if h == nil {
 			continue
 		}
-		if worst == nil || h.Decision.Severity() > worst.Decision.Severity() {
+		if takesPrecedence(h, worst) {
 			worst = h
 		}
 	}
@@ -178,6 +178,18 @@ func evaluateVerdict(tc ToolCall, pol *policy.Policy) (out policy.Verdict) {
 		return policy.Verdict{Decision: policy.Allow}
 	}
 	return *worst
+}
+
+// Keep a fresh approval requirement visible when several checks Ask.
+func takesPrecedence(candidate, current *policy.Verdict) bool {
+	if current == nil {
+		return true
+	}
+	if candidate.Decision != current.Decision {
+		return candidate.Decision.Severity() > current.Decision.Severity()
+	}
+	return candidate.Decision == policy.Ask &&
+		policy.RequiresFreshApproval(candidate.RuleID) && !policy.RequiresFreshApproval(current.RuleID)
 }
 
 func canonicalExistingPath(path string) string {

@@ -153,6 +153,9 @@ func EmitCodex(v policy.Verdict, event string, tc engine.ToolCall, stdout, stder
 // and fail-closed backstops must never advertise an operator grant.
 func CodexAskGuidance(v policy.Verdict, command bool) string {
 	prefix := "Guardrail requires operator authorization: " + sanitizeForModel(v.Reason) + ". Codex PreToolUse cannot request approval. "
+	if policy.RequiresFreshApproval(v.RuleID) {
+		return prefix + "Tell the operator the exact action so they can run it in their terminal. Continue independent work."
+	}
 	if policy.NeverGrantable(v.RuleID) {
 		return prefix + "This rule cannot be granted. Report the finding to the operator and follow the rule's diagnostic guidance before retrying; continue independent work. Chat approval cannot clear this verdict."
 	}
