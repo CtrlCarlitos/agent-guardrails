@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/CtrlCarlitos/agent-guardrails/actions/workflows/ci.yml/badge.svg)](https://github.com/CtrlCarlitos/agent-guardrails/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/CtrlCarlitos/agent-guardrails?include_prereleases&sort=semver)](https://github.com/CtrlCarlitos/agent-guardrails/releases)
-![Go](https://img.shields.io/badge/go-1.25-00ADD8?logo=go)
+![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go)
 ![Planes](https://img.shields.io/badge/planes-Claude%20Code%20%C2%B7%20opencode%20%C2%B7%20Antigravity%20%C2%B7%20Codex-blueviolet)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
@@ -173,7 +173,7 @@ MCP tools are handled by a shared registry: known families (serena, graft, …) 
 <details>
 <summary>Prefer to build from source?</summary>
 
-Use the Go version from [go.mod](./go.mod) (currently Go 1.25):
+Use the Go version from [go.mod](./go.mod) (currently Go 1.26):
 
 ```sh
 git clone https://github.com/CtrlCarlitos/agent-guardrails.git
