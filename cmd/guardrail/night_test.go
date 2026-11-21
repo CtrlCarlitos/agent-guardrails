@@ -358,7 +358,7 @@ func TestNightHelp(t *testing.T) {
 	isolateNightConfig(t)
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"night", "--help"}, strings.NewReader(""), &stdout, &stderr)
-	want := "usage:\n  guardrail night on [--until HH:MM | --for 8h]\n  guardrail night off\n  guardrail night status\n"
+	want := "usage:\n  guardrail night on [--scope global|repo|session] [--repo <path>] [--session <id>] [--until HH:MM | --for 8h]\n  guardrail night off\n  guardrail night status\n"
 	if code != 0 || stdout.String() != want || stderr.String() != "" {
 		t.Fatalf("night --help = code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
 	}

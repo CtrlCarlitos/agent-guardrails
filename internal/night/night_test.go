@@ -155,3 +155,130 @@ func TestRemoveIsIdempotent(t *testing.T) {
 		t.Fatalf("marker still exists after Remove(): %v", err)
 	}
 }
+
+func TestScopedRepoMarkerWriteLoadAndMatches(t *testing.T) {
+	dir := t.TempDir()
+	repoA := filepath.Join(dir, "repo-a")
+	repoB := filepath.Join(dir, "repo-b")
+	if err := os.MkdirAll(repoA, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(repoB, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(dir, "guardrail", "night.toml")
+	want := Marker{
+		Until: testNow.Add(8 * time.Hour),
+		SetBy: "workstation:1234",
+		Scope: ScopeRepo,
+		Repo:  repoA,
+	}
+	if err := Write(path, want); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Load(path, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Active || got.EffectiveScope() != ScopeRepo {
+		t.Fatalf("Load() = %+v, want active repo scope", got)
+	}
+	if !got.Matches(repoA, "any-session") {
+		t.Fatalf("expected repoA to match: %+v", got)
+	}
+	if got.Matches(repoB, "any-session") {
+		t.Fatalf("expected repoB NOT to match: %+v", got)
+	}
+	if got.Matches("", "any-session") {
+		t.Fatalf("expected empty repoRoot NOT to match: %+v", got)
+	}
+	if !strings.Contains(got.Banner(), "repo ") || !strings.Contains(got.Banner(), "2026-09-11T05:00:00Z") {
+		t.Fatalf("Banner() = %q, want repo scope and expiry", got.Banner())
+	}
+
+	expired, err := Load(path, testNow.Add(9*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expired.Matches(repoA, "any-session") {
+		t.Fatalf("expired repo marker must not match")
+	}
+}
+
+func TestScopedSessionMarkerWriteLoadAndMatches(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "guardrail", "night.toml")
+	want := Marker{
+		Until:   testNow.Add(4 * time.Hour),
+		SetBy:   "workstation:1234",
+		Scope:   ScopeSession,
+		Session: "sess-overnight-42",
+	}
+	if err := Write(path, want); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Load(path, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Active || got.EffectiveScope() != ScopeSession {
+		t.Fatalf("Load() = %+v, want active session scope", got)
+	}
+	if !got.Matches("/any/repo", "sess-overnight-42") {
+		t.Fatalf("expected matching session to match: %+v", got)
+	}
+	if got.Matches("/any/repo", "sess-daytime-99") {
+		t.Fatalf("expected different session NOT to match: %+v", got)
+	}
+	if got.Matches("/any/repo", "") {
+		t.Fatalf("expected empty session NOT to match: %+v", got)
+	}
+	if !strings.Contains(got.Banner(), "session sess-overnight-42") {
+		t.Fatalf("Banner() = %q, want session id", got.Banner())
+	}
+}
+
+func TestGlobalMarkerMatchesEveryRepoAndSession(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "night.toml")
+	if err := Write(path, Marker{Until: testNow.Add(time.Hour), SetBy: "host:1"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.EffectiveScope() != ScopeGlobal || !got.Matches("/any/repo", "any-session") || !got.Matches("", "") {
+		t.Fatalf("global marker = %+v, expected universal match", got)
+	}
+}
+
+func TestLoadAndWriteRejectInvalidScopedMarkers(t *testing.T) {
+	absRepo := filepath.Join(t.TempDir(), "repo")
+	invalid := []struct {
+		name   string
+		marker Marker
+		want   string
+	}{
+		{"unknown scope", Marker{Until: testNow.Add(time.Hour), SetBy: "h:1", Scope: "cluster"}, "scope"},
+		{"repo scope missing repo", Marker{Until: testNow.Add(time.Hour), SetBy: "h:1", Scope: ScopeRepo}, "repo"},
+		{"repo scope relative path", Marker{Until: testNow.Add(time.Hour), SetBy: "h:1", Scope: ScopeRepo, Repo: "relative/repo"}, "absolute"},
+		{"repo scope with session", Marker{Until: testNow.Add(time.Hour), SetBy: "h:1", Scope: ScopeRepo, Repo: absRepo, Session: "s1"}, "session"},
+		{"session scope missing session", Marker{Until: testNow.Add(time.Hour), SetBy: "h:1", Scope: ScopeSession}, "session"},
+		{"session scope with repo", Marker{Until: testNow.Add(time.Hour), SetBy: "h:1", Scope: ScopeSession, Session: "s1", Repo: absRepo}, "repo"},
+		{"session scope with whitespace", Marker{Until: testNow.Add(time.Hour), SetBy: "h:1", Scope: ScopeSession, Session: "bad\nsession"}, "session"},
+		{"global scope with repo", Marker{Until: testNow.Add(time.Hour), SetBy: "h:1", Scope: ScopeGlobal, Repo: absRepo}, "repo"},
+		{"global scope with session", Marker{Until: testNow.Add(time.Hour), SetBy: "h:1", Scope: ScopeGlobal, Session: "s1"}, "session"},
+	}
+	for _, tt := range invalid {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "night.toml")
+			err := Write(path, tt.marker)
+			if err == nil || !strings.Contains(strings.ToLower(err.Error()), tt.want) {
+				t.Fatalf("Write(%+v) = %v, want error mentioning %q", tt.marker, err, tt.want)
+			}
+		})
+	}
+}

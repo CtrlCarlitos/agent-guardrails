@@ -24,6 +24,16 @@ explicitly in **Breaking** notes.
   `proof.json` alongside the legacy marker, and aligns `selftestMarkerPath`
   with Windows `LOCALAPPDATA`.
 
+### Engine
+- **Feature (#83): scoped night mode (`--scope global|repo|session`).**
+  `guardrail night on` now supports `--scope repo` (targeting the current git
+  repository or `--repo <path>`, matched via `pathutil.Same`) and `--scope
+  session` (targeting `--session <id>` or `GUARDRAIL_SESSION_ID`), in addition
+  to the default `global` scope. Hooks evaluate `nightState.Matches(repoRoot,
+  sessionID)` before relaxing routine asks or showing night banners, leaving
+  other repositories and daytime sessions at full rigor while preserving
+  external-tier asks per ADR-0018.
+
 ### Adapters
 - **Fix (#649): contract Antigravity `agy 1.5.x` native tools (`read_file`,
   `write_file`, `edit_file`, `run_workflow`, `swarm`).** Live Linux acceptance

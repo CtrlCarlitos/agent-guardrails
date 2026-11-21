@@ -199,6 +199,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 		}, mergeWarnings...)
 	}
 
+	nightApplies := nightState.Matches(tc.RepoRoot, tc.SessionID)
 	if tc.Event == "session-start" {
 		stderrWarnings := append(append([]string{}, highPriorityWarnings...), mergeWarnings...)
 		adapter.EmitModelWarnings(stderrWarnings, stderr)
@@ -217,7 +218,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 		if line := engineHealthPosture(currentEngineHealth()); line != "" {
 			text += "\n\n" + line
 		}
-		if nightState.Active {
+		if nightApplies {
 			text = nightState.Banner() + "\n" + text
 		}
 		return adapter.EmitClaudeSessionStart(text, stdout)
@@ -230,9 +231,9 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 		hasOperatorAction = false
 	}
 	approvalKey, approvalEnabled := engine.OpenCodeApprovalKey(tc)
-	approvalEnabled = approvalEnabled && !nightState.Active
+	approvalEnabled = approvalEnabled && !nightApplies
 	needsP7 := tc.Event == "pre" && engine.TrifectaTrackingEnabled(merged)
-	needsNightAnnouncement := nightState.Active && tc.Event == "pre" && plane != "claude"
+	needsNightAnnouncement := nightApplies && tc.Event == "pre" && plane != "claude"
 	needsState := tc.SessionID != "" && (needsP7 || approvalEnabled || needsNightAnnouncement)
 	var v policy.Verdict
 	stateApplied := false
@@ -324,7 +325,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 	}
 	normalVerdict := v
 	if !hasOperatorAction {
-		v = engine.ApplyNightMode(v, nightState.Active)
+		v = engine.ApplyNightMode(v, nightApplies)
 	}
 	nightAllowed := normalVerdict.Decision == policy.Ask && v.Decision == policy.Allow && v.RuleID == "ask-allowed-by-night-mode"
 	// A command grant is tried only on what is still an Ask, so an overnight
