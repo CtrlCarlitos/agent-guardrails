@@ -144,7 +144,7 @@ Guardrail-protected machinery. It shows the normalized repair, requires
 WebAuthn, and cannot execute arbitrary shell text supplied by a plane.
 
 **MCP family registry**:
-The central table (ADR-0017) typing known MCP server tools — serena, graft —
+The central table (ADR-0017) typing known MCP server tools (such as serena)
 with per-tool capability classification and path-argument names, so their
 mutations and reads run through the full path policy on every plane whose
 adapter wires it. Unknown MCP tools ask rather than silently allowing.
