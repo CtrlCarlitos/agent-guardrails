@@ -1,7 +1,7 @@
 # Platform Acceptance Harness (#92)
 
 Reusable lifecycle acceptance runner for Guardrail across hosts and platforms,
-covering **Antigravity (`agy`) on Linux and Windows**.
+covering **Antigravity (`agy`) on Linux and Windows** and **Codex on Linux**.
 
 ## Running
 
@@ -52,6 +52,28 @@ If `agy` has no credentials in the isolated home, `live_runtime_mediation`
 reports `operator_assisted` rather than faking validation; pass
 `--live-auth-from <disposable-auth-dir>` to supply non-hook auth state from a
 dedicated disposable account.
+
+### Linux + Codex lifecycle acceptance
+
+```sh
+make acceptance-linux-codex
+python3 -B test/acceptance/harness.py --host codex --live --report /tmp/acceptance-linux-codex-live.json
+```
+
+The hermetic stages install and update from local checksummed releases, inspect
+the generated hooks and native escalation floor, and exercise the installed
+adapter with synthetic hook input. Terminal disablement preserves user hooks,
+user rules, and the native escalation floor. To recover a corrupt hooks file
+in the isolated home, the runner moves it to a backup and re-enables Codex
+through a terminal, then compares the backup with the original fixture bytes.
+
+The live stage checks for isolated authentication before running `codex exec`.
+Supply a dedicated disposable Codex state directory via `--live-auth-from` or
+an `OPENAI_API_KEY` for the opt-in run. The runner copies only the disposable
+`auth.json` and removes it after the runtime check. The live claim requires
+allowed shell output, a blocked fake secret read, and matching session evidence
+from `guardrail selftest --evidence codex`. Missing isolated authentication
+is reported as `operator_assisted`.
 
 ## Stage Statuses
 

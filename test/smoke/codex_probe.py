@@ -264,6 +264,7 @@ try:
     if len(pre) != expected_hooks:
         errors.append(f"Expected {expected_hooks} native pre-hooks, observed {len(pre)}")
     by_id = {event["input"].get("tool_use_id"): event for event in pre}
+    alternate_cwd_denied = False
     for i, (name, args, expected) in enumerate(calls):
         event = pre[i] if code_mode and i < len(pre) else by_id.get(f"call_{i}")
         if expected is None:
@@ -271,6 +272,13 @@ try:
                 errors.append(f"Case {i} {name}: expected native unsupported-tool rejection")
             continue
         canonical = "Bash" if name == "exec_command" else name
+        if name == "exec_command" and args["cmd"] == "cat token.txt" and event is not None:
+            # Newer Codex sends the effective workdir. Require a policy
+            # denial on that path, or the directory guard on older envelopes.
+            effective = Path(event["input"]["cwd"]).resolve()
+            if effective == (workspace / ".ssh").resolve():
+                expected = 2
+                alternate_cwd_denied = event["exit"] == 2 and "P4.secret-path" in event["stderr"]
         if event is None or event["input"]["tool_name"] != canonical or event["exit"] != expected:
             errors.append(f"Case {i} {name}: expected {canonical}/{expected}, got {event}")
     post = [event for event in events if event["input"]["hook_event_name"] == "PostToolUse"]
@@ -280,8 +288,8 @@ try:
         errors.append("Allowed patch sequence did not execute")
     if "fake secret-directory fixture" in json.dumps(requests):
         errors.append("Alternate workdir leaked the fake secret-directory content")
-    if "Codex workdir differs" not in json.dumps(requests):
-        errors.append("Alternate workdir was not stopped by the evaluated-directory guard")
+    if not alternate_cwd_denied and "Codex workdir differs" not in json.dumps(requests):
+        errors.append("Alternate workdir was not stopped by the secret-path rule or evaluated-directory guard")
     if (root / "mcp-executed").exists():
         errors.append("Denied MCP tool executed")
     for path in [".env.test", ".codex/blocked.txt"]:

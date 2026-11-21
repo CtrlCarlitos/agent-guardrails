@@ -67,5 +67,9 @@ acceptance-test:
 acceptance-linux-antigravity:
 	python3 -B test/acceptance/harness.py --host antigravity
 
+.PHONY: acceptance-linux-codex
+acceptance-linux-codex:
+	python3 -B test/acceptance/harness.py --host codex
+
 acceptance-windows-antigravity:
 	python -B test/acceptance/harness.py --host antigravity

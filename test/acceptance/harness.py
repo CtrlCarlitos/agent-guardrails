@@ -265,6 +265,8 @@ class IsolationGuard:
         Path("AppData") / "Roaming" / "guardrail" / "waivers.toml",
         Path(".claude") / "settings.json",
         Path(".codex") / "hooks.json",
+        Path(".codex") / "config.toml",
+        Path(".codex") / "rules" / "guardrail.rules",
     )
 
     def __init__(self, real_home: Path, snapshots: Mapping[Path, FileSnapshot]) -> None:
@@ -489,7 +491,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--host",
         default="antigravity",
-        choices=("antigravity",),
+        choices=("antigravity", "codex"),
         help="Target host plane to exercise (default: antigravity).",
     )
     parser.add_argument(
@@ -567,8 +569,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 keep_artifacts=args.keep_artifacts,
             )
     else:
-        print(f"unsupported host: {args.host}", file=sys.stderr)
-        return EXIT_SKIP_PREREQ
+        import linux_codex
+
+        code, report = linux_codex.run_linux_codex_acceptance(
+            live=args.live,
+            live_auth_from=args.live_auth_from,
+            v1_binary=args.v1_binary,
+            v2_binary=args.v2_binary,
+            keep_artifacts=args.keep_artifacts,
+        )
 
     if report is not None:
         encoded = json.dumps(report, indent=2, sort_keys=False) + "\n"
