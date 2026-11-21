@@ -49,6 +49,17 @@ explicitly in **Breaking** notes.
   `--path <file>`.
 
 ### Engine
+- **Fix (#151): close ADR-0039 worktree-provenance compound-command, `-C`, and
+  redirection bypasses; record fail-open inventory sweep.** Tightens
+  `cmd/guardrail/provenance.go` so session-created worktree provenance relaxes
+  only a single, simple, un-redirected, assignment-free, static-literal
+  `git [-C dir] worktree remove [-f|--force] [--] <path>` command resolved
+  against its effective `-C` directory (blocking compound smuggling such as
+  `git worktree remove <own> && git branch -D main` or `&& git worktree remove
+  <other>`, redirections, env overrides, and cross-repo `-C` mismatches), wires
+  provenance before daemon audit recording for parity, and archives the
+  complete `#151` fail-open sweep in
+  `docs/evidence/2026-11-21-fail-open-inventory-sweep.md`.
 - **Feature (#83): scoped night mode (`--scope global|repo|session`).**
   `guardrail night on` now supports `--scope repo` (targeting the current git
   repository or `--repo <path>`, matched via `pathutil.Same`) and `--scope

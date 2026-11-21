@@ -98,6 +98,7 @@ func cmdDaemon(args []string, stdout, stderr io.Writer) int {
 					v = *rv
 				}
 			}
+			v = applyWorktreeProvenance(tc, v, time.Now())
 
 			// Record audit with transport tag per ADR-0025 controller review
 			rec := auditRecord(tc, v, policy.SortedWaivers(merged))
