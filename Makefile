@@ -2,7 +2,7 @@ GO ?= /usr/local/go/bin/go
 VERSION ?= dev
 CGO_ENABLED ?= 0
 
-.PHONY: build test fmt contract golden vet adversarial check dist smoke installer-test installer-test-windows acceptance-test acceptance-linux-antigravity worktree-clean
+.PHONY: build test fmt contract golden vet adversarial check dist smoke installer-test installer-test-windows acceptance-test acceptance-linux-antigravity acceptance-windows-antigravity worktree-clean
 
 build:
 	$(GO) build -ldflags "-X main.version=$(VERSION)" -o guardrail ./cmd/guardrail
@@ -60,3 +60,6 @@ acceptance-test:
 
 acceptance-linux-antigravity:
 	python3 -B test/acceptance/harness.py --host antigravity
+
+acceptance-windows-antigravity:
+	python -B test/acceptance/harness.py --host antigravity

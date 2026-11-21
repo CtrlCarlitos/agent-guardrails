@@ -1,7 +1,7 @@
 # Platform Acceptance Harness (#92)
 
 Reusable lifecycle acceptance runner for Guardrail across hosts and platforms,
-starting with **Antigravity (`agy`) on Linux** as the first real host target.
+covering **Antigravity (`agy`) on Linux and Windows**.
 
 ## Running
 
@@ -21,6 +21,21 @@ Builds local `v0.0.1-accept` and `v0.0.2-accept` binaries into a disposable temp
 root, runs every lifecycle stage inside an isolated `HOME`/`XDG_*`/`ANTIGRAVITY_APP_DATA_DIR`,
 prints a sanitized JSON report to stdout (and writes `--report`), verifies the
 real user's `$HOME` was untouched, and removes the temp root.
+
+### Windows + Antigravity lifecycle acceptance (offline / hermetic)
+
+```powershell
+python -B test/acceptance/harness.py --host antigravity --report "$env:TEMP\acceptance-windows-antigravity.json"
+```
+
+Builds local `v0.0.1-accept` and `v0.0.2-accept` `guardrail.exe` binaries into a
+disposable temp root, runs every lifecycle stage inside an isolated Windows
+profile (`USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `ANTIGRAVITY_APP_DATA_DIR`,
+with `XDG_*` stripped and `HKCU\Environment\Path` snapshotted and restored),
+exercises `install.ps1` checksum-verified install and update, `view_file` and
+`read_file` secret denies, ADR-0033 host-ask approval/retry, disablement, and
+recovery, prints a sanitized JSON report, verifies the real user's profile and
+`HKCU\Environment\Path` were untouched, and removes the temp root.
 
 ### Opt-in live `agy` runtime mediation (`--live`)
 
