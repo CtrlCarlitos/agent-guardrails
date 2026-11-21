@@ -38,6 +38,7 @@ usage: guardrail <command> [arguments]
       --binary <path>      guardrail path to register in hook commands (default "guardrail")
   night on                          relax ask verdicts to allow until morning
       --until HH:MM | --for 8h      optional window (default 8h)
+      --scope global|repo|session   optional lease scope (default global; --repo <path> or --session <id>)
   night off                         restore normal enforcement
   night status                      print night-mode state
   web-research on|off|status         operator-controlled native research enforcement

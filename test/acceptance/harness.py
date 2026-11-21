@@ -262,6 +262,7 @@ class IsolationGuard:
     WATCHED_RELATIVE_PATHS: tuple[Path, ...] = (
         Path(".gemini") / "config" / "hooks.json",
         Path(".config") / "guardrail" / "waivers.toml",
+        Path("AppData") / "Roaming" / "guardrail" / "waivers.toml",
         Path(".claude") / "settings.json",
         Path(".codex") / "hooks.json",
     )
@@ -531,20 +532,40 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def select_antigravity_runner(platform_name: Optional[str] = None) -> str:
+    """Return the Antigravity acceptance runner module name for this platform."""
+    plat = sys.platform if platform_name is None else platform_name
+    if plat == "win32":
+        return "windows_antigravity"
+    return "linux_antigravity"
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     if args.host == "antigravity":
-        import linux_antigravity  # noqa: PLC0415
+        runner_name = select_antigravity_runner()
+        if runner_name == "windows_antigravity":
+            import windows_antigravity  # noqa: PLC0415
 
-        code, report = linux_antigravity.run_linux_antigravity_acceptance(
-            live=args.live,
-            live_auth_from=args.live_auth_from,
-            v1_binary=args.v1_binary,
-            v2_binary=args.v2_binary,
-            keep_artifacts=args.keep_artifacts,
-        )
+            code, report = windows_antigravity.run_windows_antigravity_acceptance(
+                live=args.live,
+                live_auth_from=args.live_auth_from,
+                v1_binary=args.v1_binary,
+                v2_binary=args.v2_binary,
+                keep_artifacts=args.keep_artifacts,
+            )
+        else:
+            import linux_antigravity  # noqa: PLC0415
+
+            code, report = linux_antigravity.run_linux_antigravity_acceptance(
+                live=args.live,
+                live_auth_from=args.live_auth_from,
+                v1_binary=args.v1_binary,
+                v2_binary=args.v2_binary,
+                keep_artifacts=args.keep_artifacts,
+            )
     else:
         print(f"unsupported host: {args.host}", file=sys.stderr)
         return EXIT_SKIP_PREREQ

@@ -15,6 +15,16 @@ explicitly in **Breaking** notes.
   `--lines N` (`-n N`) to replay recent matching records across segments, and
   `--path <file>`.
 
+### Engine
+- **Feature (#83): scoped night mode (`--scope global|repo|session`).**
+  `guardrail night on` now supports `--scope repo` (targeting the current git
+  repository or `--repo <path>`, matched via `pathutil.Same`) and `--scope
+  session` (targeting `--session <id>` or `GUARDRAIL_SESSION_ID`), in addition
+  to the default `global` scope. Hooks evaluate `nightState.Matches(repoRoot,
+  sessionID)` before relaxing routine asks or showing night banners, leaving
+  other repositories and daytime sessions at full rigor while preserving
+  external-tier asks per ADR-0018.
+
 ### Adapters
 - **Fix (#649): contract Antigravity `agy 1.5.x` native tools (`read_file`,
   `write_file`, `edit_file`, `run_workflow`, `swarm`).** Live Linux acceptance
@@ -56,6 +66,21 @@ explicitly in **Breaking** notes.
   path tests (`internal/pathutil` added to CI's `windows-shaped tests`).
 
 ### Testing
+- **Feature (#92): Windows + Antigravity (`agy`) platform acceptance target.**
+  Extends `test/acceptance/` with `windows_antigravity.py` (dispatched
+  automatically by `harness.py --host antigravity` on Windows and wired to
+  `make acceptance-windows-antigravity`). Exercises the full Guardrail lifecycle
+  inside an isolated Windows profile (`USERPROFILE`, `APPDATA`, `LOCALAPPDATA`,
+  `ANTIGRAVITY_APP_DATA_DIR`, `XDG_*` stripped, `HKCU\Environment\Path`
+  snapshotted and restored): `install.ps1` checksum-verified local install and
+  update, ADR-0033 prompt-mode enrollment posture, enablement, hook trust /
+  `doctor` / `selftest`, `view_file` + `read_file` harmless secret denies
+  (`P4.secret-path`), ADR-0033 host-ask approval/retry + replay refusal,
+  disablement with user-config preservation, corrupt `hooks.json` recovery with
+  backup verification, real-home + registry isolation verification, and opt-in
+  `--live` Windows `agy -p` mediation. Adds 6 cross-OS unit tests to
+  `test/acceptance/test_acceptance.py` and extends `IsolationGuard` to watch
+  Windows `AppData/Roaming/guardrail/waivers.toml`.
 - **Feature (#92): reusable platform acceptance harness, starting with
   Antigravity (`agy`) on Linux.** `test/acceptance/` runs the Guardrail
   lifecycle in a disposable isolated `HOME`/`XDG_*`/`ANTIGRAVITY_APP_DATA_DIR`
