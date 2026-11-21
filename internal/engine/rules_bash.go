@@ -129,10 +129,10 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 		if v == nil {
 			return
 		}
-		if pol.Waived[v.RuleID] && v.RuleID != "P3.unresolved" {
+		if pol.Waived[v.RuleID] && v.RuleID != "P3.unresolved" && !policy.RequiresFreshApproval(v.RuleID) {
 			return
 		}
-		if worst == nil || v.Decision.Severity() > worst.Decision.Severity() {
+		if takesPrecedence(v, worst) {
 			worst = v
 		}
 	}
@@ -141,10 +141,10 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 	evaluateSimple := func(s Simple, findFSExemption bool) *policy.Verdict {
 		var simpleWorst *policy.Verdict
 		takeSimple := func(v *policy.Verdict) {
-			if v == nil || pol.Waived[v.RuleID] && v.RuleID != "P3.unresolved" {
+			if v == nil || pol.Waived[v.RuleID] && v.RuleID != "P3.unresolved" && !policy.RequiresFreshApproval(v.RuleID) {
 				return
 			}
-			if simpleWorst == nil || v.Decision.Severity() > simpleWorst.Decision.Severity() {
+			if takesPrecedence(v, simpleWorst) {
 				simpleWorst = v
 			}
 		}

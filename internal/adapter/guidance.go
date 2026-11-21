@@ -14,6 +14,9 @@ func Guidance(v policy.Verdict, action string) string {
 		if v.RuleID == OperatorActionAskRuleID {
 			return operatorAskGuidance(v)
 		}
+		if policy.RequiresFreshApproval(v.RuleID) {
+			return fmt.Sprintf("Operator authorization required: %s. Exact action: %s. %s", v.Reason, action, askApprovalPath(v))
+		}
 		// #446: a Windows-only suffix here ("in-session approval is not yet
 		// available … run it from a terminal") outlived the ADR-0021 broker it
 		// waited on and sent agents to the operator's terminal instead of
@@ -62,6 +65,9 @@ func NextStep(v policy.Verdict) string {
 func askApprovalPath(v policy.Verdict) string {
 	if v.RuleID == OperatorActionAskRuleID {
 		return operatorAskNextStep
+	}
+	if policy.RequiresFreshApproval(v.RuleID) {
+		return "Approve this exact call in the host permission prompt. If no prompt appears, give the command to the operator to run in their terminal."
 	}
 	if v.ApprovalURL != "" {
 		return fmt.Sprintf("Approval path: this is a broker approval — open %s and complete the passkey ceremony. Telling the operator in chat will not clear it.", v.ApprovalURL)

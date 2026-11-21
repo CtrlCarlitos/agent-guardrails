@@ -170,7 +170,9 @@ func cmdApprovalsListGrants(stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "%s\n", repo)
 		for _, g := range op.Repos[repo].Commands {
 			state := "spent"
-			if g.Live(now) {
+			if policy.RequiresFreshApproval(g.RuleID) {
+				state = "inactive: rule requires fresh approval"
+			} else if g.Live(now) {
 				state = fmt.Sprintf("%d use(s) left, expires %s", g.RemainingUses(), g.ExpiresAt.Local().Format(time.RFC3339))
 			} else if !g.ExpiresAt.IsZero() && !now.Before(g.ExpiresAt) {
 				state = "expired"

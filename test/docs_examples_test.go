@@ -186,11 +186,8 @@ func assertOverlayExampleVerdicts(t *testing.T, label string, overlayPath string
 	if v := evalBash(polNoOp, "terraform apply -auto-approve"); v.Decision != policy.Ask {
 		t.Fatalf("%s: terraform apply = (%s, %s), want ask", label, v.Decision, v.RuleID)
 	}
-	// Verify the overlay's [[rules]] entry itself matches when the built-in P6.cloud-mutate tie-breaker is waived.
-	polOnlyOverlayRule := *polNoOp
-	polOnlyOverlayRule.Waived = map[string]bool{"P6.cloud-mutate": true}
-	if v := evalBash(&polOnlyOverlayRule, "terraform apply -auto-approve"); v.Decision != policy.Ask || v.RuleID != "project.terraform-apply" {
-		t.Fatalf("%s: overlay rule project.terraform-apply = (%s, %s), want (ask, project.terraform-apply)", label, v.Decision, v.RuleID)
+	if v := evalBash(polNoOp, "make deploy-preview"); v.Decision != policy.Ask || v.RuleID != "project.deploy-preview" {
+		t.Fatalf("%s: overlay rule project.deploy-preview = (%s, %s), want (ask, project.deploy-preview)", label, v.Decision, v.RuleID)
 	}
 	if v := evalBash(polNoOp, "rm -rf ./tmp/build"); v.Decision != policy.Allow {
 		t.Fatalf("%s: rm -rf ./tmp/build = (%s, %s, %s), want allow", label, v.Decision, v.RuleID, v.Reason)

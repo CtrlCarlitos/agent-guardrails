@@ -57,7 +57,20 @@ var outwardReachAsks = map[string]bool{
 
 // NeverRelaxable reports whether an Ask stays an Ask no matter which
 // operator-issued relaxation is asking (ADR-0018).
-func NeverRelaxable(ruleID string) bool { return outwardReachAsks[ruleID] }
+func NeverRelaxable(ruleID string) bool {
+	return outwardReachAsks[ruleID] || RequiresFreshApproval(ruleID)
+}
+
+// RequiresFreshApproval identifies consequential shell actions whose Ask
+// cannot be waived or satisfied by inferring approval from a retry.
+func RequiresFreshApproval(ruleID string) bool {
+	switch ruleID {
+	case "P6.publish", "P6.deploy", "P6.cluster-mutate", "P6.cloud-mutate":
+		return true
+	default:
+		return false
+	}
+}
 
 // NeverGrantable reports whether a rule can never be covered by a command
 // grant: ADR-0018's outward reach, plus the fail-closed backstops that can

@@ -6,6 +6,12 @@ run at any hour; the ones that change anything ask for your approval first: a
 `approval = "passkey"` ([operator-approvals.md](operator-approvals.md),
 ADR-0033). Where a row below says "Passkey", read "approval".
 
+Publication, deployment, remote cluster mutation, and cloud mutation asks
+require fresh approval. Previously issued command grants for these rules
+appear as inactive in `guardrail approvals list --grants`, and Overlay waiver requests
+are reported as dropped. Use the host's operator prompt where supported.
+Codex hands these asks to the operator because its hooks cannot prompt.
+
 ## Autonomous delivery
 
 For the standing "fix on red, merge on green, clean up on merged" workflow,
