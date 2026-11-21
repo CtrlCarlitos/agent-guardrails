@@ -57,6 +57,21 @@ explicitly in **Breaking** notes.
   path tests (`internal/pathutil` added to CI's `windows-shaped tests`).
 
 ### Testing
+- **Feature (#92): Windows + Antigravity (`agy`) platform acceptance target.**
+  Extends `test/acceptance/` with `windows_antigravity.py` (dispatched
+  automatically by `harness.py --host antigravity` on Windows and wired to
+  `make acceptance-windows-antigravity`). Exercises the full Guardrail lifecycle
+  inside an isolated Windows profile (`USERPROFILE`, `APPDATA`, `LOCALAPPDATA`,
+  `ANTIGRAVITY_APP_DATA_DIR`, `XDG_*` stripped, `HKCU\Environment\Path`
+  snapshotted and restored): `install.ps1` checksum-verified local install and
+  update, ADR-0033 prompt-mode enrollment posture, enablement, hook trust /
+  `doctor` / `selftest`, `view_file` + `read_file` harmless secret denies
+  (`P4.secret-path`), ADR-0033 host-ask approval/retry + replay refusal,
+  disablement with user-config preservation, corrupt `hooks.json` recovery with
+  backup verification, real-home + registry isolation verification, and opt-in
+  `--live` Windows `agy -p` mediation. Adds 6 cross-OS unit tests to
+  `test/acceptance/test_acceptance.py` and extends `IsolationGuard` to watch
+  Windows `AppData/Roaming/guardrail/waivers.toml`.
 - **Feature (#92): reusable platform acceptance harness, starting with
   Antigravity (`agy`) on Linux.** `test/acceptance/` runs the Guardrail
   lifecycle in a disposable isolated `HOME`/`XDG_*`/`ANTIGRAVITY_APP_DATA_DIR`
