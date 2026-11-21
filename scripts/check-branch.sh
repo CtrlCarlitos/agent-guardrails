@@ -76,15 +76,14 @@ fi
 
 fail_stale() {
   local reason="$1"
-  shift
-  local unmerged=("$@")
+  local unmerged="${2:-}"
 
   echo "check-branch: branch '$BRANCH' appears to be already merged into $BASE ($reason)." >&2
   echo "This branch is stale. Create a fresh branch from $BASE:" >&2
   echo "  git checkout -b <new-branch-name> $BASE" >&2
-  if [ "${#unmerged[@]}" -gt 0 ]; then
+  if [ -n "$unmerged" ]; then
     echo "Then rescue your unmerged commit(s) onto the new branch:" >&2
-    echo "  git cherry-pick ${unmerged[*]}" >&2
+    echo "  git cherry-pick $unmerged" >&2
   fi
   exit 1
 }
@@ -97,33 +96,33 @@ fi
 # 2. Remote tracking branch deleted after merge ([gone]).
 TRACK="$(git for-each-ref --format='%(upstream:track)' "refs/heads/$BRANCH" 2>/dev/null || true)"
 if [ "$TRACK" = "[gone]" ]; then
-  unmerged=()
+  unmerged=""
   while IFS= read -r line; do
     case "$line" in
       "+ "*)
-        unmerged+=("${line#+ }")
+        unmerged="${unmerged:+${unmerged} }${line#+ }"
         ;;
     esac
   done < <(git cherry "$BASE" HEAD 2>/dev/null || true)
-  fail_stale "upstream tracking branch is gone" "${unmerged[@]}"
+  fail_stale "upstream tracking branch is gone" "$unmerged"
 fi
 
 # 3. Single-commit squash-merge or cherry-pick via patch-ID (`git cherry`).
 has_applied=0
-cherry_unmerged=()
+cherry_unmerged=""
 while IFS= read -r line; do
   case "$line" in
     "- "*)
       has_applied=1
       ;;
     "+ "*)
-      cherry_unmerged+=("${line#+ }")
+      cherry_unmerged="${cherry_unmerged:+${cherry_unmerged} }${line#+ }"
       ;;
   esac
 done < <(git cherry "$BASE" HEAD 2>/dev/null || true)
 
 if [ "$has_applied" -eq 1 ]; then
-  fail_stale "commits on this branch are already applied on $BASE" "${cherry_unmerged[@]}"
+  fail_stale "commits on this branch are already applied on $BASE" "$cherry_unmerged"
 fi
 
 # 4. Multi-commit squash-merge check: compare synthetic squashed trees along
@@ -137,12 +136,12 @@ if [ -n "$MERGE_BASE" ]; then
     cherry_line="$(git cherry "$BASE" "$squash_oid" 2>/dev/null || true)"
     case "$cherry_line" in
       "- "*)
-        unmerged=()
+        unmerged=""
         while IFS= read -r extra_oid; do
           [ -n "$extra_oid" ] || continue
-          unmerged+=("$extra_oid")
+          unmerged="${unmerged:+${unmerged} }${extra_oid}"
         done < <(git rev-list --reverse "${commit_oid}..HEAD" 2>/dev/null || true)
-        fail_stale "cumulative diff matches a squash-merge commit on $BASE" "${unmerged[@]}"
+        fail_stale "cumulative diff matches a squash-merge commit on $BASE" "$unmerged"
         ;;
     esac
   done < <(git rev-list --first-parent --max-count=30 "${MERGE_BASE}..HEAD" 2>/dev/null || true)
