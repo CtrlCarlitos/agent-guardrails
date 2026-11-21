@@ -252,11 +252,11 @@ func TestShippedOverlayExampleLoadsAndMerges(t *testing.T) {
 		t.Fatalf("shipped Overlay example produced warnings with exact grants: %v", warns)
 	}
 	want := Rule{
-		ID:       "project.terraform-apply",
+		ID:       "project.deploy-preview",
 		Tool:     "Bash",
-		Pattern:  "terraform apply*",
+		Pattern:  "make deploy-preview*",
 		Decision: Ask,
-		Reason:   "infrastructure change requires operator review",
+		Reason:   "deploying a preview requires operator review",
 	}
 	if !slices.Contains(merged.Rules, want) {
 		t.Fatalf("merged rules do not contain the example rule: %+v", merged.Rules)
