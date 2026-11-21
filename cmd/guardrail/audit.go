@@ -11,8 +11,29 @@ import (
 // cmdAudit summarizes the audit log: the coverage audits were born from
 // mining it with ad-hoc scripts; this makes the instrument first-class.
 func cmdAudit(args []string, stdout, stderr io.Writer) int {
-	path := ""
+	follow := false
 	verdicts := false
+	var tailArgs []string
+	for _, arg := range args {
+		if arg == "--follow" || arg == "-f" {
+			follow = true
+			continue
+		}
+		if arg == "--verdicts" {
+			verdicts = true
+		}
+		tailArgs = append(tailArgs, arg)
+	}
+	if follow {
+		if verdicts {
+			fmt.Fprintln(stderr, "guardrail: audit --follow cannot be combined with --verdicts")
+			return 2
+		}
+		return cmdTail(tailArgs, stdout, stderr)
+	}
+
+	path := ""
+	verdicts = false
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--path" && i+1 < len(args) {
 			i++
@@ -23,7 +44,7 @@ func cmdAudit(args []string, stdout, stderr io.Writer) int {
 			verdicts = true
 			continue
 		}
-		fmt.Fprintln(stderr, "guardrail: audit accepts only [--verdicts] [--path <file>]")
+		fmt.Fprintln(stderr, "guardrail: audit accepts only [--verdicts] [--follow] [--path <file>]")
 		return 2
 	}
 	if path == "" {

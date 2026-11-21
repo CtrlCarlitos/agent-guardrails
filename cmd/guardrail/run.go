@@ -51,6 +51,10 @@ usage: guardrail <command> [arguments]
       --evidence codex     check retained audit evidence after this binary's mtime (heuristic)
       --session <id> --since <time|duration> --expect-tool <name>  scope Codex evidence
   audit [--path <file>]              summarize the audit log (decisions, rules, drift)
+      --follow             stream new records live (alias for guardrail tail)
+  tail [flags]                       stream audit log decisions live across rotations
+      --format compact|json  --plane <name>  --verdict allow|ask|deny|complete
+      --lines N (-n N)       --path <file>
   explain [last|<ts>|<request-id>|<session-id>]  why a call was asked/denied and the next step
       default: newest ask/deny for this repository (selftest probes excluded)
       --last N             show the N newest matching records
@@ -144,6 +148,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdOperator(args[1:], terminal && term.IsTerminal(int(file.Fd())), stdin, stdout, stderr)
 	case "audit":
 		return cmdAudit(args[1:], stdout, stderr)
+	case "tail":
+		return cmdTail(args[1:], stdout, stderr)
 	case "explain":
 		cwd, _ := os.Getwd()
 		return cmdExplain(args[1:], cwd, stdout, stderr)

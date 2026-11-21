@@ -6,6 +6,15 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Diagnostics
+- **Feature (#82): `guardrail tail` (and `guardrail audit --follow`) live
+  decision stream.** Streams new records from `audit.jsonl` in real time across
+  20 MB segment rotations without holding an open handle between polls (so
+  rotation renames stay safe on Windows and POSIX). Supports `--format
+  compact|json`, `--plane <name>`, `--verdict allow|ask|deny|complete`,
+  `--lines N` (`-n N`) to replay recent matching records across segments, and
+  `--path <file>`.
+
 ### Adapters
 - **Fix (#649): contract Antigravity `agy 1.5.x` native tools (`read_file`,
   `write_file`, `edit_file`, `run_workflow`, `swarm`).** Live Linux acceptance
