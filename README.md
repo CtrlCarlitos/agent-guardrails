@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/CtrlCarlitos/agent-guardrails/actions/workflows/ci.yml/badge.svg)](https://github.com/CtrlCarlitos/agent-guardrails/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/CtrlCarlitos/agent-guardrails?include_prereleases&sort=semver)](https://github.com/CtrlCarlitos/agent-guardrails/releases)
-![Go](https://img.shields.io/badge/go-1.25-00ADD8?logo=go)
+![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go)
 ![Planes](https://img.shields.io/badge/planes-Claude%20Code%20%C2%B7%20opencode%20%C2%B7%20Antigravity%20%C2%B7%20Codex-blueviolet)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
@@ -59,7 +59,8 @@ Linux, macOS and WSL:
 
   curl -fL -o install.sh "$url/install.sh"
   curl -fL -o SHA256SUMS "$url/SHA256SUMS"
-  grep " install.sh\$" SHA256SUMS | { sha256sum -c - 2>/dev/null || shasum -a 256 -c - ; }
+  grep " install.sh\$" SHA256SUMS > SHA256SUMS.one
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum -c SHA256SUMS.one; else shasum -a 256 -c SHA256SUMS.one; fi
 
   sh install.sh --version "$ver"
 )
@@ -173,7 +174,7 @@ MCP tools are handled by a shared registry: known families (serena, graft, …) 
 <details>
 <summary>Prefer to build from source?</summary>
 
-Use the Go version from [go.mod](./go.mod) (currently Go 1.25):
+Use the Go version from [go.mod](./go.mod) (currently Go 1.26):
 
 ```sh
 git clone https://github.com/CtrlCarlitos/agent-guardrails.git

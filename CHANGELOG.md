@@ -92,6 +92,23 @@ explicitly in **Breaking** notes.
   path tests (`internal/pathutil` added to CI's `windows-shaped tests`).
 
 ### Testing
+- **Feature (#95): documentation example and relative-link verification in CI.**
+  Adds `test/docs_examples_test.go` (wired to `make docs-test` and run on Linux,
+  macOS, and Windows CI): parses `guardrail.toml.example` and Markdown Overlay /
+  Operator config snippets directly from `README.md`, `docs/operator-config.md`,
+  `docs/getting-started.md`, `docs/operator-approvals.md`, and
+  `docs/adr/0009-recipe-scope.md` through the real policy loaders and verifies
+  key verdicts in `engine.Evaluate`; executes the verbatim POSIX `sh` install
+  snippets from `README.md` and `docs/getting-started.md` against local
+  `httptest` fixtures with isolated `HOME`/`PATH`, both `sha256sum` and `shasum`
+  backends, and negative checksum/missing-`SHA256SUMS` cases; AST-validates the
+  Windows PowerShell install snippets when `pwsh` is available; checks every
+  relative Markdown link and heading anchor across `README.md` and `docs/`;
+  fixes the published POSIX install snippets in `README.md` and
+  `docs/getting-started.md` so a missing `install.sh` line in `SHA256SUMS` fails
+  closed on macOS (instead of swallowing `grep`'s exit code in a `set -eu`
+  pipeline); and syncs `README.md`'s Go version badge and source-build note with
+  `go.mod` (Go 1.26).
 - **Feature (#92): Windows + Antigravity (`agy`) platform acceptance target.**
   Extends `test/acceptance/` with `windows_antigravity.py` (dispatched
   automatically by `harness.py --host antigravity` on Windows and wired to
