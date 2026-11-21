@@ -1,0 +1,11 @@
+{
+ "benign-command-allows.json": {
+  "decision": "allow",
+  "name": "benign command allows"
+ },
+ "destructive-denies.json": {
+  "decision": "deny",
+  "name": "destructive denies",
+  "rule": "P1.rm-rf"
+ }
+}

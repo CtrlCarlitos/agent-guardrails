@@ -1,0 +1,30 @@
+{
+ "cron-schedule-asks.json": {
+  "decision": "ask",
+  "name": "cron schedule asks (night-preserved)"
+ },
+ "delegation-allows.json": {
+  "decision": "allow",
+  "name": "delegation allows"
+ },
+ "destructive-run-command-denies.json": {
+  "decision": "deny",
+  "name": "destructive run_command denies"
+ },
+ "meta-dispatch-call-mcp-tool-denies.json": {
+  "decision": "deny",
+  "name": "meta-dispatch call_mcp_tool denies"
+ },
+ "one-shot-timer-allows.json": {
+  "decision": "allow",
+  "name": "one-shot timer allows"
+ },
+ "secret-view-denies.json": {
+  "decision": "deny",
+  "name": "secret view denies"
+ },
+ "serena-secret-mutation-denies.json": {
+  "decision": "deny",
+  "name": "serena secret mutation denies"
+ }
+}

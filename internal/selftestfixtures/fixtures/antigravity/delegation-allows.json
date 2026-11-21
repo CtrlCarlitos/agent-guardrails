@@ -1,0 +1,1 @@
+{"conversationId":"selftest","toolCall":{"name":"invoke_subagent","args":{"TypeName":"research","Role":"Researcher","Prompt":"analyze"}}}

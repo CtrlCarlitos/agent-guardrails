@@ -1,0 +1,1 @@
+{"conversationId":"selftest","toolCall":{"name":"call_mcp_tool","args":{"ServerName":"serena","ToolName":"find_symbol"}}}
