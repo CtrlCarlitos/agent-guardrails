@@ -105,7 +105,10 @@ bash test/installer/install_sh_test.sh                                        # 
 - **Changelog.** A change to shipped behaviour adds a bullet under
   `## Unreleased` in [`CHANGELOG.md`](CHANGELOG.md), in the section for its
   theme.
-- **PR body.** State the root cause and what you verified on each OS.
+- **PR body.** State the root cause and what you verified on each OS. For
+  concurrent or multi-agent work (handoff fields, conflict ownership, and
+  review-closure verification), follow
+  [`docs/multi-agent-handoff.md`](docs/multi-agent-handoff.md).
 - **Squash-merge** once green; the branch is deleted on merge.
 - **Releases** follow [`docs/release-checklist.md`](docs/release-checklist.md).
   A change to the updater is verified on the release after the one that
@@ -142,7 +145,8 @@ mediates, the guard applies to it, and these are not optional:
   `internal/genconfig/`, and recorded payload fixtures in `test/fixtures/`.
   Read [ADR-0001](docs/adr/0001-hybrid-enforcement-model.md),
   [ADR-0002](docs/adr/0002-single-go-binary-subcommand-adapters.md) and one
-  existing adapter first.- **An ADR.** Write one when a change alters a trust boundary, the operator's
+  existing adapter first.
+- **An ADR.** Write one when a change alters a trust boundary, the operator's
   authority, a plane's enforcement model or a user-visible contract. Add
   `docs/adr/NNNN-short-title.md` with the next free number (list the directory), a `Status`
   line, and the context and decision in prose. Amend an earlier ADR with a status note rather than rewriting it.
