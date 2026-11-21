@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import harness  # noqa: E402
 import linux_antigravity  # noqa: E402
+import windows_antigravity  # noqa: E402
 
 
 class StageSummaryAndExitCodeTests(unittest.TestCase):
@@ -315,6 +316,118 @@ class PtyRunnerTests(unittest.TestCase):
         )
         self.assertEqual(res.returncode, 0, msg=res.output)
         self.assertIn("GOT:y", res.output)
+
+
+class WindowsAntigravityTests(unittest.TestCase):
+    def test_stage_local_release_windows_uses_exe_suffix(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src_bin = root / "guardrail-src.exe"
+            payload = b"MZ-acceptance-fixture"
+            src_bin.write_bytes(payload)
+
+            releases = root / "releases"
+            asset_path, sums_path = harness.stage_local_release(
+                releases_root=releases,
+                version="v0.0.1-accept",
+                binary_path=src_bin,
+                os_name="windows",
+                arch="amd64",
+            )
+            self.assertEqual(asset_path, releases / "v0.0.1-accept" / "guardrail_windows_amd64.exe")
+            self.assertTrue(asset_path.is_file())
+            want_sha = hashlib.sha256(payload).hexdigest()
+            self.assertEqual(
+                sums_path.read_text(encoding="utf-8").strip(),
+                f"{want_sha}  guardrail_windows_amd64.exe",
+            )
+
+    def test_windows_isolated_env_sets_windows_roots_and_strips_xdg(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            env = windows_antigravity.build_windows_isolated_env(
+                iso_home=root / "home",
+                iso_bin=root / "bin",
+                iso_appdata=root / "appdata",
+                iso_localappdata=root / "localappdata",
+                app_data=root / "agy_app_data",
+                base_env={
+                    "PATH": r"C:\Windows\System32",
+                    "SYSTEMROOT": r"C:\Windows",
+                    "XDG_CONFIG_HOME": "/should/not/leak",
+                    "XDG_STATE_HOME": "/should/not/leak",
+                    "XDG_DATA_HOME": "/should/not/leak",
+                },
+            )
+            self.assertEqual(env["USERPROFILE"], str(root / "home"))
+            self.assertEqual(env["HOME"], str(root / "home"))
+            self.assertEqual(env["APPDATA"], str(root / "appdata"))
+            self.assertEqual(env["LOCALAPPDATA"], str(root / "localappdata"))
+            self.assertEqual(env["ANTIGRAVITY_APP_DATA_DIR"], str(root / "agy_app_data"))
+            self.assertTrue(env["PATH"].startswith(str(root / "bin") + os.pathsep))
+            self.assertEqual(env["SYSTEMROOT"], r"C:\Windows")
+            self.assertNotIn("XDG_CONFIG_HOME", env)
+            self.assertNotIn("XDG_STATE_HOME", env)
+            self.assertNotIn("XDG_DATA_HOME", env)
+
+    def test_windows_path_replacements_scrub_backslash_and_slash_spellings(self):
+        replacements = windows_antigravity.build_windows_path_replacements(
+            workspace=r"C:\Temp\iso\workspace",
+            iso_home=r"C:\Temp\iso\home",
+            temp_root=r"C:\Temp\iso",
+            real_home=r"C:\Users\realuser",
+        )
+        raw = (
+            r"blocked C:\Temp\iso\workspace\.env and C:/Temp/iso/workspace/.env "
+            r"real=C:\Users\realuser\AppData\Roaming\guardrail\waivers.toml "
+            r"real2=C:/Users/realuser/.gemini/config/hooks.json"
+        )
+        cleaned = harness.sanitize_text(raw, path_replacements=replacements)
+        self.assertNotIn("realuser", cleaned)
+        self.assertNotIn(r"C:\Temp\iso", cleaned)
+        self.assertNotIn("C:/Temp/iso", cleaned)
+        self.assertIn("<WORKSPACE>", cleaned)
+        self.assertIn("<REAL_HOME>", cleaned)
+
+    def test_isolation_guard_watches_windows_appdata_waivers(self):
+        with tempfile.TemporaryDirectory() as td:
+            real_home = Path(td) / "real-home"
+            real_home.mkdir()
+            guard = harness.IsolationGuard.capture(real_home)
+            ok, diffs = guard.verify_unchanged()
+            self.assertTrue(ok, msg=diffs)
+
+            waivers = real_home / "AppData" / "Roaming" / "guardrail" / "waivers.toml"
+            waivers.parent.mkdir(parents=True)
+            waivers.write_text('approval = "prompt"\n', encoding="utf-8")
+            ok2, diffs2 = guard.verify_unchanged()
+            self.assertFalse(ok2)
+            self.assertTrue(any("waivers.toml" in d for d in diffs2), msg=diffs2)
+
+    def test_hook_command_matches_binary_across_slashes_and_case(self):
+        bin_path = r"C:\Temp\iso\bin\guardrail.exe"
+        self.assertTrue(
+            windows_antigravity.hook_command_matches_binary(
+                r"C:\Temp\iso\bin\guardrail.exe hook antigravity pre",
+                bin_path,
+            )
+        )
+        self.assertTrue(
+            windows_antigravity.hook_command_matches_binary(
+                "c:/temp/iso/bin/guardrail.exe hook antigravity pre",
+                bin_path,
+            )
+        )
+        self.assertFalse(
+            windows_antigravity.hook_command_matches_binary(
+                r"C:\Other\guardrail.exe hook antigravity pre",
+                bin_path,
+            )
+        )
+
+    def test_harness_selects_windows_and_linux_antigravity_runners(self):
+        self.assertEqual(harness.select_antigravity_runner("win32"), "windows_antigravity")
+        self.assertEqual(harness.select_antigravity_runner("linux"), "linux_antigravity")
 
 
 if __name__ == "__main__":
