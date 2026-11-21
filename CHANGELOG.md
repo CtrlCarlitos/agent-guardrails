@@ -70,6 +70,17 @@ explicitly in **Breaking** notes.
   and workspace deletion) as fail-closed `CapabilityDeny`.
 
 ### Tooling & Docs
+- **Docs (#114): `docs/evidence/` in-tree empirical findings directory.** Adds
+  `docs/evidence/README.md` (fixed six-section template: Claim, Context, Method,
+  Observation, Consequence, Links) seeded with six primary-source empirical
+  findings (update in-process selftest hop `#58`, Claude `REPL`/`JavaScript`
+  mediation probe `#60`, Windows UTF-8 BOM and launcher/shim `#66`, Windows
+  PowerShell cmdlet & host shell-reporting boundary `#66`/`#501`, macOS `/tmp`
+  symlink and path aliases `#68`, and Windows 11 `agy 1.5.11` live acceptance
+  proof `#652`), links ADR-0019 to the extracted REPL evidence file, points
+  `CONTRIBUTING.md` and `.github/pull_request_template.md` at `docs/evidence/`,
+  and enforces file naming, heading order, and index completeness in CI via
+  `test/docs_evidence_test.go`.
 - **Docs (#96): multi-agent handoff and review-closure protocol.** Adds
   `docs/multi-agent-handoff.md` (required vs optional handoff fields, branch
   owner conflict-resolution rule, explicit-file staging reminder,

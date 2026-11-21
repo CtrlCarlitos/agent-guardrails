@@ -22,4 +22,5 @@ Closes #
 - [ ] Explicit paths staged (no stray generated/untracked artifacts)
 - [ ] TDD: failing test verified before fix; expectations not weakened
 - [ ] Docs and `CHANGELOG.md` (`## Unreleased`) updated where user-visible behaviour changed
+- [ ] Empirical finding? Added a `docs/evidence/YYYY-MM-DD-<slug>.md` note and indexed it in [docs/evidence/README.md](docs/evidence/README.md)
 - [ ] Multi-agent handoff / finding-to-resolution closure verified where applicable ([docs/multi-agent-handoff.md](docs/multi-agent-handoff.md))

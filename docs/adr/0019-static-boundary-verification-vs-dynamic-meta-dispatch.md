@@ -37,28 +37,13 @@ Dynamic meta-dispatch undermines this model:
 
 ## Evidence: Claude Code `REPL` / `JavaScript` (2026-09-18, Claude Code 2.1.275)
 
-The question "do REPL-driven inner tool calls reach PreToolUse?" was probed and
-could not be closed empirically, so the Deny stands on the following facts:
-
-1. **Not exposed.** Neither `REPL`, `JavaScript` nor `SendUserMessage` is offered
-   to a Claude Code session on this account/version: `ToolSearch select:REPL,JavaScript`
-   returns no tool. The bundle gates the REPL through `replToolInPool` on the
-   Artifact start-kit path (`startKitOn`), not as a general tool. A live nested
-   call cannot be issued from a guarded session.
-2. **Never used here.** All local session transcripts (`~/.claude/projects/*`)
-   and the guardrail audit log contain no `repl_tool_call` event and no
-   `tool_name: "REPL"`; the only matches are the probe's own search strings.
-3. **Static signal is ambiguous, not reassuring.** Inner calls surface as
-   `tool_progress` events with `repl_call.inner_tool_name`, `inner_tool_input`
-   and an `inner_tool_use_id` — nested tool uses carry their own IDs, which is
-   consistent with ordinary tool execution — but the hook runner also carries a
-   distinct "PreToolUse function-hook chain" path with `tengu_repl_hook_finished`
-   telemetry. Whether *command* hooks (the guardrail adapter) are part of that
-   chain is undetermined from the minified bundle.
-
-Upgrade condition: a captured guardrail audit record for a Claude session whose
-`tool_name` is an inner tool invoked from a `REPL` call (evidenced by the
-transcript's `repl_call.inner_tool_use_id` matching the hook's `tool_use_id`).
-Until then the contract keeps `REPL` and `JavaScript` at `CapabilityDeny`, and
-`guardrail doctor --coverage claude` will surface the tools the moment they
-appear in a bundle's tool list, so the question re-opens on facts, not on memory.
+The full probe transcript, bundle inspection findings, and explicit upgrade
+condition are recorded in
+[`docs/evidence/2026-09-18-claude-repl-mediation-probe.md`](../evidence/2026-09-18-claude-repl-mediation-probe.md).
+Summary: `REPL` and `JavaScript` are not exposed to guarded sessions, local
+transcripts contain zero `repl_tool_call` records, and static bundle inspection
+cannot prove command hooks fire in the REPL hook chain. Until a live audit
+record links an inner-tool hook call (`tool_use_id`) to `repl_call.inner_tool_use_id`,
+the contract keeps `REPL` and `JavaScript` at `CapabilityDeny` and
+`guardrail doctor --coverage claude` re-opens the question automatically if a
+future bundle exposes them.

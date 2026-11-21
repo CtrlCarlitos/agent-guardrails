@@ -100,6 +100,8 @@ bash test/installer/install_sh_test.sh                                        # 
   otherwise. Add the package to that list when you add the test.
 - **Measure before asserting.** State an engine verdict, an exit code or a test
   result in an issue or PR only after running it. Other people plan against it.
+  Record durable runtime probes and host observations in
+  [`docs/evidence/`](docs/evidence/README.md) so future sessions can `grep` them.
 - **A deny must say what to do next.** If a denial gives the agent no
   alternative, that is the bug ([`docs/error-message-discipline.md`](docs/error-message-discipline.md)).
 - **Changelog.** A change to shipped behaviour adds a bullet under
