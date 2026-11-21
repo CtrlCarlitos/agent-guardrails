@@ -70,6 +70,14 @@ explicitly in **Breaking** notes.
   and workspace deletion) as fail-closed `CapabilityDeny`.
 
 ### Tooling & Docs
+- **Docs (#96): multi-agent handoff and review-closure protocol.** Adds
+  `docs/multi-agent-handoff.md` (required vs optional handoff fields, branch
+  owner conflict-resolution rule, explicit-file staging reminder,
+  originating-reviewer closure mapping, copyable handoff template,
+  finding-to-resolution example, PR checklist, and concurrent-cycle trial
+  notes), adds `.github/pull_request_template.md`, cross-links the protocol
+  from `CONTRIBUTING.md` and `docs/OPERATIONS.md`, and verifies structure and
+  links in CI via `test/docs_handoff_test.go`.
 - **Feature (#102): pre-push branch-trap check (`scripts/check-branch.sh` and
   `scripts/check-branch.ps1`, wired to `make check-branch`).** Detects branches
   that are already merged or squash-merged into the base ref (direct ancestor,
