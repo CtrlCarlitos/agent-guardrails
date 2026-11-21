@@ -5,10 +5,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/night"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/pathutil"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 )
 
@@ -55,7 +59,7 @@ func executeNightApproval(r approval.Request) error {
 }
 
 const nightUsage = `usage:
-  guardrail night on [--until HH:MM | --for 8h]
+  guardrail night on [--scope global|repo|session] [--repo <path>] [--session <id>] [--until HH:MM | --for 8h]
   guardrail night off
   guardrail night status
 `
@@ -116,23 +120,28 @@ func cmdNight(args []string, operatorTerminal bool, stdout, stderr io.Writer) in
 }
 
 func cmdNightOn(path string, args []string, stdout, stderr io.Writer) int {
-	if repeatedNightFlag(args, "for") || repeatedNightFlag(args, "until") {
-		fmt.Fprintln(stderr, "guardrail: night on accepts each expiry flag at most once")
-		return 2
+	for _, flagName := range []string{"for", "until", "scope", "repo", "session"} {
+		if repeatedNightFlag(args, flagName) {
+			fmt.Fprintf(stderr, "guardrail: night on accepts --%s at most once\n", flagName)
+			return 2
+		}
 	}
 	fs := flag.NewFlagSet("night on", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {}
-	var durationText, untilText string
+	var durationText, untilText, scopeText, repoText, sessionText string
 	fs.StringVar(&durationText, "for", "", "night mode duration")
 	fs.StringVar(&untilText, "until", "", "next local clock time")
+	fs.StringVar(&scopeText, "scope", night.ScopeGlobal, "lease scope: global, repo, or session")
+	fs.StringVar(&repoText, "repo", "", "target repository path (only with --scope repo)")
+	fs.StringVar(&sessionText, "session", "", "target session ID (only with --scope session)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	set := make(map[string]bool)
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 	if fs.NArg() != 0 {
-		fmt.Fprintln(stderr, "guardrail: night on takes only --for or --until")
+		fmt.Fprintln(stderr, "guardrail: night on takes no positional arguments")
 		return 2
 	}
 	if set["for"] && set["until"] {
@@ -141,6 +150,64 @@ func cmdNightOn(path string, args []string, stdout, stderr io.Writer) int {
 	}
 	if set["for"] && durationText == "" || set["until"] && untilText == "" {
 		fmt.Fprintln(stderr, "guardrail: night expiry flag cannot be empty")
+		return 2
+	}
+
+	scope := strings.ToLower(strings.TrimSpace(scopeText))
+	if scope == "" {
+		scope = night.ScopeGlobal
+	}
+	var targetRepo, targetSession string
+	switch scope {
+	case night.ScopeGlobal:
+		if set["repo"] || set["session"] {
+			fmt.Fprintln(stderr, "guardrail: --repo and --session require --scope repo or --scope session")
+			return 2
+		}
+	case night.ScopeRepo:
+		if set["session"] {
+			fmt.Fprintln(stderr, "guardrail: --session cannot be combined with --scope repo")
+			return 2
+		}
+		dir := repoText
+		if dir == "" {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return nightError(err, stderr)
+			}
+			dir = cwd
+		} else {
+			abs, err := filepath.Abs(dir)
+			if err != nil {
+				return nightError(err, stderr)
+			}
+			dir = abs
+		}
+		root, ok := policy.FindRepoRoot(dir)
+		if !ok {
+			fmt.Fprintln(stderr, "guardrail: --scope repo needs a git repository; run from inside one or pass --repo <path>")
+			return 2
+		}
+		canon, err := pathutil.Canonical(root)
+		if err != nil {
+			return nightError(err, stderr)
+		}
+		targetRepo = canon
+	case night.ScopeSession:
+		if set["repo"] {
+			fmt.Fprintln(stderr, "guardrail: --repo cannot be combined with --scope session")
+			return 2
+		}
+		targetSession = strings.TrimSpace(sessionText)
+		if targetSession == "" {
+			targetSession = strings.TrimSpace(os.Getenv("GUARDRAIL_SESSION_ID"))
+		}
+		if targetSession == "" {
+			fmt.Fprintln(stderr, "guardrail: --scope session requires --session <id> (or GUARDRAIL_SESSION_ID)")
+			return 2
+		}
+	default:
+		fmt.Fprintf(stderr, "guardrail: --scope must be global, repo, or session (got %q)\n", safetext.SingleLine(scope))
 		return 2
 	}
 
@@ -171,8 +238,11 @@ func cmdNightOn(path string, args []string, stdout, stderr io.Writer) int {
 		return nightError(fmt.Errorf("resolving hostname: %w", err), stderr)
 	}
 	marker := night.Marker{
-		Until: until,
-		SetBy: fmt.Sprintf("%s:%d", hostname, os.Getpid()),
+		Until:   until,
+		SetBy:   fmt.Sprintf("%s:%d", hostname, os.Getpid()),
+		Scope:   scope,
+		Repo:    targetRepo,
+		Session: targetSession,
 	}
 	if err := night.Write(path, marker); err != nil {
 		return nightError(err, stderr)
