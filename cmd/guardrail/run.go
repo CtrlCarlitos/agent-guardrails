@@ -44,8 +44,8 @@ usage: guardrail <command> [arguments]
   web-research on|off|status         operator-controlled native research enforcement
   egress grant|revoke               authorize (or withdraw) web hosts for guardrail fetch
       --scope repo|global --host a.example.com,b.example.com
-  operator <subcommand>                 manage operator authenticators
-      subcommands: enroll | add-authenticator | remove-authenticator | recover-reset
+  operator <subcommand>                 manage operator authenticators and repository trust
+      subcommands: enroll | add-authenticator | remove-authenticator | recover-reset | trust [repo-path] | untrust [repo-path]
   approvals list                       show pending approval requests
   approvals approve <id>               re-open an approval ceremony and wait
   selftest                           probe installed enforcement per plane

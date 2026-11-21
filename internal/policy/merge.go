@@ -94,6 +94,14 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 		m.Slots.SafeRoots = append(m.Slots.SafeRoots, candidate)
 	}
 
+	hasTrust := op.HasTrustSnapshot(repoRoot)
+	trustHint := func() string {
+		if !hasTrust {
+			return ""
+		}
+		return " (not in trust snapshot; run: guardrail operator trust " + cleanRoot + ")"
+	}
+
 	for _, entry := range ov.EgressAllowlist {
 		if entry == "*" || entry == "**" {
 			warns = append(warns, "guardrail: repo requested a wildcard egress_allowlist entry "+entry+" — DROPPED")
@@ -101,7 +109,7 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 		}
 		if !op.AllowsEgress(repoRoot, entry) {
 			warns = append(warns, "guardrail: repo requested egress_allowlist entry "+entry+
-				", which is NOT authorized in "+OperatorConfigPath()+" — DROPPED")
+				", which is NOT authorized in "+OperatorConfigPath()+trustHint()+" — DROPPED")
 			continue
 		}
 		m.Slots.EgressAllowlist = append(m.Slots.EgressAllowlist, entry)
@@ -109,7 +117,7 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 	for _, host := range ov.WebHosts {
 		if err := ValidateWebHost(host); err != nil || !op.AllowsWebHost(repoRoot, host) {
 			warns = append(warns, "guardrail: repo requested web_hosts entry "+host+
-				", which is NOT authorized in "+OperatorConfigPath()+" — DROPPED")
+				", which is NOT authorized in "+OperatorConfigPath()+trustHint()+" — DROPPED")
 			continue
 		}
 		m.Slots.WebHosts = append(m.Slots.WebHosts, host)
@@ -119,17 +127,34 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 		if op.AllowsSecretAllow(repoRoot) {
 			m.Slots.SecretAllow = append(m.Slots.SecretAllow, ov.SecretAllow...)
 		} else {
-			warns = append(warns, "guardrail: repo requested secret_allow entries, which are NOT authorized in "+
-				OperatorConfigPath()+" — secret protection remains ENFORCED")
+			var unauthorized []string
+			for _, entry := range ov.SecretAllow {
+				if op.AllowsSecretAllowEntry(repoRoot, entry) {
+					m.Slots.SecretAllow = append(m.Slots.SecretAllow, entry)
+				} else {
+					unauthorized = append(unauthorized, entry)
+				}
+			}
+			if len(unauthorized) > 0 {
+				if hasTrust {
+					for _, entry := range unauthorized {
+						warns = append(warns, "guardrail: repo requested secret_allow entry "+entry+
+							", which is NOT authorized in "+OperatorConfigPath()+trustHint()+" — secret protection remains ENFORCED")
+					}
+				} else {
+					warns = append(warns, "guardrail: repo requested secret_allow entries, which are NOT authorized in "+
+						OperatorConfigPath()+" — secret protection remains ENFORCED")
+				}
+			}
 		}
 	}
 
 	if ov.AuditLog != "" {
-		if op.AllowsAuditLog(repoRoot) {
+		if op.AllowsAuditLogPath(repoRoot, ov.AuditLog) {
 			m.Slots.AuditLog = ov.AuditLog
 		} else {
 			warns = append(warns, "guardrail: repo requested audit_log "+ov.AuditLog+
-				", which is NOT authorized in "+OperatorConfigPath()+" — the default audit path is retained")
+				", which is NOT authorized in "+OperatorConfigPath()+trustHint()+" — the default audit path is retained")
 		}
 	}
 
@@ -144,7 +169,7 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 			continue
 		}
 		warns = append(warns, "guardrail: repo requested waiver of "+waiver+
-			", which is NOT authorized in "+OperatorConfigPath()+" — the rule remains ENFORCED")
+			", which is NOT authorized in "+OperatorConfigPath()+trustHint()+" — the rule remains ENFORCED")
 	}
 
 	if ov.EngineMinVersion != "" && versionOlder(binaryVersion, ov.EngineMinVersion) {
