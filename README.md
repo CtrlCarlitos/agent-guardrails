@@ -169,7 +169,7 @@ It also protects secrets from being *read* without, by itself, stopping ambient 
 | **Antigravity** | `PreToolUse`/`PostToolUse` in `~/.gemini/config/hooks.json` | No native permission floor exists, so the hook *is* the boundary ([ADR-0008](./docs/adr/0008-antigravity-no-declarative-floor.md)). Subagents (`invoke_subagent`) inherit enforcement in-process ([ADR-0013](./docs/adr/0013-delegation-inherits-enforcement-in-process.md)); `guardrail doctor --coverage antigravity` inventories MCP tool drift. |
 | **Codex** | Native synchronous hooks in `~/.codex/hooks.json` plus an escalation-rules floor | Codex can't prompt from a hook, so asks block with guidance. Delegation remains denied. Hosted tools and `write_stdin` bypass pre-hooks; treat registration as wiring, not proof ([ADR-0014](./docs/adr/0014-codex-native-hooks-and-blocked-asks.md)). |
 
-MCP tools are handled by a shared registry: known families (serena, graft, …) are typed and their file arguments go through the same secret and containment rules as a native edit. Unknown MCP tools ask on dialog-capable planes and deny on fail-closed planes ([ADR-0017](./docs/adr/0017-mcp-family-registry-and-projection.md)).
+MCP tools are handled by a shared registry: known families (such as serena) are typed and their file arguments go through the same secret and containment rules as a native edit. Unknown MCP tools ask on dialog-capable planes and deny on fail-closed planes ([ADR-0017](./docs/adr/0017-mcp-family-registry-and-projection.md)).
 
 <details>
 <summary>Prefer to build from source?</summary>
