@@ -2447,7 +2447,7 @@ func TestHookSessionStartReportsCoverageDriftOnce(t *testing.T) {
 	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 
-	want := "claude coverage: Claude Code 2.1.280 — 1 uncontracted tool (FutureTool); run guardrail doctor --coverage claude"
+	want := "guardrail: unproven for " + version + " on Claude Code 2.1.280 (1 uncontracted tool: FutureTool; selftest not passed) — run guardrail status"
 	if ctx := sessionStartContext(t); !strings.Contains(ctx, want) {
 		t.Fatalf("posture = %q, want %q", ctx, want)
 	}
@@ -2470,8 +2470,8 @@ func TestHookSessionStartIsSilentWhenCoverageIsComplete(t *testing.T) {
 	testenv.SetState(t, t.TempDir())
 	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
-	if ctx := sessionStartContext(t); strings.Contains(ctx, "claude coverage") {
-		t.Fatalf("steady state must stay silent: %q", ctx)
+	if ctx := sessionStartContext(t); strings.Contains(ctx, "uncontracted") {
+		t.Fatalf("steady state must not report coverage drift: %q", ctx)
 	}
 }
 
@@ -2483,7 +2483,7 @@ func TestHookSessionStartFailsOpenWithoutABundle(t *testing.T) {
 	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	ctx := sessionStartContext(t) // exit 0 is asserted inside
-	if strings.Contains(ctx, "claude coverage") || !strings.Contains(ctx, "guardrail is active") {
+	if strings.Contains(ctx, "uncontracted") || !strings.Contains(ctx, "guardrail is active") {
 		t.Fatalf("missing bundle must not touch the posture: %q", ctx)
 	}
 }
@@ -2497,7 +2497,7 @@ func TestHookSessionStartAsksForSelftestUntilItPassesOnThisVersion(t *testing.T)
 	state := t.TempDir()
 
 	// No marker: this guardrail has never passed selftest here.
-	want := "guardrail " + version + " has not passed selftest on this machine; run guardrail selftest"
+	want := "guardrail: unproven for " + version + " (selftest not passed) — run guardrail status"
 	if ctx := sessionStartContext(t, state); !strings.Contains(ctx, want) {
 		t.Fatalf("posture = %q, want %q", ctx, want)
 	}
@@ -2509,7 +2509,7 @@ func TestHookSessionStartAsksForSelftestUntilItPassesOnThisVersion(t *testing.T)
 	if err := os.WriteFile(filepath.Join(state, "guardrail", "selftest-passed"), []byte("v0.0.1-older\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	want = "guardrail " + version + " is new here (selftest last passed on v0.0.1-older); run guardrail selftest"
+	want = "guardrail: unproven for " + version + " (selftest last passed on v0.0.1-older) — run guardrail status"
 	if ctx := sessionStartContext(t, state); !strings.Contains(ctx, want) {
 		t.Fatalf("posture = %q, want %q", ctx, want)
 	}
@@ -2518,7 +2518,7 @@ func TestHookSessionStartAsksForSelftestUntilItPassesOnThisVersion(t *testing.T)
 	if err := os.WriteFile(filepath.Join(state, "guardrail", "selftest-passed"), []byte(version+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if ctx := sessionStartContext(t, state); strings.Contains(ctx, "selftest") {
+	if ctx := sessionStartContext(t, state); strings.Contains(ctx, "unproven") || strings.Contains(ctx, "selftest") {
 		t.Fatalf("passed marker must silence the line: %q", ctx)
 	}
 }
@@ -2530,13 +2530,16 @@ func TestHookSessionStartSelftestMarkerFailsOpen(t *testing.T) {
 	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
 	state := t.TempDir()
-	// A directory where the marker file should be: unreadable, treated as "not passed".
+	// A directory where proof.json and the legacy marker live: unreadable, treated as unproven.
 	if err := os.MkdirAll(filepath.Join(state, "guardrail", "selftest-passed"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(state, "guardrail", "proof.json"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	ctx := sessionStartContext(t, state) // exit 0 asserted inside
-	if !strings.Contains(ctx, "run guardrail selftest") || !strings.Contains(ctx, "guardrail is active") {
-		t.Fatalf("unreadable marker must still yield the ordinary posture plus the nudge: %q", ctx)
+	if !strings.Contains(ctx, "run guardrail status") || !strings.Contains(ctx, "guardrail is active") {
+		t.Fatalf("unreadable proof/marker must still yield the ordinary posture plus the nudge: %q", ctx)
 	}
 }
 

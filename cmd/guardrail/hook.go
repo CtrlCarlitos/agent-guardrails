@@ -16,7 +16,6 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/adapter"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/approval"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
-	"github.com/CtrlCarlitos/agent-guardrails/internal/coverage"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/daemon"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/genconfig"
@@ -208,10 +207,7 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int
 		text += "\n\n" + webResearchPosture(merged.WebResearchOff)
 		text += "\n\n" + webAccessPosture()
 		text += "\n\n" + claudePlanePosture()
-		if line := claudeCoveragePosture(); line != "" {
-			text += "\n\n" + line
-		}
-		if line := selftestPosture(version); line != "" {
+		if line := unifiedProofPosture(version); line != "" {
 			text += "\n\n" + line
 		}
 		// ADR-0028's loud-outage posture. Last, and unconditional when it
@@ -488,20 +484,6 @@ func boundedCodexDiagnosticValue(value string, limit int) string {
 		return string(clean)
 	}
 	return string(clean[:limit]) + "…"
-}
-
-// claudeCoveragePosture is the advisory line for bundle coverage drift:
-// present only when the installed Claude Code exposes tools the contract
-// does not know (allow-by-default), empty in steady state, and empty on
-// any error — the posture never blocks a session. The scan is cached per
-// bundle version, so only the first session after a bump pays for it.
-func claudeCoveragePosture() string {
-	contracted, _ := claudeContracted()
-	d, err := coverage.ClaudeDrift(contracted, version)
-	if err != nil || len(d.Uncontracted) == 0 {
-		return ""
-	}
-	return adapter.CoverageDriftLine("claude", "Claude Code "+d.Version, d.Uncontracted)
 }
 
 // claudePlanePosture reads the plane's lifecycle state the same way doctor

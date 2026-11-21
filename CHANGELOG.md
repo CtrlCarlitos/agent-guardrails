@@ -6,6 +6,24 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### CLI
+- **Feature (#110): unified `guardrail status`, `proof.json` proof record, and
+  single SessionStart posture line.** Consolidates plane lifecycle registration,
+  floor drift, coverage drift, and selftest pass into one per-machine proof
+  record (`$XDG_STATE_HOME/guardrail/proof.json` on Unix,
+  `%LOCALAPPDATA%\guardrail\proof.json` on Windows) keyed on Guardrail version,
+  runtime version, and settings-file SHA-256 hash, migrating existing
+  `selftest-passed` markers and coverage caches seamlessly. Adds
+  `guardrail status [--json]` (one proof line per plane plus doctor's verdict
+  line, exiting `1` when unproven or unhealthy, `0` when proven and healthy,
+  `2` on usage error; `doctor` remains the long form). Replaces Claude
+  SessionStart's separate coverage-drift and selftest nudges with one
+  consolidated `guardrail: unproven for … — run guardrail status` line that
+  stays silent once proven and fails open on unreadable state. Updates
+  `recordSelftestPass` (used by `selftest`, `setup`, and `update`) to write
+  `proof.json` alongside the legacy marker, and aligns `selftestMarkerPath`
+  with Windows `LOCALAPPDATA`.
+
 ### Diagnostics
 - **Feature (#82): `guardrail tail` (and `guardrail audit --follow`) live
   decision stream.** Streams new records from `audit.jsonl` in real time across

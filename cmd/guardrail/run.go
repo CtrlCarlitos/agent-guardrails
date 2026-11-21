@@ -68,6 +68,7 @@ usage: guardrail <command> [arguments]
       --all                search every repository, not only this one
       --path <file>        read this audit log instead of this repository's
   next                              print the next steps for this machine's state
+  status [--json]                   print unified enforcement proof per plane and verdict
   doctor [flags]                    print resolved policy/overlay/audit/hook state
       --codex-hooks         inspect Codex registration, trust, direct runnability, and evidence
       --coverage claude    diff the installed Claude Code tool surface against the contract
@@ -159,6 +160,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdReport(args[1:], cwd, stdout, stderr)
 	case "next":
 		return cmdNext(args[1:], stdout, stderr)
+	case "status":
+		return cmdStatus(args[1:], stdout, stderr)
 	case "selftest":
 		return cmdSelftest(args[1:], stdout, stderr)
 	case "doctor":

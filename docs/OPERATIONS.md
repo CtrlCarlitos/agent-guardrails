@@ -17,14 +17,25 @@ wins, and CI-control changes or valuable uncommitted work remain exceptions.
 ## First 60 seconds
 
 ```
-guardrail doctor        # wiring: policy, overlay, hooks per plane, warnings
+guardrail status        # proof: one line per plane + verdict (exits 1 if unproven)
+guardrail doctor        # wiring: policy, overlay, hooks per plane, warnings (long form)
 guardrail selftest      # behaviour: the installed binary still denies/asks as it should
 guardrail audit         # what happened: decisions, top rules, unclassified tools
 ```
 
-Healthy looks like: doctor's last line reads `verdict: healthy`,
+Healthy looks like: `guardrail status` exits 0 with `verdict: healthy` and every
+present plane marked `proven`, doctor's last line reads `verdict: healthy`,
 `selftest: all probes passed`, and no rule in the audit top list you don't
-recognise. If all three are clean, the problem is not Guardrail.
+recognise. If all are clean, the problem is not Guardrail.
+
+`guardrail status` reads and refreshes the unified proof record at
+`$XDG_STATE_HOME/guardrail/proof.json` (`~/.local/state/guardrail/proof.json` on
+Unix; `%LOCALAPPDATA%\guardrail\proof.json` on Windows), keyed on the Guardrail
+release, runtime version, and per-plane settings hash (#110). Claude's
+SessionStart prints one advisory line built from the same record
+(`guardrail: unproven for … — run guardrail status`) when anything is unproven,
+and stays silent once proven. Use `guardrail status --json` for machine-readable
+output.
 
 `verdict: N problems (see above)` is the sum of everything doctor printed in a
 warning register: each policy warning, an overlay warning or parse error, an

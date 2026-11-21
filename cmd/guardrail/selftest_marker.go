@@ -5,20 +5,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/safetext"
 )
 
-// selftestMarkerPath is the one-line record of the guardrail release that
-// last passed selftest on this machine: $XDG_STATE_HOME/guardrail/selftest-passed.
+// selftestMarkerPath is the legacy one-line record of the guardrail release
+// that last passed selftest on this machine. Kept alongside proof.json (#110)
+// for migration compatibility.
 func selftestMarkerPath() (string, error) {
-	base := os.Getenv("XDG_STATE_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		base = filepath.Join(home, ".local", "state")
+	base, err := stateBaseDir()
+	if err != nil {
+		return "", err
 	}
 	return filepath.Join(base, "guardrail", "selftest-passed"), nil
 }
@@ -38,44 +36,32 @@ func selftestPassedVersion() string {
 	return safetext.SingleLine(strings.TrimSpace(string(raw)))
 }
 
-// recordSelftestPass writes the marker for a passing run; it is only ever
-// called after every probe passed. A failed write leaves the marker as it
-// was, and the next session keeps asking for a selftest.
+// recordSelftestPass writes the unified proof.json (#110) and legacy marker
+// for a passing run; it is only ever called after every probe passed. A failed
+// write leaves the state as it was, and the next session keeps asking.
 func recordSelftestPass(release string) error {
+	now := time.Now().UTC()
+	proofErr := saveProofRecord(computeProof(release, &now))
+
 	path, err := selftestMarkerPath()
 	if err != nil {
-		return err
+		return errors.Join(proofErr, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
+		return errors.Join(proofErr, err)
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".selftest-*")
 	if err != nil {
-		return err
+		return errors.Join(proofErr, err)
 	}
 	defer os.Remove(tmp.Name())
 	if err := errors.Join(tmp.Chmod(0o600), writeLine(tmp, release), tmp.Close()); err != nil {
-		return err
+		return errors.Join(proofErr, err)
 	}
-	return os.Rename(tmp.Name(), path)
+	return errors.Join(proofErr, os.Rename(tmp.Name(), path))
 }
 
 func writeLine(f *os.File, line string) error {
 	_, err := f.WriteString(line + "\n")
 	return err
-}
-
-// selftestPosture is the advisory line asking for a selftest on the first
-// session after a guardrail bump — and every session until one passes on
-// the installed release. Empty once it has.
-func selftestPosture(release string) string {
-	last := selftestPassedVersion()
-	switch {
-	case last == release:
-		return ""
-	case last == "":
-		return "guardrail " + release + " has not passed selftest on this machine; run guardrail selftest"
-	default:
-		return "guardrail " + release + " is new here (selftest last passed on " + last + "); run guardrail selftest"
-	}
 }
