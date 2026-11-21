@@ -1,0 +1,14 @@
+{
+ "benign-read-allows.json": {
+  "decision": "allow",
+  "name": "benign read allows"
+ },
+ "serena-secret-mutation-denies.json": {
+  "decision": "deny",
+  "name": "serena secret mutation denies"
+ },
+ "unknown-tool-asks.json": {
+  "decision": "ask",
+  "name": "unknown tool asks (night-preserved)"
+ }
+}

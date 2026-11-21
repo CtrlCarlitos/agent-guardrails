@@ -92,6 +92,14 @@ explicitly in **Breaking** notes.
   path tests (`internal/pathutil` added to CI's `windows-shaped tests`).
 
 ### Testing
+- **Refactor (#107): shared embedded selftest fixture directory (`internal/selftestfixtures`).**
+  Migrates all selftest probes (including Windows drive-lettered Claude variants
+  and host-shaped Codex probes) out of Go literals in `cmd/guardrail/` into
+  `internal/selftestfixtures/fixtures/<plane>/` (`expected.json` + compact JSON
+  payloads, with `windows/` platform override/extension directories selected at
+  load time by `runtime.GOOS`), consumed by both `guardrail selftest` (which now
+  reports `selftest: all probes passed — runs every recorded fixture (N)` with
+  `N` counted from the embedded directory) and `test/selftestfixtures_contract_test.go`.
 - **Feature (#95): documentation example and relative-link verification in CI.**
   Adds `test/docs_examples_test.go` (wired to `make docs-test` and run on Linux,
   macOS, and Windows CI): parses `guardrail.toml.example` and Markdown Overlay /
