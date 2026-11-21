@@ -30,7 +30,7 @@ that every tool call reached it (see `Live-mediation evidence` in
 | Claude Code | **Enforced, observed** [E1] [E2] | CI-tested only [E7] | Registered only [E9] [E11]; enforcement operator-reported, not recorded [E10] | CI-tested only [E7] |
 | opencode | **Enforced, observed** [E2] [E3] | CI-tested only [E7] | Registered only [E11]; enforcement operator-reported, not recorded [E10] | CI-tested only [E7] |
 | Antigravity | **Enforced, observed** [E2] [E4] | **Enforced, observed** [E13] | Unknown; operator-reported, not recorded [E10] | CI-tested only [E7] |
-| Codex | **Enforced, observed** [E5] on Codex 0.159+ with PowerShell: allowed commands run behind a PowerShell working-directory check proven by the session transcript; other shells fail closed; known bypasses [E6] ([#454](https://github.com/CtrlCarlitos/agent-guardrails/issues/454)). Before 0.159 no dispatch ([openai/codex#24453](https://github.com/openai/codex/issues/24453)) | Registered only; pre-hooks observed in a fixture harness, known bypasses [E6] | Registered only [E11]; enforcement unknown [E12] | CI-tested only [E7] |
+| Codex | **Enforced, observed** [E5] on Codex 0.159+ with PowerShell: allowed commands run behind a PowerShell working-directory check proven by the session transcript; other shells fail closed; known bypasses [E6] ([#454](https://github.com/CtrlCarlitos/agent-guardrails/issues/454)). Before 0.159 no dispatch ([openai/codex#24453](https://github.com/openai/codex/issues/24453)) | **Enforced, observed** [E14] on Codex 0.170.0 for local Bash pre-hooks; known bypasses [E6] | Registered only [E11]; enforcement unknown [E12] | CI-tested only [E7] |
 
 Notes on the Codex row:
 
@@ -208,6 +208,12 @@ run.
   passed install/update via `install.sh`, `doctor`, `selftest`, prompt-mode
   `host-ask` approval/retry + replay refusal, PTY `[y/N]` disablement, and
   corrupt `hooks.json` recovery.
+
+- **[E14]** [Linux Codex 0.170.0 authenticated live acceptance](evidence/2026-11-21-linux-codex-live-acceptance.md),
+  2026-11-21. The authenticated `codex exec` session received the benign
+  Bash command's output and a `P4.secret-path` denial on the fake `.env`
+  read. Session-specific `selftest --evidence codex` passed. This observation
+  covers the tested local shell calls.
 
 ## Keeping it true
 
