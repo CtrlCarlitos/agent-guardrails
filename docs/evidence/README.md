@@ -19,6 +19,7 @@ Structure and index completeness are enforced in CI by
 | 2026-09-18 | [Windows PowerShell cmdlet gap and host shell-reporting boundary](2026-09-18-windows-powershell-cmdlet-gap.md) | PR #66, #501 |
 | 2026-09-18 | [macOS `/tmp` symlink alias, case-insensitive paths, and socket fallback](2026-09-18-macos-temp-symlink-and-case-paths.md) | PR #68 |
 | 2026-11-21 | [Windows 11 Antigravity (`agy 1.5.11`) live acceptance proof](2026-11-21-windows-antigravity-live-acceptance.md) | PR #652, #92 |
+| 2026-11-21 | [Linux Antigravity (`agy 1.5.13`) live acceptance proof](2026-11-21-linux-antigravity-live-acceptance.md) | PR #646, PR #650, #92, #649 |
 | 2026-11-21 | [Fail-open inventory sweep (2026-11-15 baseline + 2026-11-21 delta at `87dfe09`)](2026-11-21-fail-open-inventory-sweep.md) | #151, [ADR-0036](../adr/0036-unmatched-commands-and-safe-control-allow.md), [ADR-0039](../adr/0039-session-provenance-worktree-cleanup.md) |
 
 ## Template
