@@ -58,6 +58,25 @@ Avoid `git add -A` or `git add .` when untracked files exist in the worktree.
 Before finishing, clean merged branches, linked worktrees
 (`scripts/worktree-clean.sh` / `scripts/worktree-clean.ps1`), and `dist/`.
 
+## Review preflight
+
+Before calling a reviewer tool, identify the active plane from the session
+context and check its inheritance determination in
+[ADR-0013](adr/0013-delegation-inherits-enforcement-in-process.md).
+When the plane has verified child mediation and the current workflow
+authorizes delegation, request independent review through that plane's
+mediated reviewer tool.
+
+For Codex, an unknown plane, or a plane without verified inheritance, go
+directly to inline review. Use the same fallback if Guardrail denies
+delegation after preflight. Review the diff against the task and repository
+requirements, address findings, and report **Inline review completed.
+Independent review unavailable.** Record this in the PR or handoff.
+
+If the repository or task requires independent review, record the missing
+review as a delivery blocker. Continue other authorized work while waiting
+for an eligible reviewer. Inline review leaves that requirement pending.
+
 ## Review-closure protocol
 
 When a PR synthesizes multi-reviewer feedback or documentation across multiple
