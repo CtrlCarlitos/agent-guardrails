@@ -59,7 +59,8 @@ Linux, macOS and WSL:
 
   curl -fL -o install.sh "$url/install.sh"
   curl -fL -o SHA256SUMS "$url/SHA256SUMS"
-  grep " install.sh\$" SHA256SUMS | { sha256sum -c - 2>/dev/null || shasum -a 256 -c - ; }
+  grep " install.sh\$" SHA256SUMS > SHA256SUMS.one
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum -c SHA256SUMS.one; else shasum -a 256 -c SHA256SUMS.one; fi
 
   sh install.sh --version "$ver"
 )
