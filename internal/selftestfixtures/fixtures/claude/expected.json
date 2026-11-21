@@ -1,0 +1,33 @@
+{
+ "benign-edit-allows.json": {
+  "decision": "allow",
+  "name": "benign edit allows"
+ },
+ "cron-create-asks.json": {
+  "decision": "ask",
+  "name": "CronCreate asks (external, night-preserved)",
+  "rule": "capability-external"
+ },
+ "rm-rf-denies.json": {
+  "decision": "deny",
+  "name": "rm -rf denies"
+ },
+ "secret-read-denies.json": {
+  "decision": "deny",
+  "name": "secret read denies"
+ },
+ "serena-secret-mutation-denies.json": {
+  "decision": "deny",
+  "name": "serena secret mutation denies (registry projection)",
+  "rule": "P4.secret-path"
+ },
+ "subagent-delegation-allows.json": {
+  "decision": "allow",
+  "name": "subagent delegation allows (inherited)",
+  "rule": "delegation-inherited"
+ },
+ "unknown-mcp-asks.json": {
+  "decision": "ask",
+  "name": "unknown MCP asks (night-preserved)"
+ }
+}

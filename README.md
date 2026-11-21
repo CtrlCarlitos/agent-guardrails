@@ -193,15 +193,15 @@ Then add `~/.local/bin` to your PATH, enroll once (as above), and run `guardrail
 
 ```
 $ guardrail selftest
-claude: probes pass (7)
-opencode: probes pass (3)
-antigravity: probes pass (7)
-codex: probes pass (2)
+claude: probes pass (<N>)
+opencode: probes pass (<N>)
+antigravity: probes pass (<N>)
+codex: probes pass (<N>)
 note: codex probes invoke the hook directly; live runtime mediation is evidenced by audit records
-selftest: all probes passed
+selftest: all probes passed — runs every recorded fixture (<total>)
 ```
 
-`selftest` runs real hook payloads through the installed binary — `rm -rf /` must deny, a secret read must deny, an unknown tool must ask — and exits 1 on any drift. `guardrail doctor` shows the resolved policy, which hosts are registered, and any warnings. `guardrail audit` summarizes what's been decided lately. When something's odd, [docs/OPERATIONS.md](./docs/OPERATIONS.md) is the runbook: symptom → command.
+`selftest` runs every recorded fixture through the installed binary — `rm -rf /` must deny, a secret read must deny, an unknown tool must ask — and exits 1 on any drift. `guardrail doctor` shows the resolved policy, which hosts are registered, and any warnings. `guardrail audit` summarizes what's been decided lately. When something's odd, [docs/OPERATIONS.md](./docs/OPERATIONS.md) is the runbook: symptom → command.
 
 For Codex specifically, `guardrail selftest --evidence codex` cross-references the newest known local Codex rollout with audit records since the binary was installed. Use `--session <id>` to select one rollout, `--since <RFC3339|duration>` to set the observation window, and repeat `--expect-tool <name>` for exact normalized or native tool assertions. A newer silent session keeps the gate closed even when an older session qualified. Neither a green selftest nor this evidence check proves every session is mediated; [ADR-0020](./docs/adr/0020-codex-live-mediation-evidence-gate.md) spells out that distinction.
 

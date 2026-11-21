@@ -1,0 +1,21 @@
+{
+ "windows-benign-edit-allows.json": {
+  "decision": "allow",
+  "name": "windows benign edit allows"
+ },
+ "windows-multiedit-secret-denies.json": {
+  "decision": "deny",
+  "name": "windows multiedit secret denies",
+  "rule": "P4.secret-path"
+ },
+ "windows-rm-rf-drive-denies.json": {
+  "decision": "deny",
+  "name": "windows rm -rf drive denies",
+  "rule": "P1.rm-rf"
+ },
+ "windows-secret-read-denies.json": {
+  "decision": "deny",
+  "name": "windows secret read denies",
+  "rule": "P4.secret-path"
+ }
+}
