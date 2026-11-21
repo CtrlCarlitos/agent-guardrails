@@ -111,6 +111,78 @@ func TestWindowsAndPOSIXSessionCreatedWorktreeRemoval(t *testing.T) {
 			t.Fatalf("decision=%q; stale provenance must not count", decision)
 		}
 	})
+
+	// #151 delta sweep: provenance must NEVER relax compound commands,
+	// non-literal expansions, redirections/env overrides, or -C directory shifts.
+	t.Run("compound command smuggling second worktree remove", func(t *testing.T) {
+		sandbox(t)
+		seedWorktreeCreation(t, "s1", "git worktree add .worktrees/feat", "allow", time.Minute)
+		_, decision, _ := remove("s1", "git worktree remove .worktrees/feat && git worktree remove .worktrees/other")
+		if decision != "ask" {
+			t.Fatalf("decision=%q; compound worktree remove must not inherit provenance allow", decision)
+		}
+	})
+
+	t.Run("compound command smuggling another ask", func(t *testing.T) {
+		sandbox(t)
+		seedWorktreeCreation(t, "s1", "git worktree add .worktrees/feat", "allow", time.Minute)
+		_, decision, _ := remove("s1", "git worktree remove .worktrees/feat && git branch -D main")
+		if decision != "ask" {
+			t.Fatalf("decision=%q; compound command with git branch -D must not inherit provenance allow", decision)
+		}
+	})
+
+	t.Run("variable suffix expansion must not match literal prefix", func(t *testing.T) {
+		sandbox(t)
+		seedWorktreeCreation(t, "s1", "git worktree add .worktrees/feat", "allow", time.Minute)
+		_, decision, _ := remove("s1", "git worktree remove .worktrees/feat$EXTRA")
+		if decision != "ask" {
+			t.Fatalf("decision=%q; dynamic variable suffix must not inherit provenance allow", decision)
+		}
+	})
+
+	t.Run("git -C into another repo must not match cwd creation", func(t *testing.T) {
+		sandbox(t)
+		otherRepo := t.TempDir()
+		seedWorktreeCreation(t, "s1", "git worktree add .worktrees/feat", "allow", time.Minute)
+		_, decision, _ := remove("s1", "git -C "+otherRepo+" worktree remove .worktrees/feat")
+		if decision != "ask" {
+			t.Fatalf("decision=%q; git -C into a different repo must not match cwd provenance", decision)
+		}
+	})
+
+	t.Run("redirection or env override on remove must not inherit provenance", func(t *testing.T) {
+		sandbox(t)
+		seedWorktreeCreation(t, "s1", "git worktree add .worktrees/feat", "allow", time.Minute)
+		for _, cmd := range []string{
+			"git worktree remove .worktrees/feat > out.txt",
+			"GIT_DIR=/other git worktree remove .worktrees/feat",
+		} {
+			_, decision, _ := remove("s1", cmd)
+			if decision != "ask" {
+				t.Fatalf("%q: decision=%q; want ask", cmd, decision)
+			}
+		}
+	})
+
+	t.Run("quoted literal path still matches", func(t *testing.T) {
+		sandbox(t)
+		seedWorktreeCreation(t, "s1", `git worktree add ".worktrees/feat"`, "allow", time.Minute)
+		code, decision, _ := remove("s1", `git worktree remove '.worktrees/feat'`)
+		if code != 0 || decision != "" {
+			t.Fatalf("code=%d decision=%q; static quoted literal path should match provenance", code, decision)
+		}
+	})
+
+	t.Run("matching git -C add and remove allows", func(t *testing.T) {
+		sandbox(t)
+		otherRepo := t.TempDir()
+		seedWorktreeCreation(t, "s1", "git -C "+otherRepo+" worktree add .worktrees/feat", "allow", time.Minute)
+		code, decision, _ := remove("s1", "git -C "+otherRepo+" worktree remove .worktrees/feat")
+		if code != 0 || decision != "" {
+			t.Fatalf("code=%d decision=%q; matching git -C add/remove should match provenance", code, decision)
+		}
+	})
 }
 
 // The allowance must be auditable: the allow record carries the rule and
