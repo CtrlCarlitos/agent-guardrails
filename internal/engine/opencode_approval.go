@@ -184,7 +184,7 @@ func ApplyOpenCodeApproval(v policy.Verdict, key string, st *session.State, now 
 			delete(st.PendingApprovals, key)
 		}
 	case policy.Ask:
-		if v.RuleID == "" {
+		if v.RuleID == "" || policy.RequiresFreshApproval(v.RuleID) {
 			delete(st.PendingApprovals, key)
 			return v
 		}

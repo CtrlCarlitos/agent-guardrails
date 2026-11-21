@@ -4,6 +4,10 @@
 
 Accepted
 
+[ADR-0040](0040-consequential-external-actions.md) adds a tie-break for
+Asks that require fresh approval and excludes four P6 rule IDs from Waivers,
+including the historical `P6.cloud-mutate` example below.
+
 ## Context
 
 The engine evaluates a tool call against three layers: the path policy, the

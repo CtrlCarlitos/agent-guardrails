@@ -159,6 +159,10 @@ func Merge(base *Policy, ov *Overlay, binaryVersion string, op *OperatorConfig, 
 	}
 
 	for _, waiver := range ov.Waive {
+		if RequiresFreshApproval(waiver) {
+			warns = append(warns, "guardrail: rule "+waiver+" requires fresh approval — waiver request DROPPED")
+			continue
+		}
 		if neverWaivable[waiver] {
 			warns = append(warns, "guardrail: rule "+waiver+" can never be waived (fail-closed backstop) — request DROPPED")
 			continue

@@ -259,9 +259,16 @@ func TestBuiltInAndOverlayVerdictsCombineBySeverity(t *testing.T) {
 	})
 
 	t.Run("waived built-in falls through to the overlay posture", func(t *testing.T) {
-		p := overlay(t, policy.Allow)
-		p.Waived["P6.cloud-mutate"] = true
-		v := Evaluate(tc, p)
+		// Use a waivable rule. ADR-0040 reserves cloud mutation for
+		// fresh approval even when the operator previously waived it.
+		p := fullPol()
+		p.Rules = append(p.Rules, policy.Rule{ID: "proj.push", Pattern: "git push --tags", Decision: policy.Allow})
+		waivable := ToolCall{Tool: "Bash", Command: "git push --tags", CWD: "/repo", RepoRoot: "/repo"}
+		if v := Evaluate(waivable, p); v.Decision != policy.Ask || v.RuleID != "P2.git-push-protected" {
+			t.Fatalf("built-in before waiver -> %+v, want ask/P2.git-push-protected", v)
+		}
+		p.Waived["P2.git-push-protected"] = true
+		v := Evaluate(waivable, p)
 		if v.Decision != policy.Allow {
 			t.Fatalf("waived built-in + overlay allow -> %+v, want allow", v)
 		}

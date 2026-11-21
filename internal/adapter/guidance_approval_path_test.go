@@ -25,7 +25,7 @@ func TestPolicyAskNamesTheConversationalPath(t *testing.T) {
 		"P2.git-push-delete",
 		"P1.chmod",
 		"P6.package-install",
-		"P6.publish",
+		"P2.git-push-protected",
 	} {
 		v := policy.Verdict{Decision: policy.Ask, RuleID: rule, Reason: "needs approval"}
 		got := Guidance(v, `bash {"command":"x"}`)
@@ -50,6 +50,25 @@ func TestPolicyAskNamesTheConversationalPath(t *testing.T) {
 		if !strings.Contains(got, "never a broader form") {
 			t.Errorf("%s ask does not tell the agent to ask for the exact command it ran:\n%s", rule, got)
 		}
+	}
+}
+
+func TestFreshApprovalGuidanceUsesHostPromptOrOperatorTerminal(t *testing.T) {
+	v := policy.Verdict{Decision: policy.Ask, RuleID: "P6.publish", Reason: "publishes a package"}
+	action := "npm publish"
+	got := Guidance(v, action)
+	for _, want := range []string{action, "host permission prompt", "run in their terminal"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("fresh approval guidance lacks %q: %s", want, got)
+		}
+	}
+	for _, obsolete := range []string{"retry", "conversational", "single-use grant"} {
+		if strings.Contains(got, obsolete) {
+			t.Errorf("fresh approval guidance offers %q: %s", obsolete, got)
+		}
+	}
+	if got := CodexAskGuidance(v, true); !strings.Contains(got, "run it in their terminal") {
+		t.Errorf("Codex does not hand off the action to the operator: %s", got)
 	}
 }
 

@@ -211,11 +211,11 @@ For Codex specifically, `guardrail selftest --evidence codex` cross-references t
 
 ```toml
 [[rules]]
-id       = "project.terraform-apply"
+id       = "project.deploy-preview"
 tool     = "Bash"
-pattern  = "terraform apply*"
+pattern  = "make deploy-preview*"
 decision = "ask"
-reason   = "infrastructure change requires operator review"
+reason   = "deploying a preview requires operator review"
 
 [slots]
 safe_roots       = ["./tmp"]            # rm -rf is fine here

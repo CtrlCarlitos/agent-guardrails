@@ -40,8 +40,8 @@ egress_allowlist = ["api.github.com"]    # P6: hosts curl/wget may reach
 
 # Extra project rules (added to the Base).
 [[rules]]
-id       = "project.terraform-apply"
+id       = "project.deploy-preview"
 tool     = "Bash"
-pattern  = "terraform apply*"
+pattern  = "make deploy-preview*"
 decision = "ask"
-reason   = "infrastructure change requires operator review"
+reason   = "deploying a preview requires operator review"
