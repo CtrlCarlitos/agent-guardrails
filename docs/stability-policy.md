@@ -6,10 +6,11 @@ a stable thing is allowed to change. Written for #103.
 **Status of this document.** Every release so far carries a `-dev` suffix and no
 `v1.0.0` exists. Until one is tagged, this page is the contract the project
 holds itself to, not a promise with a version number behind it. The stable list
-below was checked against the code on 2026-09-26; each claim names where it
-lives so it can be checked again. Where the code and an earlier draft of this
-policy disagreed, the policy was corrected to match the code, never the reverse
-(see [Known deviations](#known-deviations-from-the-tidy-story)).
+below was re-verified against `main` (`347c00b`) on 2026-11-21; each claim names
+where it lives so it can be checked again, and `test/docs_stability_test.go`
+pins schema keys and documented surfaces in CI. Where the code and an earlier
+draft of this policy disagreed, the policy was corrected to match the code, never
+the reverse (see [Known deviations](#known-deviations-from-the-tidy-story)).
 
 ## Stable
 
@@ -53,9 +54,11 @@ protocol (`internal/adapter/`):
 
 Anything the hook cannot parse or evaluate fails closed (exit 2, or a deny
 payload on Antigravity), never open. That fail-closed behaviour is part of the
-contract. The exact JSON each host requires is the host's contract; if a host
-changes it, the adapter follows and that is an adapter change, not a break of
-this one.
+contract. On a host whose permission posture answers asks itself (auto or bypass
+mode), an `ask` verdict escalates to a `deny` (`host-auto-ask-escalated`)
+naming the operator's terminal ([ADR-0035](adr/0035-hosts-that-answer-asks-themselves.md)).
+The exact JSON each host requires is the host's contract; if a host changes it,
+the adapter follows and that is an adapter change, not a break of this one.
 
 ### CLI surface
 
@@ -67,19 +70,36 @@ operator commands documented in [OPERATIONS.md](OPERATIONS.md) (`next`,
 `help` or in the test's hidden list with a reason
 (`TestHelpListsEveryDispatchedSubcommand`, #395), so the two cannot drift.
 
-`guardrail explain` (#106, added after this policy was first checked) is part of
-the stable surface on the same terms: its selectors (`last`, a timestamp, a
-request ID, a session ID), its flags (`--last N`, `--all`, `--path`) and its
-exit codes (0 explained, 1 nothing matched, 2 usage error or unreadable log).
-What it prints is human-readable output and is not stable.
+Additive stable CLI surfaces verified on `main`:
+
+- `guardrail explain` (#106): selectors (`last`, a timestamp, a request ID, a
+  session ID), flags (`--last N`, `--all`, `--path`), and exit codes (`0`
+  explained, `1` nothing matched, `2` usage error or unreadable log).
+- `guardrail report` (#124, #585): redacted GitHub issue draft from an audit
+  record (`--id`, `--last N`, `--all`, `--path`; same `0`/`1`/`2` exit codes).
+- `guardrail status [--json]` (#110): unified per-plane enforcement proof and
+  doctor verdict (`0` proven and healthy, `1` unproven or unhealthy, `2` usage
+  error; `--json` fields are additive-only).
+- `guardrail tail` and `guardrail audit --follow` (#82): live decision stream
+  across 20 MB audit rotations (`--format compact|json`, `--plane`, `--verdict`,
+  `--lines`/`-n`, `--path`).
+- `guardrail night on --scope global|repo|session` (#83): scoped night leases
+  (`--until`, `--for`, `--repo`, `--session`).
+- `guardrail operator trust [repo-path]` and `guardrail operator untrust [repo-path]`
+  (#131): interactive-terminal-only bulk authorization and revocation of a
+  repository's Overlay loosening requests.
+- `guardrail delivery status|enable|revoke|finish` (#606, #633): bounded
+  repository-authorized PR merge and task cleanup.
+- `guardrail gen-config` and `guardrail sync` `--major 1|2` (opencode only,
+  [ADR-0034](adr/0034-opencode-dual-major-port.md)).
 
 **Exit-code contract.** Verified against `cmd/guardrail` (`run.go`, `plane.go`,
-`hook.go`) and by running the binary:
+`hook.go`, `status.go`) and by running the binary:
 
 | Code | Meaning |
 |---|---|
 | 0 | The command did what was asked, or there was nothing to do. For `hook`: the call is allowed or asked (an ask is an answer, not a failure). |
-| 1 | The command ran and reports a state or check that is not "fine": `night status` while night mode is inactive, `doctor --coverage` with uncontracted tools, `selftest --evidence` without enough evidence, `update` whose post-install `doctor` or `selftest` failed. A state, not a crash. |
+| 1 | The command ran and reports a state or check that is not "fine": `night status` while night mode is inactive, `status` when unproven or unhealthy, `explain`/`report` when nothing matched, `doctor --coverage` with uncontracted tools, `selftest --evidence` without enough evidence, `update` whose post-install `doctor` or `selftest` failed. A state, not a crash. |
 | 2 | Usage error or the command could not run: unknown subcommand, missing or bad arguments, unreadable input, no terminal where one is required. For `hook`: deny, or fail-closed. |
 | 3 | Operator action pending (`exitOperatorActionPending`, `cmd/guardrail/plane.go`): the change is waiting on the operator's approval (a terminal `[y/N]` or host ask in prompt mode, a passkey in passkey mode) or, in passkey mode, enrollment; nothing was loosened. A declined `[y/N]` for `setup` or `plane` is also 3. Not a failure. Returned by `setup`, `plane enable|disable` and `recover`. |
 
@@ -110,8 +130,9 @@ Machine-scoped, outside every repository, at `guardrail/waivers.toml` under the
 platform config directory (`internal/policy/operator.go`; layout in
 [operator-config.md](operator-config.md)). Stable: tables keyed by absolute
 repository path with `waive`, `secret_allow`, `audit_log`, `egress_allowlist`,
-`web_hosts` and `[[grant]]` entries, the global `[web_hosts] global` and
-`[web_research] enforcement` tables, and the top-level
+`web_hosts`, `[[grant]]` entries, `[<repo>.delivery]` (`DeliveryPolicy`, #606),
+and `[<repo>.trust]` (`TrustSnapshot` bulk Overlay snapshots, #131); the global
+`[web_hosts] global` and `[web_research] enforcement` tables; and the top-level
 `approval = "prompt" | "passkey"` key (missing means `"prompt"`; an unknown
 value makes the file unreadable, and an unreadable file means `"passkey"`;
 [ADR-0033](adr/0033-operator-approvals-default-to-a-prompt.md)). A binary
@@ -145,8 +166,11 @@ change is still recorded in the [CHANGELOG](../CHANGELOG.md).
   (`$XDG_STATE_HOME/guardrail/audit.jsonl` or `~/.local/state/...` on Unix,
   `%LOCALAPPDATA%\guardrail\audit.jsonl` on Windows) unless an Overlay redirect
   is authorised.
-- **Doctor, audit and other human-readable output**, and the approval-daemon
-  wire protocol.
+- **Doctor, status, explain, report, audit and other human-readable output**,
+  machine-owned state caches (`proof.json`, `selftest-passed`, `night.toml`,
+  session/approval stores), and the approval/engine daemon wire protocols. Do
+  not parse human-readable CLI output; use documented `--json` flags or
+  `audit.jsonl` where machine-readable output is needed.
 
 ## Breaking-change process
 
@@ -175,16 +199,17 @@ leaving a hole; it says so in the CHANGELOG.
 | Claude Code | Supported |
 | opencode | Supported |
 | Antigravity | Supported |
-| Codex | **Experimental**: on Windows, Codex 0.159+ with PowerShell is mediated behind a working-directory check (observed at runtime, [#454](https://github.com/CtrlCarlitos/agent-guardrails/issues/454)); other Windows shells fail closed, and earlier Codex did not dispatch ([openai/codex#24453](https://github.com/openai/codex/issues/24453)); hosted tools and `write_stdin` bypass pre-hooks on every OS ([ADR-0014](adr/0014-codex-native-hooks-and-blocked-asks.md)) |
+| Codex | **Experimental**: on Windows, Codex 0.159+ (re-verified live on `0.170.0`, 2026-11-20) with PowerShell is mediated behind a working-directory check ([#454](https://github.com/CtrlCarlitos/agent-guardrails/issues/454)); other Windows shells fail closed, and earlier Codex did not dispatch ([openai/codex#24453](https://github.com/openai/codex/issues/24453)); hosted tools and `write_stdin` bypass pre-hooks on every OS ([ADR-0014](adr/0014-codex-native-hooks-and-blocked-asks.md)); child delegation remains denied pending upstream pre-effect guarantees ([#587](https://github.com/CtrlCarlitos/agent-guardrails/issues/587)) |
 
 The status is a policy decision. What is actually verified on each OS and
 shell, with the evidence for each cell, is in the
 [compatibility matrix](compatibility-matrix.md). That page is the single
 source for per-OS claims; this one does not repeat them.
 
-- Experimental planes follow the "Not yet stable" rules for their adapter
-  behaviour; the Stable sections above still hold for the verdict, the CLI and
-  the config formats.
+- Experimental planes may ship alongside Stable planes in `v1.0.0`: `v1.0.0`
+  freezes the Stable sections above (verdict format, hook protocol, CLI,
+  Overlay, and Operator config), while an Experimental plane's adapter
+  behaviour follows the "Not yet stable" rules until promoted.
 
 ## Known deviations from the tidy story
 

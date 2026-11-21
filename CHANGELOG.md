@@ -81,6 +81,14 @@ explicitly in **Breaking** notes.
   and workspace deletion) as fail-closed `CapabilityDeny`.
 
 ### Tooling & Docs
+- **Docs (#103): re-audit `docs/stability-policy.md` against `main` (`347c00b`)
+  and pin drift checks in CI.** Updates the stability policy with all additive
+  stable CLI and Operator config surfaces (`status [--json]`, `tail`, `audit
+  --follow`, `report`, `delivery`, `operator trust|untrust`, `night on --scope`,
+  `gen-config`/`sync --major`, `[<repo>.delivery]`, `[<repo>.trust]`), documents
+  ADR-0035 auto/bypass ask escalation and `proof.json`/human-output boundaries,
+  clarifies Experimental-plane coexistence in `v1.0.0`, and enforces schema/doc
+  alignment in CI via `test/docs_stability_test.go`.
 - **Docs (#114): `docs/evidence/` in-tree empirical findings directory.** Adds
   `docs/evidence/README.md` (fixed six-section template: Claim, Context, Method,
   Observation, Consequence, Links) seeded with six primary-source empirical
