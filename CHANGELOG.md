@@ -7,6 +7,21 @@ explicitly in **Breaking** notes.
 ## Unreleased
 
 ### CLI
+- **Feature (#131): `guardrail operator trust` / `untrust` repository Overlay
+  snapshots.** Adds interactive-terminal-only `guardrail operator trust
+  [repo-path]` and `guardrail operator untrust [repo-path]` to bulk-authorize
+  (or revoke) a repository's current `guardrail.toml` loosening requests
+  (`egress_allowlist`, `web_hosts`, `waive`, exact `secret_allow` globs, and
+  exact `audit_log` path) as a single `[<repo>.trust]` snapshot in
+  `waivers.toml` under one approval ceremony (respecting ADR-0033: terminal
+  `[y/N]` in prompt mode, brokered `operator-trust-set` WebAuthn in passkey
+  mode). Preserves existing manual `waivers.toml` grants, `delivery`, and
+  command grants without breaking migration; never authorizes fail-closed
+  backstops (`tokenize-failed`, `panic-recovered`, `P3.unresolved`), egress
+  wildcards (`*`, `**`), or invalid web hosts. Subsequent `policy.Merge` calls
+  honor trusted entries and drop new PR additions with `not in trust snapshot`
+  guidance, and `guardrail doctor` displays the `overlay trust:` diff
+  (authorized, new, removed).
 - **Feature (#110): unified `guardrail status`, `proof.json` proof record, and
   single SessionStart posture line.** Consolidates plane lifecycle registration,
   floor drift, coverage drift, and selftest pass into one per-machine proof

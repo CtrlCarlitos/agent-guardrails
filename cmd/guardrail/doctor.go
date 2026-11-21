@@ -397,6 +397,9 @@ func printDoctor(stdout, stderr io.Writer) (int, int) {
 	} else {
 		fmt.Fprintf(stdout, "waivers: %s\n", safetext.SingleLine(strings.Join(waived, ", ")))
 	}
+	if ov != nil {
+		printDoctorTrustDiff(repoRoot, policy.DiffTrust(ov, op, repoRoot), stdout)
+	}
 	printRecipeStatus(merged, stdout)
 
 	fmt.Fprintf(stdout, "audit log: %s\n", safetext.SingleLine(audit.DefaultPath(merged.Slots.AuditLog)))

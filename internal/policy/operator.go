@@ -21,6 +21,7 @@ var neverWaivable = map[string]bool{
 
 type RepoGrant struct {
 	Delivery        *DeliveryPolicy `toml:"delivery,omitempty"`
+	Trust           *TrustSnapshot  `toml:"trust,omitempty"`
 	Waive           []string        `toml:"waive"`
 	SecretAllow     bool            `toml:"secret_allow"`
 	AuditLog        bool            `toml:"audit_log"`
@@ -170,6 +171,11 @@ func LoadOperatorConfig() (*OperatorConfig, error) {
 				return emptyOperatorConfig(), err
 			}
 		}
+		if grant.Trust != nil {
+			if err := grant.Trust.Validate(); err != nil {
+				return emptyOperatorConfig(), err
+			}
+		}
 		repos[key] = grant
 	}
 	normalized := make(map[string]RepoGrant, len(repos))
@@ -218,12 +224,31 @@ func canonicalOperatorKey(path string) string {
 	return pathutil.NormalizeLexical(path)
 }
 
+// TrustFor returns a copy of the operator's trust snapshot for repoRoot, if one
+// has been recorded via `guardrail operator trust`.
+func (o *OperatorConfig) TrustFor(repoRoot string) (*TrustSnapshot, bool) {
+	grant, ok := o.grant(repoRoot)
+	if !ok || grant.Trust == nil || grant.Trust.Validate() != nil {
+		return nil, false
+	}
+	return grant.Trust.Clone(), true
+}
+
+// HasTrustSnapshot reports whether repoRoot has a recorded trust snapshot.
+func (o *OperatorConfig) HasTrustSnapshot(repoRoot string) bool {
+	_, ok := o.TrustFor(repoRoot)
+	return ok
+}
+
 func (o *OperatorConfig) AllowsWaiver(repoRoot, ruleID string) bool {
 	if neverWaivable[ruleID] {
 		return false
 	}
 	grant, ok := o.grant(repoRoot)
-	return ok && slices.Contains(grant.Waive, ruleID)
+	if !ok {
+		return false
+	}
+	return slices.Contains(grant.Waive, ruleID) || (grant.Trust != nil && slices.Contains(grant.Trust.Waive, ruleID))
 }
 
 func (o *OperatorConfig) AllowsSecretAllow(repoRoot string) bool {
@@ -231,14 +256,42 @@ func (o *OperatorConfig) AllowsSecretAllow(repoRoot string) bool {
 	return ok && grant.SecretAllow
 }
 
+// AllowsSecretAllowEntry reports whether the operator authorized the specific
+// secret_allow glob for repoRoot — either through the legacy repo-wide boolean
+// or via an exact entry in the repo's trust snapshot.
+func (o *OperatorConfig) AllowsSecretAllowEntry(repoRoot, entry string) bool {
+	grant, ok := o.grant(repoRoot)
+	if !ok {
+		return false
+	}
+	return grant.SecretAllow || (grant.Trust != nil && entry != "" && slices.Contains(grant.Trust.SecretAllow, entry))
+}
+
 func (o *OperatorConfig) AllowsAuditLog(repoRoot string) bool {
 	grant, ok := o.grant(repoRoot)
 	return ok && grant.AuditLog
 }
 
-func (o *OperatorConfig) AllowsEgress(repoRoot, entry string) bool {
+// AllowsAuditLogPath reports whether the operator authorized the specific
+// audit_log redirect path for repoRoot — either through the legacy repo-wide
+// boolean or via an exact path match in the repo's trust snapshot.
+func (o *OperatorConfig) AllowsAuditLogPath(repoRoot, path string) bool {
 	grant, ok := o.grant(repoRoot)
-	return ok && slices.Contains(grant.EgressAllowlist, entry)
+	if !ok {
+		return false
+	}
+	return grant.AuditLog || (grant.Trust != nil && path != "" && grant.Trust.AuditLog == path)
+}
+
+func (o *OperatorConfig) AllowsEgress(repoRoot, entry string) bool {
+	if entry == "" || entry == "*" || entry == "**" {
+		return false
+	}
+	grant, ok := o.grant(repoRoot)
+	if !ok {
+		return false
+	}
+	return slices.Contains(grant.EgressAllowlist, entry) || (grant.Trust != nil && slices.Contains(grant.Trust.EgressAllowlist, entry))
 }
 
 func (o *OperatorConfig) AllowsGlobalWebHost(host string) bool {
@@ -246,6 +299,12 @@ func (o *OperatorConfig) AllowsGlobalWebHost(host string) bool {
 }
 
 func (o *OperatorConfig) AllowsWebHost(repoRoot, host string) bool {
+	if ValidateWebHost(host) != nil {
+		return false
+	}
 	grant, ok := o.grant(repoRoot)
-	return ok && ValidateWebHost(host) == nil && slices.Contains(grant.WebHosts, host)
+	if !ok {
+		return false
+	}
+	return slices.Contains(grant.WebHosts, host) || (grant.Trust != nil && slices.Contains(grant.Trust.WebHosts, host))
 }

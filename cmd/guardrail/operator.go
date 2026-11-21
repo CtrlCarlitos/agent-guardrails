@@ -29,8 +29,13 @@ func cmdOperatorInput(args []string, terminal bool, stdin io.Reader, stdout, std
 		return 2
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "guardrail: operator requires enroll, add-authenticator, remove-authenticator, or recover-reset")
-		return 2
+		return operatorUsage(stderr)
+	}
+	switch args[0] {
+	case "trust":
+		return cmdOperatorTrust(args[1:], terminal, stdin, stdout, stderr)
+	case "untrust":
+		return cmdOperatorUntrust(args[1:], terminal, stdin, stdout, stderr)
 	}
 	store := defaultOperatorAuthStore()
 	switch args[0] {
@@ -115,7 +120,7 @@ func cmdOperatorInput(args []string, terminal bool, stdin io.Reader, stdout, std
 }
 
 func operatorUsage(stderr io.Writer) int {
-	fmt.Fprintln(stderr, "guardrail: operator requires enroll, add-authenticator, remove-authenticator <fingerprint>, or recover-reset")
+	fmt.Fprintln(stderr, "guardrail: operator requires enroll, add-authenticator, remove-authenticator <fingerprint>, recover-reset, trust [repo-path], or untrust [repo-path]")
 	return 2
 }
 
