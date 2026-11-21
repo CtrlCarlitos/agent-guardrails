@@ -70,6 +70,16 @@ explicitly in **Breaking** notes.
   and workspace deletion) as fail-closed `CapabilityDeny`.
 
 ### Tooling & Docs
+- **Docs (#114): `docs/evidence/` in-tree empirical findings directory.** Adds
+  `docs/evidence/README.md` (fixed six-section template: Claim, Context, Method,
+  Observation, Consequence, Links) seeded with six primary-source empirical
+  findings (update in-process selftest hop `#58`, Claude `REPL`/`JavaScript`
+  mediation probe `#60`, Windows UTF-8 BOM and launcher/shim `#66`, Windows
+  PowerShell cmdlet & host shell-reporting boundary `#66`/`#501`, macOS `/tmp`
+  symlink and path aliases `#68`, and Windows 11 `agy 1.5.11` live acceptance
+  proof `#652`), links ADR-0019 to the extracted REPL evidence file, points
+  `CONTRIBUTING.md` at `docs/evidence/`, and enforces file naming, heading
+  order, and index completeness in CI via `test/docs_evidence_test.go`.
 - **Feature (#102): pre-push branch-trap check (`scripts/check-branch.sh` and
   `scripts/check-branch.ps1`, wired to `make check-branch`).** Detects branches
   that are already merged or squash-merged into the base ref (direct ancestor,
