@@ -90,7 +90,7 @@ func Tail(ctx context.Context, opts TailOptions) error {
 	}
 
 	if info, err := os.Stat(path); err == nil {
-		prevInfo = info
+		prevInfo = pinFileID(info)
 		offset = info.Size()
 	}
 
@@ -130,6 +130,7 @@ func Tail(ctx context.Context, opts TailOptions) error {
 				}
 				return err
 			}
+			info = pinFileID(info)
 
 			switch {
 			case prevInfo == nil:
@@ -166,6 +167,18 @@ func Tail(ctx context.Context, opts TailOptions) error {
 	}
 }
 
+// pinFileID forces Go on Windows to load the NTFS volume/index file ID while
+// the path still refers to this file. Go's os.Stat on Windows defers
+// GetFileInformationByHandle until the first os.SameFile call; calling it only
+// after a rename reopens the new file at the same path and falsely reports
+// SameFile == true.
+func pinFileID(info os.FileInfo) os.FileInfo {
+	if info != nil {
+		_ = os.SameFile(info, info)
+	}
+	return info
+}
+
 func findRotatedSegment(path string, prevInfo os.FileInfo) (string, bool) {
 	base := strings.TrimSuffix(path, ".jsonl")
 	rotated, err := filepath.Glob(base + "-*.jsonl")
@@ -176,7 +189,7 @@ func findRotatedSegment(path string, prevInfo os.FileInfo) (string, bool) {
 	// Walk newest-first so we immediately match the most recent rotation.
 	for i := len(rotated) - 1; i >= 0; i-- {
 		segInfo, err := os.Stat(rotated[i])
-		if err == nil && os.SameFile(prevInfo, segInfo) {
+		if err == nil && os.SameFile(prevInfo, pinFileID(segInfo)) {
 			return rotated[i], true
 		}
 	}
