@@ -4,6 +4,18 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Testing
+- **Windows OpenCode acceptance and live runtime evidence (#92).** Adds
+  `test/acceptance/harness.py --host opencode` for the OpenCode lifecycle in a disposable Windows profile: checksum-verified
+  `install.ps1` install and update, the ADR-0034 plugin wiring, fake-secret
+  denies, host-approved operator actions with replay refusal, disablement and
+  `recover opencode-config`. The opt-in `--live` stage ran `opencode v2.3.2`
+  with `run --standalone`; the session was denied the fake `.env` read and
+  allowed the marker file. The harness isolation check now also watches the
+  real `opencode.json` and plugin artifact.
+
 ## v0.23.47-dev (2026-11-21)
 
 ### Policy

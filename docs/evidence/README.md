@@ -23,6 +23,7 @@ Structure and index completeness are enforced in CI by
 | 2026-11-21 | [Fail-open inventory sweep (2026-11-15 baseline + 2026-11-21 delta at `87dfe09`)](2026-11-21-fail-open-inventory-sweep.md) | #151, [ADR-0036](../adr/0036-unmatched-commands-and-safe-control-allow.md), [ADR-0039](../adr/0039-session-provenance-worktree-cleanup.md) |
 | 2026-11-21 | [Linux Codex spawn admission and native review hooks](2026-11-21-linux-codex-child-mediation.md) | #587, [ADR-0013](../adr/0013-delegation-inherits-enforcement-in-process.md) |
 | 2026-11-21 | [Linux Codex authenticated live acceptance](2026-11-21-linux-codex-live-acceptance.md) | #92 |
+| 2026-11-21 | [Windows OpenCode 2 live acceptance](2026-11-21-windows-opencode-live-acceptance.md) | #92, [ADR-0034](../adr/0034-opencode-dual-major-port.md) |
 
 ## Template
 
