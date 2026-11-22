@@ -44,6 +44,10 @@ explicitly in **Breaking** notes.
   Windows adapter exits `77` in an elevated shell, where `install.ps1` would
   add a Defender exclusion for the disposable binary, and its User Path
   restore now broadcasts the change to running programs.
+- **Fix (#677): the acceptance unit suite runs green on a non-elevated
+  Windows account.** The symlinked-credentials refusal is its own test and
+  skips, saying the case is not covered, where the account cannot create a
+  symlink. The other credential refusals no longer depend on it.
 
 ## v0.23.47-dev (2026-11-21)
 
