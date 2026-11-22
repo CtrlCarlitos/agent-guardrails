@@ -123,6 +123,14 @@ func checkBashAnalysis(tc ToolCall, pol *policy.Policy, analysis *bashAnalysis) 
 		return &policy.Verdict{Decision: policy.Ask, RuleID: "tokenize-failed",
 			Reason: "could not parse shell command (" + parseErrorDetail(analysis.err) + "); failing closed to ask"}
 	}
+	// A standalone PowerShell property read produces a value. The same
+	// spelling inside a command can supply an operand and still needs policy.
+	if tc.PowerShellCommand() {
+		switch strings.ToLower(strings.TrimSpace(tc.Command)) {
+		case "$psversiontable.psversion", "$psversiontable.psedition":
+			return nil
+		}
+	}
 	var worst *policy.Verdict
 	initializedGitDir := ""
 	take := func(v *policy.Verdict) {
