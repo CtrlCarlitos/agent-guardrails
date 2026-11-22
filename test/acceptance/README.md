@@ -125,8 +125,8 @@ through `install.ps1` (a tampered
 `SHA256SUMS` must be rejected first), and applies the Linux adapter's rules
 for verdicts, credentials and provenance. The fake-secret stage sends a
 `PowerShell` envelope as well as `Bash` and `Read`; it uses
-`Get-Content .\.env`, a path with a separator, and makes no claim about the
-bare `Get-Content .env`.
+both `Get-Content .\.env` and the bare `Get-Content .env`, because the
+spelling of the path must not decide the verdict.
 
 Windows has no PTY driver here, so disablement and recovery do not answer a
 terminal prompt. Each operator command is first run with no ask and must be

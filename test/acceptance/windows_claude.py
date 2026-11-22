@@ -270,17 +270,19 @@ def run_windows_claude_acceptance(
         secret_deny = ("deny", "deny", "P4.secret-path")
         shell = bash("cat .env")
         read = direct("Read", {"file_path": str(workspace / ".env")})
-        # A path with a separator. The bare `Get-Content .env` is not checked here.
+        # With and without a separator: the spelling must not decide the verdict.
         cmdlet = direct("PowerShell", {"command": "Get-Content .\\.env"})
+        bare = direct("PowerShell", {"command": "Get-Content .env"})
         benign = bash("cat allowed.txt")
         ok = (
-            all(probe[:3] == secret_deny and probe[3].returncode == 2 for probe in (shell, read, cmdlet))
+            all(probe[:3] == secret_deny and probe[3].returncode == 2 for probe in (shell, read, cmdlet, bare))
             and benign[:2] == ("allow", "allow")
         )
         return ok, (
             f"Bash cat .env: exit={shell[3].returncode} audit={shell[1]}/{shell[2]}; "
             f"Read .env: exit={read[3].returncode} audit={read[1]}/{read[2]}; "
             f"PowerShell Get-Content .\\.env: exit={cmdlet[3].returncode} audit={cmdlet[1]}/{cmdlet[2]}; "
+            f"PowerShell Get-Content .env: exit={bare[3].returncode} audit={bare[1]}/{bare[2]}; "
             f"Bash cat allowed.txt: {benign[0]}"
         )
 

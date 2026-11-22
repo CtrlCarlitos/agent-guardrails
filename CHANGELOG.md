@@ -6,6 +6,27 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Policy
+- **Fix: PowerShell file cmdlets and Unicode-dash parameters are read as
+  PowerShell reads them.** A file cmdlet's bare operand was not treated as a
+  path, so `Get-Content .env`, `gc .env`, `type .env`,
+  `Select-String FAKE .env` and `Copy-Item .env copy.txt` were allowed while
+  `cat .env` and `Get-Content .\.env` were denied as `P4.secret-path`. For
+  `Get-Content`, `Select-String`, `Copy-Item`, `Move-Item`, `Rename-Item`,
+  `Format-Hex`, `Import-Csv`, their aliases and `type`, every word that is
+  not a parameter name is now a path candidate, including array elements.
+  Parameters written with an en dash, em dash or horizontal bar, which
+  PowerShell accepts, were not read as parameters:
+  `Remove-Item –Recurse –Force` outside the repo was allowed instead of
+  denied as `P1.rm-rf`, and `pwsh –EncodedCommand` was not asked.
+  **Behavior change:** a word that is not a path but is spelled like a
+  secret is now denied for these cmdlets, for example
+  `Select-String .env notes.txt` (searching for that text) and
+  `Copy-Item .env.example .env`; the second already matched
+  `cp .env.example .env`. Not covered: a path arriving by pipeline
+  (`'.env' | Get-Content`), other Windows readers such as `findstr` and
+  `certutil`, wildcards, and variables.
+
 ### Testing
 - **Linux Claude Code acceptance (#92).** `test/acceptance/harness.py --host
   claude` runs the Claude Code lifecycle in an isolated home: checksummed

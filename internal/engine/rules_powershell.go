@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
@@ -120,8 +121,7 @@ func bindPS(argv []string, spec psParams) psBinding {
 // psParameter splits `-Name`, `-Name:Value` and `--Name` into a lowercase name
 // and an inline argument. A bare `-` or a negative number is not a parameter.
 func psParameter(arg string) (name, inline string, hasInline bool) {
-	trimmed := strings.TrimPrefix(arg, "-")
-	trimmed = strings.TrimPrefix(trimmed, "-")
+	trimmed := psTrimDash(psTrimDash(arg))
 	if trimmed == arg || trimmed == "" {
 		return "", "", false
 	}
@@ -219,10 +219,10 @@ func checkPowerShell(s Simple, tc ToolCall, pol *policy.Policy) *policy.Verdict 
 // -Command or -File: what follows is the command's own arguments.
 func psEncodedCommand(argv []string) bool {
 	for _, arg := range argv[1:] {
-		if !strings.HasPrefix(arg, "-") {
+		if !psDash(arg) {
 			continue
 		}
-		name, _, _ := strings.Cut(strings.ToLower(strings.TrimLeft(arg, "-")), ":")
+		name, _, _ := strings.Cut(strings.ToLower(strings.TrimLeft(arg, psDashes)), ":")
 		switch {
 		case name == "e" || name == "ec" || len(name) >= 2 && strings.HasPrefix("encodedcommand", name):
 			return true
@@ -305,6 +305,75 @@ func checkPSExecutionPolicy(s Simple) *policy.Verdict {
 		}
 	}
 	return nil
+}
+
+// psPathCmdlets take files as operands. A bare word such as `.env` is a path
+// to these exactly as it is to `cat`; the generic operand reader only sees a
+// path in a word with a separator, so `Get-Content .env` read a secret that
+// `Get-Content .\.env` was denied.
+//
+// The list holds only names PowerShell owns, plus `type`, which prints a file
+// on Windows and names a command on POSIX. `cp`, `mv` and `cat` are PowerShell
+// aliases too, but they are POSIX commands with readers of their own.
+var psPathCmdlets = map[string]bool{
+	"get-content": true, "gc": true, "type": true,
+	"select-string": true, "sls": true,
+	"copy-item": true, "cpi": true, "copy": true,
+	"move-item": true, "mi": true, "move": true,
+	"rename-item": true, "rni": true, "ren": true,
+	"format-hex": true, "fhx": true,
+	"import-csv": true, "ipcsv": true,
+}
+
+// parsePSPathOperands reads every word of a file cmdlet that is not a
+// parameter name as a path.
+//
+// That includes words that are not paths: the text Select-String searches
+// for, and the value of `-Encoding`. Telling them apart needs to know which
+// word PowerShell binds where, and the Engine cannot: the tokenizer has
+// already dropped the quotes, and PowerShell binds a quoted `'-Pattern'` as an
+// argument where an unquoted one is a parameter. Every exemption tried here
+// let some spelling name the secret in the exempt position. A word only
+// matters to the secret tier when it names a secret, so the cost is a deny on
+// `Select-String .env notes.txt`, which searches for that text.
+func parsePSPathOperands(argv []string) []parsedOperand {
+	var out []parsedOperand
+	for _, arg := range argv[1:] {
+		word := arg
+		if psDash(arg) {
+			// `-Name:value` carries a value; a bare `-Name` names nothing.
+			_, inline, found := strings.Cut(arg, ":")
+			if !found {
+				continue
+			}
+			word = inline
+		}
+		// A path parameter takes an array: `Get-Content notes.txt,.env`.
+		for _, element := range strings.Split(word, ",") {
+			if element != "" {
+				out = append(out, parsedOperand{value: element, role: operandPath})
+			}
+		}
+	}
+	return out
+}
+
+// psDashes are the characters PowerShell accepts as a parameter's dash: the
+// hyphen, en dash, em dash and horizontal bar.
+const psDashes = "-–—―"
+
+func psDash(arg string) bool {
+	first, _ := utf8.DecodeRuneInString(arg)
+	return arg != "" && strings.ContainsRune(psDashes, first)
+}
+
+// psTrimDash removes one leading parameter dash, if there is one.
+func psTrimDash(arg string) string {
+	if !psDash(arg) {
+		return arg
+	}
+	_, size := utf8.DecodeRuneInString(arg)
+	return arg[size:]
 }
 
 // psReadOnlyCmdlets read a path and change nothing. The list holds only names

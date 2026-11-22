@@ -38,6 +38,9 @@ func parseOperandRoles(argv []string) operandParseResult {
 		return operandParseResult{}
 	}
 	command := head(argv)
+	if psPathCmdlets[command] {
+		return operandParseResult{operands: parsePSPathOperands(argv)}
+	}
 	if command == "grep" || command == "egrep" || command == "fgrep" {
 		operands, _ := parsePatternCommandOperands(argv, grepOperandOptions)
 		return operandParseResult{operands: operands}
