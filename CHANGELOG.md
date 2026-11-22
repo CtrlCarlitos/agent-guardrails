@@ -4,15 +4,20 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.48-dev (2026-11-22)
 
 ### Codex
+- Windows shell-proof refusals identify the failed transcript check, including
+  missing or unreadable files, missing shell tags, and mismatched session
+  metadata during session lookup (#685).
+- Standalone PowerShell version and edition probes run when the shell is
+  proven. Codex approval refusals include the policy rule ID (#694).
 - Shell parse refusals now show `tokenize-failed`, the parser's finding, and
   concrete ways to continue on a plane without a PreToolUse approval prompt.
   Unsupported connector tools explain that their refusal is by design (#690).
 
 ### Policy
-- **Fix: PowerShell file cmdlets and Unicode-dash parameters are read as
+- **Fix (#683): PowerShell file cmdlets and Unicode-dash parameters are read as
   PowerShell reads them.** A file cmdlet's bare operand was not treated as a
   path, so `Get-Content .env`, `gc .env`, `type .env`,
   `Select-String FAKE .env` and `Copy-Item .env copy.txt` were allowed while
@@ -31,6 +36,10 @@ explicitly in **Breaking** notes.
   `cp .env.example .env`. Not covered: a path arriving by pipeline
   (`'.env' | Get-Content`), other Windows readers such as `findstr` and
   `certutil`, wildcards, and variables.
+
+### Decisions
+- ADR-0041 proposes treating secret-shaped bare operands as path candidates
+  across commands (#687).
 
 ### Testing
 - **Linux Claude Code acceptance (#92).** `test/acceptance/harness.py --host
