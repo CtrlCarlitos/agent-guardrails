@@ -36,6 +36,15 @@ explicitly in **Breaking** notes.
   `opencode v2.3.2` with `run --standalone`; the session was denied the fake
   `.env` read and allowed the marker file. The harness isolation check now
   also watches the real `opencode.json` and plugin artifact.
+- **Windows Claude Code acceptance (#92).** On Windows,
+  `test/acceptance/harness.py --host claude` runs the Claude Code lifecycle
+  in a disposable profile: checksum-verified `install.ps1` install and
+  update, hook registration, fake-secret denials through `Bash`, `Read` and
+  `PowerShell`, a native permission ask, and the prompt-mode egress
+  approval. Disablement and `recover claude-settings` go through the
+  host-ask ticket, with the unapproved and replayed commands refused. The
+  opt-in `--live` stage reports `operator_assisted` without credentials in
+  the isolated profile; no harness-driven live session is claimed.
 - **Fix (#678): Antigravity acceptance stops overclaiming and cleans up after
   itself.** `approval_retry` required the pre-hook to allow `guardrail fetch`
   after the grant, but the hook allows that command for any host, granted or

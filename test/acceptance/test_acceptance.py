@@ -757,6 +757,47 @@ class WindowsAntigravityTests(unittest.TestCase):
             self.assertFalse(windows_antigravity.elevated_shell())
 
 
+class WindowsClaudeTests(unittest.TestCase):
+    BINARY = r"C:\Temp\iso\bin\guardrail.exe"
+
+    def _settings(self, command, event="PreToolUse"):
+        return {"hooks": {event: [{"matcher": "*", "hooks": [{"type": "command", "command": command}]}]}}
+
+    def test_runner_reports_missing_prerequisite_off_windows(self):
+        import windows_claude
+
+        if sys.platform == "win32":
+            self.skipTest("the non-Windows prerequisite exit is only observable off Windows")
+        code, report = windows_claude.run_windows_claude_acceptance()
+        self.assertEqual(code, harness.EXIT_SKIP_PREREQ)
+        self.assertIsNone(report)
+
+    def test_harness_selects_the_claude_runner_for_the_platform(self):
+        self.assertEqual(harness.select_claude_runner("win32"), "windows_claude")
+        self.assertEqual(harness.select_claude_runner("linux"), "linux_claude")
+
+    def test_hook_registration_accepts_the_quoted_forward_slash_command_setup_writes(self):
+        import windows_claude
+
+        written = '"C:/Temp/iso/bin/guardrail.exe" hook claude'
+        self.assertTrue(windows_claude.claude_hook_registered(self._settings(written), self.BINARY))
+        self.assertTrue(windows_claude.claude_hook_registered(
+            self._settings(r"C:\Temp\iso\bin\guardrail.exe hook claude"), self.BINARY,
+        ))
+
+    def test_hook_registration_rejects_another_binary_event_or_plane(self):
+        import windows_claude
+
+        registered = windows_claude.claude_hook_registered
+        self.assertFalse(registered(self._settings('"C:/Users/real/.local/bin/guardrail.exe" hook claude'), self.BINARY))
+        self.assertFalse(registered(self._settings('"C:/Temp/iso/bin/guardrail.exe" hook codex'), self.BINARY))
+        self.assertFalse(registered(
+            self._settings('"C:/Temp/iso/bin/guardrail.exe" hook claude', event="PostToolUse"), self.BINARY,
+        ))
+        self.assertFalse(registered({}, self.BINARY))
+        self.assertFalse(registered({"hooks": {"PreToolUse": [{"hooks": [{"type": "command"}]}]}}, self.BINARY))
+
+
 class WindowsOpencodeTests(unittest.TestCase):
     SESSION = "ses_dff0f0e53ffeEdeVkiqdHhem27"
     SENTINEL = "FAKE_ACCEPTANCE_SENTINEL_0123"
