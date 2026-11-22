@@ -36,6 +36,10 @@ explicitly in **Breaking** notes.
   `opencode v2.3.2` with `run --standalone`; the session was denied the fake
   `.env` read and allowed the marker file. The harness isolation check now
   also watches the real `opencode.json` and plugin artifact.
+- **Fix (#677): the acceptance unit suite runs green on a non-elevated
+  Windows account.** The symlinked-credentials refusal is its own test and
+  skips, saying the case is not covered, where the account cannot create a
+  symlink. The other credential refusals no longer depend on it.
 
 ## v0.23.47-dev (2026-11-21)
 
