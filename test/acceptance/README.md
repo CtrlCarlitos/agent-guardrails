@@ -207,7 +207,9 @@ own opencode config during a run fails it.
 
 - `0` — zero failed stages (`summary.overall_pass == true`)
 - `1` — one or more failed stages
-- `77` — missing host prerequisite (wrong OS, `agy` missing from `PATH`, `go` or `install.sh` missing)
+- `77` — missing host prerequisite (wrong OS, `agy` missing from `PATH`, `go` or `install.sh` missing,
+  or an elevated shell on Windows, where `install.ps1` would add a Microsoft Defender exclusion for the
+  disposable binary)
 
 ## Safety & Claim Boundaries
 

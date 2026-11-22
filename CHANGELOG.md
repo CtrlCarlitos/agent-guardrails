@@ -36,6 +36,14 @@ explicitly in **Breaking** notes.
   `opencode v2.3.2` with `run --standalone`; the session was denied the fake
   `.env` read and allowed the marker file. The harness isolation check now
   also watches the real `opencode.json` and plugin artifact.
+- **Fix (#678): Antigravity acceptance stops overclaiming and cleans up after
+  itself.** `approval_retry` required the pre-hook to allow `guardrail fetch`
+  after the grant, but the hook allows that command for any host, granted or
+  not. Both Antigravity adapters now require the fetch command itself to
+  refuse the probe host as unapproved before the grant and not after. The
+  Windows adapter exits `77` in an elevated shell, where `install.ps1` would
+  add a Defender exclusion for the disposable binary, and its User Path
+  restore now broadcasts the change to running programs.
 - **Fix (#677): the acceptance unit suite runs green on a non-elevated
   Windows account.** The symlinked-credentials refusal is its own test and
   skips, saying the case is not covered, where the account cannot create a

@@ -150,8 +150,39 @@ def _capture_user_path_registry() -> tuple[bool, str, int]:
             return False, "", winreg.REG_EXPAND_SZ
 
 
+def elevated_shell() -> bool:
+    """Report whether this process is elevated; never true off Windows.
+
+    Elevated, install.ps1 adds a Microsoft Defender exclusion for the binary it
+    installs, and the disposable binary's exclusion would outlive the run (#678).
+    """
+    if sys.platform != "win32":
+        return False
+    import ctypes  # noqa: PLC0415
+
+    return bool(ctypes.windll.shell32.IsUserAnAdmin())
+
+
 def _restore_user_path_registry(snapshot: tuple[bool, str, int]) -> None:
-    """Restore HKCU\\Environment\\Path to its exact pre-run snapshot."""
+    """Restore HKCU\\Environment\\Path to its pre-run snapshot and tell running programs.
+
+    install.ps1 broadcasts its Path change, so Explorer and other listeners
+    hold the disposable directory until the restore is broadcast too (#678).
+    An unchanged value is left alone and nothing is broadcast.
+    """
+    import ctypes  # noqa: PLC0415
+
+    if _capture_user_path_registry() == snapshot:
+        return
+    _write_user_path_registry(snapshot)
+    hwnd_broadcast, wm_settingchange, smto_abortifhung = 0xFFFF, 0x001A, 0x0002
+    ctypes.windll.user32.SendMessageTimeoutW(
+        hwnd_broadcast, wm_settingchange, 0, "Environment", smto_abortifhung, 5000,
+        ctypes.byref(ctypes.c_size_t()),
+    )
+
+
+def _write_user_path_registry(snapshot: tuple[bool, str, int]) -> None:
     import winreg  # noqa: PLC0415
 
     existed, val, reg_type = snapshot
@@ -241,6 +272,14 @@ def run_windows_antigravity_acceptance(
     agy_bin = shutil.which("agy")
     if agy_bin is None:
         print("SKIP: agy is required on PATH for the Windows Antigravity harness", file=sys.stderr)
+        return harness.EXIT_SKIP_PREREQ, None
+
+    if elevated_shell():
+        print(
+            "SKIP: run from a non-elevated shell: elevated, install.ps1 adds a Microsoft Defender "
+            "exclusion for the disposable binary",
+            file=sys.stderr,
+        )
         return harness.EXIT_SKIP_PREREQ, None
 
     if (v1_binary is None or v2_binary is None) and shutil.which("go") is None:
@@ -625,6 +664,17 @@ def run_windows_antigravity_acceptance(
             )
             d1 = linux_antigravity._parse_decision(step_deny.stdout)
 
+            def fetch_refused() -> bool:
+                return linux_antigravity.fetch_refused_as_unapproved(
+                    harness.run_cmd(
+                        [str(installed_bin), "fetch", f"https://{PROBE_HOST}"],
+                        env=env,
+                        cwd=workspace,
+                    )
+                )
+
+            fetch_refused_before = fetch_refused()
+
             grant_cmd = f"guardrail egress grant --scope repo --host {PROBE_HOST}"
             d2, step_grant = _mint_and_run_host_ask_action(
                 installed_bin=installed_bin,
@@ -635,23 +685,7 @@ def run_windows_antigravity_acceptance(
                 env=env,
             )
 
-            fetch_payload = json.dumps(
-                {
-                    "conversationId": synthetic_session,
-                    "workspacePaths": [str(workspace)],
-                    "toolCall": {
-                        "name": "run_command",
-                        "args": {"CommandLine": f"guardrail fetch https://{PROBE_HOST}", "Cwd": str(workspace)},
-                    },
-                }
-            )
-            step_retry = harness.run_cmd(
-                [str(installed_bin), "hook", "antigravity", "pre"],
-                env=env,
-                cwd=workspace,
-                stdin_text=fetch_payload,
-            )
-            d3 = linux_antigravity._parse_decision(step_retry.stdout)
+            fetch_refused_after = fetch_refused()
             overlay_path = workspace / "guardrail.toml"
             overlay_has_host = overlay_path.is_file() and PROBE_HOST in overlay_path.read_text(encoding="utf-8")
             operator_has_host = operator_path.is_file() and PROBE_HOST in operator_path.read_text(encoding="utf-8")
@@ -670,18 +704,20 @@ def run_windows_antigravity_acceptance(
                 and step_grant.returncode == 0
                 and overlay_has_host
                 and operator_has_host
-                and d3 == "allow"
+                and fetch_refused_before
+                and not fetch_refused_after
                 and step_replay.returncode == 2
                 and len(host_ask_recs) >= 1
             )
             return harness.StageResult(
                 name="approval_retry",
                 status=harness.StageStatus.PASS if ok else harness.StageStatus.FAIL,
-                expected="P6 deny -> force_ask ticket -> host-ask grant persists overlay+operator -> sanctioned fetch allows -> replay refused",
+                expected="P6 deny + fetch refused as unapproved -> force_ask ticket -> host-ask grant persists overlay+operator -> fetch no longer refused -> replay refused",
                 observed=(
                     f"initial={d1!r}, grant_hook={d2!r}, grant_cli_rc={step_grant.returncode}, "
                     f"overlay_persisted={overlay_has_host}, operator_persisted={operator_has_host}, "
-                    f"retry_fetch={d3!r}, replay_rc={step_replay.returncode}, host_ask_audit={len(host_ask_recs)}"
+                    f"fetch_refused_before={fetch_refused_before}, fetch_refused_after={fetch_refused_after}, "
+                    f"replay_rc={step_replay.returncode}, host_ask_audit={len(host_ask_recs)}"
                 ),
                 details={
                     "initial_decision": d1,
@@ -689,7 +725,8 @@ def run_windows_antigravity_acceptance(
                     "grant_cli_rc": step_grant.returncode,
                     "overlay_persisted": overlay_has_host,
                     "operator_persisted": operator_has_host,
-                    "retry_decision": d3,
+                    "fetch_refused_before": fetch_refused_before,
+                    "fetch_refused_after": fetch_refused_after,
                     "replay_rc": step_replay.returncode,
                     "transport": "host-ask",
                 },
