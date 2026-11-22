@@ -27,6 +27,15 @@ explicitly in **Breaking** notes.
   `opencode run --standalone`; on opencode 2.3.2 it observed an allowed
   read and a `P4.secret-path` denial in one real session. The
   compatibility matrix now records Linux opencode as enforced and observed.
+- **Windows OpenCode acceptance and live runtime evidence (#92).** On
+  Windows, `test/acceptance/harness.py --host opencode` runs the OpenCode
+  lifecycle in a disposable profile: checksum-verified `install.ps1` install
+  and update, the ADR-0034 plugin wiring, fake-secret denies, host-approved
+  operator actions with unapproved refusal and replay refusal, disablement
+  and `recover opencode-config`. The opt-in `--live` stage ran
+  `opencode v2.3.2` with `run --standalone`; the session was denied the fake
+  `.env` read and allowed the marker file. The harness isolation check now
+  also watches the real `opencode.json` and plugin artifact.
 
 ## v0.23.47-dev (2026-11-21)
 

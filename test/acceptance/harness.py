@@ -268,6 +268,8 @@ class IsolationGuard:
         Path(".codex") / "hooks.json",
         Path(".codex") / "config.toml",
         Path(".codex") / "rules" / "guardrail.rules",
+        Path(".local") / "share" / "guardrail" / "guardrail.js",
+        Path(".local") / "share" / "guardrail" / "guardrail" / "index.js",
     )
 
     def __init__(self, real_home: Path, snapshots: Mapping[Path, FileSnapshot]) -> None:
@@ -569,6 +571,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 v2_binary=args.v2_binary,
                 keep_artifacts=args.keep_artifacts,
             )
+    elif args.host == "opencode" and sys.platform == "win32":
+        import windows_opencode  # noqa: PLC0415
+
+        code, report = windows_opencode.run_windows_opencode_acceptance(
+            live=args.live,
+            live_auth_from=args.live_auth_from,
+            v1_binary=args.v1_binary,
+            v2_binary=args.v2_binary,
+            keep_artifacts=args.keep_artifacts,
+        )
     elif args.host == "claude":
         import linux_claude  # noqa: PLC0415
 

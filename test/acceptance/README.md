@@ -2,7 +2,7 @@
 
 Reusable lifecycle acceptance runner for Guardrail across hosts and platforms,
 covering **Antigravity (`agy`) on Linux and Windows**, **Codex on Linux**,
-**Claude Code on Linux** and **opencode on Linux**.
+**Claude Code on Linux** and **opencode on Linux and Windows**.
 
 ## Running
 
@@ -75,6 +75,41 @@ an `OPENAI_API_KEY` for the opt-in run. The runner copies only the disposable
 allowed shell output, a blocked fake secret read, and matching session evidence
 from `guardrail selftest --evidence codex`. Missing isolated authentication
 is reported as `operator_assisted`.
+
+### Windows + OpenCode lifecycle acceptance
+
+```powershell
+python -B test/acceptance/harness.py --host opencode --report "$env:TEMP\acceptance-windows-opencode.json"
+python -B test/acceptance/harness.py --host opencode --live --report "$env:TEMP\acceptance-windows-opencode-live.json"
+```
+
+Needs `opencode` on `PATH`; Guardrail wires the plugin for the major it finds
+there (ADR-0034). Every command runs in one disposable `USERPROFILE` with the
+`XDG_*` overrides removed, so `opencode.json`, the plugin artifact, the audit
+log and the operator config all land in the temp root. `install.ps1` must
+reject a tampered `SHA256SUMS` before each valid install, and
+`HKCU\Environment\Path` is restored after it.
+
+OpenCode's approve control is its permission dialog (ADR-0015), which the
+plugin reports as `host_approved` on the hook envelope. `approval_retry`,
+`disablement` and `recovery` send that flag themselves: each checks that its
+operator command is refused without it, applies once with it, and refuses a
+replay. `approval_retry` also checks that `guardrail fetch` refuses the probe
+host as unapproved before the grant and not after. The dialog click is the
+separate `host_dialog_click` stage and is always `operator_assisted`.
+
+`--live` runs `opencode run --standalone` against a workspace holding a fake
+`.env` and a marker file. It passes only when the session OpenCode reports
+has both a `P4.secret-path` denial and an allowed marker read in the isolated
+audit log, that read returned the marker, the fake secret is absent from the
+output, and OpenCode's own state landed in the isolated profile. A run that
+reports no session fails. `--live-auth-from` is ignored for this host.
+
+The adapter runs only `opencode --version` and `opencode run --standalone`,
+both in the isolated profile; other subcommands reach the managed background
+service of the real profile. It exits `77` in an elevated shell, where
+`install.ps1` would add a Microsoft Defender exclusion for the disposable
+binary.
 
 ### Linux + Claude Code lifecycle acceptance
 

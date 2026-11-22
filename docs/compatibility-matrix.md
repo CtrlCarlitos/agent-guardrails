@@ -28,7 +28,7 @@ that every tool call reached it (see `Live-mediation evidence` in
 | Plane | Windows native | Linux | WSL | macOS |
 |---|---|---|---|---|
 | Claude Code | **Enforced, observed** [E1] [E2] | **Enforced, observed** [E15] | Registered only [E9] [E11]; enforcement operator-reported, not recorded [E10] | CI-tested only [E7] |
-| opencode | **Enforced, observed** [E2] [E3] | **Enforced, observed** [E16] | Registered only [E11]; enforcement operator-reported, not recorded [E10] | CI-tested only [E7] |
+| opencode | **Enforced, observed** [E2] [E3]; OpenCode 2 [E17] | **Enforced, observed** [E16] | Registered only [E11]; enforcement operator-reported, not recorded [E10] | CI-tested only [E7] |
 | Antigravity | **Enforced, observed** [E2] [E4] | **Enforced, observed** [E13] | Unknown; operator-reported, not recorded [E10] | CI-tested only [E7] |
 | Codex | **Enforced, observed** [E5] on Codex 0.159+ with PowerShell: allowed commands run behind a PowerShell working-directory check proven by the session transcript; other shells fail closed; known bypasses [E6] ([#454](https://github.com/CtrlCarlitos/agent-guardrails/issues/454)). Before 0.159 no dispatch ([openai/codex#24453](https://github.com/openai/codex/issues/24453)) | **Enforced, observed** [E14] on Codex 0.170.0 for local Bash pre-hooks; known bypasses [E6] | Registered only [E11]; enforcement unknown [E12] | CI-tested only [E7] |
 
@@ -233,6 +233,11 @@ run.
   `deny` verdicts for `Bash` and `webfetch` calls; the log does not record
   their opencode version. The opencode 1 wiring was not exercised on
   Linux.
+- **[E17]** [Windows OpenCode 2 live acceptance](evidence/2026-11-21-windows-opencode-live-acceptance.md),
+  2026-11-21. An `opencode v2.3.2` session started with `run --standalone`
+  in a disposable profile was denied the fake `.env` read as
+  `P4.secret-path` and allowed the marker file read. This observation covers
+  the native `read` tool in one non-interactive session.
 
 ## Keeping it true
 
