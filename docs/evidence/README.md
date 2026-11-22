@@ -26,6 +26,7 @@ Structure and index completeness are enforced in CI by
 | 2026-11-21 | [Linux Claude Code acceptance and real-session verdicts](2026-11-21-linux-claude-code-acceptance.md) | #92 |
 | 2026-11-21 | [Linux opencode live acceptance](2026-11-21-linux-opencode-live-acceptance.md) | #92 |
 | 2026-11-21 | [Windows OpenCode 2 live acceptance](2026-11-21-windows-opencode-live-acceptance.md) | #92, [ADR-0034](../adr/0034-opencode-dual-major-port.md) |
+| 2026-11-21 | [Windows Claude Code lifecycle acceptance](2026-11-21-windows-claude-code-acceptance.md) | #92 |
 
 ## Template
 

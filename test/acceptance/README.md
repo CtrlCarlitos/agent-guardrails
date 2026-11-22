@@ -2,7 +2,7 @@
 
 Reusable lifecycle acceptance runner for Guardrail across hosts and platforms,
 covering **Antigravity (`agy`) on Linux and Windows**, **Codex on Linux**,
-**Claude Code on Linux** and **opencode on Linux and Windows**.
+**Claude Code on Linux and Windows** and **opencode on Linux and Windows**.
 
 ## Running
 
@@ -110,6 +110,40 @@ both in the isolated profile; other subcommands reach the managed background
 service of the real profile. It exits `77` in an elevated shell, where
 `install.ps1` would add a Microsoft Defender exclusion for the disposable
 binary.
+
+### Windows + Claude Code lifecycle acceptance
+
+```powershell
+python -B test/acceptance/harness.py --host claude --report "$env:TEMP\acceptance-windows-claude.json"
+python -B test/acceptance/harness.py --host claude --live --report "$env:TEMP\acceptance-windows-claude-live.json"
+```
+
+`--host claude` selects this adapter on Windows. It runs in one disposable
+`USERPROFILE` with `TEMP` and `TMP` pointed into the same temp root, because
+Claude Code keeps per-session state under `%TEMP%`. It installs and updates
+through `install.ps1` (a tampered
+`SHA256SUMS` must be rejected first), and applies the Linux adapter's rules
+for verdicts, credentials and provenance. The fake-secret stage sends a
+`PowerShell` envelope as well as `Bash` and `Read`; it uses
+`Get-Content .\.env`, a path with a separator, and makes no claim about the
+bare `Get-Content .env`.
+
+Windows has no PTY driver here, so disablement and recovery do not answer a
+terminal prompt. Each operator command is first run with no ask and must be
+refused; then the hook answers it with a native ask and records a prompt-mode
+ticket (ADR-0033), the command claims the ticket, and a replay must be
+refused. The harness claims the ticket itself. No operator answers the ask,
+so `interactive_host_approval` is always `operator_assisted`.
+
+`--live` runs `claude -p` in the isolated profile, which holds no login.
+Without `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` or a disposable
+`--live-auth-from` directory the stage reports `operator_assisted`. A
+session that reports itself must have left its state under the isolated
+profile, or the stage fails.
+
+`cleanup_isolation` compares the watched real-home config files (for Claude
+Code, the real `settings.json`) and `HKCU\Environment\Path`. It does not
+inspect the rest of the real `~/.claude`.
 
 ### Linux + Claude Code lifecycle acceptance
 
