@@ -1,8 +1,8 @@
 # Platform Acceptance Harness (#92)
 
 Reusable lifecycle acceptance runner for Guardrail across hosts and platforms,
-covering **Antigravity (`agy`) on Linux and Windows**, **Codex on Linux** and
-**Claude Code on Linux**.
+covering **Antigravity (`agy`) on Linux and Windows**, **Codex on Linux**,
+**Claude Code on Linux** and **opencode on Linux**.
 
 ## Running
 
@@ -119,6 +119,44 @@ stage reports `operator_assisted`; supplied credentials that are missing,
 unusable or rejected fail the stage. Answering a Claude Code
 permission prompt is `operator_assisted` too: headless `claude -p` has no one
 to answer it.
+### Linux + opencode lifecycle acceptance
+
+```sh
+python3 -B test/acceptance/harness.py --host opencode --report /tmp/acceptance-linux-opencode.json
+python3 -B test/acceptance/harness.py --host opencode --live --report /tmp/acceptance-linux-opencode-live.json
+```
+
+`opencode` must be on `PATH`: Guardrail chooses the plugin wiring from the
+installed opencode major (ADR-0034), and the report records the version. The
+hermetic stages install and update from local checksummed releases, register
+the plugin in an isolated `opencode.json`, and feed the installed adapter
+synthetic plugin envelopes: a fake `.env` read is denied through `bash` and
+`read`, `chmod 777` asks, and an egress grant is refused after an unanswered
+ask, granted once from a host-approved envelope, and refused on replay.
+Terminal disablement must leave the user's own plugin entry and settings in
+place. Recovery corrupts `opencode.json`, runs `guardrail recover
+opencode-config` at a terminal, and compares the backup with the corrupt
+bytes.
+
+No tool runs in those stages, and the harness sets `host_approved` itself:
+no permission dialog is shown and no operator approval is claimed. The
+operator records in the report are labelled `harness_driven_lifecycle`, and
+accepting the real dialog is `operator_assisted`.
+
+The live stage runs `opencode run --standalone` in the isolated home, so it
+does not attach to your background opencode service. Its claim requires, in
+the session the runtime reported: an allowed read whose output came back from
+a completed tool call, a `P4.secret-path` denial of the fake `.env`, and no
+leaked sentinel. The isolated home has no login and uses opencode's default
+model, which receives the prompt, the fixture file names, the output of the
+allowed read (a random marker) and the denial text. The stage reports
+`operator_assisted` only when the run exits cleanly with no tool call, no
+hook traffic and no leak; any other run without tool calls fails.
+`--live-auth-from` is not supported for this host and fails the stage.
+
+`cleanup_isolation` covers the watched real-home config files, including
+the real `opencode.json`; it compares modification times, so editing your
+own opencode config during a run fails it.
 
 ## Stage Statuses
 

@@ -28,7 +28,7 @@ that every tool call reached it (see `Live-mediation evidence` in
 | Plane | Windows native | Linux | WSL | macOS |
 |---|---|---|---|---|
 | Claude Code | **Enforced, observed** [E1] [E2] | **Enforced, observed** [E15] | Registered only [E9] [E11]; enforcement operator-reported, not recorded [E10] | CI-tested only [E7] |
-| opencode | **Enforced, observed** [E2] [E3] | CI-tested only [E7] | Registered only [E11]; enforcement operator-reported, not recorded [E10] | CI-tested only [E7] |
+| opencode | **Enforced, observed** [E2] [E3] | **Enforced, observed** [E16] | Registered only [E11]; enforcement operator-reported, not recorded [E10] | CI-tested only [E7] |
 | Antigravity | **Enforced, observed** [E2] [E4] | **Enforced, observed** [E13] | Unknown; operator-reported, not recorded [E10] | CI-tested only [E7] |
 | Codex | **Enforced, observed** [E5] on Codex 0.159+ with PowerShell: allowed commands run behind a PowerShell working-directory check proven by the session transcript; other shells fail closed; known bypasses [E6] ([#454](https://github.com/CtrlCarlitos/agent-guardrails/issues/454)). Before 0.159 no dispatch ([openai/codex#24453](https://github.com/openai/codex/issues/24453)) | **Enforced, observed** [E14] on Codex 0.170.0 for local Bash pre-hooks; known bypasses [E6] | Registered only [E11]; enforcement unknown [E12] | CI-tested only [E7] |
 
@@ -223,6 +223,16 @@ run.
   sessions. The isolated lifecycle run (`test/acceptance/harness.py --host
   claude`) passed. Its nested `claude -p` stage had no login and reported
   `operator_assisted`, so no harness-driven live session is claimed.
+- **[E16]** [Linux opencode live acceptance](evidence/2026-11-21-linux-opencode-live-acceptance.md),
+  2026-11-21. `test/acceptance/harness.py --host opencode --live` exited 0
+  with `live_runtime_session_observed: true`: a real opencode 2.3.2 session
+  in an isolated home got its allowed `bash` read back and a
+  `P4.secret-path` denial on the fake `.env`. That session has no `ask`.
+  The `ask` verdicts, for `Bash` and `Edit` calls, come from four other
+  opencode sessions in this host's audit log, which also hold policy
+  `deny` verdicts for `Bash` and `webfetch` calls; the log does not record
+  their opencode version. The opencode 1 wiring was not exercised on
+  Linux.
 
 ## Keeping it true
 

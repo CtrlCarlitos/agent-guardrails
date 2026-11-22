@@ -17,6 +17,16 @@ explicitly in **Breaking** notes.
   the isolated home and reports `operator_assisted` without them. The
   compatibility matrix now records Linux Claude Code as enforced and
   observed, from real-session audit records on a Linux host.
+- **Linux opencode acceptance and live runtime evidence (#92).**
+  `test/acceptance/harness.py --host opencode` runs the opencode lifecycle
+  in an isolated home: checksummed install and update, plugin registration
+  for the installed opencode major, fake-secret denials through `bash` and
+  `read`, the ask and host-approved envelopes, the prompt-mode egress
+  approval with its refused replay, disablement that keeps user plugins and
+  settings, and `recover opencode-config`. The opt-in `--live` stage runs
+  `opencode run --standalone`; on opencode 2.3.2 it observed an allowed
+  read and a `P4.secret-path` denial in one real session. The
+  compatibility matrix now records Linux opencode as enforced and observed.
 
 ## v0.23.47-dev (2026-11-21)
 

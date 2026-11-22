@@ -24,6 +24,7 @@ Structure and index completeness are enforced in CI by
 | 2026-11-21 | [Linux Codex spawn admission and native review hooks](2026-11-21-linux-codex-child-mediation.md) | #587, [ADR-0013](../adr/0013-delegation-inherits-enforcement-in-process.md) |
 | 2026-11-21 | [Linux Codex authenticated live acceptance](2026-11-21-linux-codex-live-acceptance.md) | #92 |
 | 2026-11-21 | [Linux Claude Code acceptance and real-session verdicts](2026-11-21-linux-claude-code-acceptance.md) | #92 |
+| 2026-11-21 | [Linux opencode live acceptance](2026-11-21-linux-opencode-live-acceptance.md) | #92 |
 
 ## Template
 
