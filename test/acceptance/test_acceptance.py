@@ -719,6 +719,23 @@ class WindowsAntigravityTests(unittest.TestCase):
         self.assertEqual(harness.select_antigravity_runner("win32"), "windows_antigravity")
         self.assertEqual(harness.select_antigravity_runner("linux"), "linux_antigravity")
 
+    def test_fetch_refusal_is_the_unapproved_host_message_not_any_failure(self):
+        refused = harness.CommandResult(
+            1, "", "web fetch to an unapproved host requires operator approval: accept-probe.invalid.\n",
+        )
+        # After a grant the fetch passes policy and fails at name resolution.
+        resolved_no_further = harness.CommandResult(1, "", "guardrail: fetch failed\n")
+        succeeded = harness.CommandResult(0, "<html>", "")
+        self.assertTrue(linux_antigravity.fetch_refused_as_unapproved(refused))
+        self.assertFalse(linux_antigravity.fetch_refused_as_unapproved(resolved_no_further))
+        self.assertFalse(linux_antigravity.fetch_refused_as_unapproved(succeeded))
+
+    def test_elevated_shell_is_never_reported_off_windows(self):
+        if sys.platform == "win32":
+            self.assertIsInstance(windows_antigravity.elevated_shell(), bool)
+        else:
+            self.assertFalse(windows_antigravity.elevated_shell())
+
 
 class WindowsOpencodeTests(unittest.TestCase):
     SESSION = "ses_dff0f0e53ffeEdeVkiqdHhem27"

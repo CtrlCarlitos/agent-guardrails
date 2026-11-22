@@ -180,6 +180,17 @@ def evaluate_live_mediation(
     )
 
 
+def fetch_refused_as_unapproved(result: harness.CommandResult) -> bool:
+    """Report whether `guardrail fetch` refused its host for lacking a grant.
+
+    The pre-hook allows the fetch command for any host (#678), so a hook
+    verdict says nothing about the grant. The fetch command itself is what the
+    grant unblocks. The probe host is RFC 2606 `.invalid`, so a granted fetch
+    still fails, at name resolution, with a different message.
+    """
+    return result.returncode != 0 and "unapproved host" in result.stderr
+
+
 def _build_guardrail_binary(out_path: Path, version: str) -> None:
     res = harness.run_cmd(
         [
@@ -634,6 +645,17 @@ def run_linux_antigravity_acceptance(
         )
         d1 = _parse_decision(step_deny.stdout)
 
+        def fetch_refused() -> bool:
+            return fetch_refused_as_unapproved(
+                harness.run_cmd(
+                    [str(installed_bin), "fetch", f"https://{PROBE_HOST}"],
+                    env=env,
+                    cwd=workspace,
+                )
+            )
+
+        fetch_refused_before = fetch_refused()
+
         # (b) Canonical operator command returns force_ask and mints approval ticket
         step_ask = harness.run_cmd(
             [str(installed_bin), "hook", "antigravity", "pre"],
@@ -650,25 +672,10 @@ def run_linux_antigravity_acceptance(
             cwd=workspace,
         )
 
-        # (d) Retry via the sanctioned web-host path (`guardrail fetch`) now allows,
-        # and both overlay guardrail.toml and operator.toml persist PROBE_HOST.
-        fetch_payload = json.dumps(
-            {
-                "conversationId": synthetic_session,
-                "workspacePaths": [str(workspace)],
-                "toolCall": {
-                    "name": "run_command",
-                    "args": {"CommandLine": f"guardrail fetch https://{PROBE_HOST}", "Cwd": str(workspace)},
-                },
-            }
-        )
-        step_retry = harness.run_cmd(
-            [str(installed_bin), "hook", "antigravity", "pre"],
-            env=env,
-            cwd=workspace,
-            stdin_text=fetch_payload,
-        )
-        d3 = _parse_decision(step_retry.stdout)
+        # (d) The sanctioned web-host path (`guardrail fetch`) no longer refuses
+        # PROBE_HOST as unapproved, and both overlay guardrail.toml and
+        # operator.toml persist it.
+        fetch_refused_after = fetch_refused()
         overlay_path = workspace / "guardrail.toml"
         operator_path = xdg_config / "guardrail" / "waivers.toml"
         overlay_has_host = overlay_path.is_file() and PROBE_HOST in overlay_path.read_text(encoding="utf-8")
@@ -689,18 +696,20 @@ def run_linux_antigravity_acceptance(
             and step_grant.returncode == 0
             and overlay_has_host
             and operator_has_host
-            and d3 == "allow"
+            and fetch_refused_before
+            and not fetch_refused_after
             and step_replay.returncode == 2
             and len(host_ask_recs) >= 1
         )
         return harness.StageResult(
             name="approval_retry",
             status=harness.StageStatus.PASS if ok else harness.StageStatus.FAIL,
-            expected="P6 deny -> force_ask ticket -> host-ask grant persists overlay+operator -> sanctioned fetch allows -> replay refused",
+            expected="P6 deny + fetch refused as unapproved -> force_ask ticket -> host-ask grant persists overlay+operator -> fetch no longer refused -> replay refused",
             observed=(
                 f"initial={d1!r}, grant_hook={d2!r}, grant_cli_rc={step_grant.returncode}, "
                 f"overlay_persisted={overlay_has_host}, operator_persisted={operator_has_host}, "
-                f"retry_fetch={d3!r}, replay_rc={step_replay.returncode}, host_ask_audit={len(host_ask_recs)}"
+                f"fetch_refused_before={fetch_refused_before}, fetch_refused_after={fetch_refused_after}, "
+                f"replay_rc={step_replay.returncode}, host_ask_audit={len(host_ask_recs)}"
             ),
             details={
                 "initial_decision": d1,
@@ -708,7 +717,8 @@ def run_linux_antigravity_acceptance(
                 "grant_cli_rc": step_grant.returncode,
                 "overlay_persisted": overlay_has_host,
                 "operator_persisted": operator_has_host,
-                "retry_decision": d3,
+                "fetch_refused_before": fetch_refused_before,
+                "fetch_refused_after": fetch_refused_after,
                 "replay_rc": step_replay.returncode,
                 "transport": "host-ask",
             },

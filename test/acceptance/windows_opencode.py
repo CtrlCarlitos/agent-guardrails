@@ -33,7 +33,14 @@ import time
 from typing import Any, Mapping, Optional, Sequence
 
 import harness
-from linux_antigravity import PROBE_HOST, REPO_ROOT, V1_TAG, V2_TAG, _build_guardrail_binary
+from linux_antigravity import (
+    PROBE_HOST,
+    REPO_ROOT,
+    V1_TAG,
+    V2_TAG,
+    _build_guardrail_binary,
+    fetch_refused_as_unapproved,
+)
 import windows_antigravity
 
 
@@ -199,28 +206,6 @@ def _opencode_version(opencode: str, env: Mapping[str, str]) -> str:
     return result.stdout.strip().splitlines()[0] if result.returncode == 0 and result.stdout.strip() else "unknown"
 
 
-def _elevated() -> bool:
-    if sys.platform != "win32":
-        return False
-    import ctypes  # noqa: PLC0415
-
-    return bool(ctypes.windll.shell32.IsUserAnAdmin())
-
-
-def _restore_user_path(snapshot: tuple[bool, str, int]) -> None:
-    """Put HKCU Path back and tell running programs, as install.ps1 told them of its change."""
-    if windows_antigravity._capture_user_path_registry() == snapshot:
-        return
-    windows_antigravity._restore_user_path_registry(snapshot)
-    import ctypes  # noqa: PLC0415
-
-    hwnd_broadcast, wm_settingchange, smto_abortifhung = 0xFFFF, 0x001A, 0x0002
-    ctypes.windll.user32.SendMessageTimeoutW(
-        hwnd_broadcast, wm_settingchange, 0, "Environment", smto_abortifhung, 5000,
-        ctypes.byref(ctypes.c_size_t()),
-    )
-
-
 def _provenance(record: Mapping[str, Any]) -> str:
     session = str(record.get("session_id", ""))
     if session.startswith(_SYNTHETIC_SESSION_PREFIXES):
@@ -245,7 +230,7 @@ def run_windows_opencode_acceptance(
         (windows_antigravity._find_powershell() is not None, "pwsh or powershell is required on PATH"),
         (shutil.which("opencode") is not None, "opencode is required on PATH"),
         (
-            not _elevated(),
+            not windows_antigravity.elevated_shell(),
             "run from a non-elevated shell: elevated, install.ps1 adds a Microsoft Defender "
             "exclusion for the disposable binary",
         ),
@@ -382,7 +367,7 @@ def run_windows_opencode_acceptance(
         finally:
             sums.write_bytes(original)
             # install.ps1 adds -Dest to the real HKCU Path; put it back at once.
-            _restore_user_path(user_path_before)
+            windows_antigravity._restore_user_path_registry(user_path_before)
         actual = guardrail("version") if binary.is_file() else accepted
         mismatch = "CHECKSUM MISMATCH" in rejected.stdout + rejected.stderr
         matched = actual.stdout.strip() == f"guardrail {version}"
@@ -455,11 +440,7 @@ def run_windows_opencode_acceptance(
             return path.is_file() and PROBE_HOST in path.read_text(encoding="utf-8")
 
         def fetch_unapproved():
-            # The hook allows `guardrail fetch` for any host; the fetch command
-            # itself is what the grant unblocks. The host is RFC 2606 .invalid,
-            # so an approved fetch still fails, at name resolution.
-            result = guardrail("fetch", f"https://{PROBE_HOST}")
-            return result.returncode != 0 and "unapproved host" in result.stderr
+            return fetch_refused_as_unapproved(guardrail("fetch", f"https://{PROBE_HOST}"))
 
         blocked = hook("bash", command=f"curl https://{PROBE_HOST}")
         fetch_before = fetch_unapproved()
@@ -563,7 +544,7 @@ def run_windows_opencode_acceptance(
         )
 
     def cleanup():
-        _restore_user_path(user_path_before)
+        windows_antigravity._restore_user_path_registry(user_path_before)
         user_path_clean = windows_antigravity._capture_user_path_registry() == user_path_before
         clean, diffs = isolation.verify_unchanged()
         active_clean = harness.FileSnapshot.of(active_config) == active_config_before
@@ -604,7 +585,7 @@ def run_windows_opencode_acceptance(
                 provenance=_provenance(record),
             ))
     finally:
-        _restore_user_path(user_path_before)
+        windows_antigravity._restore_user_path_registry(user_path_before)
         if not keep_artifacts:
             remove_tree(root)
         stage("cleanup_isolation", "real profile and HKCU Path untouched, temporary root removed", cleanup)
