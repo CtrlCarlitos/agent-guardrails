@@ -11,7 +11,7 @@ import (
 // `Remove-Item –Recurse –Force` showed it no -Recurse and no -Force, and the
 // rule that owns recursive deletes never ran.
 func TestWindowsPowerShellUnicodeDashParametersAreRead(t *testing.T) {
-	outside := `C:\Windows\Temp\guardrail-dash-test`
+	outside := outsideRepoTarget()
 	for _, dash := range []string{"-", "\u2013", "\u2014", "\u2015"} {
 		cases := []struct{ cmd, rule string }{
 			{"Remove-Item " + dash + "Recurse " + dash + "Force " + outside, "P1.rm-rf"},
