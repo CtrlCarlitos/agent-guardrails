@@ -250,10 +250,16 @@ const (
 var selfControlSubcommands = []string{"night", "setup", "plane", "operator", "recover", "web-research", "egress", "hook", "approvals", "delivery"}
 
 // harmlessApprovalsQuery reports the `approvals` forms a session may run:
-// reading the grant list, and revoking a grant, which only removes authority.
+// reading the public grant list, and revoking a grant, which only removes
+// authority. The private exact-action queue is reserved for the operator.
 func harmlessApprovalsQuery(argv []string) bool {
 	return len(argv) >= 3 && strings.EqualFold(argv[1], "approvals") &&
-		(strings.EqualFold(argv[2], "list") || strings.EqualFold(argv[2], "revoke"))
+		(strings.EqualFold(argv[2], "list") && !privateApprovalQueue(argv) || strings.EqualFold(argv[2], "revoke"))
+}
+
+func privateApprovalQueue(argv []string) bool {
+	return len(argv) == 4 && strings.EqualFold(argv[1], "approvals") &&
+		strings.EqualFold(argv[2], "list") && strings.EqualFold(argv[3], "--records")
 }
 
 // isTerminalWrapper names the programs that run a command on a fresh pseudo
@@ -300,10 +306,14 @@ func checkSelfControlInvocation(s Simple, command string) *policy.Verdict {
 		}
 	}
 	if subcommand != "" {
+		reason := "the guarded plane cannot change its own guardrail posture (" + subcommand + ")"
+		if subcommand == "approvals" && privateApprovalQueue(s.Argv) {
+			reason = "the exact-action queue contains private command and patch text; the operator can view it in their interactive local terminal"
+		}
 		return &policy.Verdict{
 			Decision: policy.Deny,
 			RuleID:   "P5.self-config",
-			Reason:   "the guarded plane cannot change its own guardrail posture (" + subcommand + ")",
+			Reason:   reason,
 		}
 	}
 	if opaque != "" {
