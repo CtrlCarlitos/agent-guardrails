@@ -103,3 +103,42 @@ func TestWindowsCodexReportedPowerShellParseFailures(t *testing.T) {
 		}
 	}
 }
+
+func TestWindowsCodexStandalonePowerShellProbes(t *testing.T) {
+	pol, err := policy.LoadBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	for _, tc := range []struct {
+		command string
+		rule    string
+	}{
+		{"$PSVersionTable.PSVersion", ""},
+		{"$PSVersionTable.PSEdition", ""},
+		{"$program", "P3.unresolved"},
+		{"Test-Path -LiteralPath $PSVersionTable.PSEdition", "P3.unresolved"},
+		{"$PSVersionTable.PSEdition > $target", "P3.unresolved"},
+		{"@'\nIt's a report with " + string(rune(96)) + "code" + string(rune(96)) + ".\n'@ | Set-Content -LiteralPath '" + filepath.Join(repo, "report.md") + "' -Encoding utf8", "tokenize-failed"},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			call, err := ParseCodex(bytes.NewReader(codexCommandPayload(t, repo, "pwsh", tc.command)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			v := engine.Evaluate(call, pol)
+			var out, stderr bytes.Buffer
+			code := EmitCodex(v, "pre", call, &out, &stderr)
+			if tc.rule == "" {
+				if v.Decision != policy.Allow || code != 0 || !strings.HasSuffix(updatedCommand(t, out.String()), "\n"+tc.command) {
+					t.Fatalf("decision=%+v code=%d stderr=%q", v, code, stderr.String())
+				}
+				return
+			}
+			if v.Decision != policy.Ask || v.RuleID != tc.rule || !strings.Contains(stderr.String(), tc.rule) ||
+				!strings.Contains(stderr.String(), "cannot request approval") {
+				t.Fatalf("decision=%+v stderr=%q, want %s and guidance", v, stderr.String(), tc.rule)
+			}
+		})
+	}
+}
