@@ -25,6 +25,10 @@ func TestCodexCoverageVerdicts(t *testing.T) {
 		{[]string{"write_stdin"}, `{"session_id":1,"chars":""}`, policy.CapabilityDeny, policy.Deny},
 		{[]string{"other.wait", "other.exec", "other.clock.sleep", "clock__unknown"}, `{}`, policy.CapabilityUnknown, policy.Deny},
 		{[]string{"mcp__clock__sleep"}, `{}`, policy.CapabilityDeny, policy.Deny},
+		{[]string{"send_message_to_user_async"}, `{"message":"The local checks are running."}`, policy.CapabilitySafeControl, policy.Allow},
+		{[]string{"other.send_message_to_user_async"}, `{}`, policy.CapabilityUnknown, policy.Deny},
+		{[]string{"mcp__connector__send_message_to_user_async"}, `{}`, policy.CapabilityDeny, policy.Deny},
+		{[]string{"send_message"}, `{"target":"reviewer","message":"Review this change."}`, policy.CapabilityDelegation, policy.Deny},
 	} {
 		for _, name := range tt.names {
 			t.Run(name+tt.input, func(t *testing.T) {
@@ -38,6 +42,9 @@ func TestCodexCoverageVerdicts(t *testing.T) {
 				}
 				var out, guidance bytes.Buffer
 				code := EmitCodex(v, "pre", tc, &out, &guidance)
+				if tt.decision == policy.Allow && code != 0 {
+					t.Fatalf("failed to allow: %d (%s)", code, guidance.String())
+				}
 				if tt.decision != policy.Allow && code != 2 {
 					t.Fatalf("failed to block: %d", code)
 				}
