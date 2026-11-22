@@ -80,3 +80,24 @@ func TestCodexAppsGitHubMutationsStayFailClosed(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexAppsGitHubCommentDenialExplainsPolicy(t *testing.T) {
+	tc, err := ParseCodex(strings.NewReader(codexEnvelope(t.TempDir(),
+		"mcp__codex_apps__github__add_comment_to_issue", map[string]any{"body": "comment"})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := engine.Evaluate(tc, &policy.Policy{})
+	if v.Decision != policy.Deny || v.RuleID != "capability-deny" {
+		t.Fatalf("verdict = %+v, want deny/capability-deny", v)
+	}
+	var out, stderr bytes.Buffer
+	if code := EmitCodex(v, "pre", tc, &out, &stderr); code != 2 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	for _, want := range []string{"capability-deny", "blocked by design", "operator"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("stderr lacks %q: %q", want, stderr.String())
+		}
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/planecontract"
@@ -152,6 +153,11 @@ func EmitCodex(v policy.Verdict, event string, tc engine.ToolCall, stdout, stder
 // CodexAskGuidance is also used by explain: Codex has no native Ask ceremony,
 // and fail-closed backstops must never advertise an operator grant.
 func CodexAskGuidance(v policy.Verdict, command bool) string {
+	if v.RuleID == "tokenize-failed" {
+		reason := strings.TrimSuffix(v.Reason, "; failing closed to ask")
+		return "Guardrail blocked this command (tokenize-failed): " + sanitizeForModel(reason) +
+			". Codex PreToolUse cannot request approval for this parse failure. For independent commands, try one statement per call and use literal arguments. For file content, use Write or Edit with an explicit path. If the operation requires unsupported shell syntax, report the parser finding and exact action to the operator."
+	}
 	prefix := "Guardrail requires operator authorization: " + sanitizeForModel(v.Reason) + ". Codex PreToolUse cannot request approval. "
 	if policy.RequiresFreshApproval(v.RuleID) {
 		return prefix + "Tell the operator the exact action so they can run it in their terminal. Continue independent work."

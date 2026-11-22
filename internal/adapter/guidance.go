@@ -116,7 +116,9 @@ func denyNextStep(v policy.Verdict) string {
 		// config. The server was registered; Antigravity offers only lazily
 		// loaded tools through call_mcp_tool, and eager ones by direct name.
 		return "Call it by its direct name, mcp_<server>_<tool>, if offered. If not, do not retry through call_mcp_tool: work with native tools and tell the operator the server's tools must be loaded eagerly."
-	case "capability-deny", "capability-invalid":
+	case "capability-deny":
+		return "This tool is blocked by design because it is outside the Guardrail boundary on this plane. Do not retry it: reach the outcome with in-session tools, or tell the operator this step needs them; then continue."
+	case "capability-invalid":
 		return "This tool is outside the Guardrail boundary on this plane (it moves data or control to another principal). Do not retry it: reach the outcome with in-session tools, or tell the operator this step needs them; then continue."
 	case "capability-delegation-unverified":
 		return "This capability is unavailable on this plane. Do not delegate and do not retry: perform the work yourself in this session, then continue."
