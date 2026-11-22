@@ -242,6 +242,14 @@ calls cannot consume the same final use and a non-matching call consumes
 nothing.
 
 Inspect active and spent grants with `guardrail approvals list --grants`.
+
+For pending Codex exact-action requests, run `guardrail approvals list
+--records` from your interactive local terminal. This works without a
+running approval broker. It shows the repository, working directory, rule,
+expiry, exact quoted command or patch, and the approval command for each
+request. Approved, consumed, revoked, and expired requests are omitted.
+For the full refusal reason, run `guardrail explain <record-id>`.
+
 Revoke an unspent grant by repeating its exact scope:
 
 ```

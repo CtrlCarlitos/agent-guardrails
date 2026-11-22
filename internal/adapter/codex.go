@@ -170,7 +170,7 @@ func CodexAskGuidance(v policy.Verdict, command bool) string {
 		return prefix + "This rule cannot be granted. Report the finding to the operator and follow the rule's diagnostic guidance before retrying; continue independent work. Chat approval cannot clear this verdict."
 	}
 	if v.RequestID != "" {
-		return prefix + "Exact action request " + v.RequestID + " is pending. Tell the operator to run `guardrail approvals grant --record " + v.RequestID + "` in their terminal to review the complete action and approve or decline it. After recorded approval, retry this identical action once; changed actions need a new approval. Conversational approval is not authorization; continue independent work."
+		return prefix + "Exact action request " + v.RequestID + " is pending. Tell the operator to run `guardrail approvals grant --record " + v.RequestID + "` in their terminal to review the complete action and approve or decline it. The operator can find pending requests with `guardrail approvals list --records`. After recorded approval, retry this identical action once; changed actions need a new approval. Conversational approval is not authorization; continue independent work."
 	}
 	if command {
 		return prefix + "Tell the operator this exact action: they can run it outside this session, or issue a single-use grant for this exact command from their terminal (`guardrail explain` prints it); continue independent work. Do not retry based on conversational approval."
