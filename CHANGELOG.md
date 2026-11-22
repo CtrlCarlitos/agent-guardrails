@@ -78,6 +78,22 @@ explicitly in **Breaking** notes.
   Windows account.** The symlinked-credentials refusal is its own test and
   skips, saying the case is not covered, where the account cannot create a
   symlink. The other credential refusals no longer depend on it.
+- **Regression pin (#691): the Windows field-report worktree shapes.**
+  `cmd/guardrail` seeds the exact audit-recorded commands from the
+  2026-11-22 field report — `git worktree add --detach` with a
+  forward-slash absolute Windows path and a trailing commit-ish, then the
+  matching `git worktree remove` under Claude Code's default, `auto` and
+  `bypassPermissions` permission modes — and asserts the ADR-0039
+  same-session provenance allow in all three. The report's ask/deny rows
+  came from a `v0.23.45-dev` install that predates #638 entirely; current
+  builds must keep matching these shapes.
+
+### CLI
+- **Fix (#691): `guardrail --version` answers like `version`.** The deny
+  guidance asks an agent to report "your guardrail version", and the
+  conventional `--version` spelling answered "unknown subcommand". It now
+  prints the same line as `guardrail version`, as a hidden alias like
+  `-h`/`--help`.
 
 ## v0.23.47-dev (2026-11-21)
 

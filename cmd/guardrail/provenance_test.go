@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -183,6 +185,56 @@ func TestWindowsAndPOSIXSessionCreatedWorktreeRemoval(t *testing.T) {
 			t.Fatalf("code=%d decision=%q; matching git -C add/remove should match provenance", code, decision)
 		}
 	})
+}
+
+// #691 field report, Windows rows: the exact command shapes a Git Bash
+// session used — forward-slash absolute Windows paths, `--detach` with a
+// trailing commit-ish, and Claude Code's auto/bypass permission mode, where
+// the remove arrives as a host-auto-escalated deny. Any regression in the
+// path canonicalization, the `--detach` parse, or the escalation hook of
+// applyWorktreeProvenance makes this fail. (The reporting machine ran
+// v0.23.45-dev, which predates #638 entirely: the allowance was never
+// installed there. Current builds must keep matching these shapes.)
+func TestSessionCreatedWorktreeRemovalMatchesFieldReportWindowsShapes(t *testing.T) {
+	dir := t.TempDir()
+	sandbox := func(t *testing.T) {
+		testenv.SetState(t, t.TempDir())
+		testenv.SetConfig(t, t.TempDir())
+		t.Setenv("GUARDRAIL_CONFIG", "")
+	}
+	wt := filepath.ToSlash(filepath.Join(dir, ".worktrees", "council",
+		"2026-11-22-claude-quoting-check", "claude-haiku"))
+	add := "git worktree add --detach " + wt + " cf265624a517e0b5591b1d6ad467efab5661492d"
+	remove := "git worktree remove " + wt
+
+	for _, mode := range []string{"default", "auto", "bypassPermissions"} {
+		t.Run("permission mode "+mode, func(t *testing.T) {
+			sandbox(t)
+			seedWorktreeCreation(t, "s1", add, "allow", time.Minute)
+			envelope := map[string]any{
+				"session_id": "s1", "hook_event_name": "PreToolUse",
+				"cwd": filepath.ToSlash(dir), "tool_name": "Bash",
+				"tool_input": map[string]any{"command": remove},
+			}
+			if mode != "default" {
+				envelope["permission_mode"] = mode
+			}
+			raw, err := json.Marshal(envelope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var out, errb bytes.Buffer
+			code := run([]string{"hook", "claude"}, bytes.NewReader(raw), &out, &errb)
+			var decoded map[string]any
+			_ = json.Unmarshal(out.Bytes(), &decoded)
+			// Claude allows are silent: exit 0, no permissionDecision —
+			// including under auto/bypass, where without the creation
+			// record the same call is a host-auto deny.
+			if decision, reason := claudeDecision(decoded); code != 0 || decision != "" {
+				t.Fatalf("mode=%s code=%d decision=%q reason=%q; want the silent provenance allow", mode, code, decision, reason)
+			}
+		})
+	}
 }
 
 // The allowance must be auditable: the allow record carries the rule and
