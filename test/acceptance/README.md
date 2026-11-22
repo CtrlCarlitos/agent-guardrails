@@ -93,9 +93,16 @@ user's own hook, permissions and settings in place. Recovery corrupts
 `settings.json`, runs `guardrail recover claude-settings` at a terminal, and
 compares the backup with the corrupt bytes.
 
-Registration is not enforcement, so `host_hook_trust` also requires
-`guardrail selftest --evidence claude` to stay shut: fixture sessions are not
-Claude Code session IDs.
+These stages feed envelopes to the hook; no tool runs in them. In the egress
+approval the harness claims the approval ticket itself, so no operator
+approval is shown, and the operator records in the report are labelled
+`harness_driven_lifecycle`.
+
+Registration is not enforcement. `host_hook_trust` requires `guardrail
+selftest --evidence claude` to report "not yet observed", and
+`fixture_evidence_gate` repeats that once the fixture records exist and
+before the update replaces the binary: fixture sessions are not Claude Code
+session IDs and must not open the gate.
 
 The live stage runs `claude -p` in the isolated home with only `cat` and
 `Read` pre-approved. Its claim requires, in the session the runtime reported:
@@ -104,8 +111,12 @@ an allowed read whose output came back, a `P4.secret-path` denial of the fake
 isolated home has no login, so supply `ANTHROPIC_API_KEY` or
 `CLAUDE_CODE_OAUTH_TOKEN` in the environment, or `--live-auth-from <dir>`
 naming a disposable directory that holds `.credentials.json`; the runner
-refuses the real `~/.claude` and removes the copy after the check. Without
-credentials the stage reports `operator_assisted`. Answering a Claude Code
+refuses the real `~/.claude` and removes the copy after the check. Prefer the
+environment variables: if the runtime refreshes a copied OAuth login during
+the run, the refreshed copy is discarded and the source may no longer work,
+so never copy your real login into that directory. Without credentials the
+stage reports `operator_assisted`; supplied credentials that are missing,
+unusable or rejected fail the stage. Answering a Claude Code
 permission prompt is `operator_assisted` too: headless `claude -p` has no one
 to answer it.
 

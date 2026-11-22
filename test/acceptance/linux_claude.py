@@ -56,10 +56,34 @@ def live_auth_missing(events):
     )
 
 
+def gate_shut(result):
+    """Exit 1 alone also covers an unreadable log, so require the verdict line."""
+    return result.returncode == 1 and "live mediation not yet observed" in result.stdout
+
+
+def live_credentials(source, real_home, real_claude_dirs):
+    """Return (credentials file, "") for a disposable source, else (None, reason)."""
+    source = Path(source).resolve()
+    if source == real_home or any(source.is_relative_to(path) for path in real_claude_dirs):
+        return None, "--live-auth-from must name disposable Claude Code state"
+    credentials = source / CREDENTIALS
+    if not credentials.is_file() or credentials.is_symlink():
+        return None, f"--live-auth-from holds no regular {CREDENTIALS} file"
+    return credentials, ""
+
+
+def live_auth_status(events, *, supplied):
+    """None when the runtime authenticated; otherwise how to report the stage."""
+    if not live_auth_missing(events):
+        return None
+    return harness.StageStatus.FAIL if supplied else harness.StageStatus.OPERATOR_ASSISTED
+
+
 def classify_provenance(record, live_session):
     """Label a record runtime evidence only when it belongs to the live session."""
     if record.get("plane") == "operator":
-        return "operator_lifecycle"
+        # The harness runs these operator commands itself; no operator approved them.
+        return "harness_driven_lifecycle"
     if live_session and record.get("plane") == "claude" and record.get("session_id") == live_session:
         return "isolated_runtime"
     return "synthetic_fixture"
@@ -220,16 +244,28 @@ def run_linux_claude_acceptance(
         gate = evidence_gate()
         line = next((text for text in doctor.stdout.splitlines()
                      if text.startswith("claude settings:")), "claude settings: (no doctor line)")
-        # Registration is not enforcement: fixture and selftest sessions are
-        # not Claude Code session IDs, so they must leave the evidence gate shut.
+        # Registration is not enforcement: selftest sessions are not Claude Code
+        # session IDs, so the evidence gate must report "not yet observed".
         ok = (
             selftest.returncode == 0 and "claude: probes pass" in selftest.stdout
             and line.startswith("claude settings: guardrail hook registered")
-            and registered() and gate.returncode == 1
+            and registered() and gate_shut(gate)
         )
         return ok, (
             f"selftest exit={selftest.returncode}, live-evidence gate exit={gate.returncode} "
-            f"(shut without a real session); {line}"
+            f"not-yet-observed={gate_shut(gate)}; {line}"
+        )
+
+    def fixtures_leave_gate_shut():
+        # Runs after the fixture stages and before the update replaces the
+        # binary, so the fixture records are inside the gate's mtime window.
+        fixtures = [record for record in harness.read_audit_records(audit_path)
+                    if str(record.get("session_id", "")).startswith("claude-fixture-")
+                    and record.get("plane") == "claude" and record.get("event") == "pre"]
+        gate = evidence_gate()
+        return len(fixtures) >= 2 and gate_shut(gate), (
+            f"{len(fixtures)} fixture pre-hook records in the window, live-evidence gate "
+            f"exit={gate.returncode} not-yet-observed={gate_shut(gate)}"
         )
 
     def direct(tool, tool_input):
@@ -254,40 +290,35 @@ def run_linux_claude_acceptance(
     def bash(command):
         return direct("Bash", {"command": command})
 
+    # The fixture stages feed envelopes to the hook; no tool runs, so they
+    # check the verdict the host would receive and nothing about the files.
     def deny():
-        fixture = f"FAKE_SECRET={secret}\n"
         shell = bash("cat .env")
         read = direct("Read", {"file_path": str(workspace / ".env")})
         benign = bash("cat allowed.txt")
-        intact = (workspace / ".env").read_text(encoding="utf-8") == fixture
         ok = (
             shell[:3] == ("deny", "deny", "P4.secret-path") and shell[3].returncode == 2
             and read[:3] == ("deny", "deny", "P4.secret-path") and read[3].returncode == 2
-            and benign[:2] == ("allow", "allow") and intact
+            and benign[:2] == ("allow", "allow")
         )
         return ok, (
             f"Bash cat .env: exit={shell[3].returncode} audit={shell[1]}/{shell[2]}; "
             f"Read .env: exit={read[3].returncode} audit={read[1]}/{read[2]}; "
-            f"Bash cat allowed.txt: {benign[0]}; fixture intact={intact}"
+            f"Bash cat allowed.txt: {benign[0]}"
         )
 
     def host_ask():
-        target = workspace / "allowed.txt"
-        mode = target.stat().st_mode
         asked = bash("chmod 777 allowed.txt")
         reason = ""
         if asked[0] == "ask":
             reason = json.loads(asked[3].stdout)["hookSpecificOutput"].get("permissionDecisionReason", "")
-        ok = (
-            asked[:3] == ("ask", "ask", "P1.chmod") and asked[3].returncode == 0
-            and "retry this exact tool call" in reason and target.stat().st_mode == mode
-        )
-        return ok, (
+        guided = "retry this exact tool call" in reason
+        return asked[:3] == ("ask", "ask", "P1.chmod") and asked[3].returncode == 0 and guided, (
             f"hook exit={asked[3].returncode}, permissionDecision={asked[0]}, "
-            f"audit={asked[1]}/{asked[2]}, retry guidance={'retry this exact tool call' in reason}, "
-            f"file mode unchanged={target.stat().st_mode == mode}"
+            f"audit={asked[1]}/{asked[2]}, retry guidance={guided}"
         )
 
+    # No operator answers the ask here: the harness claims the ticket itself.
     def approval_retry():
         before = len(harness.read_audit_records(audit_path))
         grant = ("egress", "grant", "--scope", "repo", "--host", PROBE_HOST)
@@ -329,16 +360,17 @@ def run_linux_claude_acceptance(
         if version.returncode != 0:
             return False, f"claude --version exit={version.returncode}"
         auth_target = claude_dir / CREDENTIALS
+        supplied = any(os.environ.get(name) for name in AUTH_ENV)
         try:
             if live_auth_from is not None:
-                source = live_auth_from.resolve()
-                real_claude_dirs = (active_claude_dir, (real_home / ".claude").resolve())
-                if source == real_home or any(source.is_relative_to(path) for path in real_claude_dirs):
-                    return False, "--live-auth-from must name disposable Claude Code state"
-                credentials = source / CREDENTIALS
-                if credentials.is_file() and not credentials.is_symlink():
-                    auth_target.touch(mode=0o600, exist_ok=False)
-                    shutil.copyfile(credentials, auth_target)
+                credentials, refusal = live_credentials(
+                    live_auth_from, real_home, (active_claude_dir, (real_home / ".claude").resolve()),
+                )
+                if credentials is None:
+                    return False, refusal
+                auth_target.touch(mode=0o600, exist_ok=False)
+                shutil.copyfile(credentials, auth_target)
+                supplied = True
             for name in AUTH_ENV:
                 if os.environ.get(name):
                     env[name] = os.environ[name]
@@ -363,8 +395,11 @@ def run_linux_claude_acceptance(
             if isinstance(event, dict):
                 events.append(event)
         session = live_session = reported_session(events)
-        if live_auth_missing(events):
-            return status.OPERATOR_ASSISTED, (
+        unauthenticated = live_auth_status(events, supplied=supplied)
+        if unauthenticated == status.FAIL:
+            return unauthenticated, "the supplied credentials were rejected by the Claude Code runtime"
+        if unauthenticated is not None:
+            return unauthenticated, (
                 f"isolated Claude Code runtime is not logged in (session reported={bool(session)}); "
                 "supply --live-auth-from or an API key or OAuth token in the environment"
             )
@@ -434,13 +469,16 @@ def run_linux_claude_acceptance(
                 ))
                 if stage("enablement", "register the Claude Code hooks in the isolated settings.json", enable):
                     stage("host_hook_trust",
-                          "selftest passes, doctor reports registration, fixtures leave the live-evidence gate shut",
+                          "selftest passes, doctor reports registration, the live-evidence gate reports not yet observed",
                           diagnostics)
                     stage("harmless_deny", "block fake secret reads through Bash and Read with P4.secret-path", deny)
                     stage("host_ask", "return a native permission ask with exact-retry guidance", host_ask)
                     stage("approval_retry",
-                          "P6 deny, operator-action ask, host-ask grant persists, sanctioned fetch allows, replay refused",
+                          "P6 deny, operator-action ask, harness-claimed host-ask grant persists, fetch allows, replay refused",
                           approval_retry)
+                    stage("fixture_evidence_gate",
+                          "fixture pre-hook records inside the window leave the live-evidence gate shut",
+                          fixtures_leave_gate_shut)
                     stages.append(harness.StageResult(
                         "interactive_host_approval", status.OPERATOR_ASSISTED,
                         "an operator answering the Claude Code permission prompt",

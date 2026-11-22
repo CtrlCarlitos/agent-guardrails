@@ -103,14 +103,63 @@ class LinuxClaudeTests(unittest.TestCase):
         classify = linux_claude.classify_provenance
         self.assertEqual(classify({"plane": "claude", "session_id": self.SESSION}, self.SESSION),
                          "isolated_runtime")
+        # The harness runs operator commands itself; no operator approved them.
         self.assertEqual(classify({"plane": "operator", "event": "operator-action"}, self.SESSION),
-                         "operator_lifecycle")
+                         "harness_driven_lifecycle")
         # A selftest record can carry no session id at all; it is still a fixture.
         for record in ({"plane": "claude"}, {"plane": "claude", "session_id": "claude-fixture-ab"},
                        {"plane": "codex", "session_id": self.SESSION}):
             self.assertEqual(classify(record, self.SESSION), "synthetic_fixture")
         self.assertEqual(classify({"plane": "claude", "session_id": self.SESSION}, ""),
                          "synthetic_fixture")
+
+    def test_evidence_gate_is_shut_only_on_the_not_observed_verdict(self):
+        import linux_claude
+
+        shut = harness.CommandResult(1, "claude: live mediation not yet observed; the registered hook\n", "")
+        broken = harness.CommandResult(1, "", "guardrail: evidence unavailable: cannot stat running binary\n")
+        opened = harness.CommandResult(0, "claude: live mediation observed (heuristic)\n", "")
+        self.assertTrue(linux_claude.gate_shut(shut))
+        self.assertFalse(linux_claude.gate_shut(broken))
+        self.assertFalse(linux_claude.gate_shut(opened))
+
+    def test_live_credentials_refuse_real_state_and_unusable_sources(self):
+        import linux_claude
+
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw).resolve()
+            real_home = base / "home"
+            real_claude = real_home / ".claude"
+            disposable = base / "disposable"
+            empty = base / "empty"
+            linked = base / "linked"
+            for directory in (real_claude, disposable, empty, linked):
+                directory.mkdir(parents=True)
+            (real_claude / ".credentials.json").write_text("{}", encoding="utf-8")
+            (disposable / ".credentials.json").write_text("{}", encoding="utf-8")
+            (linked / ".credentials.json").symlink_to(real_claude / ".credentials.json")
+
+            def resolve(source):
+                return linux_claude.live_credentials(source, real_home, (real_claude,))
+
+            self.assertEqual(resolve(disposable), (disposable / ".credentials.json", ""))
+            for refused in (real_home, real_claude, real_claude / "nested"):
+                path, error = resolve(refused)
+                self.assertIsNone(path)
+                self.assertIn("disposable", error)
+            for unusable in (empty, linked):
+                path, error = resolve(unusable)
+                self.assertIsNone(path)
+                self.assertIn(".credentials.json", error)
+
+    def test_rejected_supplied_credentials_fail_instead_of_asking_for_an_operator(self):
+        import linux_claude
+
+        rejected = [{"type": "assistant", "error": "authentication_failed"}]
+        status = harness.StageStatus
+        self.assertEqual(linux_claude.live_auth_status(rejected, supplied=False), status.OPERATOR_ASSISTED)
+        self.assertEqual(linux_claude.live_auth_status(rejected, supplied=True), status.FAIL)
+        self.assertIsNone(linux_claude.live_auth_status([{"type": "assistant"}], supplied=True))
 
     def test_hook_registration_requires_this_binary_on_the_pre_tool_event(self):
         import linux_claude

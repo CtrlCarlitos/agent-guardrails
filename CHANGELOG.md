@@ -12,7 +12,7 @@ explicitly in **Breaking** notes.
   install and update, hook registration, fake-secret denials through `Bash`
   and `Read`, a native permission ask, the prompt-mode egress approval with
   its retry and refused replay, disablement that keeps user settings, and
-  `recover claude-settings`. Fixture sessions must leave `selftest
+  `recover claude-settings`. Fixture records must leave `selftest
   --evidence claude` shut. The opt-in `--live` stage needs credentials in
   the isolated home and reports `operator_assisted` without them. The
   compatibility matrix now records Linux Claude Code as enforced and

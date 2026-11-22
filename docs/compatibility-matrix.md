@@ -215,12 +215,14 @@ run.
   read. Session-specific `selftest --evidence codex` passed. This observation
   covers the tested local shell calls.
 - **[E15]** [Linux Claude Code acceptance and real-session verdicts](evidence/2026-11-21-linux-claude-code-acceptance.md),
-  2026-11-21. This host's audit log holds two real Claude Code sessions
-  with `ask` and `deny` verdicts for `Bash`, `Read`, `Write` and `Edit`
-  calls, and `guardrail selftest --evidence claude` exited 0. The isolated
-  lifecycle run (`test/acceptance/harness.py --host claude`) passed. Its
-  nested `claude -p` stage had no login and reported `operator_assisted`,
-  so no harness-driven live session is claimed.
+  2026-11-21. This host's audit log holds three real Claude Code sessions.
+  One (2026-11-16) has 10 `ask` verdicts and a `deny`, all for `Bash`
+  calls; another has `deny` verdicts for `Bash` and `Edit` calls. `Read`
+  and `Write` calls reached the hook and were only ever allowed.
+  `guardrail selftest --evidence claude` exited 0 on the two newest
+  sessions. The isolated lifecycle run (`test/acceptance/harness.py --host
+  claude`) passed. Its nested `claude -p` stage had no login and reported
+  `operator_assisted`, so no harness-driven live session is claimed.
 
 ## Keeping it true
 
