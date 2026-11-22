@@ -24,6 +24,7 @@ type ToolCall struct {
 	// (ShellPowerShell), and empty otherwise. Never set from model input:
 	// for Codex it comes from the session transcript (#454, #498).
 	Shell            string
+	ShellDiagnostic  string // adapter-supplied explanation when shell proof fails
 	Paths            []string
 	Arguments        json.RawMessage // complete native argument payload when the plane exposes it
 	SessionID        string

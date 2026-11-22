@@ -25,6 +25,8 @@ func TestWindowsCodexSessionShellRecoveryBoundaries(t *testing.T) {
 		{"metadata missing identity", "powershell", "", nil, false, false, 2},
 		{"duplicate session files", "powershell", session, nil, true, false, 2},
 		{"no matching transcript", "powershell", session, nil, false, true, 2},
+		{"missing explicit file", "powershell", session, "stale", false, true, 2},
+		{"unreadable explicit file", "powershell", session, "directory", false, true, 2},
 		{"unsupported shell", "bash", session, nil, false, false, 2},
 		{"missing shell", "", session, nil, false, false, 2},
 	} {
@@ -54,6 +56,13 @@ func TestWindowsCodexSessionShellRecoveryBoundaries(t *testing.T) {
 			if ref == "foreign" {
 				ref = filepath.Join(cwd, "foreign.jsonl")
 			}
+			if ref == "directory" {
+				path := filepath.Join(dir, "directory.jsonl")
+				if err := os.Mkdir(path, 0700); err != nil {
+					t.Fatal(err)
+				}
+				ref = path
+			}
 			raw, _ := json.Marshal(map[string]any{"session_id": session, "cwd": cwd, "hook_event_name": "PreToolUse", "tool_name": "Bash", "transcript_path": ref, "tool_input": map[string]string{"command": "Get-Location", "shell": "pwsh"}})
 			code, out, stderr := emitWindows(t, raw)
 			if code != c.want {
@@ -62,10 +71,25 @@ func TestWindowsCodexSessionShellRecoveryBoundaries(t *testing.T) {
 			if c.want == 2 && (strings.Contains(out, "updatedInput") || !strings.Contains(stderr, "readable transcript for this session")) {
 				t.Fatalf("unproven call emitted rewrite or lacks guidance: stdout=%q stderr=%q", out, stderr)
 			}
+			details := map[string]string{
+				"foreign reference":                   "outside CODEX_HOME/sessions",
+				"malformed reference":                 "invalid transcript_path",
+				"metadata belongs to another session": "session id mismatch",
+				"metadata missing identity":           "session id mismatch",
+				"duplicate session files":             "multiple matching transcripts",
+				"no matching transcript":              "no transcript_path",
+				"missing explicit file":               "transcript_path file is missing",
+				"unreadable explicit file":            "file is unreadable",
+				"unsupported shell":                   "recorded shell is unsupported",
+				"missing shell":                       "no shell tag",
+			}
+			if want := details[c.name]; want != "" && !strings.Contains(stderr, want) {
+				t.Errorf("stderr=%q, want %q", stderr, want)
+			}
 		})
 	}
 	for _, sessionID := range []string{"", "../escape", "not-a-session"} {
-		if shell := codexSessionShell(sessionID); shell != "" {
+		if shell, _ := codexSessionShell(sessionID); shell != "" {
 			t.Fatalf("invalid session %q proves %q", sessionID, shell)
 		}
 	}
