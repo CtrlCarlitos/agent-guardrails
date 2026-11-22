@@ -2825,8 +2825,46 @@ func Normalize(command, cwd string) ([]Simple, error) {
 
 // normalizeToolCall normalizes a tool call's command in its shell's dialect.
 func normalizeToolCall(tc ToolCall) ([]Simple, error) {
+	if tc.PowerShellCommand() {
+		if powerShellDiscoveryProbes(tc.Command) {
+			return nil, nil
+		}
+		if invocation := literalPowerShellGitBash.FindStringSubmatch(tc.Command); invocation != nil {
+			// Decode the PowerShell arguments without re-encoding them as
+			// POSIX shell text. The regular Bash wrapper analysis checks
+			// the executable and every inner command.
+			argv := []string{invocation[1], "--version"}
+			if invocation[2] != "" {
+				argv = []string{invocation[1], "-c", strings.ReplaceAll(invocation[3], "''", "'")}
+			}
+			return stripAndUnwrap(Simple{
+				Argv: argv, Cwd: tc.CWD, plainCall: true,
+				shellState: initialShellState(tc.CWD, false),
+			}, &normalizeContext{})
+		}
+	}
 	return normalizeWithContext(tc.Command, tc.CWD, &normalizeContext{powerShell: tc.PowerShellCommand()})
 }
+
+// These statements only read fixed PowerShell or Git discovery properties.
+// Combining them does not change their meaning. Any other statement leaves
+// the complete command to normal parsing and policy evaluation.
+func powerShellDiscoveryProbes(command string) bool {
+	for _, statement := range strings.Split(command, ";") {
+		switch strings.ToLower(strings.TrimSpace(statement)) {
+		case "$psversiontable.psversion", "$psversiontable.psedition", "(get-command git).source":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// One complete PowerShell call with a literal Git for Windows launcher.
+// The single-quoted command permits doubled apostrophes. Smart quotes,
+// multiline calls, compound statements and dynamic arguments use the
+// conservative fallback instead.
+var literalPowerShellGitBash = regexp.MustCompile(`\A[ \t]*&[ \t]*'((?i:[a-z]:[/\\](?:[a-z0-9 _./\\()-]*[/\\])?git[/\\]bin[/\\]bash\.exe))'[ \t]+(?:--version|(-c)[ \t]+'((?:[^\x00\r\n'"‘’‚‛]|'')*)')[ \t]*\z`)
 
 // osDirectoryVariables are the OS-provided directory variables the Engine
 // takes from its own environment, as it does HOME (#489). The hook runs with
@@ -2839,7 +2877,12 @@ func normalizeToolCall(tc ToolCall) ([]Simple, error) {
 var osDirectoryVariables = []string{"USERPROFILE", "LOCALAPPDATA", "APPDATA", "TEMP", "TMP", "TMPDIR"}
 
 func normalizeWithContext(command, cwd string, ctx *normalizeContext) ([]Simple, error) {
-	state := cwdState{cwd: cwd, variables: make(map[string]string, 2), powerShell: ctx.powerShell}
+	result, err := normalizeWithState(command, initialShellState(cwd, ctx.powerShell), ctx, nil, nil, nil)
+	return result.simples, err
+}
+
+func initialShellState(cwd string, powerShell bool) cwdState {
+	state := cwdState{cwd: cwd, variables: make(map[string]string, 2), powerShell: powerShell}
 	if cwd != "" {
 		state.variables["PWD"] = cwd
 	}
@@ -2855,8 +2898,7 @@ func normalizeWithContext(command, cwd string, ctx *normalizeContext) ([]Simple,
 		state.cdpath = cdpath
 		state.cdpathSet = true
 	}
-	result, err := normalizeWithState(command, state, ctx, nil, nil, nil)
-	return result.simples, err
+	return state
 }
 
 type normalizeResult struct {
