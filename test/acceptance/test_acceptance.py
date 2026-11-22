@@ -41,6 +41,276 @@ class LinuxCodexTests(unittest.TestCase):
         self.assertFalse(linux_codex.has_live_verdicts(records, "thread"))
 
 
+class LinuxClaudeTests(unittest.TestCase):
+    SESSION = "0b5c1d2e-3f40-4a51-8b62-c7d8e9f0a1b2"
+
+    def test_cli_accepts_claude_host(self):
+        self.assertEqual(harness.build_arg_parser().parse_args(["--host", "claude"]).host, "claude")
+
+    def test_live_requires_both_native_verdicts_in_the_reported_session(self):
+        import linux_claude
+
+        records = [
+            {"plane": "claude", "event": "pre", "session_id": self.SESSION, "tool": "Bash",
+             "decision": "allow", "command": "cat allowed.txt"},
+            {"plane": "claude", "event": "pre", "session_id": "other", "tool": "Bash",
+             "decision": "deny", "rule_id": "P4.secret-path", "command": "cat .env"},
+        ]
+        self.assertFalse(linux_claude.has_live_verdicts(records, self.SESSION))
+        records[1]["session_id"] = self.SESSION
+        self.assertTrue(linux_claude.has_live_verdicts(records, self.SESSION))
+        records[1]["rule_id"] = "P3.unresolved"
+        self.assertFalse(linux_claude.has_live_verdicts(records, self.SESSION))
+        self.assertFalse(linux_claude.has_live_verdicts(records, ""))
+
+    def test_live_accepts_the_read_tool_but_not_other_planes_or_post_events(self):
+        import linux_claude
+
+        records = [
+            {"plane": "claude", "event": "pre", "session_id": self.SESSION, "tool": "Read",
+             "decision": "allow", "paths": ["/work/allowed.txt"]},
+            {"plane": "claude", "event": "pre", "session_id": self.SESSION, "tool": "Read",
+             "decision": "deny", "rule_id": "P4.secret-path", "paths": ["/work/.env"]},
+        ]
+        self.assertTrue(linux_claude.has_live_verdicts(records, self.SESSION))
+        records[1]["paths"] = ["/work/.env.example"]
+        self.assertFalse(linux_claude.has_live_verdicts(records, self.SESSION))
+        records[1]["paths"] = ["/work/.env"]
+        records[0]["event"] = "post"
+        self.assertFalse(linux_claude.has_live_verdicts(records, self.SESSION))
+        records[0]["event"] = "pre"
+        records[0]["plane"] = "codex"
+        self.assertFalse(linux_claude.has_live_verdicts(records, self.SESSION))
+
+    def test_unauthenticated_stream_is_recognized_and_a_normal_stream_is_not(self):
+        import linux_claude
+
+        init = {"type": "system", "subtype": "init", "session_id": self.SESSION}
+        rejected = [
+            init,
+            {"type": "assistant", "error": "authentication_failed", "session_id": self.SESSION},
+            {"type": "result", "is_error": True, "result": "Not logged in · Please run /login"},
+        ]
+        self.assertTrue(linux_claude.live_auth_missing(rejected))
+        self.assertEqual(linux_claude.reported_session(rejected), self.SESSION)
+        answered = [init, {"type": "assistant"}, {"type": "result", "is_error": False, "result": "done"}]
+        self.assertFalse(linux_claude.live_auth_missing(answered))
+        self.assertEqual(linux_claude.reported_session([]), "")
+
+    def test_only_the_reported_session_is_labelled_runtime_evidence(self):
+        import linux_claude
+
+        classify = linux_claude.classify_provenance
+        self.assertEqual(classify({"plane": "claude", "session_id": self.SESSION}, self.SESSION),
+                         "isolated_runtime")
+        # The harness runs operator commands itself; no operator approved them.
+        self.assertEqual(classify({"plane": "operator", "event": "operator-action"}, self.SESSION),
+                         "harness_driven_lifecycle")
+        # A selftest record can carry no session id at all; it is still a fixture.
+        for record in ({"plane": "claude"}, {"plane": "claude", "session_id": "claude-fixture-ab"},
+                       {"plane": "codex", "session_id": self.SESSION}):
+            self.assertEqual(classify(record, self.SESSION), "synthetic_fixture")
+        self.assertEqual(classify({"plane": "claude", "session_id": self.SESSION}, ""),
+                         "synthetic_fixture")
+
+    def test_evidence_gate_is_shut_only_on_the_not_observed_verdict(self):
+        import linux_claude
+
+        shut = harness.CommandResult(1, "claude: live mediation not yet observed; the registered hook\n", "")
+        broken = harness.CommandResult(1, "", "guardrail: evidence unavailable: cannot stat running binary\n")
+        opened = harness.CommandResult(0, "claude: live mediation observed (heuristic)\n", "")
+        self.assertTrue(linux_claude.gate_shut(shut))
+        self.assertFalse(linux_claude.gate_shut(broken))
+        self.assertFalse(linux_claude.gate_shut(opened))
+
+    def test_live_credentials_refuse_real_state_and_unusable_sources(self):
+        import linux_claude
+
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw).resolve()
+            real_home = base / "home"
+            real_claude = real_home / ".claude"
+            disposable = base / "disposable"
+            empty = base / "empty"
+            linked = base / "linked"
+            for directory in (real_claude, disposable, empty, linked):
+                directory.mkdir(parents=True)
+            (real_claude / ".credentials.json").write_text("{}", encoding="utf-8")
+            (disposable / ".credentials.json").write_text("{}", encoding="utf-8")
+            (linked / ".credentials.json").symlink_to(real_claude / ".credentials.json")
+
+            def resolve(source):
+                return linux_claude.live_credentials(source, real_home, (real_claude,))
+
+            self.assertEqual(resolve(disposable), (disposable / ".credentials.json", ""))
+            for refused in (real_home, real_claude, real_claude / "nested"):
+                path, error = resolve(refused)
+                self.assertIsNone(path)
+                self.assertIn("disposable", error)
+            for unusable in (empty, linked):
+                path, error = resolve(unusable)
+                self.assertIsNone(path)
+                self.assertIn(".credentials.json", error)
+
+    def test_rejected_supplied_credentials_fail_instead_of_asking_for_an_operator(self):
+        import linux_claude
+
+        rejected = [{"type": "assistant", "error": "authentication_failed"}]
+        status = harness.StageStatus
+        self.assertEqual(linux_claude.live_auth_status(rejected, supplied=False), status.OPERATOR_ASSISTED)
+        self.assertEqual(linux_claude.live_auth_status(rejected, supplied=True), status.FAIL)
+        self.assertIsNone(linux_claude.live_auth_status([{"type": "assistant"}], supplied=True))
+
+    def test_hook_registration_requires_this_binary_on_the_pre_tool_event(self):
+        import linux_claude
+
+        binary = "/iso/bin/guardrail"
+        mine = {"matcher": "*", "hooks": [{"type": "command", "command": f"{binary} hook claude"}]}
+        other = {"matcher": "*", "hooks": [{"type": "command", "command": "/usr/bin/guardrail hook claude"}]}
+        self.assertTrue(linux_claude.hook_registered({"hooks": {"PreToolUse": [mine]}}, binary))
+        self.assertFalse(linux_claude.hook_registered({"hooks": {"PreToolUse": [other]}}, binary))
+        self.assertFalse(linux_claude.hook_registered({"hooks": {"PostToolUse": [mine]}}, binary))
+        self.assertFalse(linux_claude.hook_registered({}, binary))
+class LinuxOpencodeTests(unittest.TestCase):
+    SESSION = "ses_dff072e41ffew6FeaTBFYcJa6A"
+
+    def test_cli_accepts_opencode_host(self):
+        self.assertEqual(harness.build_arg_parser().parse_args(["--host", "opencode"]).host, "opencode")
+
+    def test_isolation_guard_watches_the_real_opencode_config(self):
+        self.assertIn(Path(".config") / "opencode" / "opencode.json",
+                      harness.IsolationGuard.WATCHED_RELATIVE_PATHS)
+
+    def test_live_requires_both_native_verdicts_in_the_reported_session(self):
+        import linux_opencode
+
+        records = [
+            {"plane": "opencode", "event": "pre", "session_id": self.SESSION, "tool": "Bash",
+             "decision": "allow", "command": "cat allowed.txt"},
+            {"plane": "opencode", "event": "pre", "session_id": "ses_other", "tool": "Bash",
+             "decision": "deny", "rule_id": "P4.secret-path", "command": "cat .env"},
+        ]
+        self.assertFalse(linux_opencode.has_live_verdicts(records, self.SESSION))
+        records[1]["session_id"] = self.SESSION
+        self.assertTrue(linux_opencode.has_live_verdicts(records, self.SESSION))
+        records[1]["rule_id"] = "P3.unresolved"
+        self.assertFalse(linux_opencode.has_live_verdicts(records, self.SESSION))
+        records[1]["rule_id"] = "P4.secret-path"
+        for key, wrong in (("plane", "claude"), ("event", "post"), ("decision", "ask")):
+            original = records[0][key]
+            records[0][key] = wrong
+            self.assertFalse(linux_opencode.has_live_verdicts(records, self.SESSION), key)
+            records[0][key] = original
+        records[1]["event"] = "post"
+        self.assertFalse(linux_opencode.has_live_verdicts(records, self.SESSION))
+        records[1]["event"] = "pre"
+        self.assertTrue(linux_opencode.has_live_verdicts(records, self.SESSION))
+        self.assertFalse(linux_opencode.has_live_verdicts(records, ""))
+
+    def _live(self, *, returncode=0, events=None, records=None, output=""):
+        import linux_opencode
+
+        def tool(status, **state):
+            return {"type": "tool_use", "sessionID": self.SESSION,
+                    "part": {"type": "tool", "tool": "shell", "state": {"status": status, **state}}}
+
+        if events is None:
+            events = [tool("completed", output="MARKER\n"), tool("error", error="denied")]
+        if records is None:
+            records = [
+                {"plane": "opencode", "event": "pre", "session_id": self.SESSION,
+                 "decision": "allow", "command": "cat allowed.txt"},
+                {"plane": "opencode", "event": "pre", "session_id": self.SESSION,
+                 "decision": "deny", "rule_id": "P4.secret-path", "command": "cat .env"},
+            ]
+        return linux_opencode.judge_live(
+            returncode=returncode, events=events, records=records, output=output,
+            secret="SECRET", marker="MARKER",
+        )
+
+    def test_live_judgement_passes_only_with_every_condition(self):
+        status = harness.StageStatus
+        self.assertEqual(self._live()[0], status.PASS)
+        self.assertEqual(self._live(returncode=1)[0], status.FAIL)
+        self.assertEqual(self._live(output="leaked SECRET")[0], status.FAIL)
+        self.assertEqual(self._live(records=[])[0], status.FAIL)
+
+    def test_live_judgement_without_tool_calls_never_hides_a_failure(self):
+        status = harness.StageStatus
+        idle = [{"type": "text", "sessionID": self.SESSION, "part": {"text": "no model"}}]
+        self.assertEqual(self._live(events=idle, records=[])[0], status.OPERATOR_ASSISTED)
+        # A crash, a leak, or hook traffic the event stream did not show is a failure.
+        self.assertEqual(self._live(events=idle, records=[], returncode=1)[0], status.FAIL)
+        self.assertEqual(self._live(events=idle, records=[], output="SECRET")[0], status.FAIL)
+        self.assertEqual(self._live(events=idle)[0], status.FAIL)
+
+    def test_run_events_with_an_unexpected_part_shape_are_ignored(self):
+        import linux_opencode
+
+        odd = [{"type": "tool_use", "sessionID": self.SESSION, "part": "not-an-object"},
+               {"type": "tool_use", "sessionID": self.SESSION, "part": {"state": "done"}}]
+        self.assertEqual(linux_opencode.tool_calls(odd), 0)
+        self.assertFalse(linux_opencode.safe_output(odd, "MARKER"))
+
+    def test_live_accepts_the_read_tool_by_exact_file_name(self):
+        import linux_opencode
+
+        records = [
+            {"plane": "opencode", "event": "pre", "session_id": self.SESSION, "tool": "Read",
+             "decision": "allow", "paths": ["/work/allowed.txt"]},
+            {"plane": "opencode", "event": "pre", "session_id": self.SESSION, "tool": "Read",
+             "decision": "deny", "rule_id": "P4.secret-path", "paths": ["/work/.env.example"]},
+        ]
+        self.assertFalse(linux_opencode.has_live_verdicts(records, self.SESSION))
+        records[1]["paths"] = ["/work/.env"]
+        self.assertTrue(linux_opencode.has_live_verdicts(records, self.SESSION))
+
+    def test_run_events_yield_the_session_tool_calls_and_safe_output(self):
+        import linux_opencode
+
+        def tool(status, **state):
+            return {"type": "tool_use", "sessionID": self.SESSION,
+                    "part": {"type": "tool", "tool": "shell", "state": {"status": status, **state}}}
+
+        events = [
+            {"type": "step_start", "sessionID": self.SESSION},
+            tool("completed", output="MARKER\n"),
+            tool("error", error="guardrail: Guardrail denied this action"),
+        ]
+        self.assertEqual(linux_opencode.reported_session(events), self.SESSION)
+        self.assertEqual(linux_opencode.tool_calls(events), 2)
+        self.assertTrue(linux_opencode.safe_output(events, "MARKER"))
+        # The marker must come back from a completed tool call, not from prose or an error.
+        self.assertFalse(linux_opencode.safe_output(
+            [{"type": "text", "part": {"text": "MARKER"}}, tool("error", error="MARKER")], "MARKER"))
+        self.assertEqual(linux_opencode.reported_session([{"type": "text"}]), "")
+        self.assertEqual(linux_opencode.tool_calls([{"type": "text"}]), 0)
+
+    def test_plugin_registration_matches_either_major_and_ignores_user_plugins(self):
+        import linux_opencode
+
+        registered = linux_opencode.plugin_registered
+        self.assertTrue(registered({"plugins": ["/iso/data/guardrail/guardrail"]}))
+        self.assertTrue(registered({"plugin": ["/iso/data/guardrail/guardrail.js"]}))
+        self.assertFalse(registered({"plugins": ["/user/plugin-fixture"], "theme": "x"}))
+        self.assertFalse(registered({"plugins": ["/user/not-guardrail.js"]}))
+        self.assertFalse(registered({}))
+
+    def test_only_the_reported_session_is_labelled_runtime_evidence(self):
+        import linux_opencode
+
+        classify = linux_opencode.classify_provenance
+        self.assertEqual(classify({"plane": "opencode", "session_id": self.SESSION}, self.SESSION),
+                         "isolated_runtime")
+        # The harness runs operator commands itself; no operator approved them.
+        self.assertEqual(classify({"plane": "operator"}, self.SESSION), "harness_driven_lifecycle")
+        for record in ({"plane": "opencode"}, {"plane": "opencode", "session_id": "opencode-fixture-ab"},
+                       {"plane": "claude", "session_id": self.SESSION}):
+            self.assertEqual(classify(record, self.SESSION), "synthetic_fixture")
+        self.assertEqual(classify({"plane": "opencode", "session_id": self.SESSION}, ""),
+                         "synthetic_fixture")
+
+
 class StageSummaryAndExitCodeTests(unittest.TestCase):
     def test_distinguishes_statuses_and_computes_exit_zero_without_failures(self):
         stages = [

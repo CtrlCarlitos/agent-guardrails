@@ -7,14 +7,35 @@ explicitly in **Breaking** notes.
 ## Unreleased
 
 ### Testing
-- **Windows OpenCode acceptance and live runtime evidence (#92).** Adds
-  `test/acceptance/harness.py --host opencode` for the OpenCode lifecycle in a disposable Windows profile: checksum-verified
-  `install.ps1` install and update, the ADR-0034 plugin wiring, fake-secret
-  denies, host-approved operator actions with replay refusal, disablement and
-  `recover opencode-config`. The opt-in `--live` stage ran `opencode v2.3.2`
-  with `run --standalone`; the session was denied the fake `.env` read and
-  allowed the marker file. The harness isolation check now also watches the
-  real `opencode.json` and plugin artifact.
+- **Linux Claude Code acceptance (#92).** `test/acceptance/harness.py --host
+  claude` runs the Claude Code lifecycle in an isolated home: checksummed
+  install and update, hook registration, fake-secret denials through `Bash`
+  and `Read`, a native permission ask, the prompt-mode egress approval with
+  its retry and refused replay, disablement that keeps user settings, and
+  `recover claude-settings`. Fixture records must leave `selftest
+  --evidence claude` shut. The opt-in `--live` stage needs credentials in
+  the isolated home and reports `operator_assisted` without them. The
+  compatibility matrix now records Linux Claude Code as enforced and
+  observed, from real-session audit records on a Linux host.
+- **Linux opencode acceptance and live runtime evidence (#92).**
+  `test/acceptance/harness.py --host opencode` runs the opencode lifecycle
+  in an isolated home: checksummed install and update, plugin registration
+  for the installed opencode major, fake-secret denials through `bash` and
+  `read`, the ask and host-approved envelopes, the prompt-mode egress
+  approval with its refused replay, disablement that keeps user plugins and
+  settings, and `recover opencode-config`. The opt-in `--live` stage runs
+  `opencode run --standalone`; on opencode 2.3.2 it observed an allowed
+  read and a `P4.secret-path` denial in one real session. The
+  compatibility matrix now records Linux opencode as enforced and observed.
+- **Windows OpenCode acceptance and live runtime evidence (#92).** On
+  Windows, `test/acceptance/harness.py --host opencode` runs the OpenCode
+  lifecycle in a disposable profile: checksum-verified `install.ps1` install
+  and update, the ADR-0034 plugin wiring, fake-secret denies, host-approved
+  operator actions with unapproved refusal and replay refusal, disablement
+  and `recover opencode-config`. The opt-in `--live` stage ran
+  `opencode v2.3.2` with `run --standalone`; the session was denied the fake
+  `.env` read and allowed the marker file. The harness isolation check now
+  also watches the real `opencode.json` and plugin artifact.
 
 ## v0.23.47-dev (2026-11-21)
 

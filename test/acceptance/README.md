@@ -1,8 +1,8 @@
 # Platform Acceptance Harness (#92)
 
 Reusable lifecycle acceptance runner for Guardrail across hosts and platforms,
-covering **Antigravity (`agy`) on Linux and Windows**, **Codex on Linux** and
-**OpenCode on Windows**.
+covering **Antigravity (`agy`) on Linux and Windows**, **Codex on Linux**,
+**Claude Code on Linux** and **opencode on Linux and Windows**.
 
 ## Running
 
@@ -111,6 +111,88 @@ service of the real profile. It exits `77` in an elevated shell, where
 `install.ps1` would add a Microsoft Defender exclusion for the disposable
 binary.
 
+### Linux + Claude Code lifecycle acceptance
+
+```sh
+python3 -B test/acceptance/harness.py --host claude --report /tmp/acceptance-linux-claude.json
+python3 -B test/acceptance/harness.py --host claude --live --report /tmp/acceptance-linux-claude-live.json
+```
+
+The hermetic stages install and update from local checksummed releases,
+register the hooks in an isolated `~/.claude/settings.json`, and feed the
+installed adapter synthetic `PreToolUse` input: a fake `.env` read is denied
+through both `Bash` and `Read`, `chmod 777` returns a native permission ask,
+and an egress grant goes through the prompt-mode `host-ask` approval, the
+sanctioned retry and a refused replay. Terminal disablement must leave the
+user's own hook, permissions and settings in place. Recovery corrupts
+`settings.json`, runs `guardrail recover claude-settings` at a terminal, and
+compares the backup with the corrupt bytes.
+
+These stages feed envelopes to the hook; no tool runs in them. In the egress
+approval the harness claims the approval ticket itself, so no operator
+approval is shown, and the operator records in the report are labelled
+`harness_driven_lifecycle`.
+
+Registration is not enforcement. `host_hook_trust` requires `guardrail
+selftest --evidence claude` to report "not yet observed", and
+`fixture_evidence_gate` repeats that once the fixture records exist and
+before the update replaces the binary: fixture sessions are not Claude Code
+session IDs and must not open the gate.
+
+The live stage runs `claude -p` in the isolated home with only `cat` and
+`Read` pre-approved. Its claim requires, in the session the runtime reported:
+an allowed read whose output came back, a `P4.secret-path` denial of the fake
+`.env`, no leaked sentinel, and an open `selftest --evidence claude` gate. An
+isolated home has no login, so supply `ANTHROPIC_API_KEY` or
+`CLAUDE_CODE_OAUTH_TOKEN` in the environment, or `--live-auth-from <dir>`
+naming a disposable directory that holds `.credentials.json`; the runner
+refuses the real `~/.claude` and removes the copy after the check. Prefer the
+environment variables: if the runtime refreshes a copied OAuth login during
+the run, the refreshed copy is discarded and the source may no longer work,
+so never copy your real login into that directory. Without credentials the
+stage reports `operator_assisted`; supplied credentials that are missing,
+unusable or rejected fail the stage. Answering a Claude Code
+permission prompt is `operator_assisted` too: headless `claude -p` has no one
+to answer it.
+### Linux + opencode lifecycle acceptance
+
+```sh
+python3 -B test/acceptance/harness.py --host opencode --report /tmp/acceptance-linux-opencode.json
+python3 -B test/acceptance/harness.py --host opencode --live --report /tmp/acceptance-linux-opencode-live.json
+```
+
+`opencode` must be on `PATH`: Guardrail chooses the plugin wiring from the
+installed opencode major (ADR-0034), and the report records the version. The
+hermetic stages install and update from local checksummed releases, register
+the plugin in an isolated `opencode.json`, and feed the installed adapter
+synthetic plugin envelopes: a fake `.env` read is denied through `bash` and
+`read`, `chmod 777` asks, and an egress grant is refused after an unanswered
+ask, granted once from a host-approved envelope, and refused on replay.
+Terminal disablement must leave the user's own plugin entry and settings in
+place. Recovery corrupts `opencode.json`, runs `guardrail recover
+opencode-config` at a terminal, and compares the backup with the corrupt
+bytes.
+
+No tool runs in those stages, and the harness sets `host_approved` itself:
+no permission dialog is shown and no operator approval is claimed. The
+operator records in the report are labelled `harness_driven_lifecycle`, and
+accepting the real dialog is `operator_assisted`.
+
+The live stage runs `opencode run --standalone` in the isolated home, so it
+does not attach to your background opencode service. Its claim requires, in
+the session the runtime reported: an allowed read whose output came back from
+a completed tool call, a `P4.secret-path` denial of the fake `.env`, and no
+leaked sentinel. The isolated home has no login and uses opencode's default
+model, which receives the prompt, the fixture file names, the output of the
+allowed read (a random marker) and the denial text. The stage reports
+`operator_assisted` only when the run exits cleanly with no tool call, no
+hook traffic and no leak; any other run without tool calls fails.
+`--live-auth-from` is not supported for this host and fails the stage.
+
+`cleanup_isolation` covers the watched real-home config files, including
+the real `opencode.json`; it compares modification times, so editing your
+own opencode config during a run fails it.
+
 ## Stage Statuses
 
 | Status | Meaning |
@@ -137,4 +219,4 @@ binary.
 - **Honest claims:** `report.json` always records
   `claims.universal_mediation_implied: false` and `claims.webauthn_live_validated: false`.
   `claims.live_runtime_session_observed` is `true` only when `--live` observes
-  non-synthetic `plane=antigravity` records tied to a real session ID.
+  non-synthetic records of the target plane tied to a real session ID.
