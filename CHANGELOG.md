@@ -27,6 +27,16 @@ explicitly in **Breaking** notes.
   (`'.env' | Get-Content`), other Windows readers such as `findstr` and
   `certutil`, wildcards, and variables.
 
+- **Fix (#686): the `P5.self-config` denial says what a `.claude` folder
+  outside the repository is.** A write to a `.claude` folder that is neither
+  in the session's repository nor in a home directory was reported as "the
+  agent's own guardrail/shell config". It is now reported as a Claude Code
+  project configuration folder, with the reason it is protected: a session
+  started in that directory loads it. The verdict is unchanged. Project
+  settings there can turn off user-level hooks, and project skills and
+  commands can run shell commands without a prompt, so the folder stays a
+  hard deny wherever it is.
+
 ### Testing
 - **Linux Claude Code acceptance (#92).** `test/acceptance/harness.py --host
   claude` runs the Claude Code lifecycle in an isolated home: checksummed
