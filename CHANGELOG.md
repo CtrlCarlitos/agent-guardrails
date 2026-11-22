@@ -7,6 +7,16 @@ explicitly in **Breaking** notes.
 ## Unreleased
 
 ### Testing
+- **Linux Claude Code acceptance (#92).** `test/acceptance/harness.py --host
+  claude` runs the Claude Code lifecycle in an isolated home: checksummed
+  install and update, hook registration, fake-secret denials through `Bash`
+  and `Read`, a native permission ask, the prompt-mode egress approval with
+  its retry and refused replay, disablement that keeps user settings, and
+  `recover claude-settings`. Fixture records must leave `selftest
+  --evidence claude` shut. The opt-in `--live` stage needs credentials in
+  the isolated home and reports `operator_assisted` without them. The
+  compatibility matrix now records Linux Claude Code as enforced and
+  observed, from real-session audit records on a Linux host.
 - **Linux opencode acceptance and live runtime evidence (#92).**
   `test/acceptance/harness.py --host opencode` runs the opencode lifecycle
   in an isolated home: checksummed install and update, plugin registration

@@ -2,11 +2,11 @@
 
 ## Claim
 
-An opencode 2.3.2 session on Linux, started by the acceptance harness in an isolated home, ran an allowed bash read and got a `P4.secret-path` denial for a fake `.env` read in the same session; this host's audit log also holds `ask` and `deny` verdicts returned to four operator-run opencode sessions.
+An opencode 2.3.2 session on Linux, started by the acceptance harness in an isolated home, ran an allowed bash read and got a `P4.secret-path` denial for a fake `.env` read in the same session; this host's audit log also holds `ask` and `deny` verdicts returned to four other opencode sessions whose opencode version is not recorded.
 
 ## Context
 
-- Guardrail: `381e8ee` with the #92 opencode adapter, built as `v0.0.1-accept` and `v0.0.2-accept`. The host's installed binary is `v0.23.46-dev`; audit records carry no version, so the binaries behind the earlier sessions are not known
+- Guardrail: `381e8ee` with the #92 opencode adapter, built as `v0.0.1-accept` and `v0.0.2-accept`. The host's installed binary is `v0.23.46-dev`; audit records carry neither Guardrail nor opencode versions, so the binaries behind the earlier sessions are not known
 - Runtime / plane: `opencode v2.3.2`, V2 wiring (`plugins` entry, ADR-0034), default model with no login in the isolated home
 - OS / shell: Linux `7.0.0-43-generic` x86_64 / zsh
 - Times are UTC. The runs below are dated 2026-11-22 UTC (2026-11-21 local).
@@ -21,7 +21,7 @@ python3 -B test/acceptance/harness.py --host opencode --live --report <scratch>/
 The live stage runs `opencode run --standalone --format json` in the
 isolated home and asks for `cat allowed.txt`, then `cat .env`.
 
-The operator-session counts come from the host audit log
+The counts for the other sessions come from the host audit log
 (`~/.local/state/guardrail/audit.jsonl`): `plane: opencode`, `event: pre`
 records grouped by session ID, keeping only `ses_` session IDs. Command text
 was not read out.
@@ -44,8 +44,8 @@ live_runtime_mediation  opencode run exit=0, session reported=True, tool calls=2
 Its two records labelled `isolated_runtime`, selected fields:
 
 ```jsonl
-{"ts":"2026-11-22T02:04:31Z","session_id":"ses_dff009693ffe6eOmbwHSvFwVZ1","plane":"opencode","tool":"Bash","native_tool":"bash","event":"pre","decision":"allow","command":"cat allowed.txt"}
-{"ts":"2026-11-22T02:04:33Z","session_id":"ses_dff009693ffe6eOmbwHSvFwVZ1","plane":"opencode","tool":"Bash","native_tool":"bash","event":"pre","decision":"deny","rule_id":"P4.secret-path","command":"cat .env"}
+{"ts":"2026-11-22T02:10:40Z","session_id":"ses_dfefaf3dcffeImAlxIuXStVlrr","plane":"opencode","tool":"Bash","native_tool":"bash","event":"pre","decision":"allow","command":"cat allowed.txt"}
+{"ts":"2026-11-22T02:10:43Z","session_id":"ses_dfefaf3dcffeImAlxIuXStVlrr","plane":"opencode","tool":"Bash","native_tool":"bash","event":"pre","decision":"deny","rule_id":"P4.secret-path","command":"cat .env"}
 ```
 
 The allowed call's output carried the run's random marker back from a
@@ -59,17 +59,18 @@ enablement              setup exit=0, isolated opencode.json plugin entry=True, 
 harmless_deny           bash cat .env: exit=2 audit=deny/P4.secret-path; read .env: exit=2 audit=deny/P4.secret-path; bash cat allowed.txt: allow
 host_ask                plain envelope: ask audit=ask/P1.chmod; host-approved envelope: allow audit=allow/ask-approved-by-host; host-approved secret read: deny audit=deny/P4.secret-path
 approval_retry          initial=deny/P6.egress, plain grant envelope=ask/operator-action-ask, grant cli after an unanswered ask exit=2, host-approved grant envelope=allow/operator-action-host-approved, grant cli exit=0, overlay and operator config persisted=True, replay exit=2, host-ask audit=2
-disablement             disable exit=0, guardrail plugin entry removed=True, user plugin and settings preserved=True; opencode: present, integration NOT registered for opencode 2
+disablement             disable exit=0, guardrail plugin entry removed=True, user plugin and settings preserved=True; opencode: present, integration NOT registered for opencode 2; run 'guardrail plane enable opencode'
 recovery                recover without a terminal exit=2, terminal recover exit=0, byte-identical backup=True, plugin entry restored=True
-cleanup_isolation       real home unchanged=True, temp cleaned=True
+cleanup_isolation       watched real-home config files unchanged=True, temp cleaned=True
 ```
 
 Those stages feed synthetic envelopes to the installed hook. No tool ran in
 them, and the `host_approved` flag was set by the harness: no permission
 dialog was shown and no operator approved anything.
 
-Operator-run sessions on this host, from the audit log (all four `ses_`
-sessions it holds):
+Other sessions on this host, from the audit log (all four `ses_` sessions it
+holds). The log does not record who ran them or under which opencode
+version:
 
 | Session | Window | Pre-hook verdicts |
 |---|---|---|
@@ -81,8 +82,9 @@ sessions it holds):
 ## Consequence
 
 The compatibility matrix records Linux opencode as enforced and observed.
-The harness-driven session covers the bash tool on opencode 2.3.2; the
-operator sessions add `ask` verdicts for `Bash` and `Edit`. It is a
+The harness-driven session shows `allow` and `deny` for the bash tool on
+opencode 2.3.2. The `ask` verdicts, for `Bash` and `Edit`, come only from
+the other sessions, whose opencode version is not recorded. It is a
 heuristic that the hook ran, with no coverage claim. The opencode 1 wiring
 was not exercised on Linux, and an operator accepting the opencode
 permission dialog is still open.

@@ -45,8 +45,9 @@ def has_live_verdicts(records, session_id):
 
 def _tool_states(events):
     for event in events:
-        part = event.get("part") or {}
-        if event.get("type") == "tool_use" and isinstance(part.get("state"), dict):
+        part = event.get("part")
+        if (event.get("type") == "tool_use" and isinstance(part, dict)
+                and isinstance(part.get("state"), dict)):
             yield part["state"]
 
 
@@ -63,6 +64,34 @@ def safe_output(events, marker):
     """The marker must come back as the output of a completed tool call."""
     return any(state.get("status") == "completed" and marker in str(state.get("output", ""))
                for state in _tool_states(events))
+
+
+def judge_live(*, returncode, events, records, output, secret, marker):
+    """Decide the live stage from one `opencode run` and the isolated audit log."""
+    status = harness.StageStatus
+    session = reported_session(events)
+    calls = tool_calls(events)
+    no_leak = secret not in output
+    hooked = sum(1 for record in records
+                 if session and record.get("session_id") == session
+                 and record.get("plane") == "opencode" and record.get("event") == "pre")
+    if calls == 0:
+        # Operator-assisted only when nothing at all happened: a clean exit, no
+        # leak, and no hook traffic that the event stream failed to show.
+        idle = returncode == 0 and no_leak and hooked == 0
+        return (status.OPERATOR_ASSISTED if idle else status.FAIL), (
+            f"opencode run exit={returncode} reported no tool call (session reported={bool(session)}, "
+            f"pre-hook records={hooked}, secret absent={no_leak}); "
+            + ("the isolated home needs a model it can reach without a login" if idle
+               else "the runtime failed or its event stream was not understood")
+        )
+    verdicts = has_live_verdicts(records, session)
+    returned = safe_output(events, marker)
+    passed = returncode == 0 and verdicts and returned and no_leak
+    return (status.PASS if passed else status.FAIL), (
+        f"opencode run exit={returncode}, session reported={bool(session)}, tool calls={calls}, "
+        f"both pre-hook verdicts={verdicts}, safe command output={returned}, secret absent={no_leak}"
+    )
 
 
 def plugin_registered(document):
@@ -347,10 +376,10 @@ def run_linux_opencode_acceptance(
 
     def live_probe():
         nonlocal live_session
-        if not live:
-            return status.SKIPPED, "--live was omitted"
         if live_auth_from is not None:
             return False, "--live-auth-from is not supported for opencode; the isolated home uses its default model"
+        if not live:
+            return status.SKIPPED, "--live was omitted"
         # --standalone keeps the run off the user's background opencode service.
         result = run([
             opencode, "run", "--standalone", "--format", "json",
@@ -366,20 +395,11 @@ def run_linux_opencode_acceptance(
                 continue
             if isinstance(event, dict):
                 events.append(event)
-        session = live_session = reported_session(events)
-        calls = tool_calls(events)
-        if calls == 0:
-            # Nothing was mediated or bypassed: the runtime never reached a tool.
-            return status.OPERATOR_ASSISTED, (
-                f"opencode run exit={result.returncode} made no tool call (session reported={bool(session)}); "
-                "the isolated home needs a model it can reach without a login"
-            )
-        verdicts = has_live_verdicts(harness.read_audit_records(audit_path), session)
-        returned = safe_output(events, marker)
-        no_leak = secret not in result.stdout + result.stderr
-        return result.returncode == 0 and verdicts and returned and no_leak, (
-            f"opencode run exit={result.returncode}, session reported={bool(session)}, tool calls={calls}, "
-            f"both pre-hook verdicts={verdicts}, safe command output={returned}, secret absent={no_leak}"
+        live_session = reported_session(events)
+        return judge_live(
+            returncode=result.returncode, events=events,
+            records=harness.read_audit_records(audit_path),
+            output=result.stdout + result.stderr, secret=secret, marker=marker,
         )
 
     def disable():
@@ -419,7 +439,8 @@ def run_linux_opencode_acceptance(
         active_clean = harness.FileSnapshot.of(active_config) == active_snapshot
         removed = not root.exists()
         return clean and active_clean and (removed or keep_artifacts), (
-            f"real home unchanged={clean and active_clean}, temp cleaned={removed}; " + ", ".join(diffs)
+            f"watched real-home config files unchanged={clean and active_clean}, temp cleaned={removed}; "
+            + ", ".join(diffs)
         )
 
     try:
