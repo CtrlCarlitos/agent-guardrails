@@ -132,12 +132,10 @@ class LinuxClaudeTests(unittest.TestCase):
             real_claude = real_home / ".claude"
             disposable = base / "disposable"
             empty = base / "empty"
-            linked = base / "linked"
-            for directory in (real_claude, disposable, empty, linked):
+            for directory in (real_claude, disposable, empty):
                 directory.mkdir(parents=True)
             (real_claude / ".credentials.json").write_text("{}", encoding="utf-8")
             (disposable / ".credentials.json").write_text("{}", encoding="utf-8")
-            (linked / ".credentials.json").symlink_to(real_claude / ".credentials.json")
 
             def resolve(source):
                 return linux_claude.live_credentials(source, real_home, (real_claude,))
@@ -147,10 +145,32 @@ class LinuxClaudeTests(unittest.TestCase):
                 path, error = resolve(refused)
                 self.assertIsNone(path)
                 self.assertIn("disposable", error)
-            for unusable in (empty, linked):
-                path, error = resolve(unusable)
-                self.assertIsNone(path)
-                self.assertIn(".credentials.json", error)
+            path, error = resolve(empty)
+            self.assertIsNone(path)
+            self.assertIn(".credentials.json", error)
+
+    def test_live_credentials_refuse_a_symlinked_credentials_file(self):
+        import linux_claude
+
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw).resolve()
+            real_claude = base / "home" / ".claude"
+            linked = base / "linked"
+            for directory in (real_claude, linked):
+                directory.mkdir(parents=True)
+            (real_claude / ".credentials.json").write_text("{}", encoding="utf-8")
+            try:
+                (linked / ".credentials.json").symlink_to(real_claude / ".credentials.json")
+            except OSError as error:
+                # Windows refuses symlinks without elevation or Developer Mode
+                # (#677). Only this case needs one; CI's Windows runner has it.
+                self.skipTest(
+                    f"this account cannot create a symlink, so the symlinked-credentials refusal "
+                    f"is NOT covered on this host: {error}"
+                )
+            path, error = linux_claude.live_credentials(linked, base / "home", (real_claude,))
+            self.assertIsNone(path)
+            self.assertIn(".credentials.json", error)
 
     def test_rejected_supplied_credentials_fail_instead_of_asking_for_an_operator(self):
         import linux_claude
