@@ -73,3 +73,33 @@ func TestWindowsCodexEmitReusesTheProvenShell(t *testing.T) {
 		t.Errorf("updatedInput lacks the precondition or the command: %s", out.String())
 	}
 }
+
+func TestWindowsCodexReportedPowerShellParseFailures(t *testing.T) {
+	pol, err := policy.LoadBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	for _, tc := range []struct {
+		command string
+		want    policy.Decision
+	}{
+		{"Test-Path -LiteralPath 'skills/council/SKILL.md' -PathType Leaf\n git branch --show-current\n$PSVersionTable.PSVersion.ToString()\n$PSVersionTable.PSEdition\ncodex --version", policy.Ask},
+		{"Set-Content -LiteralPath (Join-Path ([System.IO.Path]::GetTempPath()) 'codex-issue-54-report.md') -Encoding utf8 -Value @'\nreport text\n'@", policy.Ask},
+		{"Test-Path -LiteralPath 'skills/council/SKILL.md' -PathType Leaf\n git branch --show-current\n codex --version", policy.Allow},
+		{"$PSVersionTable.PSVersion.ToString()", policy.Ask},
+	} {
+		for _, shell := range []string{"powershell", ""} {
+			call, err := ParseCodex(bytes.NewReader(codexCommandPayload(t, repo, shell, tc.command)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			v := engine.Evaluate(call, pol)
+			if v.Decision != tc.want || (tc.want == policy.Ask && v.RuleID != "tokenize-failed") {
+				t.Errorf("shell %q, command %q: got %s %s (%s), want %s", shell, tc.command, v.Decision, v.RuleID, v.Reason, tc.want)
+			} else {
+				t.Logf("shell %q, command %q: %s %s (%s)", shell, tc.command, v.Decision, v.RuleID, v.Reason)
+			}
+		}
+	}
+}

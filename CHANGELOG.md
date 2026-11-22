@@ -6,6 +6,11 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Codex
+- Shell parse refusals now show `tokenize-failed`, the parser's finding, and
+  concrete ways to continue on a plane without a PreToolUse approval prompt.
+  Unsupported connector tools explain that their refusal is by design (#690).
+
 ### Policy
 - **Fix: PowerShell file cmdlets and Unicode-dash parameters are read as
   PowerShell reads them.** A file cmdlet's bare operand was not treated as a
