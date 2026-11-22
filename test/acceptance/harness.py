@@ -491,7 +491,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--host",
         default="antigravity",
-        choices=("antigravity", "codex"),
+        choices=("antigravity", "codex", "claude"),
         help="Target host plane to exercise (default: antigravity).",
     )
     parser.add_argument(
@@ -568,6 +568,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 v2_binary=args.v2_binary,
                 keep_artifacts=args.keep_artifacts,
             )
+    elif args.host == "claude":
+        import linux_claude  # noqa: PLC0415
+
+        code, report = linux_claude.run_linux_claude_acceptance(
+            live=args.live,
+            live_auth_from=args.live_auth_from,
+            v1_binary=args.v1_binary,
+            v2_binary=args.v2_binary,
+            keep_artifacts=args.keep_artifacts,
+        )
     else:
         import linux_codex
 

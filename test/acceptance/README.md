@@ -1,7 +1,8 @@
 # Platform Acceptance Harness (#92)
 
 Reusable lifecycle acceptance runner for Guardrail across hosts and platforms,
-covering **Antigravity (`agy`) on Linux and Windows** and **Codex on Linux**.
+covering **Antigravity (`agy`) on Linux and Windows**, **Codex on Linux** and
+**Claude Code on Linux**.
 
 ## Running
 
@@ -75,6 +76,39 @@ allowed shell output, a blocked fake secret read, and matching session evidence
 from `guardrail selftest --evidence codex`. Missing isolated authentication
 is reported as `operator_assisted`.
 
+### Linux + Claude Code lifecycle acceptance
+
+```sh
+python3 -B test/acceptance/harness.py --host claude --report /tmp/acceptance-linux-claude.json
+python3 -B test/acceptance/harness.py --host claude --live --report /tmp/acceptance-linux-claude-live.json
+```
+
+The hermetic stages install and update from local checksummed releases,
+register the hooks in an isolated `~/.claude/settings.json`, and feed the
+installed adapter synthetic `PreToolUse` input: a fake `.env` read is denied
+through both `Bash` and `Read`, `chmod 777` returns a native permission ask,
+and an egress grant goes through the prompt-mode `host-ask` approval, the
+sanctioned retry and a refused replay. Terminal disablement must leave the
+user's own hook, permissions and settings in place. Recovery corrupts
+`settings.json`, runs `guardrail recover claude-settings` at a terminal, and
+compares the backup with the corrupt bytes.
+
+Registration is not enforcement, so `host_hook_trust` also requires
+`guardrail selftest --evidence claude` to stay shut: fixture sessions are not
+Claude Code session IDs.
+
+The live stage runs `claude -p` in the isolated home with only `cat` and
+`Read` pre-approved. Its claim requires, in the session the runtime reported:
+an allowed read whose output came back, a `P4.secret-path` denial of the fake
+`.env`, no leaked sentinel, and an open `selftest --evidence claude` gate. An
+isolated home has no login, so supply `ANTHROPIC_API_KEY` or
+`CLAUDE_CODE_OAUTH_TOKEN` in the environment, or `--live-auth-from <dir>`
+naming a disposable directory that holds `.credentials.json`; the runner
+refuses the real `~/.claude` and removes the copy after the check. Without
+credentials the stage reports `operator_assisted`. Answering a Claude Code
+permission prompt is `operator_assisted` too: headless `claude -p` has no one
+to answer it.
+
 ## Stage Statuses
 
 | Status | Meaning |
@@ -101,4 +135,4 @@ is reported as `operator_assisted`.
 - **Honest claims:** `report.json` always records
   `claims.universal_mediation_implied: false` and `claims.webauthn_live_validated: false`.
   `claims.live_runtime_session_observed` is `true` only when `--live` observes
-  non-synthetic `plane=antigravity` records tied to a real session ID.
+  non-synthetic records of the target plane tied to a real session ID.
