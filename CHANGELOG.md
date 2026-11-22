@@ -7,6 +7,8 @@ explicitly in **Breaking** notes.
 ## Unreleased
 
 ### Codex
+- Read fixed PowerShell version and Git discovery properties in one call,
+  and evaluate the literal Git Bash call-operator wrapper on Windows (#702).
 - List pending Codex exact-action approvals from an interactive operator
   terminal with `guardrail approvals list --records` (#700).
 - Allow the native notification tool that sends an update to the user in the

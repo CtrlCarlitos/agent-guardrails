@@ -116,6 +116,9 @@ func TestWindowsCodexStandalonePowerShellProbes(t *testing.T) {
 	}{
 		{"$PSVersionTable.PSVersion", ""},
 		{"$PSVersionTable.PSEdition", ""},
+		{"(Get-Command git).Source", ""},
+		{"$PSVersionTable.PSVersion; $PSVersionTable.PSEdition; (Get-Command git).Source", ""},
+		{"(Get-Command $program).Source", "tokenize-failed"},
 		{"$program", "P3.unresolved"},
 		{"Test-Path -LiteralPath $PSVersionTable.PSEdition", "P3.unresolved"},
 		{"$PSVersionTable.PSEdition > $target", "P3.unresolved"},
@@ -138,6 +141,48 @@ func TestWindowsCodexStandalonePowerShellProbes(t *testing.T) {
 			if v.Decision != policy.Ask || v.RuleID != tc.rule || !strings.Contains(stderr.String(), tc.rule) ||
 				!strings.Contains(stderr.String(), "cannot request approval") {
 				t.Fatalf("decision=%+v stderr=%q, want %s and guidance", v, stderr.String(), tc.rule)
+			}
+		})
+	}
+}
+
+func TestWindowsCodexLiteralGitBashCallOperator(t *testing.T) {
+	pol, err := policy.LoadBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		command string
+		allowed bool
+	}{
+		{`& 'C:\Program Files\Git\bin\bash.exe' --version`, true},
+		{`& 'C:\Program Files\Git\bin\bash.exe' -c 'echo $BASH_VERSION; uname -s'`, true},
+		{`& 'C:/Program Files/Git/bin/bash.exe' -c 'echo ''hello world'''`, true},
+		{`& 'C:/Program Files/Git/bin/bash.exe' -c 'cat ''./.env'''`, false},
+		{`& 'C:/Program Files/Git/bin/bash.exe' -c 'echo ok'; Get-Content .env`, false},
+		{`& 'C:/Program Files/Git/bin/bash.exe' -c $command`, false},
+		{`& 'C:/Program Files/Git/bin/bash.exe' -c 'echo ’hello’'`, false},
+		{`& 'C:/Windows/System32/bash.exe' -c 'echo ok'`, false},
+	} {
+		t.Run(test.command, func(t *testing.T) {
+			call, err := ParseCodex(bytes.NewReader(codexCommandPayload(t, repo, "pwsh", test.command)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			v := engine.Evaluate(call, pol)
+			if (v.Decision == policy.Allow) != test.allowed {
+				t.Fatalf("decision=%+v, want allow=%t", v, test.allowed)
+			}
+			if test.allowed {
+				var out, stderr bytes.Buffer
+				if code := EmitCodex(v, "pre", call, &out, &stderr); code != 0 ||
+					!strings.HasSuffix(updatedCommand(t, out.String()), "\n"+test.command) {
+					t.Fatalf("code=%d, stdout=%q, stderr=%q", code, out.String(), stderr.String())
+				}
 			}
 		})
 	}
