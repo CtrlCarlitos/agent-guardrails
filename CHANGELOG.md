@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.47-dev (2026-11-21)
 
 ### Policy
 - **Fresh approval for consequential shell actions (#234).** Publication,
@@ -152,6 +152,15 @@ explicitly in **Breaking** notes.
   path tests (`internal/pathutil` added to CI's `windows-shaped tests`).
 
 ### Testing
+- **Linux Codex acceptance and authenticated runtime evidence (#92).** Adds
+  `make acceptance-linux-codex` for the isolated lifecycle and opt-in live
+  checks. Codex 0.170.0 honored the tested local Bash allow and fake-secret
+  deny, with matching session evidence. Linux Antigravity live enforcement
+  was also observed on `agy 1.5.13`.
+- **Native Codex review and delegation boundary (#587, #668).** Native
+  review honored the tested shell verdicts. Spawn admission stayed blocked
+  because child tool mediation remains unproven. The reviewer preflight
+  directs Codex sessions to review inline.
 - **Refactor (#107): shared embedded selftest fixture directory (`internal/selftestfixtures`).**
   Migrates all selftest probes (including Windows drive-lettered Claude variants
   and host-shaped Codex probes) out of Go literals in `cmd/guardrail/` into
