@@ -37,14 +37,15 @@ var codexShellTag = regexp.MustCompile(`<shell>([A-Za-z0-9_.\-]{1,32})</shell>`)
 func emitCodexAllowedCommand(goos string, tc engine.ToolCall, stdout, stderr io.Writer) int {
 	var command string
 	if goos == "windows" {
-		shell := tc.Shell
-		if shell == "" {
-			shell = codexCommandShell(tc.Raw)
+		shell, diagnostic := tc.Shell, tc.ShellDiagnostic
+		if shell == "" && diagnostic == "" {
+			shell, diagnostic = codexCommandShell(tc.Raw)
 		}
 		if shell != engine.ShellPowerShell {
-			fmt.Fprintln(stderr, codexWindowsUnprovenShell)
+			reason := codexWindowsUnprovenShell + " Shell proof failed: " + diagnostic + "."
+			fmt.Fprintln(stderr, reason)
 			if codexStructuredWindowsEnabled() {
-				return emitCodexBlock("pre", codexWindowsUnprovenShell, stdout)
+				return emitCodexBlock("pre", reason, stdout)
 			}
 			return 2
 		}
@@ -99,12 +100,16 @@ func windowsPathKey(p string) string {
 // proves Windows PowerShell or pwsh runs Codex's commands, and "" otherwise.
 // ParseCodex records it on the call and the emit reuses it, so the
 // transcript is read once per call (#498).
-func codexCommandShell(raw []byte) string {
-	switch codexProvenShell(raw) {
+func codexCommandShell(raw []byte) (shell, diagnostic string) {
+	shell, diagnostic = codexProvenShell(raw)
+	switch shell {
 	case "powershell", "pwsh":
-		return engine.ShellPowerShell
+		return engine.ShellPowerShell, ""
 	}
-	return ""
+	if diagnostic == "" {
+		diagnostic = "recorded shell is unsupported (" + shell + ")"
+	}
+	return "", diagnostic
 }
 
 // codexProvenShell returns the shell recorded in the session transcript the
@@ -112,38 +117,57 @@ func codexCommandShell(raw []byte) string {
 // an unusable reference with no uniquely session-bound replacement, a path
 // outside Codex's sessions directory, an unreadable file, or no shell tag
 // in its opening block.
-func codexProvenShell(raw []byte) string {
+func codexProvenShell(raw []byte) (shell, diagnostic string) {
 	var p struct {
 		TranscriptPath *string `json:"transcript_path"`
 		SessionID      string  `json:"session_id"`
 	}
 	if json.Unmarshal(raw, &p) != nil {
-		return ""
+		return "", "invalid transcript_path in hook payload"
 	}
 	if p.TranscriptPath == nil || *p.TranscriptPath == "" {
-		return codexSessionShell(p.SessionID)
+		return recoverCodexSessionShell(p.SessionID, "no transcript_path")
 	}
 	path := filepath.Clean(*p.TranscriptPath)
-	if !filepath.IsAbs(path) || !strings.EqualFold(filepath.Ext(path), ".jsonl") || !withinCodexSessions(path) {
-		return ""
+	if !filepath.IsAbs(path) || !strings.EqualFold(filepath.Ext(path), ".jsonl") {
+		return "", "invalid transcript_path: expected an absolute .jsonl path"
+	}
+	if !withinCodexSessions(path) {
+		return "", "transcript_path is outside CODEX_HOME/sessions"
 	}
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return codexSessionShell(p.SessionID)
+			return recoverCodexSessionShell(p.SessionID, "transcript_path file is missing")
 		}
-		return ""
+		return "", "transcript_path file is unreadable"
 	}
 	defer f.Close()
+	return readCodexTranscriptShell(f, "")
+}
+
+func readCodexTranscriptShell(f io.Reader, sessionID string) (shell, diagnostic string) {
 	head, err := io.ReadAll(io.LimitReader(f, codexTranscriptScanBytes))
 	if err != nil {
-		return ""
+		return "", "transcript file is unreadable"
+	}
+	if sessionID != "" {
+		var meta struct {
+			Type    string `json:"type"`
+			Payload struct {
+				ID string `json:"id"`
+			} `json:"payload"`
+		}
+		first, _, _ := strings.Cut(string(head), "\n")
+		if json.Unmarshal([]byte(first), &meta) != nil || meta.Type != "session_meta" || meta.Payload.ID != sessionID {
+			return "", "session id mismatch or missing session_meta identity"
+		}
 	}
 	m := codexShellTag.FindSubmatch(head)
 	if m == nil {
-		return ""
+		return "", "no shell tag found in the transcript opening block"
 	}
-	return strings.ToLower(string(m[1]))
+	return strings.ToLower(string(m[1])), ""
 }
 
 var codexSessionUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -153,59 +177,64 @@ var codexSessionUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-
 // the hook's UUID, and its first session_meta record must confirm that identity.
 // A foreign explicit path never reaches this fallback. WalkDir does not follow
 // symlinks; the entry and read bounds keep every hook invocation finite.
-func codexSessionShell(sessionID string) string {
+func recoverCodexSessionShell(sessionID, referenceProblem string) (shell, diagnostic string) {
+	shell, diagnostic = codexSessionShell(sessionID)
+	if diagnostic != "" {
+		diagnostic = referenceProblem + "; session lookup: " + diagnostic
+	}
+	return shell, diagnostic
+}
+
+func codexSessionShell(sessionID string) (shell, diagnostic string) {
 	if !codexSessionUUID.MatchString(sessionID) {
-		return ""
+		return "", "missing or invalid session id"
 	}
 	root := codexSessionsRoot()
 	if root == "" {
-		return ""
+		return "", "cannot locate CODEX_HOME/sessions"
 	}
-	var match string
-	valid, entries := true, 0
+	var match, walkProblem string
+	entries := 0
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		entries++
-		if err != nil || entries > 10000 {
-			valid = false
+		if err != nil {
+			return err
+		}
+		if entries > 10000 {
+			walkProblem = "session directory scan limit reached"
 			return fs.SkipAll
 		}
 		if !entry.Type().IsRegular() || !strings.HasPrefix(entry.Name(), "rollout-") || !strings.HasSuffix(entry.Name(), "-"+sessionID+".jsonl") {
 			return nil
 		}
 		if match != "" {
-			valid = false
+			walkProblem = "multiple matching transcripts"
 			return fs.SkipAll
 		}
 		match = path
 		return nil
 	})
-	if err != nil || !valid || match == "" {
-		return ""
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", "session directory or rollout file is missing"
+		}
+		return "", "session directory is unreadable"
+	}
+	if walkProblem != "" {
+		return "", walkProblem
+	}
+	if match == "" {
+		return "", "no matching transcript"
 	}
 	f, err := os.Open(match)
 	if err != nil {
-		return ""
+		if os.IsNotExist(err) {
+			return "", "matching transcript file is missing"
+		}
+		return "", "matching transcript file is unreadable"
 	}
 	defer f.Close()
-	head, err := io.ReadAll(io.LimitReader(f, codexTranscriptScanBytes))
-	if err != nil {
-		return ""
-	}
-	var meta struct {
-		Type    string `json:"type"`
-		Payload struct {
-			ID string `json:"id"`
-		} `json:"payload"`
-	}
-	first, _, _ := strings.Cut(string(head), "\n")
-	if json.Unmarshal([]byte(first), &meta) != nil || meta.Type != "session_meta" || meta.Payload.ID != sessionID {
-		return ""
-	}
-	m := codexShellTag.FindSubmatch(head)
-	if m == nil {
-		return ""
-	}
-	return strings.ToLower(string(m[1]))
+	return readCodexTranscriptShell(f, sessionID)
 }
 
 // codexSessionsRoot is the absolute sessions directory of the active Codex home.

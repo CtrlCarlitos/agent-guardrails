@@ -89,7 +89,7 @@ func ParseCodex(r io.Reader) (engine.ToolCall, error) {
 		// On Windows Codex runs commands in the shell its session transcript
 		// records (#454); proven PowerShell gets the PowerShell reading (#498).
 		if runtime.GOOS == "windows" {
-			tc.Shell = codexCommandShell(raw)
+			tc.Shell, tc.ShellDiagnostic = codexCommandShell(raw)
 		}
 	case policy.CapabilityMutation:
 		var patch string
