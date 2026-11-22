@@ -4,6 +4,12 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Codex
+- Allow the native notification tool that sends an update to the user in the
+  current Codex conversation (#698).
+
 ## v0.23.48-dev (2026-11-22)
 
 ### Codex

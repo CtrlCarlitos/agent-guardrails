@@ -152,6 +152,9 @@
   "send-input.json": {
     "exit": 2
   },
+  "send-message-to-user-async.json": {
+    "exit": 0
+  },
   "send-message.json": {
     "exit": 2
   },
