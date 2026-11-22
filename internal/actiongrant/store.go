@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 	"unicode/utf8"
 
@@ -176,7 +177,7 @@ func (s Store) write(r Request) error {
 	return os.Rename(name, filepath.Join(s.Dir, r.ID+".json"))
 }
 
-func (s Store) records(now time.Time) ([]Request, error) {
+func (s Store) records(now time.Time, pruneExpired bool) ([]Request, error) {
 	entries, err := os.ReadDir(s.Dir)
 	if err != nil {
 		return nil, err
@@ -193,8 +194,10 @@ func (s Store) records(now time.Time) ([]Request, error) {
 			return nil, err
 		}
 		if !now.Before(r.Expires) {
-			if err := os.Remove(filepath.Join(s.Dir, name)); err != nil {
-				return nil, err
+			if pruneExpired {
+				if err := os.Remove(filepath.Join(s.Dir, name)); err != nil {
+					return nil, err
+				}
 			}
 			continue
 		}
@@ -203,12 +206,38 @@ func (s Store) records(now time.Time) ([]Request, error) {
 	return out, nil
 }
 
+// Pending lists unexpired requests awaiting approval, newest first.
+// Listing leaves request files intact, including expired records.
+func (s Store) Pending(now time.Time) (pending []Request, err error) {
+	if _, err := os.Lstat(s.Dir); os.IsNotExist(err) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	err = s.locked(func() error {
+		records, err := s.records(now, false)
+		if err != nil {
+			return err
+		}
+		for _, r := range records {
+			if r.Status == "pending" {
+				pending = append(pending, r)
+			}
+		}
+		return nil
+	})
+	sort.SliceStable(pending, func(i, j int) bool {
+		return pending[i].Issued.After(pending[j].Issued)
+	})
+	return pending, err
+}
+
 func (s Store) Create(a Action, now time.Time) (out Request, err error) {
 	if !a.valid() {
 		return out, errors.New("action cannot be granted")
 	}
 	err = s.locked(func() error {
-		records, err := s.records(now)
+		records, err := s.records(now, true)
 		if err != nil {
 			return err
 		}
@@ -291,7 +320,7 @@ func (s Store) Consume(a Action, now time.Time) (out Request, spent bool, err er
 		return out, false, nil
 	}
 	err = s.locked(func() error {
-		records, err := s.records(now)
+		records, err := s.records(now, true)
 		if err != nil {
 			return err
 		}

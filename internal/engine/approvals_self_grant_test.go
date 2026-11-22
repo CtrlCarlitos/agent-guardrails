@@ -15,6 +15,7 @@ func TestSessionCannotGrantOrApproveItself(t *testing.T) {
 	for _, command := range []string{
 		`guardrail approvals grant --repo /r --rule P6.egress --command 'curl x'`,
 		`guardrail approvals approve abc123`,
+		`guardrail approvals list --records`,
 		`guardrail.exe approvals approve abc123`,
 		`GUARDRAIL approvals grant --repo /r --rule X --command y`,
 		`script -qc 'guardrail approvals grant --repo /r --rule X --command y' /dev/null`,

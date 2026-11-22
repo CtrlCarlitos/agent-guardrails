@@ -7,6 +7,8 @@ explicitly in **Breaking** notes.
 ## Unreleased
 
 ### Codex
+- List pending Codex exact-action approvals from an interactive operator
+  terminal with `guardrail approvals list --records` (#700).
 - Allow the native notification tool that sends an update to the user in the
   current Codex conversation (#698).
 

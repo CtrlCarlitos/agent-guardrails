@@ -65,6 +65,32 @@ func writeActionGrantAudit(event string, r actiongrant.Request, transport, finge
 	return audit.Write(audit.Record{TS: time.Now().UTC().Format(time.RFC3339Nano), Plane: "operator", Tool: "guardrail approvals", Event: "operator", RepoRoot: r.Action.Repo, Decision: "allow", RuleID: r.Action.Rule, OperatorAction: event, RequestID: r.ID, Transport: transport, CredentialFingerprint: fingerprint, Reason: "exact-action authorization (digest " + r.Digest + ")"}, audit.DefaultPath(""))
 }
 
+func cmdPendingActionRecords(terminal bool, stdout, stderr io.Writer) int {
+	if !terminal {
+		fmt.Fprintln(stderr, "guardrail: approvals list --records requires an interactive local terminal")
+		return 2
+	}
+	s, err := actiongrant.Default()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	pending, err := s.Pending(time.Now())
+	if err != nil {
+		fmt.Fprintf(stderr, "guardrail: cannot list exact-action requests: %v\n", err)
+		return 1
+	}
+	if len(pending) == 0 {
+		fmt.Fprintln(stdout, "No pending exact-action requests.")
+		return 0
+	}
+	for _, r := range pending {
+		fmt.Fprintf(stdout, "Repository %q\nWorking directory %q\nRule %q\nExpires %s\nExact %s %q\nApprove with: guardrail approvals grant --record %s\n\n",
+			r.Action.Repo, r.Action.CWD, r.Action.Rule, r.Expires.Format(time.RFC3339), r.Action.Kind, r.Action.Text, r.ID)
+	}
+	return 0
+}
+
 func cmdRecordGrant(args []string, terminal bool, input io.Reader, stdout, stderr io.Writer) int {
 	if !terminal {
 		fmt.Fprintln(stderr, "guardrail: approvals grant --record requires an interactive local terminal")

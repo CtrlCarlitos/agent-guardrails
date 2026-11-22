@@ -47,6 +47,7 @@ usage: guardrail <command> [arguments]
   operator <subcommand>                 manage operator authenticators and repository trust
       subcommands: enroll | add-authenticator | remove-authenticator | recover-reset | trust [repo-path] | untrust [repo-path]
   approvals list                       show pending approval requests
+  approvals list --records             show pending Codex exact-action requests (operator terminal)
   approvals approve <id>               re-open an approval ceremony and wait
   selftest                           probe installed enforcement per plane
       --evidence codex     check retained audit evidence after this binary's mtime (heuristic)
