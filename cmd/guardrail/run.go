@@ -117,7 +117,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		operatorInput = stdin
 	}
 	switch args[0] {
-	case "version":
+	case "version", "--version":
 		fmt.Fprintf(stdout, "guardrail %s\n", version)
 		return 0
 	case "help", "-h", "--help":
