@@ -57,6 +57,29 @@ func TestSelfConfigReasonStaysOwnConfigInTheRepoAndHome(t *testing.T) {
 	}
 }
 
+func TestHomeShapedDirectory(t *testing.T) {
+	for path, want := range map[string]bool{
+		"/home/u":                       true,
+		"/Users/u":                      true,
+		"/root":                         true,
+		`C:\Users\u`:                    true,
+		"c:/users/u":                    true,
+		"/c/Users/u":                    true,
+		"/home/u/":                      true,
+		"/home":                         false,
+		"/home/u/projects":              false,
+		"/System/Volumes/Data/home/u":   false, // why the written spelling is read too
+		`C:\Users\u\AppData\Local\Temp`: false,
+		"/tmp/claude-1000/scratch":      false,
+		"/etc":                          false,
+		"":                              false,
+	} {
+		if got := homeShapedDirectory(path); got != want {
+			t.Errorf("homeShapedDirectory(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
 // Everything else the rule protects is not a `.claude` folder and keeps its
 // wording wherever it is.
 func TestSelfConfigReasonIsUnchangedForOtherProtectedPaths(t *testing.T) {

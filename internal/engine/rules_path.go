@@ -791,26 +791,32 @@ func checkSelfConfigCandidatesAnalysis(tc ToolCall, candidates []pathCandidate, 
 // what it had touched (#686). This picks the wording only; it never changes
 // the verdict.
 func claudeProjectFolderElsewhere(c pathCandidate) bool {
+	// The repository check needs the resolved path: a path as written may be
+	// relative, or in another dialect than the repository root. The home check
+	// reads both spellings, because resolution can move a home out of its
+	// shape (macOS resolves /home to /System/Volumes/Data/home).
+	parentOf := func(path string) (string, bool) {
+		segments := strings.Split(strings.ReplaceAll(path, `\`, "/"), "/")
+		for index, segment := range segments {
+			if segment == ".claude" {
+				return strings.Join(segments[:index], "/"), true
+			}
+		}
+		return "", false
+	}
+	written, inWritten := parentOf(c.path)
 	path := c.path
 	if resolved, ok := resolvePathCandidate(c); ok {
 		path = resolved
 	}
-	segments := strings.Split(strings.ReplaceAll(path, `\`, "/"), "/")
-	at := -1
-	for index, segment := range segments {
-		if segment == ".claude" {
-			at = index
-			break
-		}
-	}
-	if at < 0 {
+	parent, found := parentOf(path)
+	if !found {
 		return false
 	}
-	parent := strings.Join(segments[:at], "/")
 	if _, inside := repoRelative(parent, c.cwd, c.repoRoot); inside || c.repoRoot != "" && sameFoldedPath(parent, c.repoRoot) {
 		return false
 	}
-	return !homeShapedDirectory(parent)
+	return !homeShapedDirectory(parent) && !(inWritten && homeShapedDirectory(written))
 }
 
 // homeShapedDirectory reports `/home/<user>`, `/Users/<user>` or `/root`, with
