@@ -24,6 +24,10 @@ release's tag so the dotfiles can pin it.
 
 ## Working here
 
+In Codex, verify local revisions from Git before querying GitHub. For Council
+worktrees and escalation reasons, follow the
+[Codex approval workflow](docs/OPERATIONS.md#reduce-approval-prompts-during-a-codex-council-run).
+
 Before dispatching a reviewer, follow the [review preflight](docs/multi-agent-handoff.md#review-preflight). In Codex, review inline and record that independent review was unavailable.
 
 - Go `1.26`; `gofmt` clean, `go vet ./...` clean, `go test ./...` green on Windows before every push; the Linux gate is CI or the handoff's machine recipe, whichever that host documents.

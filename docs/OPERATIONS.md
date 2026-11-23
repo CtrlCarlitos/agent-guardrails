@@ -262,6 +262,36 @@ is recorded with rule `ask-allowed-by-operator-grant` and preserves the original
 ask rule as `origin_rule_id`. See [ADR-0027](adr/0027-operator-issued-grants-authorize-one-exact-command.md)
 for the trust and transaction design.
 
+## Reduce approval prompts during a Codex Council run
+
+Use local Git for the revision under test. In the Skills checkout, run
+`git rev-parse HEAD` and compare the full hash with the expected revision. When
+the question is whether the local checkout includes the fix, this avoids a
+GitHub round trip. For live CI, use a read-only GitHub connection only if the
+operator has enabled it and Guardrail supports the exact tool. Otherwise use
+one scoped `gh pr checks <number> --repo <owner>/<repo> --watch` request for
+the whole wait. Keep that read separate from merges and other API writes.
+
+Use one detached worktree per member, at the selected commit. Keep the
+creation, status check and cleanup in the same session. Remove the brief,
+check that the worktree is clean, then run `git worktree remove <path>`
+without force. Guardrail can reuse the same-session creation record for that
+exact path under [ADR-0039](./adr/0039-session-provenance-worktree-cleanup.md).
+Codex can still ask for filesystem permission on either operation because
+both change Git metadata. A future single approval for this lifecycle needs
+Codex to bind cleanup to the exact worktree, repository and creation event,
+with Git still responsible for refusing removal of a dirty worktree.
+
+Start the escalation reason with the reason for leaving the sandbox. For
+example, use **Codex network access** for a read-only GitHub query or a named
+model launch, and **Codex filesystem access** for an exact worktree path.
+State the operation and its effect in the same sentence. A Guardrail
+exact-action request instead names the policy rule and gives a record ID.
+If both appear for one command, the record authorizes the policy decision
+and the Codex prompt authorizes the sandbox escalation. Codex may display
+the Guardrail working-directory check ahead of the command. The requested
+operation is the command below that check.
+
 ## Approve a Codex exact-action request
 
 When Codex reports a pending exact-action request, run this in your own
