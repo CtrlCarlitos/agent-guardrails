@@ -4,7 +4,7 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
-## Unreleased
+## v0.23.50-dev (2026-11-22)
 
 ### Codex
 - Allow the exact Council `git rev-parse HEAD` probe inside the literal
