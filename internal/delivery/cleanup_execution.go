@@ -97,7 +97,12 @@ func pristine(ctx context.Context, path string, gitOptions ...string) error {
 // refs record the last observed remote state and do not require a network call.
 func VerifyPublishedWorktree(ctx context.Context, path string) error {
 	root, err := git(ctx, path, "rev-parse", "--show-toplevel")
-	if err != nil || !pathutil.Same(strings.TrimSuffix(root, "\n"), path) {
+	if err != nil {
+		return fmt.Errorf("cannot verify the worktree root")
+	}
+	rootInfo, rootErr := os.Stat(strings.TrimSuffix(root, "\n"))
+	pathInfo, pathErr := os.Stat(path)
+	if rootErr != nil || pathErr != nil || !os.SameFile(rootInfo, pathInfo) {
 		return fmt.Errorf("cannot verify the worktree root")
 	}
 	refs, err := git(ctx, path, "for-each-ref", "--contains=HEAD", "--count=1", "--format=%(refname)", "refs/remotes/")

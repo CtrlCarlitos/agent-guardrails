@@ -791,6 +791,12 @@ their control cost instead of assigning an unexplained residual to policy.
 
 ## Multi-agent worktree lifecycle and teardown
 
+On Windows Codex, try focused Go checks inside the sandbox with
+`pwsh -NoProfile -File scripts/codex-go-check.ps1 test ./internal/engine`.
+The script uses a writable temporary build cache. Use `vet` in place of
+`test` for vet checks. If a fixture still hits a sandbox permission error,
+escalate the affected check. Run the full suite once the patch is final.
+
 Concurrent agent sessions share one clone through linked git worktrees under
 `.worktrees/<name>` (both `/.worktrees/` and `/.claude/worktrees/` are ignored
 in `.gitignore`). For handoff fields, conflict ownership, explicit-file staging,

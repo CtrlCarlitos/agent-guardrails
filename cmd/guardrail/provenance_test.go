@@ -69,9 +69,9 @@ func TestWindowsAndPOSIXSessionCreatedWorktreeRemoval(t *testing.T) {
 		sandbox(t)
 		seedWorktreeCreation(t, "s1", "git worktree add .worktrees/feat -b feat", "allow", time.Minute)
 		// Claude allows are silent: exit 0, no permissionDecision payload.
-		code, decision, _ := remove("s1", "git worktree remove .worktrees/feat")
+		code, decision, reason := remove("s1", "git worktree remove .worktrees/feat")
 		if code != 0 || decision != "" {
-			t.Fatalf("code=%d decision=%q; want the silent provenance allow", code, decision)
+			t.Fatalf("code=%d decision=%q reason=%q; want the silent provenance allow", code, decision, reason)
 		}
 	})
 
