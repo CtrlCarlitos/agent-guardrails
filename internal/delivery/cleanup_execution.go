@@ -64,7 +64,7 @@ func taskTip(ctx context.Context, root, ref string) (string, error) {
 	return "", nil
 }
 
-func pristine(ctx context.Context, path string) error {
+func pristine(ctx context.Context, path string, gitOptions ...string) error {
 	index, err := git(ctx, path, "ls-files", "-v", "-z")
 	if err != nil {
 		return err
@@ -83,7 +83,7 @@ func pristine(ctx context.Context, path string) error {
 			return fmt.Errorf("submodule cleanup is unsupported")
 		}
 	}
-	status, err := git(ctx, path, "status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored=matching", "--ignore-submodules=none")
+	status, err := git(ctx, path, append(gitOptions, "status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored=matching", "--ignore-submodules=none")...)
 	if err != nil {
 		return err
 	}
@@ -91,6 +91,31 @@ func pristine(ctx context.Context, path string) error {
 		return fmt.Errorf("task worktree has modified, untracked or ignored files")
 	}
 	return nil
+}
+
+// VerifyPublishedWorktree checks the evidence available locally. Remote-tracking
+// refs record the last observed remote state and do not require a network call.
+func VerifyPublishedWorktree(ctx context.Context, path string) error {
+	root, err := git(ctx, path, "rev-parse", "--show-toplevel")
+	if err != nil || !pathutil.Same(strings.TrimSuffix(root, "\n"), path) {
+		return fmt.Errorf("cannot verify the worktree root")
+	}
+	refs, err := git(ctx, path, "for-each-ref", "--contains=HEAD", "--count=1", "--format=%(refname)", "refs/remotes/")
+	if err != nil || strings.TrimSpace(refs) == "" {
+		return fmt.Errorf("worktree HEAD has no remote-tracking ref")
+	}
+	keys, err := git(ctx, path, "config", "--null", "--name-only", "--list")
+	if err != nil {
+		return fmt.Errorf("cannot verify worktree Git configuration")
+	}
+	// The hook must not start external clean filters while inspecting files.
+	var options []string
+	for _, key := range strings.Split(keys, "\x00") {
+		if strings.HasPrefix(key, "filter.") && (strings.HasSuffix(key, ".clean") || strings.HasSuffix(key, ".process")) {
+			options = append(options, "-c", key+"=")
+		}
+	}
+	return pristine(ctx, path, options...)
 }
 
 // Cleanup owns validation and deletion. It never grants direct Git commands,

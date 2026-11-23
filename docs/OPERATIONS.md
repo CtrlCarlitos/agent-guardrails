@@ -810,8 +810,12 @@ stale checkouts do not accumulate or corrupt repo-walking checks (#84):
    origin/main`) and push normally. `git push --force` is P1-denied.
 3. **Retire on merge.**
    - **Same session (ADR-0039):** a session may run
-     `git worktree remove [--force] <path>` on the exact worktree it created
-     within 24 hours without an operator ask.
+     `git worktree remove <path>` on the exact worktree it created within
+     24 hours without a Guardrail ask. Before removing it, inspect
+     `git -C <path> status --porcelain --untracked-files=all` and verify the
+     worktree's HEAD is reachable from a confirmed remote branch. Keep the
+     worktree if it has changes or the remote confirmation is unavailable.
+     Never use force to make cleanup succeed.
    - **Operator bulk cleanup:** run `make worktree-clean` (POSIX,
      `scripts/worktree-clean.sh`) or
      `pwsh -NoProfile -File scripts/worktree-clean.ps1` (Windows). Use

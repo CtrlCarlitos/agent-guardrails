@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,6 +13,22 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
+
+func createProvenanceWorktree(t *testing.T, dir, wt string) {
+	t.Helper()
+	provenanceGit(t, dir, "init", "-q")
+	provenanceGit(t, dir, "commit", "--allow-empty", "-qm", "base")
+	provenanceGit(t, dir, "update-ref", "refs/remotes/origin/main", "HEAD")
+	provenanceGit(t, dir, "worktree", "add", "--detach", wt)
+}
+
+func provenanceGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgSign=false", "-c", "core.hooksPath="}, args...)...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
+	}
+}
 
 func seedWorktreeCreation(t *testing.T, session, command, decision string, age time.Duration) {
 	t.Helper()
@@ -39,6 +56,7 @@ func sandboxWorktreeProvenance(t *testing.T) {
 
 func TestWindowsAndPOSIXSessionCreatedWorktreeRemoval(t *testing.T) {
 	dir := t.TempDir()
+	createProvenanceWorktree(t, dir, ".worktrees/feat")
 	sandbox := sandboxWorktreeProvenance
 	remove := func(session, command string) (int, string, string) {
 		t.Helper()
@@ -57,12 +75,38 @@ func TestWindowsAndPOSIXSessionCreatedWorktreeRemoval(t *testing.T) {
 		}
 	})
 
-	t.Run("with --force", func(t *testing.T) {
+	t.Run("local commits and files still require approval", func(t *testing.T) {
+		sandbox(t)
+		wt := filepath.Join(dir, ".worktrees", "local")
+		provenanceGit(t, dir, "worktree", "add", "--detach", wt)
+		seedWorktreeCreation(t, "s1", "git worktree add --detach .worktrees/local", "allow", time.Minute)
+		provenanceGit(t, wt, "commit", "--allow-empty", "-qm", "unpublished")
+		_, decision, _ := remove("s1", "git worktree remove .worktrees/local")
+		if decision != "ask" {
+			t.Errorf("unpublished commit: decision=%q; want ask", decision)
+		}
+		provenanceGit(t, wt, "update-ref", "refs/remotes/origin/main", "HEAD")
+		file := filepath.Join(wt, "draft.txt")
+		if err := os.WriteFile(file, []byte("draft"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		_, decision, _ = remove("s1", "git worktree remove .worktrees/local")
+		if decision != "ask" {
+			t.Fatalf("untracked draft: decision=%q; want ask", decision)
+		}
+		if err := os.Remove(file); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("forced removal still asks even with creation provenance", func(t *testing.T) {
 		sandbox(t)
 		seedWorktreeCreation(t, "s1", "git worktree add .worktrees/feat", "allow", time.Minute)
-		code, decision, _ := remove("s1", "git worktree remove --force .worktrees/feat")
-		if code != 0 || decision != "" {
-			t.Fatalf("code=%d decision=%q; want allow", code, decision)
+		for _, flag := range []string{"--force", "-f", "-ff"} {
+			_, decision, _ := remove("s1", "git worktree remove "+flag+" .worktrees/feat")
+			if decision != "ask" {
+				t.Errorf("%s: decision=%q; want ask", flag, decision)
+			}
 		}
 	})
 
@@ -184,6 +228,7 @@ func TestWindowsAndPOSIXSessionCreatedWorktreeRemoval(t *testing.T) {
 	t.Run("matching git -C add and remove allows", func(t *testing.T) {
 		sandbox(t)
 		otherRepo := t.TempDir()
+		createProvenanceWorktree(t, otherRepo, ".worktrees/feat")
 		seedWorktreeCreation(t, "s1", "git -C "+otherRepo+" worktree add .worktrees/feat", "allow", time.Minute)
 		code, decision, _ := remove("s1", "git -C "+otherRepo+" worktree remove .worktrees/feat")
 		if code != 0 || decision != "" {
@@ -207,6 +252,7 @@ func TestSessionCreatedWorktreeRemovalMatchesFieldReportWindowsShapes(t *testing
 	dir := t.TempDir()
 	wt := filepath.ToSlash(filepath.Join(dir, ".worktrees", "council",
 		"2026-11-22-claude-quoting-check", "claude-haiku"))
+	createProvenanceWorktree(t, dir, wt)
 	add := "git worktree add --detach " + wt + " cf265624a517e0b5591b1d6ad467efab5661492d"
 	remove := "git worktree remove " + wt
 	removeEnvelope := func(t *testing.T, mode string) string {
@@ -263,6 +309,7 @@ func TestSessionCreatedWorktreeRemovalMatchesFieldReportWindowsShapes(t *testing
 // the provenance reason.
 func TestWindowsAndPOSIXWorktreeProvenanceAllowIsAudited(t *testing.T) {
 	dir := t.TempDir()
+	createProvenanceWorktree(t, dir, ".worktrees/feat")
 	testenv.SetState(t, t.TempDir())
 	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")
