@@ -2837,10 +2837,17 @@ func normalizeToolCall(tc ToolCall) ([]Simple, error) {
 			if invocation[2] != "" {
 				argv = []string{invocation[1], "-c", strings.ReplaceAll(invocation[3], "''", "'")}
 			}
-			return stripAndUnwrap(Simple{
+			simples, err := stripAndUnwrap(Simple{
 				Argv: argv, Cwd: tc.CWD, plainCall: true,
 				shellState: initialShellState(tc.CWD, false),
 			}, &normalizeContext{})
+			if err == nil && len(simples) == 2 && len(argv) == 3 && argv[2] == "git rev-parse HEAD" {
+				// The literal Council probe can only report the current
+				// commit ID. Keep Git environment uncertainty for path and
+				// mutation rules, but it does not make this read unresolved.
+				simples[1].Unresolved = false
+			}
+			return simples, err
 		}
 	}
 	return normalizeWithContext(tc.Command, tc.CWD, &normalizeContext{powerShell: tc.PowerShellCommand()})

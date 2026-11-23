@@ -4,6 +4,13 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Codex
+- Allow the exact Council `git rev-parse HEAD` probe inside the literal
+  Windows Git Bash wrapper and identify unresolved Git environment context
+  in refusals (#705).
+
 ## v0.23.49-dev (2026-11-22)
 
 ### Codex
