@@ -922,6 +922,9 @@ func unresolvedReason(s Simple) string {
 	if s.cwdUnknown && !s.gitEnvironmentUnknown && !s.anyWordUnresolved() && !redirectsUnresolved(s) {
 		return "the working directory is uncertain here: an earlier `cd` may fail (for example into a directory this same command creates), and a following `;` runs either way, so this command's relative paths cannot be resolved. Join the steps with `&&` so a failed `cd` stops the chain, use `git -C <dir>` or absolute paths instead of `cd`, or split the work into separate tool calls"
 	}
+	if s.gitEnvironmentUnknown && !s.anyWordUnresolved() && !redirectsUnresolved(s) {
+		return "the Git repository environment could not be established after a nested shell or opaque expansion. A literal Git command outside that wrapper can be evaluated against the session repository"
+	}
 	reason := "command contains an unresolved value in a policy-bearing position"
 	if word := firstUnresolvedWord(s); word != "" {
 		// #491: name the value and how to write the command so it resolves.
