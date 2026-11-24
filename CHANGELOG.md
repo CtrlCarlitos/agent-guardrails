@@ -4,6 +4,24 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## v0.23.51-dev (2026-11-24)
+
+### Delivery
+- Add a read-only check and a bounded wait for the exact pull request head.
+  Resume verified delivery with the same head and worktree (#714).
+- Preserve dirty worktrees and unpublished commits during cleanup (#710).
+
+### Codex
+- Document local revision checks, Council worktree cleanup, and how to tell
+  sandbox escalations from Guardrail approvals (#709).
+
+### Windows
+- Resolve existing sandboxed paths through a metadata-only handle when
+  standard symlink resolution is denied. Preserve physical path checks
+  in adversarial fixtures, repository discovery, and delivery (#715, #716).
+- Run the full Go suite inside the Codex sandbox using disposable Git,
+  browser, and Antigravity fixtures (#716).
+
 ## v0.23.50-dev (2026-11-22)
 
 ### Codex
