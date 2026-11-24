@@ -18,12 +18,16 @@ currently ignores.
 
 ## Decision
 
-1. When the verdict for `git worktree remove [--force] <path>` is an ask
+1. When the verdict for `git worktree remove <path>` is an ask
    (or an auto-host escalation of one) under `P2.git-worktree-remove`, the
    hook layer looks for a **same-session** audit record of
    `git worktree add … <path>` whose decision was allow or ask. Found → the
-   verdict becomes **allow**, reason naming the creation record's timestamp
-   and command; the audit record of the allowance says the same.
+   verdict becomes **allow** only after a local Git check verifies a clean
+   worktree and a remote-tracking ref containing its HEAD. The verdict
+   names the creation record's timestamp and command. Remote-tracking refs
+   record the last observed remote state, so this check requires no network.
+   Forced removal retains the ordinary approval requirement. Creation
+   evidence does not authorize discarding files changed after creation.
 2. The path match is **exact** after canonicalization (relative paths
    resolve against the current call's working directory; Windows compares
    case-insensitively). No prefixes, no cross-session matches, no
@@ -32,8 +36,8 @@ currently ignores.
    (`.worktrees/<name>`) and one outside the root (`../<name>`) are treated
    identically — provenance is the exact path this session created, not
    where it lives.
-4. Fails closed: unreadable or missing audit, unparsable paths, or no
-   creation record leave the verdict exactly as it was.
+4. Fails closed: unreadable or missing audit, unparsable paths, no creation
+   record, or unverifiable Git state never get a provenance allowance.
 5. v1 scope is worktrees only. Compose projects, branches, `rmdir` and
    force-push stay gated: their creation records are either weak
    (branch creation has no single command; `mkdir` may be implicit) or the
