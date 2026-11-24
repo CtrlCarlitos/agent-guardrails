@@ -2024,8 +2024,9 @@ func withinSafe(target, repoRoot string, safeRoots []string) bool {
 	return false
 }
 
-// The executor independently checks standing operator authorization. Enabling
-// or changing it is always an operator action; status has no trailing argv.
+// Check only reads PR readiness. Finish independently checks standing operator
+// authorization. Changing that authorization is an operator action. Status
+// has no trailing argv.
 // Help spellings — and a bare `guardrail delivery`, which only prints usage —
 // are read-only discovery (#616); any trailing word after them still denies.
 func harmlessDeliveryInvocation(argv []string) bool {
@@ -2039,5 +2040,5 @@ func harmlessDeliveryInvocation(argv []string) bool {
 		strings.EqualFold(argv[2], "--help") || strings.EqualFold(argv[2], "-h") || strings.EqualFold(argv[2], "help")) {
 		return true
 	}
-	return argv[2] == "finish"
+	return argv[2] == "check" || argv[2] == "finish"
 }
