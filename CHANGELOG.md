@@ -23,6 +23,27 @@ explicitly in **Breaking** notes.
   the project-folder wording. The home check now reads both spellings; the
   repository check keeps using the resolved path, because a path as written
   may be relative or in another dialect than the repository root.
+- **New rule `P5.unsupervised-child` (#722): a session cannot start an
+  agent host that would run without Guardrail's hook.** A child started the
+  ordinary way (`claude -p "…"`, `codex exec "…"`, `opencode run "…"`,
+  `agy -p "…"`) loads the same user settings and hook, and stays allowed.
+  Every form that leaves them out was allowed too. Now denied: Claude
+  Code's `--bare`, `--restricted`, `--setting-sources` without `user`, and
+  `--settings` that names a file or sets `disableAllHooks` or `env`;
+  Codex's `--ignore-user-config`, `--profile`, `--disable` and `-c` for
+  any key but the model ones; Antigravity's `--settings`; and a launch
+  preceded on its command line by a variable the host or its hook finds
+  its settings through being set or cleared (`HOME`, `USERPROFILE`,
+  `APPDATA`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `PATH`,
+  `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `OPENCODE_CONFIG*`, `GUARDRAIL_*`),
+  inline, through `env`, `export`, cmd's `set` or PowerShell's `env:`
+  drive — a variable set after the launch never reaches the child, so
+  that stays allowed. The host is recognised through Windows shims,
+  package wrappers, nested shells and launchers such as `Start-Process`.
+  Text that only mentions a flag or a variable, such as a prompt or a
+  commit message, is not a launch. The rule has its own ID so waiving
+  `P5.self-config` does not waive it. Not covered: a launch from a script
+  file or an interpreter's code.
 
 ## v0.23.53-dev (2026-11-24)
 
