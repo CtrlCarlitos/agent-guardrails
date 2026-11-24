@@ -33,8 +33,10 @@ func deliveryUsage(w io.Writer) {
 		"            "+deliveryEnableShape+" [--protect <glob> ...]\n"+
 		"  revoke    remove the standing delivery authorization (the operator's terminal only):\n"+
 		"            guardrail delivery revoke\n"+
+		"  check     read required checks for an exact PR head without merging:\n"+
+		"            guardrail delivery check --pr N --head SHA [--wait]\n"+
 		"  finish    merge an exact green PR head and clean proven task resources:\n"+
-		"            guardrail delivery finish --pr N --head SHA [--worktree ABSOLUTE_PATH]\n")
+		"            guardrail delivery finish --pr N --head SHA [--wait] [--worktree ABSOLUTE_PATH]\n")
 }
 
 func cmdDelivery(args []string, terminal bool, input io.Reader, stdout, stderr io.Writer) int {
@@ -85,22 +87,52 @@ func cmdDelivery(args []string, terminal bool, input io.Reader, stdout, stderr i
 		return 0
 	case "enable", "revoke":
 		return cmdDeliveryAuthorize(args, root, input, stdout, stderr)
-	case "finish":
+	case "check", "finish":
 		if !enabled {
 			fmt.Fprintln(stderr, "guardrail: delivery not enabled for this repository; operator must enable it once from their terminal")
 			return 2
 		}
-		fs := flag.NewFlagSet("delivery finish", flag.ContinueOnError)
+		fs := flag.NewFlagSet("delivery "+args[0], flag.ContinueOnError)
 		fs.SetOutput(stderr)
 		n := fs.Int("pr", 0, "task PR number")
 		head := fs.String("head", "", "full exact tested head SHA")
-		worktree := fs.String("worktree", "", "absolute task worktree to clean after confirmed merge")
+		wait := fs.Bool("wait", false, "wait up to 20 minutes for required checks on this exact head")
+		var worktree string
+		if args[0] == "finish" {
+			fs.StringVar(&worktree, "worktree", "", "absolute task worktree to clean after confirmed merge")
+		}
 		if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 || *n < 1 || !delivery.ValidOID(*head) {
-			fmt.Fprintln(stderr, "guardrail: finish requires --pr N --head SHA [--worktree ABSOLUTE_PATH]")
+			fmt.Fprintf(stderr, "guardrail: %s requires --pr N --head SHA\n", args[0])
 			return 2
+		}
+		waitForGreen := func() error {
+			waitCtx, stopWaiting := context.WithTimeout(context.Background(), 20*time.Minute)
+			defer stopWaiting()
+			return delivery.WaitForGreen(waitCtx, deliveryAPI, p, *n, *head, 20*time.Second, func(reason string) {
+				fmt.Fprintf(stdout, "PR #%d at %s: %s\n", *n, *head, reason)
+			})
+		}
+		if args[0] == "check" {
+			var err error
+			if *wait {
+				err = waitForGreen()
+			} else {
+				_, err = delivery.Inspect(ctx, deliveryAPI, p, *n, *head)
+			}
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+			fmt.Fprintf(stdout, "PR #%d at %s is green and mergeable\n", *n, *head)
+			return 0
 		}
 		before := func() error { return deliveryMutationAllowed(root, p, "merge", *n, *head) }
 		_, pr, err := delivery.ReadPR(ctx, deliveryAPI, p, *n)
+		if err == nil && !pr.Merged && *wait {
+			err = waitForGreen()
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
 		if err == nil && !pr.Merged {
 			pr, err = delivery.Merge(ctx, deliveryAPI, p, *n, *head, before)
 		}
@@ -117,7 +149,7 @@ func cmdDelivery(args []string, terminal bool, input io.Reader, stdout, stderr i
 			fmt.Fprintln(stderr, "merge confirmed; audit unavailable; preserve cleanup resources:", err)
 			return 1
 		}
-		if err := delivery.Cleanup(ctx, deliveryAPI, p, pr, root, *worktree, func() error { return deliveryMutationAllowed(root, p, "cleanup", *n, *head) }); err != nil {
+		if err := delivery.Cleanup(ctx, deliveryAPI, p, pr, root, worktree, func() error { return deliveryMutationAllowed(root, p, "cleanup", *n, *head) }); err != nil {
 			fmt.Fprintln(stderr, "merged / cleanup blocked:", err)
 			return 1
 		}

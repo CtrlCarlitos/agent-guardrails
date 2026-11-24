@@ -340,6 +340,23 @@ Typing a command into chat yourself never runs it. ADR-0035 keeps the
 operator's own terminal as the honest channel for terminal-only ceremonies;
 if none of the paths above applies, wait for a desktop session.
 
+## Wait for exact-head delivery
+
+In a repository with operator-authorized delivery, run
+`guardrail delivery check --pr <N> --head <sha> --wait` for a read-only
+readiness check. To deliver in the same operation, run
+`guardrail delivery finish --pr <N> --head <sha> --wait --worktree <path>`.
+The watch waits up to 20 minutes for the pinned head's required checks.
+A failed check, changed head, or ineligible PR ends the wait. Delivery
+verifies readiness again before merging and checks authorization before
+merge and cleanup.
+
+Keep the PR number, full head SHA, test results, and absolute worktree
+path in the task handoff. On resume, reuse local test results for the same
+SHA and rerun the same finish command. A confirmed merge skips the merge
+request and proceeds to the existing cleanup checks. Codex may still
+require one network escalation for the operation.
+
 ## Passing credentials to commands
 
 Everything a command prints enters the session and is sent to the model
@@ -821,6 +838,12 @@ their control cost instead of assigning an unexplained residual to policy.
 
 ## Multi-agent worktree lifecycle and teardown
 
+On Windows Codex, try focused Go checks inside the sandbox with
+`pwsh -NoProfile -File scripts/codex-go-check.ps1 test ./internal/engine`.
+The script uses a writable temporary build cache. Use `vet` in place of
+`test` for vet checks. If a fixture still hits a sandbox permission error,
+escalate the affected check. Run the full suite once the patch is final.
+
 Concurrent agent sessions share one clone through linked git worktrees under
 `.worktrees/<name>` (both `/.worktrees/` and `/.claude/worktrees/` are ignored
 in `.gitignore`). For handoff fields, conflict ownership, explicit-file staging,
@@ -840,8 +863,12 @@ stale checkouts do not accumulate or corrupt repo-walking checks (#84):
    origin/main`) and push normally. `git push --force` is P1-denied.
 3. **Retire on merge.**
    - **Same session (ADR-0039):** a session may run
-     `git worktree remove [--force] <path>` on the exact worktree it created
-     within 24 hours without an operator ask.
+     `git worktree remove <path>` on the exact worktree it created within
+     24 hours without a Guardrail ask. Before removing it, inspect
+     `git -C <path> status --porcelain --untracked-files=all` and verify the
+     worktree's HEAD is reachable from a confirmed remote branch. Keep the
+     worktree if it has changes or the remote confirmation is unavailable.
+     Never use force to make cleanup succeed.
    - **Operator bulk cleanup:** run `make worktree-clean` (POSIX,
      `scripts/worktree-clean.sh`) or
      `pwsh -NoProfile -File scripts/worktree-clean.ps1` (Windows). Use

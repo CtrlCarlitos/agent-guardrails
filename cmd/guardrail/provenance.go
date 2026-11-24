@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/delivery"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/pathutil"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
@@ -17,7 +19,7 @@ import (
 // creation evidence is the session's own allowed-or-asked `git worktree add`
 // audit record; the match is the exact path, canonicalized against the
 // effective working directory. Everything else — no record, another session, a
-// different path, a denied creation, expired evidence, compound commands,
+// different path, forced removal, a denied creation, expired evidence, compound commands,
 // redirections, env overrides, or dynamic expansions — keeps today's ask.
 func applyWorktreeProvenance(tc engine.ToolCall, v policy.Verdict, now time.Time) policy.Verdict {
 	if v.RuleID != "P2.git-worktree-remove" && v.OriginRuleID != "P2.git-worktree-remove" {
@@ -37,8 +39,14 @@ func applyWorktreeProvenance(tc engine.ToolCall, v policy.Verdict, now time.Time
 	if !found {
 		return v
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := delivery.VerifyPublishedWorktree(ctx, target); err != nil {
+		v.Reason += "; " + err.Error()
+		return v
+	}
 	return policy.Verdict{Decision: policy.Allow, RuleID: "P2.git-worktree-remove",
-		Reason: fmt.Sprintf("removes a worktree created by this session (%s: %s); ADR-0039", evidence.TS, evidence.Command)}
+		Reason: fmt.Sprintf("removes a worktree created by this session (%s: %s) with clean files and a remote-tracked HEAD; ADR-0039", evidence.TS, evidence.Command)}
 }
 
 // worktreeTarget parses a single, simple, un-redirected, assignment-free,
@@ -105,9 +113,8 @@ func worktreeTarget(command, sub, defaultCWD string) (string, bool) {
 		if !afterDashDash && strings.HasPrefix(arg, "-") && arg != "-" {
 			switch sub {
 			case "remove":
-				if arg != "-f" && arg != "--force" {
-					return "", false
-				}
+				// Git's non-forced removal is the final check for dirty files.
+				return "", false
 			case "add":
 				if (arg == "-b" || arg == "-B" || arg == "--reason") && j+1 < len(argv) {
 					j++

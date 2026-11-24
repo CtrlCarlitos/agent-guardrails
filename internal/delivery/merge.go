@@ -2,10 +2,37 @@ package delivery
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
+
+// WaitForGreen polls the exact head without issuing any GitHub mutation.
+func WaitForGreen(ctx context.Context, api API, p policy.DeliveryPolicy, n int, head string, interval time.Duration, progress func(string)) error {
+	var last string
+	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("waiting for PR #%d at %s: %w", n, head, err)
+		}
+		_, err := Inspect(ctx, api, p, n, head)
+		var pending pendingDeliveryCheck
+		if !errors.As(err, &pending) {
+			return err
+		}
+		if progress != nil && err.Error() != last {
+			last = err.Error()
+			progress(last)
+		}
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+		case <-timer.C:
+		}
+	}
+}
 
 // Merge performs a head-pinned immediate request. GitHub still enforces the
 // current branch requirements; no queued request outlives the inspected head.
