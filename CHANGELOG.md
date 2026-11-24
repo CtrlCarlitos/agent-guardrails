@@ -7,6 +7,22 @@ explicitly in **Breaking** notes.
 ## Unreleased
 
 ### Policy
+- **Fix (#686): the `P5.self-config` denial says what a `.claude` folder
+  outside the repository is.** A write to a `.claude` folder that is neither
+  in the session's repository nor in a home directory was reported as "the
+  agent's own guardrail/shell config". It is now reported as a Claude Code
+  project configuration folder, with the reason it is protected: a session
+  started in that directory loads it. The verdict is unchanged. Project
+  settings there can turn off user-level hooks, and project skills and
+  commands can run shell commands without a prompt, so the folder stays a
+  hard deny wherever it is.
+- **Fix (#686): a home directory is recognised by its written path as well
+  as its resolved one.** On macOS `/home` resolves to
+  `/System/Volumes/Data/home`, so the wording check that read only the
+  resolved path stopped seeing `/home/<user>` as a home and gave `~/.claude`
+  the project-folder wording. The home check now reads both spellings; the
+  repository check keeps using the resolved path, because a path as written
+  may be relative or in another dialect than the repository root.
 - **New rule `P5.unsupervised-child` (#722): a session cannot start an
   agent host that would run without Guardrail's hook.** A child started the
   ordinary way (`claude -p "…"`, `codex exec "…"`, `opencode run "…"`,
