@@ -23,6 +23,7 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/operatorauth"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/pathutil"
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/recipe"
 	_ "github.com/CtrlCarlitos/agent-guardrails/internal/session"
@@ -200,7 +201,7 @@ func TestAdversarialCorpus(t *testing.T) {
 				}
 				overlay = []byte("waive = [" + strings.Join(quoted, ",") + "]\n")
 
-				grantRoot, err := filepath.EvalSymlinks(physicalRoot)
+				grantRoot, err := pathutil.ResolveExisting(physicalRoot)
 				if err != nil {
 					t.Fatalf("resolve repository root for waiver grant: %v", err)
 				}
@@ -592,13 +593,24 @@ func createFixtureSymlink(fixtureRoot, repo string, symlink fixtureSymlink) erro
 	if err := os.MkdirAll(parent, 0o700); err != nil {
 		return fmt.Errorf("create fixture symlink parent: %w", err)
 	}
-	// Preserve .. ordering so it is evaluated after any target symlink component.
-	rawTarget := parent + string(filepath.Separator) + filepath.FromSlash(symlink.Target)
-	resolvedTarget, err := filepath.EvalSymlinks(rawTarget)
+	physicalParent, err := pathutil.ResolveExisting(parent)
+	if err != nil {
+		return fmt.Errorf("resolve fixture symlink parent: %w", err)
+	}
+	separator := string(filepath.Separator)
+	target := filepath.FromSlash(symlink.Target)
+	// Leading parent steps can be applied to the physical parent. Preserve
+	// later steps so they are evaluated after any target symlink component.
+	for strings.HasPrefix(target, ".."+separator) {
+		physicalParent = filepath.Dir(physicalParent)
+		target = strings.TrimPrefix(target, ".."+separator)
+	}
+	rawTarget := physicalParent + separator + target
+	resolvedTarget, err := pathutil.ResolveExisting(rawTarget)
 	if err != nil {
 		return fmt.Errorf("resolve fixture symlink target %q: %w", symlink.Target, err)
 	}
-	physicalFixtureRoot, err := filepath.EvalSymlinks(fixtureRoot)
+	physicalFixtureRoot, err := pathutil.ResolveExisting(fixtureRoot)
 	if err != nil {
 		return fmt.Errorf("resolve fixture root: %w", err)
 	}
@@ -629,7 +641,7 @@ func materializeRepo(t *testing.T, e entry) (string, string) {
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		t.Fatalf("cwd %q must be inside repo_root %q", e.CWD, e.RepoRoot)
 	}
-	fixtureRoot, err := filepath.EvalSymlinks(t.TempDir())
+	fixtureRoot, err := pathutil.ResolveExisting(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -702,7 +714,7 @@ func TestMaterializeRepoSupportsCaseVariantAlias(t *testing.T) {
 	if filepath.Base(root) != "REPO" {
 		t.Fatalf("materialized rewrite root = %q, want case-variant REPO alias", root)
 	}
-	resolved, err := filepath.EvalSymlinks(root)
+	resolved, err := pathutil.ResolveExisting(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -730,7 +742,7 @@ func TestMaterializeRepoCreatesSandboxedFixtures(t *testing.T) {
 	if _, err := os.Stat(want); err != nil {
 		t.Fatalf("fixture target not created: %v", err)
 	}
-	got, err := filepath.EvalSymlinks(filepath.Join(root, "innocent.bin"))
+	got, err := pathutil.ResolveExisting(filepath.Join(root, "innocent.bin"))
 	if err != nil {
 		t.Fatalf("fixture symlink not created: %v", err)
 	}
@@ -786,12 +798,12 @@ func TestCreateFixtureSymlinkRejectsEscapingRelativeTarget(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(repo, "link")); !os.IsNotExist(err) {
 		t.Fatalf("fixture with escaping target was created: %v", err)
 	}
-	physicalEscape, err := filepath.EvalSymlinks(escape)
+	physicalEscape, err := pathutil.ResolveExisting(escape)
 	if err != nil {
 		t.Fatal(err)
 	}
 	rawTarget := filepath.Join(repo, "pivot") + string(filepath.Separator) + filepath.FromSlash("../../escape")
-	if resolved, err := filepath.EvalSymlinks(rawTarget); err != nil {
+	if resolved, err := pathutil.ResolveExisting(rawTarget); err != nil {
 		t.Fatal(err)
 	} else if resolved != physicalEscape {
 		t.Fatalf("test target resolves to %q, want outside path %q", resolved, physicalEscape)

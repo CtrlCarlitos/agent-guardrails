@@ -19,7 +19,7 @@ func TestCanonicalTable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resolvedBase, err := filepath.EvalSymlinks(base)
+	resolvedBase, err := ResolveExisting(base)
 	if err != nil {
 		t.Fatal(err)
 	}
