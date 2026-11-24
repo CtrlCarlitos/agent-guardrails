@@ -6,6 +6,15 @@ explicitly in **Breaking** notes.
 
 ## Unreleased
 
+### Testing
+- **The repo's session-scratch ignore list is pinned by a test (#724).**
+  `test/gitignore_test.go` runs `git check-ignore` for the repo-root
+  scratch directories (`tmp/`, `graft/`, `.worktrees/`, `dist/`,
+  `.probe-tmp/`), so a `.gitignore` rewrite cannot silently drop the
+  protection that keeps a session's `git add .` from committing plane
+  scratch — 176 untracked screenshots sat under `tmp/` on 2026-11-24, and
+  `/tmp/` now joins the ignore list next to `/graft/` (the #48 lesson).
+
 ### Policy
 - **Fix (#686): the `P5.self-config` denial says what a `.claude` folder
   outside the repository is.** A write to a `.claude` folder that is neither
