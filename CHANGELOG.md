@@ -4,6 +4,13 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## v0.23.52-dev (2026-11-24)
+
+### Delivery
+- Allow guarded sessions to run the read-only `delivery check` command,
+  including `--wait`, while keeping repository authorization changes
+  operator-only (#718).
+
 ## v0.23.51-dev (2026-11-24)
 
 ### Delivery
