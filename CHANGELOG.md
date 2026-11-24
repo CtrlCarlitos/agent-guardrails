@@ -4,6 +4,12 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## v0.23.53-dev (2026-11-24)
+
+### Delivery
+- Keep waiting on the exact PR head when GitHub reports `UNSTABLE` and a
+  check is still running, even after the required checks pass (#720).
+
 ## v0.23.52-dev (2026-11-24)
 
 ### Delivery
