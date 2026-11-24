@@ -738,8 +738,12 @@ func checkSelfConfigCandidatesAnalysis(tc ToolCall, candidates []pathCandidate, 
 	}
 	for _, candidate := range candidates {
 		if matchesScoped(candidate, selfConfigGlobs, selfConfigRootOnly) || matchesCodexSelfConfig(candidate) {
-			return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
-				Reason: "write to the agent's own guardrail/shell config: " + candidate.path}
+			reason := "write to the agent's own guardrail/shell config: " + candidate.path
+			if claudeProjectFolderElsewhere(candidate) {
+				reason = "write to a Claude Code project configuration folder: " + candidate.path +
+					". A Claude session started in that directory loads it, so it is protected wherever it is"
+			}
+			return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config", Reason: reason}
 		}
 	}
 	if moved := movedAwayBinary(tc, bash); moved != "" {
@@ -778,6 +782,73 @@ func checkSelfConfigCandidatesAnalysis(tc ToolCall, candidates []pathCandidate, 
 			Reason: InstalledBinaryMentionReason + " (unparsed command)"}
 	}
 	return nil
+}
+
+// claudeProjectFolderElsewhere reports a path at or under a `.claude` folder
+// whose parent is neither inside the session's repository nor a home
+// directory. Such a folder is protected like any other `.claude`, but it is
+// not "the agent's own" configuration, and saying so sent an agent looking for
+// what it had touched (#686). This picks the wording only; it never changes
+// the verdict.
+func claudeProjectFolderElsewhere(c pathCandidate) bool {
+	// The repository check needs the resolved path: a path as written may be
+	// relative, or in another dialect than the repository root. The home check
+	// reads both spellings, because resolution can move a home out of its
+	// shape (macOS resolves /home to /System/Volumes/Data/home).
+	parentOf := func(path string) (string, bool) {
+		segments := strings.Split(strings.ReplaceAll(path, `\`, "/"), "/")
+		for index, segment := range segments {
+			if segment == ".claude" {
+				return strings.Join(segments[:index], "/"), true
+			}
+		}
+		return "", false
+	}
+	written, inWritten := parentOf(c.path)
+	path := c.path
+	if resolved, ok := resolvePathCandidate(c); ok {
+		path = resolved
+	}
+	parent, found := parentOf(path)
+	if !found {
+		return false
+	}
+	if _, inside := repoRelative(parent, c.cwd, c.repoRoot); inside || c.repoRoot != "" && sameFoldedPath(parent, c.repoRoot) {
+		return false
+	}
+	return !homeShapedDirectory(parent) && !(inWritten && homeShapedDirectory(written))
+}
+
+// homeShapedDirectory reports `/home/<user>`, `/Users/<user>` or `/root`, with
+// or without a drive letter. The Engine does not read the environment to learn
+// the real home (ADR-0012); the shape is enough to choose a wording.
+func homeShapedDirectory(path string) bool {
+	path = strings.ToLower(strings.TrimSuffix(strings.ReplaceAll(path, `\`, "/"), "/"))
+	if len(path) >= 2 && path[1] == ':' {
+		path = path[2:]
+	}
+	// A bash-on-Windows spelling: /c/Users/<user>.
+	if len(path) >= 3 && path[0] == '/' && path[2] == '/' {
+		if rest := path[2:]; strings.HasPrefix(rest, "/users/") {
+			path = rest
+		}
+	}
+	if path == "/root" {
+		return true
+	}
+	for _, prefix := range []string{"/home/", "/users/"} {
+		if rest, ok := strings.CutPrefix(path, prefix); ok && rest != "" && !strings.Contains(rest, "/") {
+			return true
+		}
+	}
+	return false
+}
+
+func sameFoldedPath(a, b string) bool {
+	normalize := func(p string) string {
+		return strings.ToLower(strings.TrimSuffix(strings.ReplaceAll(p, `\`, "/"), "/"))
+	}
+	return normalize(a) == normalize(b)
 }
 
 // InstalledBinaryMentionReason marks a P5.self-config verdict raised because
