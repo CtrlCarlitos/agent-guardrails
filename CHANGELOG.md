@@ -4,6 +4,29 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Policy
+- **New rule `P5.unsupervised-child` (#722): a session cannot start an
+  agent host that would run without Guardrail's hook.** A child started the
+  ordinary way (`claude -p "…"`, `codex exec "…"`, `opencode run "…"`,
+  `agy -p "…"`) loads the same user settings and hook, and stays allowed.
+  Every form that leaves them out was allowed too. Now denied: Claude
+  Code's `--bare`, `--restricted`, `--setting-sources` without `user`, and
+  `--settings` that names a file or sets `disableAllHooks` or `env`;
+  Codex's `--ignore-user-config`, `--profile`, `--disable` and `-c` for
+  any key but the model ones; Antigravity's `--settings`; and a launch
+  whose command sets or clears a variable the host or its hook finds its
+  settings through (`HOME`, `USERPROFILE`, `APPDATA`, `XDG_*`, `PATH`,
+  `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `OPENCODE_CONFIG*`, `GUARDRAIL_*`),
+  inline, through `env`, `export`, cmd's `set` or PowerShell's `env:`
+  drive. The host is recognised through Windows shims, package runners,
+  nested shells and launchers such as `Start-Process`. Text that only
+  mentions a flag or a variable, such as a prompt or a commit message, is
+  not a launch. The rule has its own ID so waiving `P5.self-config` does
+  not waive it. Not covered: a launch from a script file or an
+  interpreter's code.
+
 ## v0.23.53-dev (2026-11-24)
 
 ### Delivery

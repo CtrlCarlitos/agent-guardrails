@@ -742,6 +742,9 @@ func checkSelfConfigCandidatesAnalysis(tc ToolCall, candidates []pathCandidate, 
 				Reason: "write to the agent's own guardrail/shell config: " + candidate.path}
 		}
 	}
+	if v := checkUnsupervisedAgentLaunch(tc, bash); v != nil {
+		return v
+	}
 	if moved := movedAwayBinary(tc, bash); moved != "" {
 		return &policy.Verdict{Decision: policy.Deny, RuleID: "P5.self-config",
 			Reason: "moves the installed guardrail binary away: " + moved + "; replace it with `guardrail update`"}

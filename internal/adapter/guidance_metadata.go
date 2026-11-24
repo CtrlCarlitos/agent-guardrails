@@ -29,7 +29,7 @@ func guidanceMetadataFor(v policy.Verdict) (meta guidanceMetadata) {
 	switch v.RuleID {
 	case "P4.secret-in-text":
 		meta = guidanceMetadata{SuggestedTool: "edit", RemediationClass: remediationUseFileTool}
-	case "P5.self-config":
+	case "P5.self-config", "P5.unsupervised-child":
 		meta = guidanceMetadata{RemediationClass: remediationContinueOtherWork}
 	case "capability-deny", "capability-invalid":
 		meta = guidanceMetadata{RemediationClass: remediationFailClosed}
