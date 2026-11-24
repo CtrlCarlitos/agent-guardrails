@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/CtrlCarlitos/agent-guardrails/internal/pathutil"
 )
 
 func git(ctx context.Context, dir string, args ...string) (string, error) {
@@ -40,7 +42,7 @@ func CommonRoot(ctx context.Context, cwd string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	common, err := filepath.EvalSymlinks(strings.TrimSpace(raw))
+	common, err := pathutil.ResolveExisting(strings.TrimSpace(raw))
 	if err != nil {
 		return "", err
 	}
