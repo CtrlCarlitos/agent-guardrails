@@ -27,7 +27,7 @@ const UnsupervisedChildRule = "P5.unsupervised-child"
 
 var agentHosts = map[string]bool{"claude": true, "codex": true, "opencode": true, "agy": true}
 
-// agentHostPackages are the package names a runner such as npx resolves to a
+// agentHostPackages are the package names a wrapper such as npx resolves to a
 // host binary.
 var agentHostPackages = map[string]string{
 	"@anthropic-ai/claude-code": "claude",
@@ -93,9 +93,9 @@ var codexHarmlessOverrides = map[string]bool{
 	"model_verbosity": true, "service_tier": true,
 }
 
-// valueOf returns the argument of `--flag value`, `--flag=value` or, for a
+// flagValue returns the argument of `--flag value`, `--flag=value` or, for a
 // short flag, `-fvalue`.
-func valueOf(args []string, index int, long, short string) (string, bool) {
+func flagValue(args []string, index int, long, short string) (string, bool) {
 	arg := args[index]
 	if value, ok := strings.CutPrefix(arg, long+"="); ok && long != "" {
 		return value, true
@@ -127,7 +127,7 @@ func agentHostUnsupervised(host string, args []string) string {
 			case "--restricted":
 				return "--restricted ignores the user settings that hold the hook"
 			}
-			if value, ok := valueOf(args, index, "--setting-sources", ""); ok {
+			if value, ok := flagValue(args, index, "--setting-sources", ""); ok {
 				user := false
 				for _, source := range strings.Split(value, ",") {
 					user = user || strings.TrimSpace(source) == "user"
@@ -136,7 +136,7 @@ func agentHostUnsupervised(host string, args []string) string {
 					return "--setting-sources without `user` leaves out the settings that hold the hook"
 				}
 			}
-			if value, ok := valueOf(args, index, "--settings", ""); ok {
+			if value, ok := flagValue(args, index, "--settings", ""); ok {
 				var settings map[string]json.RawMessage
 				if json.Unmarshal([]byte(value), &settings) != nil {
 					return "--settings names a file or a value the Engine cannot read; it outranks the user settings"
@@ -152,25 +152,34 @@ func agentHostUnsupervised(host string, args []string) string {
 			case "--ignore-user-config":
 				return "--ignore-user-config does not load the user configuration"
 			}
-			if _, ok := valueOf(args, index, "--disable", ""); ok {
+			if _, ok := flagValue(args, index, "--disable", ""); ok {
 				return "--disable turns a Codex feature off"
 			}
-			if _, ok := valueOf(args, index, "--profile", "-p"); ok {
+			if _, ok := flagValue(args, index, "--profile", "-p"); ok {
 				return "--profile layers another configuration over the user's"
 			}
-			if value, ok := valueOf(args, index, "--config", "-c"); ok {
+			if value, ok := flagValue(args, index, "--config", "-c"); ok {
 				key, _, _ := strings.Cut(value, "=")
 				if !codexHarmlessOverrides[strings.TrimSpace(key)] {
 					return "-c " + key + " overrides the user configuration"
 				}
 			}
 		case "agy":
-			if _, ok := valueOf(args, index, "--settings", ""); ok {
+			if _, ok := flagValue(args, index, "--settings", ""); ok {
 				return "--settings replaces settings for the session"
 			}
 		}
 	}
 	return ""
+}
+
+// noteLaunch records a host this command starts, and why its arguments
+// would start it unsupervised, if they would.
+func (scan *launchScan) noteLaunch(host string, args []string) {
+	scan.launched = host
+	if scan.denial == "" {
+		scan.denial = agentHostUnsupervised(host, args)
+	}
 }
 
 var (
@@ -189,9 +198,10 @@ type launchWord struct {
 // launchScan walks a command, and the commands it hands to a nested shell, for
 // host launches and for the environment it sets for them.
 type launchScan struct {
-	launched string   // a host this command starts
-	denial   string   // why a launch is unsupervised
-	ambient  []string // host variables set for the rest of the command
+	launched        string   // a host this command starts
+	denial          string   // why a launch is unsupervised
+	ambient         []string // host variables set for the rest of the command
+	ambientAtLaunch int      // ambient entries seen before the last launch
 }
 
 func (scan *launchScan) source(src string, depth int) {
@@ -290,6 +300,7 @@ func (scan *launchScan) call(call *syntax.CallExpr, src string, depth int) {
 	}
 	host := agentHostName(words[at].value)
 	scan.launched = host
+	scan.ambientAtLaunch = len(scan.ambient)
 	var args []string
 	for _, word := range words[at+1:] {
 		if word.value == "--" {
@@ -308,8 +319,8 @@ func (scan *launchScan) call(call *syntax.CallExpr, src string, depth int) {
 		}
 		args = append(args, word.value)
 	}
-	if why := agentHostUnsupervised(host, args); why != "" {
-		scan.denial = why
+	scan.noteLaunch(host, args)
+	if scan.denial != "" {
 		return
 	}
 	if len(inline) > 0 {
@@ -426,6 +437,12 @@ func checkUnsupervisedAgentLaunch(tc ToolCall, bash *bashAnalysis) *policy.Verdi
 	scan.source(tc.Command, 0)
 	// The tokenizer's own reading catches what the text does not show: a
 	// variable holding the host's name or a flag, a wrapper it unwraps.
+	if scan.launched == "" {
+		// No launch the text scan saw: a launch the tokenizer finds has no
+		// order relationship to what the text scan collected, so every
+		// ambient variable counts for it.
+		scan.ambientAtLaunch = len(scan.ambient)
+	}
 	for _, s := range bash.orderedSimples {
 		if len(s.Argv) == 0 || scan.denial != "" {
 			continue
@@ -435,12 +452,11 @@ func checkUnsupervisedAgentLaunch(tc ToolCall, bash *bashAnalysis) *policy.Verdi
 			if host == "" || index > 0 && agentLaunchExempt[head(s.Argv)] {
 				continue
 			}
-			scan.launched = host
-			scan.denial = agentHostUnsupervised(host, s.Argv[index+1:])
+			scan.noteLaunch(host, s.Argv[index+1:])
 			break
 		}
 	}
-	if scan.denial == "" && scan.launched != "" && len(scan.ambient) > 0 {
+	if scan.denial == "" && scan.launched != "" && scan.ambientAtLaunch > 0 {
 		scan.denial = "the command sets " + scan.ambient[0] + ", which the host or its hook uses to find its settings"
 	}
 	if scan.denial == "" {

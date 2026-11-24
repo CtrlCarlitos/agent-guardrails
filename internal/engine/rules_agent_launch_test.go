@@ -101,6 +101,7 @@ func TestAgentLaunchWithARedirectedEnvironmentIsDenied(t *testing.T) {
 		`HOME=/tmp/x claude -p "list files"`,
 		`HOME+=/nonexistent claude -p x`,
 		`USERPROFILE=C:/tmp/x claude -p "list files"`,
+		`APPDATA=C:/tmp/x claude -p "list files"`,
 		`CLAUDE_CONFIG_DIR=/tmp/x claude -p "list files"`,
 		`CLAUDE_CODE_SIMPLE=1 claude -p "list files"`,
 		`PATH=/usr/bin:/bin claude -p x`,
@@ -160,6 +161,14 @@ func TestOrdinaryAgentLaunchStaysAllowed(t *testing.T) {
 		`agy -p "list files"`,
 		`JAVA_HOME=/opt/jdk claude -p x`,
 		`MY_APPDATA=/x claude -p x`,
+		// Cache and runtime state hold no settings, so moving them does not
+		// move the hook; only the settings-bearing XDG variables deny.
+		`XDG_CACHE_HOME=/tmp/x claude -p "list files"`,
+		`XDG_RUNTIME_DIR=/tmp/x claude -p "list files"`,
+		// A variable set after the launch never reaches the child: it runs
+		// with this session's environment, supervised.
+		`claude -p "list files"; export HOME=/tmp/x`,
+		`claude -p "x" && unset PATH`,
 	} {
 		if v := evalLaunch(t, cmd); v.Decision != policy.Allow {
 			t.Errorf("%q: got %s %s (%s), want allow", cmd, v.Decision, v.RuleID, v.Reason)

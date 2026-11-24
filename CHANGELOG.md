@@ -16,16 +16,18 @@ explicitly in **Breaking** notes.
   `--settings` that names a file or sets `disableAllHooks` or `env`;
   Codex's `--ignore-user-config`, `--profile`, `--disable` and `-c` for
   any key but the model ones; Antigravity's `--settings`; and a launch
-  whose command sets or clears a variable the host or its hook finds its
-  settings through (`HOME`, `USERPROFILE`, `APPDATA`, `XDG_*`, `PATH`,
+  preceded on its command line by a variable the host or its hook finds
+  its settings through being set or cleared (`HOME`, `USERPROFILE`,
+  `APPDATA`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `PATH`,
   `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `OPENCODE_CONFIG*`, `GUARDRAIL_*`),
   inline, through `env`, `export`, cmd's `set` or PowerShell's `env:`
-  drive. The host is recognised through Windows shims, package runners,
-  nested shells and launchers such as `Start-Process`. Text that only
-  mentions a flag or a variable, such as a prompt or a commit message, is
-  not a launch. The rule has its own ID so waiving `P5.self-config` does
-  not waive it. Not covered: a launch from a script file or an
-  interpreter's code.
+  drive — a variable set after the launch never reaches the child, so
+  that stays allowed. The host is recognised through Windows shims,
+  package wrappers, nested shells and launchers such as `Start-Process`.
+  Text that only mentions a flag or a variable, such as a prompt or a
+  commit message, is not a launch. The rule has its own ID so waiving
+  `P5.self-config` does not waive it. Not covered: a launch from a script
+  file or an interpreter's code.
 
 ## v0.23.53-dev (2026-11-24)
 
