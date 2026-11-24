@@ -310,6 +310,23 @@ Typing a command into chat yourself never runs it. ADR-0035 keeps the
 operator's own terminal as the honest channel for terminal-only ceremonies;
 if none of the paths above applies, wait for a desktop session.
 
+## Wait for exact-head delivery
+
+In a repository with operator-authorized delivery, run
+`guardrail delivery check --pr <N> --head <sha> --wait` for a read-only
+readiness check. To deliver in the same operation, run
+`guardrail delivery finish --pr <N> --head <sha> --wait --worktree <path>`.
+The watch waits up to 20 minutes for the pinned head's required checks.
+A failed check, changed head, or ineligible PR ends the wait. Delivery
+verifies readiness again before merging and checks authorization before
+merge and cleanup.
+
+Keep the PR number, full head SHA, test results, and absolute worktree
+path in the task handoff. On resume, reuse local test results for the same
+SHA and rerun the same finish command. A confirmed merge skips the merge
+request and proceeds to the existing cleanup checks. Codex may still
+require one network escalation for the operation.
+
 ## Passing credentials to commands
 
 Everything a command prints enters the session and is sent to the model

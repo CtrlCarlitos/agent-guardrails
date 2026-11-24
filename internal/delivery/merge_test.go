@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
@@ -65,6 +66,51 @@ func TestInspectMergeRequiresLiveBoundChecks(t *testing.T) {
 			}
 			if err == nil || !strings.Contains(err.Error(), test.reason) {
 				t.Fatalf("want %q rejection, got %v", test.reason, err)
+			}
+		})
+	}
+}
+
+func TestWaitForGreenStopsOnChangedHeadOrFailedCheck(t *testing.T) {
+	const checks = "repos/o/r/commits/" + fixtureHead + "/check-runs?per_page=100&page=1"
+	p := policy.DeliveryPolicy{GitHubID: 1, GitHub: "o/r", Base: "main", Method: "squash"}
+	for _, outcome := range []string{"green", "changed", "failed"} {
+		t.Run(outcome, func(t *testing.T) {
+			f := mergeFixture()
+			api := fixtureAPI(f)
+			attempts := 0
+			check := func(ctx context.Context, path string, body, out any) error {
+				if path == checks {
+					attempts++
+					if attempts == 1 {
+						pending := map[string]string{path: `{"total_count":1,"check_runs":[{"name":"tests","status":"in_progress","app":{"id":15368}}]}`}
+						if outcome == "changed" {
+							f["repos/o/r/pulls/7"] = strings.Replace(f["repos/o/r/pulls/7"], fixtureHead, fixtureBase, 1)
+						}
+						if outcome == "failed" {
+							f[checks] = strings.Replace(f[checks], "success", "failure", 1)
+						}
+						return fixtureAPI(pending)(ctx, path, body, out)
+					}
+				}
+				return api(ctx, path, body, out)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			err := WaitForGreen(ctx, check, p, 7, fixtureHead, time.Millisecond, nil)
+			switch outcome {
+			case "green":
+				if err != nil || attempts != 2 {
+					t.Fatalf("attempts=%d, %v; want green after one retry", attempts, err)
+				}
+			case "changed":
+				if err == nil || !strings.Contains(err.Error(), "head changed") || attempts != 1 {
+					t.Fatalf("attempts=%d, %v; want stop at changed head", attempts, err)
+				}
+			case "failed":
+				if err == nil || !strings.Contains(err.Error(), "not green") || attempts != 2 {
+					t.Fatalf("attempts=%d, %v; want stop at failed check", attempts, err)
+				}
 			}
 		})
 	}
