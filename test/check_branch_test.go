@@ -31,6 +31,7 @@ func runCheckBranch(t *testing.T, usePowerShell bool, repoDir string, args ...st
 }
 
 func TestWindowsAndPOSIXCheckBranchScript(t *testing.T) {
+	isolateGitConfig(t)
 	type runner struct {
 		name      string
 		ps        bool

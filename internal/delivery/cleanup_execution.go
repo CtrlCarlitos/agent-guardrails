@@ -192,7 +192,7 @@ func Cleanup(ctx context.Context, api API, p policy.DeliveryPolicy, pr PullReque
 		if info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("symlink worktree root cannot be cleaned")
 		}
-		chosen, err = filepath.EvalSymlinks(target)
+		chosen, err = pathutil.ResolveExisting(target)
 		if err != nil {
 			return err
 		}
@@ -210,7 +210,7 @@ func Cleanup(ctx context.Context, api API, p policy.DeliveryPolicy, pr PullReque
 			if w.branch != ref {
 				continue
 			}
-			actual, err := filepath.EvalSymlinks(w.path)
+			actual, err := pathutil.ResolveExisting(w.path)
 			if err != nil {
 				return err
 			}

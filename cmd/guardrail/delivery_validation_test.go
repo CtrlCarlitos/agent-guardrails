@@ -47,6 +47,7 @@ func TestDeliveryEnableValidatesTheRepositoryContract(t *testing.T) {
 	}
 
 	sandbox := func(t *testing.T) string {
+		enterDeliveryTestRepository(t)
 		testenv.SetConfig(t, t.TempDir())
 		testenv.SetState(t, t.TempDir())
 		if err := os.MkdirAll(filepath.Dir(policy.OperatorConfigPath()), 0o700); err != nil {

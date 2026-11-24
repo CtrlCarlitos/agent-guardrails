@@ -16,6 +16,7 @@ import (
 )
 
 func TestWindowsDeliveryConsentPersistsAndRevokes(t *testing.T) {
+	enterDeliveryTestRepository(t)
 	savedAPI := deliveryAPI
 	t.Cleanup(func() { deliveryAPI = savedAPI })
 	deliveryAPI = func(ctx context.Context, path string, body any, out any) error {

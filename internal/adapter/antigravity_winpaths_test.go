@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -127,15 +128,25 @@ func TestAntigravityBrainDirPermittedRoot(t *testing.T) {
 }
 
 func TestAntigravityBrainDirEvaluation(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatal(err)
+	var baseDir string
+	if runtime.GOOS == "windows" {
+		baseDir = t.TempDir()
+		// Keep the fixtures outside the active system-temp allowance so the
+		// verdicts actually exercise the session's brain-directory allowance.
+		tempRoot := t.TempDir()
+		t.Setenv("TMP", tempRoot)
+		t.Setenv("TEMP", tempRoot)
+	} else {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		baseDir, err = os.MkdirTemp(home, ".test-guardrails-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(baseDir) })
 	}
-	baseDir := filepath.Join(home, ".test-guardrails-"+strings.ReplaceAll(t.Name(), "/", "-"))
-	if err := os.MkdirAll(baseDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(baseDir) })
 
 	appData := filepath.Join(baseDir, "appdata")
 	repoDir := filepath.Join(baseDir, "repo")

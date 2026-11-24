@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
+	"github.com/CtrlCarlitos/agent-guardrails/internal/pathutil"
 )
 
 // ADR-0014: Codex omits the command's effective directory from hook input
@@ -51,7 +52,7 @@ func emitCodexAllowedCommand(goos string, tc engine.ToolCall, stdout, stderr io.
 		}
 		command = powershellWorkdirPrecondition(tc.CWD) + "\n" + tc.Command
 	} else {
-		cwd, err := filepath.EvalSymlinks(tc.CWD)
+		cwd, err := pathutil.ResolveExisting(tc.CWD)
 		if err != nil {
 			fmt.Fprintln(stderr, "guardrail: cannot verify Codex working directory; failing closed")
 			return 2
