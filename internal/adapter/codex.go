@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/engine"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/planecontract"
@@ -88,7 +89,7 @@ func ParseCodex(r io.Reader) (engine.ToolCall, error) {
 		// On Windows Codex runs commands in the shell its session transcript
 		// records (#454); proven PowerShell gets the PowerShell reading (#498).
 		if runtime.GOOS == "windows" {
-			tc.Shell = codexCommandShell(raw)
+			tc.Shell, tc.ShellDiagnostic = codexCommandShell(raw)
 		}
 	case policy.CapabilityMutation:
 		var patch string
@@ -152,7 +153,16 @@ func EmitCodex(v policy.Verdict, event string, tc engine.ToolCall, stdout, stder
 // CodexAskGuidance is also used by explain: Codex has no native Ask ceremony,
 // and fail-closed backstops must never advertise an operator grant.
 func CodexAskGuidance(v policy.Verdict, command bool) string {
-	prefix := "Guardrail requires operator authorization: " + sanitizeForModel(v.Reason) + ". Codex PreToolUse cannot request approval. "
+	if v.RuleID == "tokenize-failed" {
+		reason := strings.TrimSuffix(v.Reason, "; failing closed to ask")
+		return "Guardrail blocked this command (tokenize-failed): " + sanitizeForModel(reason) +
+			". Codex PreToolUse cannot request approval for this parse failure. For independent commands, try one statement per call and use literal arguments. For file content, use Write or Edit with an explicit path. If the operation requires unsupported shell syntax, report the parser finding and exact action to the operator."
+	}
+	rule := ""
+	if v.RuleID != "" {
+		rule = " (" + v.RuleID + ")"
+	}
+	prefix := "Guardrail requires operator authorization" + rule + ": " + sanitizeForModel(v.Reason) + ". Codex PreToolUse cannot request approval. "
 	if policy.RequiresFreshApproval(v.RuleID) {
 		return prefix + "Tell the operator the exact action so they can run it in their terminal. Continue independent work."
 	}
@@ -160,7 +170,7 @@ func CodexAskGuidance(v policy.Verdict, command bool) string {
 		return prefix + "This rule cannot be granted. Report the finding to the operator and follow the rule's diagnostic guidance before retrying; continue independent work. Chat approval cannot clear this verdict."
 	}
 	if v.RequestID != "" {
-		return prefix + "Exact action request " + v.RequestID + " is pending. Tell the operator to run `guardrail approvals grant --record " + v.RequestID + "` in their terminal to review the complete action and approve or decline it. After recorded approval, retry this identical action once; changed actions need a new approval. Conversational approval is not authorization; continue independent work."
+		return prefix + "Exact action request " + v.RequestID + " is pending. Tell the operator to run `guardrail approvals grant --record " + v.RequestID + "` in their terminal to review the complete action and approve or decline it. The operator can find pending requests with `guardrail approvals list --records`. After recorded approval, retry this identical action once; changed actions need a new approval. Conversational approval is not authorization; continue independent work."
 	}
 	if command {
 		return prefix + "Tell the operator this exact action: they can run it outside this session, or issue a single-use grant for this exact command from their terminal (`guardrail explain` prints it); continue independent work. Do not retry based on conversational approval."

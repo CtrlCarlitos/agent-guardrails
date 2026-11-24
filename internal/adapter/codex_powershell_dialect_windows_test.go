@@ -73,3 +73,117 @@ func TestWindowsCodexEmitReusesTheProvenShell(t *testing.T) {
 		t.Errorf("updatedInput lacks the precondition or the command: %s", out.String())
 	}
 }
+
+func TestWindowsCodexReportedPowerShellParseFailures(t *testing.T) {
+	pol, err := policy.LoadBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	for _, tc := range []struct {
+		command string
+		want    policy.Decision
+	}{
+		{"Test-Path -LiteralPath 'skills/council/SKILL.md' -PathType Leaf\n git branch --show-current\n$PSVersionTable.PSVersion.ToString()\n$PSVersionTable.PSEdition\ncodex --version", policy.Ask},
+		{"Set-Content -LiteralPath (Join-Path ([System.IO.Path]::GetTempPath()) 'codex-issue-54-report.md') -Encoding utf8 -Value @'\nreport text\n'@", policy.Ask},
+		{"Test-Path -LiteralPath 'skills/council/SKILL.md' -PathType Leaf\n git branch --show-current\n codex --version", policy.Allow},
+		{"$PSVersionTable.PSVersion.ToString()", policy.Ask},
+	} {
+		for _, shell := range []string{"powershell", ""} {
+			call, err := ParseCodex(bytes.NewReader(codexCommandPayload(t, repo, shell, tc.command)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			v := engine.Evaluate(call, pol)
+			if v.Decision != tc.want || (tc.want == policy.Ask && v.RuleID != "tokenize-failed") {
+				t.Errorf("shell %q, command %q: got %s %s (%s), want %s", shell, tc.command, v.Decision, v.RuleID, v.Reason, tc.want)
+			} else {
+				t.Logf("shell %q, command %q: %s %s (%s)", shell, tc.command, v.Decision, v.RuleID, v.Reason)
+			}
+		}
+	}
+}
+
+func TestWindowsCodexStandalonePowerShellProbes(t *testing.T) {
+	pol, err := policy.LoadBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	for _, tc := range []struct {
+		command string
+		rule    string
+	}{
+		{"$PSVersionTable.PSVersion", ""},
+		{"$PSVersionTable.PSEdition", ""},
+		{"(Get-Command git).Source", ""},
+		{"$PSVersionTable.PSVersion; $PSVersionTable.PSEdition; (Get-Command git).Source", ""},
+		{"(Get-Command $program).Source", "tokenize-failed"},
+		{"$program", "P3.unresolved"},
+		{"Test-Path -LiteralPath $PSVersionTable.PSEdition", "P3.unresolved"},
+		{"$PSVersionTable.PSEdition > $target", "P3.unresolved"},
+		{"@'\nIt's a report with " + string(rune(96)) + "code" + string(rune(96)) + ".\n'@ | Set-Content -LiteralPath '" + filepath.Join(repo, "report.md") + "' -Encoding utf8", "tokenize-failed"},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			call, err := ParseCodex(bytes.NewReader(codexCommandPayload(t, repo, "pwsh", tc.command)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			v := engine.Evaluate(call, pol)
+			var out, stderr bytes.Buffer
+			code := EmitCodex(v, "pre", call, &out, &stderr)
+			if tc.rule == "" {
+				if v.Decision != policy.Allow || code != 0 || !strings.HasSuffix(updatedCommand(t, out.String()), "\n"+tc.command) {
+					t.Fatalf("decision=%+v code=%d stderr=%q", v, code, stderr.String())
+				}
+				return
+			}
+			if v.Decision != policy.Ask || v.RuleID != tc.rule || !strings.Contains(stderr.String(), tc.rule) ||
+				!strings.Contains(stderr.String(), "cannot request approval") {
+				t.Fatalf("decision=%+v stderr=%q, want %s and guidance", v, stderr.String(), tc.rule)
+			}
+		})
+	}
+}
+
+func TestWindowsCodexLiteralGitBashCallOperator(t *testing.T) {
+	pol, err := policy.LoadBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		command string
+		allowed bool
+	}{
+		{`& 'C:\Program Files\Git\bin\bash.exe' --version`, true},
+		{`& 'C:\Program Files\Git\bin\bash.exe' -c 'echo $BASH_VERSION; uname -s'`, true},
+		{`& 'C:/Program Files/Git/bin/bash.exe' -c 'echo ''hello world'''`, true},
+		{`& 'C:/Program Files/Git/bin/bash.exe' -c 'cat ''./.env'''`, false},
+		{`& 'C:/Program Files/Git/bin/bash.exe' -c 'echo ok'; Get-Content .env`, false},
+		{`& 'C:/Program Files/Git/bin/bash.exe' -c $command`, false},
+		{`& 'C:/Program Files/Git/bin/bash.exe' -c 'echo ’hello’'`, false},
+		{`& 'C:/Windows/System32/bash.exe' -c 'echo ok'`, false},
+	} {
+		t.Run(test.command, func(t *testing.T) {
+			call, err := ParseCodex(bytes.NewReader(codexCommandPayload(t, repo, "pwsh", test.command)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			v := engine.Evaluate(call, pol)
+			if (v.Decision == policy.Allow) != test.allowed {
+				t.Fatalf("decision=%+v, want allow=%t", v, test.allowed)
+			}
+			if test.allowed {
+				var out, stderr bytes.Buffer
+				if code := EmitCodex(v, "pre", call, &out, &stderr); code != 0 ||
+					!strings.HasSuffix(updatedCommand(t, out.String()), "\n"+test.command) {
+					t.Fatalf("code=%d, stdout=%q, stderr=%q", code, out.String(), stderr.String())
+				}
+			}
+		})
+	}
+}

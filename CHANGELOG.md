@@ -7,7 +7,85 @@ explicitly in **Breaking** notes.
 ## Unreleased
 
 ### Policy
-- **Fix: PowerShell file cmdlets and Unicode-dash parameters are read as
+- **Fix (#686): the `P5.self-config` denial says what a `.claude` folder
+  outside the repository is.** A write to a `.claude` folder that is neither
+  in the session's repository nor in a home directory was reported as "the
+  agent's own guardrail/shell config". It is now reported as a Claude Code
+  project configuration folder, with the reason it is protected: a session
+  started in that directory loads it. The verdict is unchanged. Project
+  settings there can turn off user-level hooks, and project skills and
+  commands can run shell commands without a prompt, so the folder stays a
+  hard deny wherever it is.
+- **Fix (#686): a home directory is recognised by its written path as well
+  as its resolved one.** On macOS `/home` resolves to
+  `/System/Volumes/Data/home`, so the wording check that read only the
+  resolved path stopped seeing `/home/<user>` as a home and gave `~/.claude`
+  the project-folder wording. The home check now reads both spellings; the
+  repository check keeps using the resolved path, because a path as written
+  may be relative or in another dialect than the repository root.
+
+## v0.23.53-dev (2026-11-24)
+
+### Delivery
+- Keep waiting on the exact PR head when GitHub reports `UNSTABLE` and a
+  check is still running, even after the required checks pass (#720).
+
+## v0.23.52-dev (2026-11-24)
+
+### Delivery
+- Allow guarded sessions to run the read-only `delivery check` command,
+  including `--wait`, while keeping repository authorization changes
+  operator-only (#718).
+
+## v0.23.51-dev (2026-11-24)
+
+### Delivery
+- Add a read-only check and a bounded wait for the exact pull request head.
+  Resume verified delivery with the same head and worktree (#714).
+- Preserve dirty worktrees and unpublished commits during cleanup (#710).
+
+### Codex
+- Document local revision checks, Council worktree cleanup, and how to tell
+  sandbox escalations from Guardrail approvals (#709).
+
+### Windows
+- Resolve existing sandboxed paths through a metadata-only handle when
+  standard symlink resolution is denied. Preserve physical path checks
+  in adversarial fixtures, repository discovery, and delivery (#715, #716).
+- Run the full Go suite inside the Codex sandbox using disposable Git,
+  browser, and Antigravity fixtures (#716).
+
+## v0.23.50-dev (2026-11-22)
+
+### Codex
+- Allow the exact Council `git rev-parse HEAD` probe inside the literal
+  Windows Git Bash wrapper and identify unresolved Git environment context
+  in refusals (#705).
+
+## v0.23.49-dev (2026-11-22)
+
+### Codex
+- Read fixed PowerShell version and Git discovery properties in one call,
+  and evaluate the literal Git Bash call-operator wrapper on Windows (#702).
+- List pending Codex exact-action approvals from an interactive operator
+  terminal with `guardrail approvals list --records` (#700).
+- Allow the native notification tool that sends an update to the user in the
+  current Codex conversation (#698).
+
+## v0.23.48-dev (2026-11-22)
+
+### Codex
+- Windows shell-proof refusals identify the failed transcript check, including
+  missing or unreadable files, missing shell tags, and mismatched session
+  metadata during session lookup (#685).
+- Standalone PowerShell version and edition probes run when the shell is
+  proven. Codex approval refusals include the policy rule ID (#694).
+- Shell parse refusals now show `tokenize-failed`, the parser's finding, and
+  concrete ways to continue on a plane without a PreToolUse approval prompt.
+  Unsupported connector tools explain that their refusal is by design (#690).
+
+### Policy
+- **Fix (#683): PowerShell file cmdlets and Unicode-dash parameters are read as
   PowerShell reads them.** A file cmdlet's bare operand was not treated as a
   path, so `Get-Content .env`, `gc .env`, `type .env`,
   `Select-String FAKE .env` and `Copy-Item .env copy.txt` were allowed while
@@ -27,15 +105,9 @@ explicitly in **Breaking** notes.
   (`'.env' | Get-Content`), other Windows readers such as `findstr` and
   `certutil`, wildcards, and variables.
 
-- **Fix (#686): the `P5.self-config` denial says what a `.claude` folder
-  outside the repository is.** A write to a `.claude` folder that is neither
-  in the session's repository nor in a home directory was reported as "the
-  agent's own guardrail/shell config". It is now reported as a Claude Code
-  project configuration folder, with the reason it is protected: a session
-  started in that directory loads it. The verdict is unchanged. Project
-  settings there can turn off user-level hooks, and project skills and
-  commands can run shell commands without a prompt, so the folder stays a
-  hard deny wherever it is.
+### Decisions
+- ADR-0041 proposes treating secret-shaped bare operands as path candidates
+  across commands (#687).
 
 ### Testing
 - **Linux Claude Code acceptance (#92).** `test/acceptance/harness.py --host
@@ -88,6 +160,22 @@ explicitly in **Breaking** notes.
   Windows account.** The symlinked-credentials refusal is its own test and
   skips, saying the case is not covered, where the account cannot create a
   symlink. The other credential refusals no longer depend on it.
+- **Regression pin (#691): the Windows field-report worktree shapes.**
+  `cmd/guardrail` seeds the exact audit-recorded commands from the
+  2026-11-22 field report — `git worktree add --detach` with a
+  forward-slash absolute Windows path and a trailing commit-ish, then the
+  matching `git worktree remove` under Claude Code's default, `auto` and
+  `bypassPermissions` permission modes — and asserts the ADR-0039
+  same-session provenance allow in all three. The report's ask/deny rows
+  came from a `v0.23.45-dev` install that predates #638 entirely; current
+  builds must keep matching these shapes.
+
+### CLI
+- **Fix (#691): `guardrail --version` answers like `version`.** The deny
+  guidance asks an agent to report "your guardrail version", and the
+  conventional `--version` spelling answered "unknown subcommand". It now
+  prints the same line as `guardrail version`, as a hidden alias like
+  `-h`/`--help`.
 
 ## v0.23.47-dev (2026-11-21)
 

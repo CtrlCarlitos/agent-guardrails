@@ -23,6 +23,7 @@ var codexTools = []ToolSpec{
 	{"update_plan", "update_plan", policy.CapabilitySafeControl},
 	{"request_user_input", "request_user_input", policy.CapabilitySafeControl},
 	{"request_user_input_async", "request_user_input_async", policy.CapabilitySafeControl},
+	{"send_message_to_user_async", "send_message_to_user_async", policy.CapabilitySafeControl},
 	{"create_goal", "create_goal", policy.CapabilitySafeControl},
 	{"get_goal", "get_goal", policy.CapabilitySafeControl},
 	{"update_goal", "update_goal", policy.CapabilitySafeControl},

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CtrlCarlitos/agent-guardrails/internal/policy"
 )
@@ -67,5 +68,86 @@ func TestInspectMergeRequiresLiveBoundChecks(t *testing.T) {
 				t.Fatalf("want %q rejection, got %v", test.reason, err)
 			}
 		})
+	}
+}
+
+func TestWaitForGreenStopsOnChangedHeadOrFailedCheck(t *testing.T) {
+	const checks = "repos/o/r/commits/" + fixtureHead + "/check-runs?per_page=100&page=1"
+	p := policy.DeliveryPolicy{GitHubID: 1, GitHub: "o/r", Base: "main", Method: "squash"}
+	for _, outcome := range []string{"green", "changed", "failed"} {
+		t.Run(outcome, func(t *testing.T) {
+			f := mergeFixture()
+			api := fixtureAPI(f)
+			attempts := 0
+			check := func(ctx context.Context, path string, body, out any) error {
+				if path == checks {
+					attempts++
+					if attempts == 1 {
+						pending := map[string]string{path: `{"total_count":1,"check_runs":[{"name":"tests","status":"in_progress","app":{"id":15368}}]}`}
+						if outcome == "changed" {
+							f["repos/o/r/pulls/7"] = strings.Replace(f["repos/o/r/pulls/7"], fixtureHead, fixtureBase, 1)
+						}
+						if outcome == "failed" {
+							f[checks] = strings.Replace(f[checks], "success", "failure", 1)
+						}
+						return fixtureAPI(pending)(ctx, path, body, out)
+					}
+				}
+				return api(ctx, path, body, out)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			err := WaitForGreen(ctx, check, p, 7, fixtureHead, time.Millisecond, nil)
+			switch outcome {
+			case "green":
+				if err != nil || attempts != 2 {
+					t.Fatalf("attempts=%d, %v; want green after one retry", attempts, err)
+				}
+			case "changed":
+				if err == nil || !strings.Contains(err.Error(), "head changed") || attempts != 1 {
+					t.Fatalf("attempts=%d, %v; want stop at changed head", attempts, err)
+				}
+			case "failed":
+				if err == nil || !strings.Contains(err.Error(), "not green") || attempts != 2 {
+					t.Fatalf("attempts=%d, %v; want stop at failed check", attempts, err)
+				}
+			}
+		})
+	}
+}
+
+func TestWaitForGreenWaitsForUnstablePRWithPendingPortabilityCheck(t *testing.T) {
+	const pr = "repos/o/r/pulls/7"
+	const checks = "repos/o/r/commits/" + fixtureHead + "/check-runs?per_page=100&page=1"
+	p := policy.DeliveryPolicy{GitHubID: 1, GitHub: "o/r", Base: "main", Method: "squash"}
+	f := mergeFixture()
+	clean := f[pr]
+	f[pr] = strings.Replace(clean, `"clean"`, `"unstable"`, 1)
+	f[checks] = `{"total_count":2,"check_runs":[{"name":"tests","status":"completed","conclusion":"success","app":{"id":15368}},{"name":"windows-portability","status":"in_progress","app":{"id":15368}}]}`
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	waits := 0
+	err := WaitForGreen(ctx, fixtureAPI(f), p, 7, fixtureHead, time.Millisecond, func(string) {
+		waits++
+		f[pr] = clean
+		f[checks] = strings.Replace(f[checks], `"status":"in_progress"`, `"status":"completed","conclusion":"success"`, 1)
+	})
+	if err != nil || waits != 1 {
+		t.Fatalf("waits=%d, %v; want green after Windows portability finishes", waits, err)
+	}
+}
+
+func TestWaitForGreenStopsWhenUnstablePRHasNoPendingChecks(t *testing.T) {
+	const pr = "repos/o/r/pulls/7"
+	p := policy.DeliveryPolicy{GitHubID: 1, GitHub: "o/r", Base: "main", Method: "squash"}
+	f := mergeFixture()
+	f[pr] = strings.Replace(f[pr], `"clean"`, `"unstable"`, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err := WaitForGreen(ctx, fixtureAPI(f), p, 7, fixtureHead, time.Millisecond, func(reason string) {
+		t.Fatalf("waited despite all checks finishing: %s", reason)
+	})
+	if err == nil || !strings.Contains(err.Error(), "not green and mergeable") {
+		t.Fatalf("got %v; want an ineligible PR error", err)
 	}
 }

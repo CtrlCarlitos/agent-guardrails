@@ -14,8 +14,9 @@ import (
 // usage text. Every entry needs a reason; an entry that run() no longer
 // dispatches fails the test so the list cannot rot (#395).
 var hiddenSubcommands = map[string]string{
-	"-h":     "alias of help",
-	"--help": "alias of help",
+	"-h":        "alias of help",
+	"--help":    "alias of help",
+	"--version": "alias of version, the spelling agents type first when told to report their guardrail version (#691)",
 }
 
 // dispatchedSubcommands reads the case labels of the switch on args[0] in

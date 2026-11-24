@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +13,22 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/audit"
 	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
+
+func createProvenanceWorktree(t *testing.T, dir, wt string) {
+	t.Helper()
+	provenanceGit(t, dir, "init", "-q")
+	provenanceGit(t, dir, "commit", "--allow-empty", "-qm", "base")
+	provenanceGit(t, dir, "update-ref", "refs/remotes/origin/main", "HEAD")
+	provenanceGit(t, dir, "worktree", "add", "--detach", wt)
+}
+
+func provenanceGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgSign=false", "-c", "core.hooksPath="}, args...)...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
+	}
+}
 
 func seedWorktreeCreation(t *testing.T, session, command, decision string, age time.Duration) {
 	t.Helper()
@@ -26,13 +45,19 @@ func seedWorktreeCreation(t *testing.T, session, command, decision string, age t
 // ADR-0039 (#630): a session may remove the exact worktree it created —
 // the creation record is same-session audit evidence, the match is the
 // exact path, and everything else keeps today's ask.
+// sandboxWorktreeProvenance isolates state, config and the audit log a
+// provenance test reads and writes.
+func sandboxWorktreeProvenance(t *testing.T) {
+	t.Helper()
+	testenv.SetState(t, t.TempDir())
+	testenv.SetConfig(t, t.TempDir())
+	t.Setenv("GUARDRAIL_CONFIG", "")
+}
+
 func TestWindowsAndPOSIXSessionCreatedWorktreeRemoval(t *testing.T) {
 	dir := t.TempDir()
-	sandbox := func(t *testing.T) {
-		testenv.SetState(t, t.TempDir())
-		testenv.SetConfig(t, t.TempDir())
-		t.Setenv("GUARDRAIL_CONFIG", "")
-	}
+	createProvenanceWorktree(t, dir, ".worktrees/feat")
+	sandbox := sandboxWorktreeProvenance
 	remove := func(session, command string) (int, string, string) {
 		t.Helper()
 		code, payload, _ := claudeHook(t, session, dir, command)
@@ -44,18 +69,44 @@ func TestWindowsAndPOSIXSessionCreatedWorktreeRemoval(t *testing.T) {
 		sandbox(t)
 		seedWorktreeCreation(t, "s1", "git worktree add .worktrees/feat -b feat", "allow", time.Minute)
 		// Claude allows are silent: exit 0, no permissionDecision payload.
-		code, decision, _ := remove("s1", "git worktree remove .worktrees/feat")
+		code, decision, reason := remove("s1", "git worktree remove .worktrees/feat")
 		if code != 0 || decision != "" {
-			t.Fatalf("code=%d decision=%q; want the silent provenance allow", code, decision)
+			t.Fatalf("code=%d decision=%q reason=%q; want the silent provenance allow", code, decision, reason)
 		}
 	})
 
-	t.Run("with --force", func(t *testing.T) {
+	t.Run("local commits and files still require approval", func(t *testing.T) {
+		sandbox(t)
+		wt := filepath.Join(dir, ".worktrees", "local")
+		provenanceGit(t, dir, "worktree", "add", "--detach", wt)
+		seedWorktreeCreation(t, "s1", "git worktree add --detach .worktrees/local", "allow", time.Minute)
+		provenanceGit(t, wt, "commit", "--allow-empty", "-qm", "unpublished")
+		_, decision, _ := remove("s1", "git worktree remove .worktrees/local")
+		if decision != "ask" {
+			t.Errorf("unpublished commit: decision=%q; want ask", decision)
+		}
+		provenanceGit(t, wt, "update-ref", "refs/remotes/origin/main", "HEAD")
+		file := filepath.Join(wt, "draft.txt")
+		if err := os.WriteFile(file, []byte("draft"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		_, decision, _ = remove("s1", "git worktree remove .worktrees/local")
+		if decision != "ask" {
+			t.Fatalf("untracked draft: decision=%q; want ask", decision)
+		}
+		if err := os.Remove(file); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("forced removal still asks even with creation provenance", func(t *testing.T) {
 		sandbox(t)
 		seedWorktreeCreation(t, "s1", "git worktree add .worktrees/feat", "allow", time.Minute)
-		code, decision, _ := remove("s1", "git worktree remove --force .worktrees/feat")
-		if code != 0 || decision != "" {
-			t.Fatalf("code=%d decision=%q; want allow", code, decision)
+		for _, flag := range []string{"--force", "-f", "-ff"} {
+			_, decision, _ := remove("s1", "git worktree remove "+flag+" .worktrees/feat")
+			if decision != "ask" {
+				t.Errorf("%s: decision=%q; want ask", flag, decision)
+			}
 		}
 	})
 
@@ -177,6 +228,7 @@ func TestWindowsAndPOSIXSessionCreatedWorktreeRemoval(t *testing.T) {
 	t.Run("matching git -C add and remove allows", func(t *testing.T) {
 		sandbox(t)
 		otherRepo := t.TempDir()
+		createProvenanceWorktree(t, otherRepo, ".worktrees/feat")
 		seedWorktreeCreation(t, "s1", "git -C "+otherRepo+" worktree add .worktrees/feat", "allow", time.Minute)
 		code, decision, _ := remove("s1", "git -C "+otherRepo+" worktree remove .worktrees/feat")
 		if code != 0 || decision != "" {
@@ -185,10 +237,79 @@ func TestWindowsAndPOSIXSessionCreatedWorktreeRemoval(t *testing.T) {
 	})
 }
 
+// #691 field report, Windows rows: the exact command shapes a Git Bash
+// session used — forward-slash absolute Windows paths, `--detach` with a
+// trailing commit-ish, and Claude Code's auto/bypass permission mode, where
+// the remove arrives as a host-auto-escalated deny. Any regression in the
+// path canonicalization, the `--detach` parse, or the escalation hook of
+// applyWorktreeProvenance makes this fail. (The reporting machine ran
+// v0.23.45-dev, which predates #638 entirely: the allowance was never
+// installed there. Current builds must keep matching these shapes.) The
+// drive-letter `C:/…` spelling materializes on Windows, where the report
+// came from; on POSIX the same absolute-path shapes run with their native
+// root, so both platforms pin the behavior class.
+func TestSessionCreatedWorktreeRemovalMatchesFieldReportWindowsShapes(t *testing.T) {
+	dir := t.TempDir()
+	wt := filepath.ToSlash(filepath.Join(dir, ".worktrees", "council",
+		"2026-11-22-claude-quoting-check", "claude-haiku"))
+	createProvenanceWorktree(t, dir, wt)
+	add := "git worktree add --detach " + wt + " cf265624a517e0b5591b1d6ad467efab5661492d"
+	remove := "git worktree remove " + wt
+	removeEnvelope := func(t *testing.T, mode string) string {
+		t.Helper()
+		envelope := map[string]any{
+			"session_id": "s1", "hook_event_name": "PreToolUse",
+			"cwd": filepath.ToSlash(dir), "tool_name": "Bash",
+			"tool_input": map[string]any{"command": remove},
+		}
+		if mode != "default" {
+			envelope["permission_mode"] = mode
+		}
+		raw, err := json.Marshal(envelope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
+
+	for _, mode := range []string{"default", "auto", "bypassPermissions"} {
+		t.Run("permission mode "+mode, func(t *testing.T) {
+			sandboxWorktreeProvenance(t)
+			seedWorktreeCreation(t, "s1", add, "allow", time.Minute)
+			var out, errb bytes.Buffer
+			code := run([]string{"hook", "claude"}, strings.NewReader(removeEnvelope(t, mode)), &out, &errb)
+			var decoded map[string]any
+			_ = json.Unmarshal(out.Bytes(), &decoded)
+			// Claude allows are silent: exit 0, no permissionDecision —
+			// including under auto/bypass, where without the creation
+			// record the same call is a host-auto deny.
+			if decision, reason := claudeDecision(decoded); code != 0 || decision != "" {
+				t.Fatalf("mode=%s code=%d decision=%q reason=%q; want the silent provenance allow", mode, code, decision, reason)
+			}
+		})
+	}
+
+	// Counterfactual (review of #691): the same shapes without a creation
+	// record keep the ordinary outcomes, so the loop above cannot pass
+	// vacuously through an over-allowing escalation path — under auto and
+	// bypass the remove stays the host-auto deny.
+	for _, mode := range []string{"auto", "bypassPermissions"} {
+		t.Run("no creation record, permission mode "+mode, func(t *testing.T) {
+			sandboxWorktreeProvenance(t)
+			var out, errb bytes.Buffer
+			code := run([]string{"hook", "claude"}, strings.NewReader(removeEnvelope(t, mode)), &out, &errb)
+			if code != 2 || !strings.Contains(errb.String(), "auto/bypass permission mode") {
+				t.Fatalf("mode=%s code=%d stderr=%q; want the host-auto deny", mode, code, errb.String())
+			}
+		})
+	}
+}
+
 // The allowance must be auditable: the allow record carries the rule and
 // the provenance reason.
 func TestWindowsAndPOSIXWorktreeProvenanceAllowIsAudited(t *testing.T) {
 	dir := t.TempDir()
+	createProvenanceWorktree(t, dir, ".worktrees/feat")
 	testenv.SetState(t, t.TempDir())
 	testenv.SetConfig(t, t.TempDir())
 	t.Setenv("GUARDRAIL_CONFIG", "")

@@ -25,3 +25,16 @@ func TestCodexAskNamesTheOperatorsConcreteOptions(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexParseFailureGivesActionableGuidance(t *testing.T) {
+	v := policy.Verdict{Decision: policy.Ask, RuleID: "tokenize-failed", Reason: "could not parse shell command (3:32: invalid syntax); failing closed to ask"}
+	got := CodexAskGuidance(v, true)
+	for _, want := range []string{"tokenize-failed", "3:32", "cannot request approval", "one statement per call", "Write or Edit"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("guidance lacks %q: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "requires operator authorization") {
+		t.Errorf("parse failure is not an approval request: %q", got)
+	}
+}

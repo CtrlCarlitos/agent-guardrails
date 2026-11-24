@@ -58,7 +58,7 @@ func walkRepoRoot(cwd string, ceilings []string) (root string, found, decided bo
 	if err != nil {
 		return "", false, false
 	}
-	real, err := filepath.EvalSymlinks(abs)
+	real, err := pathutil.ResolveExisting(abs)
 	if err != nil {
 		return "", false, false
 	}

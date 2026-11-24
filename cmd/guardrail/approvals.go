@@ -33,8 +33,13 @@ func cmdApprovalsInput(args []string, operatorTerminal bool, input io.Reader, st
 		return 0
 	}
 	if len(args) >= 1 && args[0] == "list" {
-		if len(args) == 2 && args[1] == "--grants" {
-			return cmdApprovalsListGrants(stdout, stderr)
+		if len(args) == 2 {
+			switch args[1] {
+			case "--grants":
+				return cmdApprovalsListGrants(stdout, stderr)
+			case "--records":
+				return cmdPendingActionRecords(operatorTerminal, stdout, stderr)
+			}
 		}
 		return cmdApprovalsList(args[1:], stdout, stderr)
 	}
@@ -54,7 +59,7 @@ func cmdApprovalsInput(args []string, operatorTerminal bool, input io.Reader, st
 		}
 		return cmdApprovalsApprove(args[1], stdout, stderr)
 	}
-	fmt.Fprintln(stderr, "guardrail: approvals accepts daemon, list [--grants], approve <id>, grant, or revoke")
+	fmt.Fprintln(stderr, "guardrail: approvals accepts daemon, list [--grants|--records], approve <id>, grant, or revoke")
 	return 2
 }
 

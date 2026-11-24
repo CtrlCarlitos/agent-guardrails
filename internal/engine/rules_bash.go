@@ -242,10 +242,16 @@ const (
 var selfControlSubcommands = []string{"night", "setup", "plane", "operator", "recover", "web-research", "egress", "hook", "approvals", "delivery"}
 
 // harmlessApprovalsQuery reports the `approvals` forms a session may run:
-// reading the grant list, and revoking a grant, which only removes authority.
+// reading the public grant list, and revoking a grant, which only removes
+// authority. The private exact-action queue is reserved for the operator.
 func harmlessApprovalsQuery(argv []string) bool {
 	return len(argv) >= 3 && strings.EqualFold(argv[1], "approvals") &&
-		(strings.EqualFold(argv[2], "list") || strings.EqualFold(argv[2], "revoke"))
+		(strings.EqualFold(argv[2], "list") && !privateApprovalQueue(argv) || strings.EqualFold(argv[2], "revoke"))
+}
+
+func privateApprovalQueue(argv []string) bool {
+	return len(argv) == 4 && strings.EqualFold(argv[1], "approvals") &&
+		strings.EqualFold(argv[2], "list") && strings.EqualFold(argv[3], "--records")
 }
 
 // isTerminalWrapper names the programs that run a command on a fresh pseudo
@@ -292,10 +298,14 @@ func checkSelfControlInvocation(s Simple, command string) *policy.Verdict {
 		}
 	}
 	if subcommand != "" {
+		reason := "the guarded plane cannot change its own guardrail posture (" + subcommand + ")"
+		if subcommand == "approvals" && privateApprovalQueue(s.Argv) {
+			reason = "the exact-action queue contains private command and patch text; the operator can view it in their interactive local terminal"
+		}
 		return &policy.Verdict{
 			Decision: policy.Deny,
 			RuleID:   "P5.self-config",
-			Reason:   "the guarded plane cannot change its own guardrail posture (" + subcommand + ")",
+			Reason:   reason,
 		}
 	}
 	if opaque != "" {
@@ -911,6 +921,9 @@ func cwdIndependentBuiltin(s Simple) bool {
 func unresolvedReason(s Simple) string {
 	if s.cwdUnknown && !s.gitEnvironmentUnknown && !s.anyWordUnresolved() && !redirectsUnresolved(s) {
 		return "the working directory is uncertain here: an earlier `cd` may fail (for example into a directory this same command creates), and a following `;` runs either way, so this command's relative paths cannot be resolved. Join the steps with `&&` so a failed `cd` stops the chain, use `git -C <dir>` or absolute paths instead of `cd`, or split the work into separate tool calls"
+	}
+	if s.gitEnvironmentUnknown && !s.anyWordUnresolved() && !redirectsUnresolved(s) {
+		return "the Git repository environment could not be established after a nested shell or opaque expansion. A literal Git command outside that wrapper can be evaluated against the session repository"
 	}
 	reason := "command contains an unresolved value in a policy-bearing position"
 	if word := firstUnresolvedWord(s); word != "" {
@@ -2011,8 +2024,9 @@ func withinSafe(target, repoRoot string, safeRoots []string) bool {
 	return false
 }
 
-// The executor independently checks standing operator authorization. Enabling
-// or changing it is always an operator action; status has no trailing argv.
+// Check only reads PR readiness. Finish independently checks standing operator
+// authorization. Changing that authorization is an operator action. Status
+// has no trailing argv.
 // Help spellings — and a bare `guardrail delivery`, which only prints usage —
 // are read-only discovery (#616); any trailing word after them still denies.
 func harmlessDeliveryInvocation(argv []string) bool {
@@ -2026,5 +2040,5 @@ func harmlessDeliveryInvocation(argv []string) bool {
 		strings.EqualFold(argv[2], "--help") || strings.EqualFold(argv[2], "-h") || strings.EqualFold(argv[2], "help")) {
 		return true
 	}
-	return argv[2] == "finish"
+	return argv[2] == "check" || argv[2] == "finish"
 }
