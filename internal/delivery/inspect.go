@@ -146,7 +146,7 @@ func Inspect(ctx context.Context, api API, p policy.DeliveryPolicy, n int, expec
 	if err := safeFiles(ctx, api, p, n, pr.ChangedFiles); err != nil {
 		return proof, err
 	}
-	if err := greenChecks(ctx, api, p, expected, checks); err != nil {
+	if err := greenChecks(ctx, api, p, expected, checks, pr.MergeableState == "unstable"); err != nil {
 		return proof, err
 	}
 	if pr.Mergeable == nil && pr.MergeableState == "unknown" {
@@ -307,7 +307,7 @@ func safeFiles(ctx context.Context, api API, p policy.DeliveryPolicy, n, count i
 	return fmt.Errorf("PR file list verification budget exceeded")
 }
 
-func greenChecks(ctx context.Context, api API, p policy.DeliveryPolicy, head string, checks []requiredCheck) error {
+func greenChecks(ctx context.Context, api API, p policy.DeliveryPolicy, head string, checks []requiredCheck, unstable bool) error {
 	type key struct {
 		Name string
 		App  int64
@@ -316,6 +316,7 @@ func greenChecks(ctx context.Context, api API, p policy.DeliveryPolicy, head str
 	pending := map[key]bool{}
 	total := -1
 	observed := 0
+	var inFlight string
 	for page := 1; page <= 30; page++ {
 		var result struct {
 			Total int `json:"total_count"`
@@ -339,6 +340,10 @@ func greenChecks(ctx context.Context, api API, p policy.DeliveryPolicy, head str
 		}
 		for _, r := range result.Runs {
 			observed++
+			switch r.Status {
+			case "queued", "in_progress", "pending", "waiting", "requested":
+				inFlight = r.Name
+			}
 			k := key{r.Name, r.App.ID}
 			for _, c := range checks {
 				if c.Context == r.Name && c.App == r.App.ID {
@@ -368,6 +373,11 @@ func greenChecks(ctx context.Context, api API, p policy.DeliveryPolicy, head str
 		if !found[k] {
 			return pendingDeliveryCheck("required check has not reported: " + c.Context)
 		}
+	}
+	// GitHub can report unstable while a nonrequired check is still running.
+	// Keep waiting for clean, even after all required checks pass.
+	if unstable && inFlight != "" {
+		return pendingDeliveryCheck("GitHub reports unstable while check is pending: " + inFlight)
 	}
 	return nil
 }
