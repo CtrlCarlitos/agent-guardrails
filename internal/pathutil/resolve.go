@@ -15,7 +15,7 @@ func ResolveThroughExistingAncestor(path string) (string, error) {
 	var missing []string
 	for {
 		if _, err := os.Lstat(current); err == nil {
-			resolved, err := filepath.EvalSymlinks(current)
+			resolved, err := ResolveExisting(current)
 			if err != nil {
 				return "", err
 			}
