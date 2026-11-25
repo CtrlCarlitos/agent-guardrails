@@ -63,6 +63,7 @@ var ruleSourceFiles = map[string][]string{
 	"P5.ci-infra-lockfile":             {"internal/engine/rules_go.go", "internal/engine/rules_path.go"},
 	"P5.out-of-repo":                   {"internal/engine/rules_path.go"},
 	"P5.self-config":                   {"internal/engine/rules_bash.go", "internal/engine/rules_path.go", "internal/engine/rules_update.go"},
+	"P5.unsupervised-child":            {"internal/engine/rules_agent_launch.go"},
 	"P6.cloud-mutate":                  {"internal/engine/rules_credentialed.go"},
 	"P6.cluster-mutate":                {"internal/engine/rules_credentialed.go"},
 	"P6.deploy":                        {"internal/engine/rules_credentialed.go"},

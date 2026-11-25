@@ -262,6 +262,36 @@ is recorded with rule `ask-allowed-by-operator-grant` and preserves the original
 ask rule as `origin_rule_id`. See [ADR-0027](adr/0027-operator-issued-grants-authorize-one-exact-command.md)
 for the trust and transaction design.
 
+## Reduce approval prompts during a Codex Council run
+
+Use local Git for the revision under test. In the Skills checkout, run
+`git rev-parse HEAD` and compare the full hash with the expected revision. When
+the question is whether the local checkout includes the fix, this avoids a
+GitHub round trip. For live CI, use a read-only GitHub connection only if the
+operator has enabled it and Guardrail supports the exact tool. Otherwise use
+one scoped `gh pr checks <number> --repo <owner>/<repo> --watch` request for
+the whole wait. Keep that read separate from merges and other API writes.
+
+Use one detached worktree per member, at the selected commit. Keep the
+creation, status check and cleanup in the same session. Remove the brief,
+check that the worktree is clean, then run `git worktree remove <path>`
+without force. Guardrail can reuse the same-session creation record for that
+exact path under [ADR-0039](./adr/0039-session-provenance-worktree-cleanup.md).
+Codex can still ask for filesystem permission on either operation because
+both change Git metadata. A future single approval for this lifecycle needs
+Codex to bind cleanup to the exact worktree, repository and creation event,
+with Git still responsible for refusing removal of a dirty worktree.
+
+Start the escalation reason with the reason for leaving the sandbox. For
+example, use **Codex network access** for a read-only GitHub query or a named
+model launch, and **Codex filesystem access** for an exact worktree path.
+State the operation and its effect in the same sentence. A Guardrail
+exact-action request instead names the policy rule and gives a record ID.
+If both appear for one command, the record authorizes the policy decision
+and the Codex prompt authorizes the sandbox escalation. Codex may display
+the Guardrail working-directory check ahead of the command. The requested
+operation is the command below that check.
+
 ## Approve a Codex exact-action request
 
 When Codex reports a pending exact-action request, run this in your own
@@ -309,6 +339,23 @@ works from the phone:
 Typing a command into chat yourself never runs it. ADR-0035 keeps the
 operator's own terminal as the honest channel for terminal-only ceremonies;
 if none of the paths above applies, wait for a desktop session.
+
+## Wait for exact-head delivery
+
+In a repository with operator-authorized delivery, run
+`guardrail delivery check --pr <N> --head <sha> --wait` for a read-only
+readiness check. To deliver in the same operation, run
+`guardrail delivery finish --pr <N> --head <sha> --wait --worktree <path>`.
+The watch waits up to 20 minutes for the pinned head's required checks.
+A failed check, changed head, or ineligible PR ends the wait. Delivery
+verifies readiness again before merging and checks authorization before
+merge and cleanup.
+
+Keep the PR number, full head SHA, test results, and absolute worktree
+path in the task handoff. On resume, reuse local test results for the same
+SHA and rerun the same finish command. A confirmed merge skips the merge
+request and proceeds to the existing cleanup checks. Codex may still
+require one network escalation for the operation.
 
 ## Passing credentials to commands
 
@@ -791,6 +838,12 @@ their control cost instead of assigning an unexplained residual to policy.
 
 ## Multi-agent worktree lifecycle and teardown
 
+On Windows Codex, try focused Go checks inside the sandbox with
+`pwsh -NoProfile -File scripts/codex-go-check.ps1 test ./internal/engine`.
+The script uses a writable temporary build cache. Use `vet` in place of
+`test` for vet checks. If a fixture still hits a sandbox permission error,
+escalate the affected check. Run the full suite once the patch is final.
+
 Concurrent agent sessions share one clone through linked git worktrees under
 `.worktrees/<name>` (both `/.worktrees/` and `/.claude/worktrees/` are ignored
 in `.gitignore`). For handoff fields, conflict ownership, explicit-file staging,
@@ -810,8 +863,12 @@ stale checkouts do not accumulate or corrupt repo-walking checks (#84):
    origin/main`) and push normally. `git push --force` is P1-denied.
 3. **Retire on merge.**
    - **Same session (ADR-0039):** a session may run
-     `git worktree remove [--force] <path>` on the exact worktree it created
-     within 24 hours without an operator ask.
+     `git worktree remove <path>` on the exact worktree it created within
+     24 hours without a Guardrail ask. Before removing it, inspect
+     `git -C <path> status --porcelain --untracked-files=all` and verify the
+     worktree's HEAD is reachable from a confirmed remote branch. Keep the
+     worktree if it has changes or the remote confirmation is unavailable.
+     Never use force to make cleanup succeed.
    - **Operator bulk cleanup:** run `make worktree-clean` (POSIX,
      `scripts/worktree-clean.sh`) or
      `pwsh -NoProfile -File scripts/worktree-clean.ps1` (Windows). Use

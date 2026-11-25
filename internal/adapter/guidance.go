@@ -131,6 +131,8 @@ func denyNextStep(v policy.Verdict) string {
 	case "P5.self-config":
 		// #449: "the Guardrail terminal recovery command" named no command.
 		return "This is Guardrail-protected machinery: never edit it from a session. If it genuinely needs repair, tell the operator; `guardrail doctor` prints the exact repair command. Continue other work."
+	case engine.UnsupervisedChildRule:
+		return "A child agent must run under the same hooks as this session. Start it again without the flag or environment change this message names, or do the work in this session. Continue other work."
 	case "operator-action-terminal", "operator-action-ticket":
 		return "This is an operator action this plane cannot ask for here. Tell the operator the exact command from this message; they run it in their own terminal and answer its prompt. Do not retry it or run it another way. Continue other work."
 	case "host-auto-ask-escalated":

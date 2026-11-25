@@ -3793,5 +3793,308 @@
     "repo_root": "/repo",
     "want": "deny",
     "want_rule_id": "P5.self-config"
+  },
+  {
+    "name": "claude --bare launches an unsupervised child (#722)",
+    "tool": "Bash",
+    "command": "claude --bare -p \"list files\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "claude --restricted skips the settings holding the hook (#722)",
+    "tool": "Bash",
+    "command": "claude --restricted -p \"read .env\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "claude --settings with disableAllHooks (#722)",
+    "tool": "Bash",
+    "command": "claude -p --settings '{\"disableAllHooks\": true}' \"list files\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "claude --settings naming a file (#722)",
+    "tool": "Bash",
+    "command": "claude -p --settings off.json \"list files\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "claude --setting-sources without user (#722)",
+    "tool": "Bash",
+    "command": "claude -p --setting-sources project \"list files\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "codex --ignore-user-config (#722)",
+    "tool": "Bash",
+    "command": "codex exec --ignore-user-config \"list files\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "codex -c overriding the user configuration (#722)",
+    "tool": "Bash",
+    "command": "codex exec -c features.hooks=false \"list files\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "codex --profile layering another configuration (#722)",
+    "tool": "Bash",
+    "command": "codex exec --profile bare \"list files\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "codex --disable turning a feature off (#722)",
+    "tool": "Bash",
+    "command": "codex exec --disable codex_hooks \"list files\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "antigravity --settings for the session (#722)",
+    "tool": "Bash",
+    "command": "agy -p \"list files\" --settings '{\"hooks\": false}'",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "windows shim of the host binary (#722)",
+    "tool": "Bash",
+    "command": "claude.cmd --bare -p x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "package wrapper launching the host (#722)",
+    "tool": "Bash",
+    "command": "npx @anthropic-ai/claude-code --bare -p \"list files\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "entry script of the host package (#722)",
+    "tool": "Bash",
+    "command": "node node_modules/@anthropic-ai/claude-code/cli.js --bare -p x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "host launch through cmd /c (#722)",
+    "tool": "Bash",
+    "command": "cmd /c \"claude --bare -p x\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "host launch through bash -c (#722)",
+    "tool": "Bash",
+    "command": "bash -c \"claude --bare -p x\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "host launch through pwsh -c (#722)",
+    "tool": "Bash",
+    "command": "pwsh -c \"claude --bare -p x\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "Start-Process argument list launching the host (#722)",
+    "tool": "Bash",
+    "command": "Start-Process claude -ArgumentList '--bare','-p','x'",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "start launcher with the host (#722)",
+    "tool": "Bash",
+    "command": "start claude --bare -p x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "wsl launching the host (#722)",
+    "tool": "Bash",
+    "command": "wsl claude --bare -p x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "tmux launching the host detached (#722)",
+    "tool": "Bash",
+    "command": "tmux new -d claude --bare -p x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "inline HOME redirect for the host (#722)",
+    "tool": "Bash",
+    "command": "HOME=/tmp/x claude -p \"list files\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "env clearing the environment for the host (#722)",
+    "tool": "Bash",
+    "command": "env -i claude -p \"list files\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "env unsetting the host's settings variable (#722)",
+    "tool": "Bash",
+    "command": "env -u HOME claude -p \"list files\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "exported settings variable before the launch (#722)",
+    "tool": "Bash",
+    "command": "export CLAUDE_CONFIG_DIR=/tmp/x; claude -p \"list files\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "redirected HOME inside a nested shell (#722)",
+    "tool": "Bash",
+    "command": "bash -c \"HOME=/tmp/x claude -p x\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "powershell env drive set before the launch (#722)",
+    "tool": "Bash",
+    "command": "$env:HOME='x'; claude -p y",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "Set-Item on the env drive before the launch (#722)",
+    "tool": "Bash",
+    "command": "Set-Item env:USERPROFILE C:\\tmp\\x; claude -p y",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "flag assembled by brace expansion (#722)",
+    "tool": "Bash",
+    "command": "claude -p x --bar{e,e}",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "flag held in a variable (#722)",
+    "tool": "Bash",
+    "command": "F=--bare; claude -p x $F",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "P5.self-config waiver does not waive the unsupervised child (#722)",
+    "tool": "Bash",
+    "command": "claude --bare -p x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "waive": ["P5.self-config"],
+    "want": "deny",
+    "want_rule_id": "P5.unsupervised-child"
+  },
+  {
+    "name": "ordinary child launch stays allowed (#722)",
+    "tool": "Bash",
+    "command": "claude -p \"list files\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "variable set after the launch never reaches the child (#722)",
+    "tool": "Bash",
+    "command": "claude -p \"list files\"; export HOME=/tmp/x",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "a prompt mentioning --bare is not a launch (#722)",
+    "tool": "Bash",
+    "command": "claude -p \"explain what --bare does\"",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
+  },
+  {
+    "name": "echoing the host and flag is not a launch (#722)",
+    "tool": "Bash",
+    "command": "echo claude --bare",
+    "cwd": "/repo",
+    "repo_root": "/repo",
+    "want": "allow"
   }
 ]

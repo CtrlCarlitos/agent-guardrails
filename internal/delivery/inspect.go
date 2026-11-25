@@ -115,6 +115,10 @@ func RulesAvailable(ctx context.Context, api API, p policy.DeliveryPolicy) error
 	return err
 }
 
+type pendingDeliveryCheck string
+
+func (p pendingDeliveryCheck) Error() string { return string(p) }
+
 func Inspect(ctx context.Context, api API, p policy.DeliveryPolicy, n int, expected string) (Proof, error) {
 	var proof Proof
 	repo, pr, err := ReadPR(ctx, api, p, n)
@@ -124,7 +128,7 @@ func Inspect(ctx context.Context, api API, p policy.DeliveryPolicy, n int, expec
 	if !ValidOID(expected) || pr.Head.SHA != expected {
 		return proof, fmt.Errorf("PR head changed")
 	}
-	if pr.Merged || pr.State != "open" || pr.Draft || pr.Mergeable == nil || !*pr.Mergeable || pr.MergeableState != "clean" {
+	if pr.Merged || pr.State != "open" || pr.Draft || pr.Mergeable != nil && !*pr.Mergeable {
 		return proof, fmt.Errorf("PR is not green and mergeable")
 	}
 	methods := EnabledMethods(repo)
@@ -142,8 +146,14 @@ func Inspect(ctx context.Context, api API, p policy.DeliveryPolicy, n int, expec
 	if err := safeFiles(ctx, api, p, n, pr.ChangedFiles); err != nil {
 		return proof, err
 	}
-	if err := greenChecks(ctx, api, p, expected, checks); err != nil {
+	if err := greenChecks(ctx, api, p, expected, checks, pr.MergeableState == "unstable"); err != nil {
 		return proof, err
+	}
+	if pr.Mergeable == nil && pr.MergeableState == "unknown" {
+		return proof, pendingDeliveryCheck("GitHub is computing mergeability")
+	}
+	if pr.Mergeable == nil || pr.MergeableState != "clean" {
+		return proof, fmt.Errorf("PR is not green and mergeable")
 	}
 	_, current, err := ReadPR(ctx, api, p, n)
 	if err != nil {
@@ -297,14 +307,16 @@ func safeFiles(ctx context.Context, api API, p policy.DeliveryPolicy, n, count i
 	return fmt.Errorf("PR file list verification budget exceeded")
 }
 
-func greenChecks(ctx context.Context, api API, p policy.DeliveryPolicy, head string, checks []requiredCheck) error {
+func greenChecks(ctx context.Context, api API, p policy.DeliveryPolicy, head string, checks []requiredCheck, unstable bool) error {
 	type key struct {
 		Name string
 		App  int64
 	}
 	found := map[key]bool{}
+	pending := map[key]bool{}
 	total := -1
 	observed := 0
+	var inFlight string
 	for page := 1; page <= 30; page++ {
 		var result struct {
 			Total int `json:"total_count"`
@@ -323,15 +335,23 @@ func greenChecks(ctx context.Context, api API, p policy.DeliveryPolicy, head str
 		if total < 0 {
 			total = result.Total
 		}
-		if total < 1 || total >= 3000 || total != result.Total {
+		if total < 0 || total >= 3000 || total != result.Total {
 			return fmt.Errorf("check inventory is missing or changed")
 		}
 		for _, r := range result.Runs {
 			observed++
+			switch r.Status {
+			case "queued", "in_progress", "pending", "waiting", "requested":
+				inFlight = r.Name
+			}
 			k := key{r.Name, r.App.ID}
 			for _, c := range checks {
 				if c.Context == r.Name && c.App == r.App.ID {
-					if r.Status != "completed" || r.Conclusion != "success" {
+					if r.Status != "completed" {
+						pending[k] = true
+						continue
+					}
+					if r.Conclusion != "success" {
 						return fmt.Errorf("required check is not green: %s", r.Name)
 					}
 					found[k] = true
@@ -346,9 +366,18 @@ func greenChecks(ctx context.Context, api API, p policy.DeliveryPolicy, head str
 		return fmt.Errorf("incomplete check inventory")
 	}
 	for _, c := range checks {
-		if !found[key{c.Context, c.App}] {
-			return fmt.Errorf("required check is not green or is missing: %s", c.Context)
+		k := key{c.Context, c.App}
+		if pending[k] {
+			return pendingDeliveryCheck("required check is pending: " + c.Context)
 		}
+		if !found[k] {
+			return pendingDeliveryCheck("required check has not reported: " + c.Context)
+		}
+	}
+	// GitHub can report unstable while a nonrequired check is still running.
+	// Keep waiting for clean, even after all required checks pass.
+	if unstable && inFlight != "" {
+		return pendingDeliveryCheck("GitHub reports unstable while check is pending: " + inFlight)
 	}
 	return nil
 }

@@ -8,11 +8,10 @@ import (
 	"testing"
 )
 
-// physicalFixture resolves a known-existing fixture independently of the
-// resolver under test. Tests append missing suffixes only after this lookup.
+// physicalFixture resolves the fixture before tests append missing suffixes.
 func physicalFixture(t *testing.T, path string) string {
 	t.Helper()
-	resolved, err := filepath.EvalSymlinks(path)
+	resolved, err := ResolveExisting(path)
 	if err != nil {
 		t.Fatal(err)
 	}

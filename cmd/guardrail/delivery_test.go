@@ -15,7 +15,17 @@ import (
 	"github.com/CtrlCarlitos/agent-guardrails/internal/testenv"
 )
 
+func enterDeliveryTestRepository(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("initialize delivery test repository: %v\n%s", err, out)
+	}
+	t.Chdir(dir)
+}
+
 func TestDeliveryStatusUnconfiguredDoesNotAuthorize(t *testing.T) {
+	enterDeliveryTestRepository(t)
 	testenv.SetConfig(t, t.TempDir())
 	var out, stderr bytes.Buffer
 	code := run([]string{"delivery", "status"}, strings.NewReader(""), &out, &stderr)
@@ -28,6 +38,7 @@ func TestDeliveryStatusUnconfiguredDoesNotAuthorize(t *testing.T) {
 // P5-denied for agents), a disabled `status` did not say how to enable, and the
 // no-terminal refusal did not name the command to run.
 func TestDeliveryHelpAndDisabledStatusNameTheEnableCommand(t *testing.T) {
+	enterDeliveryTestRepository(t)
 	testenv.SetConfig(t, t.TempDir())
 
 	var out, stderr bytes.Buffer
@@ -71,6 +82,7 @@ func TestDeliveryHelpAndDisabledStatusNameTheEnableCommand(t *testing.T) {
 }
 
 func TestDeliveryFinishWithoutAuthorizationFailsClosed(t *testing.T) {
+	enterDeliveryTestRepository(t)
 	testenv.SetConfig(t, t.TempDir())
 	var out, stderr bytes.Buffer
 	code := run([]string{"delivery", "finish", "--pr", "123"}, strings.NewReader(""), &out, &stderr)

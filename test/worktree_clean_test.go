@@ -20,6 +20,12 @@ func runGit(t *testing.T, dir string, args ...string) string {
 	return string(out)
 }
 
+func isolateGitConfig(t *testing.T) {
+	t.Helper()
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
+}
+
 func runWorktreeCleanScript(t *testing.T, repoDir string, extraArgs ...string) (string, error) {
 	t.Helper()
 	repoRoot, err := filepath.Abs("..")
@@ -54,6 +60,7 @@ func runWorktreeCleanScript(t *testing.T, repoDir string, extraArgs ...string) (
 }
 
 func TestWindowsAndPOSIXWorktreeCleanScript(t *testing.T) {
+	isolateGitConfig(t)
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	if err := os.MkdirAll(repo, 0o700); err != nil {

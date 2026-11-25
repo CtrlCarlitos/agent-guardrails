@@ -4,6 +4,87 @@ All notable changes to agent-guardrails. Format: one section per release;
 within a release, grouped by theme. Breaking changes are called out
 explicitly in **Breaking** notes.
 
+## Unreleased
+
+### Testing
+- **The repo's session-scratch ignore list is pinned by a test (#724).**
+  `test/gitignore_test.go` runs `git check-ignore` for the repo-root
+  scratch directories (`tmp/`, `graft/`, `.worktrees/`, `dist/`,
+  `.probe-tmp/`), so a `.gitignore` rewrite cannot silently drop the
+  protection that keeps a session's `git add .` from committing plane
+  scratch — 176 untracked screenshots sat under `tmp/` on 2026-11-24, and
+  `/tmp/` now joins the ignore list next to `/graft/` (the #48 lesson).
+
+### Policy
+- **Fix (#686): the `P5.self-config` denial says what a `.claude` folder
+  outside the repository is.** A write to a `.claude` folder that is neither
+  in the session's repository nor in a home directory was reported as "the
+  agent's own guardrail/shell config". It is now reported as a Claude Code
+  project configuration folder, with the reason it is protected: a session
+  started in that directory loads it. The verdict is unchanged. Project
+  settings there can turn off user-level hooks, and project skills and
+  commands can run shell commands without a prompt, so the folder stays a
+  hard deny wherever it is.
+- **Fix (#686): a home directory is recognised by its written path as well
+  as its resolved one.** On macOS `/home` resolves to
+  `/System/Volumes/Data/home`, so the wording check that read only the
+  resolved path stopped seeing `/home/<user>` as a home and gave `~/.claude`
+  the project-folder wording. The home check now reads both spellings; the
+  repository check keeps using the resolved path, because a path as written
+  may be relative or in another dialect than the repository root.
+- **New rule `P5.unsupervised-child` (#722): a session cannot start an
+  agent host that would run without Guardrail's hook.** A child started the
+  ordinary way (`claude -p "…"`, `codex exec "…"`, `opencode run "…"`,
+  `agy -p "…"`) loads the same user settings and hook, and stays allowed.
+  Every form that leaves them out was allowed too. Now denied: Claude
+  Code's `--bare`, `--restricted`, `--setting-sources` without `user`, and
+  `--settings` that names a file or sets `disableAllHooks` or `env`;
+  Codex's `--ignore-user-config`, `--profile`, `--disable` and `-c` for
+  any key but the model ones; Antigravity's `--settings`; and a launch
+  preceded on its command line by a variable the host or its hook finds
+  its settings through being set or cleared (`HOME`, `USERPROFILE`,
+  `APPDATA`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `PATH`,
+  `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `OPENCODE_CONFIG*`, `GUARDRAIL_*`),
+  inline, through `env`, `export`, cmd's `set` or PowerShell's `env:`
+  drive — a variable set after the launch never reaches the child, so
+  that stays allowed. The host is recognised through Windows shims,
+  package wrappers, nested shells and launchers such as `Start-Process`.
+  Text that only mentions a flag or a variable, such as a prompt or a
+  commit message, is not a launch. The rule has its own ID so waiving
+  `P5.self-config` does not waive it. Not covered: a launch from a script
+  file or an interpreter's code.
+
+## v0.23.53-dev (2026-11-24)
+
+### Delivery
+- Keep waiting on the exact PR head when GitHub reports `UNSTABLE` and a
+  check is still running, even after the required checks pass (#720).
+
+## v0.23.52-dev (2026-11-24)
+
+### Delivery
+- Allow guarded sessions to run the read-only `delivery check` command,
+  including `--wait`, while keeping repository authorization changes
+  operator-only (#718).
+
+## v0.23.51-dev (2026-11-24)
+
+### Delivery
+- Add a read-only check and a bounded wait for the exact pull request head.
+  Resume verified delivery with the same head and worktree (#714).
+- Preserve dirty worktrees and unpublished commits during cleanup (#710).
+
+### Codex
+- Document local revision checks, Council worktree cleanup, and how to tell
+  sandbox escalations from Guardrail approvals (#709).
+
+### Windows
+- Resolve existing sandboxed paths through a metadata-only handle when
+  standard symlink resolution is denied. Preserve physical path checks
+  in adversarial fixtures, repository discovery, and delivery (#715, #716).
+- Run the full Go suite inside the Codex sandbox using disposable Git,
+  browser, and Antigravity fixtures (#716).
+
 ## v0.23.50-dev (2026-11-22)
 
 ### Codex

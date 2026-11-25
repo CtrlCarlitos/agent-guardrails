@@ -309,6 +309,7 @@ func TestBrowserLoopbackFailurePath(t *testing.T) {
 		t.Skip("agent-browser is not installed: the WebAuthn loopback failure path is NOT covered on this host")
 	}
 	setStateHome(t, t.TempDir())
+	t.Setenv("AGENT_BROWSER_SOCKET_DIR", t.TempDir())
 	broker := approval.New()
 	request, err := broker.Create(request())
 	if err != nil {
